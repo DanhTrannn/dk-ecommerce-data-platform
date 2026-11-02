@@ -20,41 +20,41 @@ The `batch-pipeline` workspace package contains Spark OLTP extraction/transforma
 
 ## Batch OLTP
 
-The `lakehouse_oltp_pipeline` DAG runs daily at 02:00 Asia/Ho_Chi_Minh, with catchup disabled and one active run. Compose creates DAGs paused. In the default `LAKEHOUSE_OLTP_MODE=cdc`, it runs a read-only source-to-Silver reconciliation task. Set mode to `batch` only for a controlled handoff: stop the CDC consumer first, then run the batch chain.
+The `lakehouse_oltp_pipeline` DAG runs daily at 02:00 Asia/Ho_Chi_Minh, with catchup disabled and one active run. Compose creates DAGs paused.
 
 1. Capture per-table high watermarks; Spark reads composite cursor windows with a default 10-minute lookback.
 2. Write Landing Parquet/manifests; validate listed objects and MD5 integrity metadata. MD5 here is an integrity check, not authentication of an untrusted source.
 3. Append source data/lineage to Bronze; **commit cursors after Bronze succeeds**.
-4. Type, deduplicate, pseudonymize configured PII and MERGE Silver; quarantine violations.
+4. Type, deduplicate, pseudonymize configured PII and rebuild Silver current state; quarantine violations.
 5. Reconcile MySQL against Silver at a 0.05% tolerance before Gold.
 6. Build Gold dimensions and facts in parallel, then marts.
 7. Run post-Gold quality checks and write evidence to `lakehouse.system.data_quality_results`.
 
-Gold OLTP defines 6 dimensions, 6 facts (including current inventory) and 4 marts. Counts/keys/financial checks are separate from the dashboard's display thresholds. Each table commits independently; a post-Gold failure does not roll back every previously written table. Watermarks are not a single consistent snapshot across all source tables.
+Gold OLTP defines 6 dimensions, 5 facts and 4 marts. Counts/keys/financial checks are separate from the dashboard's display thresholds. Each table commits independently; a post-Gold failure does not roll back every previously written table. Watermarks are not a single consistent snapshot across all source tables.
 
-Batch does not propagate all hard deletes. Payments use created_at even though COD completion updates status, so old updates outside lookback can be missed. In CDC mode these updates and hard deletes flow into typed Silver and dependent Gold. CDC publication gates transaction completeness, validation, source parity at initial bootstrap, data quality, and a shared local writer lock; a failed batch leaves the published Kafka offsets unchanged for retry. The local `flock` does not coordinate writers across hosts.
+Batch does not propagate all hard deletes. Payments use created_at even though COD completion updates status, so old updates outside lookback can be missed. CDC retains updates/deletes separately but does not automatically apply them to Silver/Gold. Inspect run lineage and audit results when recovering after a Silver/Gold failure with already-advanced cursors.
 
 ## Access-log streaming and CDC
 
 | Job | Source | Sinks / boundary |
 |---|---|---|
 | `kafka_to_lakehouse_pure_streaming` | Kafka ecommerce.access_logs | One StatementSet inserts Landing access_logs, Bronze web_events, Silver silver_logs and Gold fact_web_events |
-| `oltp_cdc_to_bronze` | Debezium table and transaction metadata topics | Bronze oltp_cdc_events, including transaction BEGIN/END, raw row images and Kafka coordinates |
+| `oltp_cdc_to_bronze` | Debezium per-table Kafka topics | Bronze oltp_cdc_events, including raw payload/key, operation, images, binlog and Kafka coordinates |
 
-Flink jobs configure 10-second checkpoints on the mounted checkpoint directory; this is not a measured end-to-end latency or exactly-once SLA. `spark-cdc` polls Bronze at `CDC_APPLY_INTERVAL_SECONDS` (default 30), merges row changes into 27 typed Silver tables, refreshes dependent Gold tables, and appends one publication manifest with the completed offsets and Iceberg snapshot IDs. Reader APIs pin related tables to that publication. Silver row watermarks make replayed events/deletes idempotent. The publication records both Kafka offsets and a MySQL GTID/binlog cursor, so a reset Kafka topic does not make lower offsets silently invisible. A changed GTID UUID or backwards binlog position fails closed. A local file lock serializes Spark batch and CDC writers.
+Both jobs configure 10-second checkpoints on the mounted Flink checkpoint directory. This is not a measured latency SLA or an end-to-end exactly-once guarantee. The submit script does not automatically specify a prior checkpoint/savepoint for a new submission. CDC event_id is deterministic, but the append-only sink does not enforce physical uniqueness.
 
-The access job uses request identity/upsert configuration for Silver/Gold. Invalid JSON is logged and dropped; a full schema/quarantine path is not enforced for every message. Access-log timestamps are normalized to UTC before storage and event-date derivation. Historical JSONL uploaded under landing/logs is not read by this Kafka job. See [access logs](../docs/architecture/ACCESS_LOG_DESIGN.md) and [CDC](../docs/architecture/CDC_DASHBOARD_DATA_SPEC.md).
+The access job uses request identity/upsert configuration for Silver/Gold. Invalid JSON is logged and dropped; a full schema/quarantine path is not enforced for every message. New log events and Spark use UTC; older VN-local partitions require explicit replay/migration. Historical JSONL uploaded under landing/logs is not read by this Kafka job. See [access logs](../docs/architecture/ACCESS_LOG_DESIGN.md) and [CDC](../docs/architecture/CDC_DASHBOARD_DATA_SPEC.md).
 
 ## Maintenance and mart rollups
 
 | DAG | Schedule (VN) | Current scope |
 |---|---|---|
-| `lakehouse_oltp_maintenance` | 03:00 daily | 16 Gold + 8 listed Silver tables; separate quarantine cleanup |
-| `lakehouse_streaming_maintenance` | Every 2 hours | Four log tables, then three log mart rollups for the current VN date |
+| `lakehouse_oltp_maintenance` | 03:00 daily | 15 Gold + 8 listed Silver tables; separate quarantine cleanup |
+| `lakehouse_streaming_maintenance` | Every 2 hours | Four log tables, then three log mart rollups for the interval UTC date |
 
-Maintenance does not yet cover all 27 Silver tables, batch Bronze or Bronze CDC. Snapshot expiry must retain enough history for pinned publications still served by the API cache. Refer to TABLE_PROFILES in the maintenance job. OLTP compaction targets 128 MiB, snapshot expiry retains at least the configured last 10 snapshots (20 for logs), orphan cleanup defaults to a 3-day cutoff. Quarantine retention deletes rows older than 30 days in quarantine.silver_oltp_violations; it is not a bucket-wide retention policy.
+Maintenance does not yet cover all 27 Silver tables, batch Bronze or Bronze CDC. Refer to TABLE_PROFILES in the maintenance job. OLTP compaction targets 128 MiB, snapshot expiry retains at least the configured last 10 snapshots (20 for logs), orphan cleanup defaults to a 3-day cutoff. Quarantine retention deletes rows older than 30 days in quarantine.silver_oltp_violations; it is not a bucket-wide retention policy.
 
-The streaming health task checks for a RUNNING job, not independently for both required streams. Maintenance DAGs have no cross-DAG dependency waiting for batch completion. The log rollup CLI can omit --ingest-date to process all available fact dates; the scheduled DAG supplies today's VN date.
+The streaming health task checks both required job names independently. Maintenance DAGs have no cross-DAG dependency waiting for batch completion. The log rollup CLI can omit --ingest-date to process all available fact dates; the scheduled DAG supplies the interval UTC date.
 
 ## Run and inspect
 
@@ -68,3 +68,42 @@ docker compose exec trino trino --execute "SELECT * FROM lakehouse.system.data_q
 ```
 
 A successful schema bootstrap only creates tables; it does not populate analytical results. Full startup, other DAGs and recovery checks are in [SETUP](../docs/runbook/SETUP.md). Model grains and KPI formulas are in [Lakehouse Design](../docs/project/LAKEHOUSE_DESIGN_PLAN.md) and [Metrics Catalog](../docs/architecture/METRICS_CATALOG.md).
+
+## Module boundaries and SQL resources
+
+Job entrypoints retain their paths and DAG IDs. `oltp/ingestion.py` coordinates batch
+work; `oltp/silver/` separates validation, PII, deduplication, quarantine and writes;
+`oltp/gold/` groups transformations by business domain and keeps I/O in `pipeline.py`.
+`orchestration/` contains scheduler callbacks, `streaming/` contains Flink runtime,
+catalog and table setup, and `logs/parser.py` parses events without an engine.
+
+All pipeline/DAG SQL statements live under `src/lakehouse/sql_templates/`, included
+as package data in the wheel. Use `load_sql()` or `render_sql()` from `lakehouse.sql`;
+quote identifiers/values explicitly with `identifier()`/`literal()`. Short, simple statements may stay inline (for example health checks and namespace creation).
+Keep DDL and substantial queries in resources; avoid a separate file for each trivial statement.
+DataFrame transformations remain Python.
+
+Landing validates MD5, run identity and file scope. Bronze uses the manifest's exact
+files and replaces only the same `_run_id` on retry. A `bronze_complete.json` marker
+is written after each successful table; cursor publication verifies every marker
+against captured watermarks before writing any cursor. Missing data/storage failures
+fail the task. Bootstrap of genuinely empty sources is handled separately.
+
+Gold bootstrap never drops tables to repair schema. Older incompatible schemas need
+an explicit migration. Silver still rebuilds its current state from Bronze history;
+it does not yet perform an incremental SQL MERGE. Log parsing now preserves UTC
+instants and derives UTC event dates; malformed records are rejected and logged.
+Existing log partitions written with VN-local timestamp strings are not migrated
+by this refactor. Rebuild/replay them deliberately before comparing date/hour series.
+Health checks require both named streaming jobs; deployments with a subset can set
+`FLINK_REQUIRED_JOBS` to the comma-separated names actually required.
+
+Run regression tests with Python 3.11, Java 17, package dependencies and PySpark 3.5.9:
+
+```bash
+PYTHONPATH=pipelines/src:pipelines python -m unittest discover -s pipelines/tests -t pipelines -v
+```
+
+Set `ICEBERG_TEST_JAR` to the local Iceberg Spark 3.5 runtime JAR to enable the
+Bronze retry integration test. Tests use a temporary local warehouse and synthetic
+fixtures; they do not connect to MySQL, Kafka, MinIO or Polaris.
