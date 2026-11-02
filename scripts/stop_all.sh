@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# Script: stop_all.sh
-# Purpose: Gracefully stop all platform services across all profiles.
-# ==============================================================================
+# Stop every service group without removing data volumes by default.
 set -euo pipefail
-
 cd "$(dirname "$0")/.."
-
-echo "Stopping all D&K E-Commerce Lakehouse platform containers..."
-docker compose --profile core --profile batch --profile streaming down "$@"
-echo "All services stopped."
+echo "Stopping all platform service groups..."
+docker compose --profile '*' down "$@"
+echo "All service groups stopped."

@@ -1,5 +1,7 @@
 # Ecommerce API Service
 
+Compose defaults to `KAFKA_ENABLED=false` for core-only startup. The root launcher enables Kafka access logging when `streaming` is selected; explicitly disabled logging skips Kafka/DLQ writes. Analytical dashboards additionally require the data-platform profiles and a completed Lakehouse publication.
+
 FastAPI service for D&K source transactions, structured access logs and analytical serving. [app/models](app/models) maps 28 OLTP tables; [database/schema.sql](../../database/schema.sql) defines the physical schema. Router registration: [app/api/router.py](app/api/router.py).
 
 ## Structure

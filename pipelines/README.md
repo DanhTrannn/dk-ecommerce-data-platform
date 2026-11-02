@@ -2,6 +2,8 @@
 
 The `batch-pipeline` workspace package contains Spark OLTP extraction/transformation/quality jobs, PyFlink access-log and CDC jobs, and Iceberg maintenance helpers. Spark/Flink execution runs in the corresponding Docker images; the Python workspace alone is not their complete runtime.
 
+Spark jobs use `SPARK_MASTER_URL=local[2]` inside their execution container. Airflow SparkSubmit jobs run in the scheduler/task container, the current CDC materializer runs in `spark-cdc`, and ad hoc SQL runs in `spark-client`. There is no standalone Spark master/worker. Start Airflow with the `batch` profile; the `streaming` profile does not start Airflow. See [SETUP](../docs/runbook/SETUP.md) for service groups.
+
 ## Source map
 
 | Path | Responsibility |

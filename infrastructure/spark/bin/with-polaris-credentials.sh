@@ -18,6 +18,7 @@ fi
 source "$credential_file"
 conf_dir="$(mktemp -d)"
 cp /opt/project/spark/spark-defaults.conf "$conf_dir/spark-defaults.conf"
+printf 'spark.master %s\n' "${SPARK_MASTER_URL:-local[2]}" >>"$conf_dir/spark-defaults.conf"
 printf 'spark.sql.catalog.lakehouse.credential %s:%s\n' \
   "$POLARIS_SPARK_CLIENT_ID" "$POLARIS_SPARK_CLIENT_SECRET" \
   >>"$conf_dir/spark-defaults.conf"

@@ -1,10 +1,10 @@
 # Ghi chú refactor repo
 
-**Chỉ ghi nhận và đánh giá. Chưa triển khai thay đổi.**
+**Các quyết định bên dưới là phạm vi refactor đã chốt. Tiến độ triển khai được ghi riêng theo từng đợt.**
 
 ## Đã chốt hướng thay đổi
 
-1. **Tách Compose profile:** không bắt buộc chạy toàn bộ stack; tách nhóm dịch vụ ứng dụng, batch, streaming và công cụ quản trị. Cập nhật launcher, Makefile và hướng dẫn theo profile mới. Chi tiết profile/mặc định sẽ chốt khi triển khai.
+1. **Tách Compose profile:** không bắt buộc chạy toàn bộ stack; tách nhóm dịch vụ ứng dụng, batch, streaming và công cụ quản trị. Cập nhật launcher, Makefile và hướng dẫn theo profile mới. Đợt 1 đã chốt `core` mặc định, `batch`, `streaming`, `tools`; `lakehouse-tools` giữ Spark SQL client dùng một lần. Launcher nhận danh sách profile chính xác; Compose trực tiếp vẫn áp dụng quy tắc cộng profile của Docker.
 2. **Spark chạy local:** bỏ Spark master/worker; job Airflow và Spark SQL chạy local trong container thực thi. Đồng bộ connection `spark_default`, biến môi trường, bootstrap và tài liệu.
 3. **Polaris RBAC chỉ bootstrap lần đầu từ YAML:** giữ identity và phân quyền hiện có. Sau khởi tạo, người dùng thêm/sửa/thu hồi quyền trên Console; YAML không còn đồng bộ trạng thái đang chạy. Init chạy lại không được ghi đè thay đổi thủ công, purge identity/role hay tự reset credential. Lưu trạng thái hoàn tất bootstrap cùng môi trường để restart không khởi tạo lại.
 4. **MinIO đồng bộ mỗi lần init:** giữ 7 tài khoản và policy; cấu hình repo là nguồn chuẩn. Tạo phần thiếu, cập nhật phần khác và thu hồi quyền gắn dư trên tài khoản được quản lý; không xóa/tạo lại toàn bộ hoặc tác động tài khoản ngoài phạm vi repo. Giữ credential ổn định khi cấu hình không đổi; thay đổi secret trong cấu hình phải được áp dụng. Thay đổi thủ công trên tài nguyên được quản lý sẽ bị ghi đè ở lần init sau. Không xóa bucket/dữ liệu; chỉ báo hoàn tất khi đồng bộ thành công. Cách xử lý tài khoản bị bỏ khỏi cấu hình sẽ chốt trước triển khai.
@@ -31,10 +31,22 @@
 25. **Dọn code và test cục bộ:** loại code/config không dùng, logic trùng và fallback không cần thiết. Có thể thêm test để kiểm tra từng phần, nhưng chỉ lưu/chạy cục bộ; không đưa test vào Git, commit hoặc push lên remote.
 26. **Đồng bộ docs cuối đợt refactor:** sau khi sửa và kiểm tra xong toàn bộ phạm vi đã chốt, cập nhật README, hướng dẫn chạy, kiến trúc, mô hình dữ liệu và báo cáo liên quan theo code mới; bỏ mô tả cũ không còn đúng.
 
+## Tiến độ triển khai
+
+**Đợt 1 — hoàn thành mục 1–2 (2026-11-02):**
+
+- `core` chỉ chạy MySQL/API/Storefront; `batch` không kéo Kafka/Flink; `streaming` không kéo Airflow; các giao diện quản trị nằm trong `tools`.
+- Bỏ Spark master/worker; SparkSubmit của Airflow, Spark SQL và CDC materializer hiện tại chạy `local[2]` trong container thực thi. `SPARK_MASTER_URL` cho phép chỉnh số thread local; connection Airflow không dùng địa chỉ cluster cũ.
+- Cập nhật launcher, Makefile, `.env.example`, CI và tài liệu vận hành. Kafka tắt chủ động thì API không ghi DLQ.
+- Kiểm tra cả 15 tổ hợp nhóm chính; chạy riêng core đạt đúng 3 dịch vụ healthy; Spark SQL và toàn bộ DAG batch chạy local đạt 13/13 task, 26/26 quality checks.
+- CDC local đồng bộ được thay đổi và hoàn nguyên tới API; 10 endpoint analytics đạt; 328 dòng tồn kho lịch sử và tổng tài chính giữ nguyên. Test/log/dữ liệu kiểm tra chỉ lưu cục bộ ngoài Git.
+
+Các quyết định 3–26 chưa được coi là hoàn thành bởi đợt này. Cơ chế batch/CDC, bootstrap RBAC, đồng bộ MinIO, luồng Access Log và lịch maintenance vẫn theo code hiện tại cho tới đợt tương ứng.
+
 ## Chi tiết để chốt khi triển khai
 
 - Danh sách bảng giữ/bỏ và bảng được phép purge do người dùng chỉ rõ, duyệt trước khi xóa.
-- Tên/default Compose profile và cách xử lý tài khoản MinIO bị bỏ khỏi cấu hình.
+- Cách xử lý tài khoản MinIO bị bỏ khỏi cấu hình. Tên/default Compose profile đã chốt ở đợt 1.
 
 ## Quy tắc thực hiện
 

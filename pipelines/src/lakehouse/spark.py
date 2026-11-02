@@ -54,7 +54,7 @@ def configure_s3a(builder):
 def spark_session(job_name: str):
     client_id, secret = _polaris_credentials()
     builder = SparkSession.builder.appName(job_name) \
-        .master(os.environ["SPARK_MASTER_URL"]) \
+        .master(os.environ.get("SPARK_MASTER_URL", "local[2]")) \
         .config("spark.jars", JAR) \
         .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions") \
         .config("spark.sql.catalog.lakehouse", "org.apache.iceberg.spark.SparkCatalog") \

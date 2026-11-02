@@ -32,12 +32,12 @@ If exposing services beyond `localhost`, update the following variables to avoid
 
 Review browser-facing NEXT_PUBLIC_API_BASE_URL and API_CORS_ORIGINS together. NEXT_PUBLIC_* values are frontend build arguments; rebuild the image after changing them. Compose forwards only the listed API variables; adding API_COOKIE_SECURE or API_INTERNAL_SECRET to the root .env alone does not inject them into the API container.
 
-The seven MinIO access-key names are validated by minio-init as the managed lakehouse-* identities; secret keys must meet its length checks. Replace development secrets, but do not arbitrarily rename these accounts without updating bootstrap/policies. The actual LibreDB port variable is **LIBREDB_PORT**, default 3001; LIBREDB_STUDIO_PORT in the current example file is unused by Compose.
+The seven MinIO access-key names are validated by minio-init as the managed lakehouse-* identities; secret keys must meet its length checks. Replace development secrets, but do not arbitrarily rename these accounts without updating bootstrap/policies. The LibreDB port variable is **LIBREDB_PORT**, default 3001.
 
 Validate interpolation without displaying rendered secrets:
 
 ```bash
-docker compose --env-file .env.example --profile core --profile batch --profile streaming --profile lakehouse-tools config --quiet
+docker compose --env-file .env.example --profile "*" config --quiet
 ```
 
 This validates the example configuration, not running services or production security. Several Compose secrets still have development defaults; secret-manager injection, TLS, enforced Secure cookies and rate limiting are not currently provisioned. Several database/compute/broker ports are host-published without a loopback-only bind; the default network is not fully isolated from the host's public interfaces.
@@ -46,30 +46,50 @@ This validates the example configuration, not running services or production sec
 
 ## 3. Startup Sequence
 
-The recommended launcher starts `core`, `batch`, and `streaming`, waits for readiness, and initializes missing Gold schemas:
+The launcher defaults to `core`, regardless of an older `COMPOSE_PROFILES` value in `.env`:
 
 ```bash
-./scripts/start_all.sh --build
+# MySQL + API + storefront
+make up START_FLAGS=--build
+
+# Website with batch/query services
+make up PROFILES=core,batch
+
+# Full processing platform, without optional management interfaces
+make up PROFILES=core,batch,streaming
+
+# Include Polaris Console, LibreDB Studio and Trino Admin
+./scripts/start_all.sh --all
 make ps
 ```
 
-Schema initialization does not populate analytical results. Source history must be loaded and the batch pipeline run separately.
+`--profiles core,batch` selects an exact list. The launcher enables Kafka access logging only when `streaming` is selected. It uses Compose readiness checks for selected services and resolves published endpoint ports from the running Compose model. `--no-wait` skips readiness and Gold checks; `--allow-degraded` reports failed readiness/schema checks as warnings rather than proving platform health.
 
-The launcher probes mostly fixed default host ports (8000, 3000, 8084, 9000, 8183, 8080, 8085). With custom ports, start Compose directly and check configured endpoints; the script does not resolve every .env override into its probes. --no-wait skips readiness and Gold initialization; --allow-degraded continues after failed checks and does not prove platform health.
+Selecting fewer profiles does not stop existing containers from other groups. To switch to a smaller running stack, use `make down` followed by the desired `make up` command. Stop/start retains named volumes; do not pass `-v` when keeping data.
 
-Alternatively, launch Compose services directly using the profiles selected by `.env` (the example environment enables core, batch and streaming):
-
-```bash
-docker compose up -d --build
-```
-
-To run the complete system including batch processing, real-time streaming, and the e-commerce storefront:
+Direct Compose startup is also available. Override `COMPOSE_PROFILES` explicitly because `--profile` flags otherwise add to the value in `.env`:
 
 ```bash
-docker compose --profile core --profile batch --profile streaming up -d --build
+COMPOSE_PROFILES=core KAFKA_ENABLED=false docker compose up -d --build
+COMPOSE_PROFILES=core,batch,streaming KAFKA_ENABLED=true docker compose up -d
 ```
 
-Explicit `--profile` flags add to `COMPOSE_PROFILES`; they do not restrict the environment selection to a single profile. Direct Compose startup does not perform the launcher's additional Gold-schema check.
+Core-only startup does not launch MinIO, Polaris, Airflow, Kafka or Trino. Transactional features remain available; BI queries require the analytical platform and a completed publication. The launcher initializes missing Gold schemas only for `batch`/`streaming`; creating tables does not populate analytical results or execute a DAG.
+
+Service profiles do not change `LAKEHOUSE_OLTP_MODE`: the existing default is still `cdc` in this deployment-only refactor. Running the OLTP batch DAG requires the controlled writer handoff described in section 7.1 (stop `spark-cdc`, then select batch mode). Starting only `core,batch` does not automatically republish existing source data.
+
+Spark runs with `SPARK_MASTER_URL=local[2]` inside the container executing each job. Airflow's `spark_default` connection uses the same value, including an environment-backed connection that overrides legacy metadata pointing at the retired cluster. Spark SQL and the current CDC materializer also run locally. There is no Spark master/worker service or persistent Spark cluster UI. Adjust the local thread count in `.env` if required.
+
+### Updating an existing installation
+
+Rebuild the Spark utility/CDC image and recreate the changed execution services. Preserve all named volumes:
+
+```bash
+docker compose build spark-client
+./scripts/start_all.sh --profiles core,batch,streaming
+```
+
+Old `SPARK_MASTER_UI_PORT`, `SPARK_WORKER_UI_PORT`, `SPARK_WORKER_CORES` and `SPARK_WORKER_MEMORY` entries are unused and can be removed from existing `.env` files. Old master/worker containers are now orphans; after stopping old jobs, remove only those two stateless containers. Their old `spark-work` volume is unused; database, object-store, broker and credential volumes must be retained. An older `.env` with `COMPOSE_PROFILES=core,batch,streaming` still starts those groups when calling Compose directly; the launcher overrides it.
 
 ### MySQL Initialization
 
@@ -93,17 +113,17 @@ Compose waits for health checks or successful completion of initialization jobs 
 
 | Group / profile | Startup dependencies |
 |---|---|
-| Shared storage/catalog (`batch`, `streaming`) | Healthy `postgres` → `polaris-bootstrap`; healthy `minio` → `minio-init`; successful bootstrap/init jobs → `polaris` → `polaris-init` |
-| Query tools (`batch`, `streaming`) | Successful `polaris-init` → `trino` and `polaris-console`; healthy MySQL/PostgreSQL/Trino → `libredb-studio` |
-| Spark (`batch`, `streaming`) | `spark-master` → `spark-worker`; jobs use dedicated Polaris credentials |
-| Airflow (`batch`, `streaming`) | Healthy `postgres` → `airflow-init` (metadata migration, admin user and `spark_default` connection) → webserver/scheduler using `LocalExecutor` |
-| Web (`core`) | Healthy `mysql` → `ecommerce-api` → `storefront`; when Kafka is enabled, the API also waits for Kafka health |
+| Shared storage/catalog (`batch`, `streaming`, `tools`, `lakehouse-tools`) | Healthy `postgres` → `polaris-bootstrap`; healthy `minio` → `minio-init`; successful initialization → `polaris` → `polaris-init` |
+| Query serving (`batch`, `streaming`, `tools`) | Successful `polaris-init` → read-only `trino` |
+| Airflow (`batch`) | Healthy `postgres`, initialized catalog/credentials and writer lock → `airflow-init` → webserver/scheduler with `LocalExecutor`; Spark jobs execute locally |
+| Web (`core`) | Healthy `mysql` → `ecommerce-api` → `storefront`; Kafka is optional and used when `streaming` is enabled |
 | CDC (`streaming`) | Healthy MySQL → `mysql-cdc-init`; healthy Kafka plus successful MySQL CDC init → `debezium-connect` → `debezium-init` |
-| Flink (`streaming`) | Healthy Kafka/Polaris plus successful `polaris-init` → JobManager → TaskManager; access-log submission waits for `kafka-init`, CDC submission for `debezium-init`; both wait for JobManager health and TaskManager startup |
-| Spark SQL (`lakehouse-tools`) | Successful `polaris-init` → utility `spark-client`, using its own credential volume |
-| Administrative SQL (`trino-admin`, optional) | Successful `polaris-init` → `trino-admin` with a separate administrative principal |
+| Flink (`streaming`) | Kafka/catalog ready → JobManager/TaskManager → separate access-log and CDC submissions |
+| CDC materializer (`streaming`) | Initialized catalog/credentials, writer lock and CDC submission → local `spark-cdc`; no Spark cluster |
+| Management interfaces (`tools`) | Polaris Console, LibreDB Studio and Trino Admin, with their storage/query dependencies; no Airflow or streaming jobs |
+| Spark SQL utility (`lakehouse-tools`) | `spark-client` runs local Spark SQL with its own credential volume; storage/catalog dependencies are included |
 
-`minio` and `mysql` are also available to `core`. Exact profile membership and dependency conditions are defined in [`docker-compose.yml`](../../docker-compose.yml).
+`mysql` is shared by `core`, `batch`, `streaming` and `tools`. The `lakehouse-tools` profile is a one-off utility, not a normal long-running startup group. Exact membership is defined in [`docker-compose.yml`](../../docker-compose.yml).
 
 ---
 
@@ -116,12 +136,11 @@ Compose waits for health checks or successful completion of initialization jobs 
 | **Ecommerce API** | `http://localhost:8000/docs` | 8000 | Backend Swagger UI |
 | **LibreDB Studio (SQL IDE)** | `http://localhost:3001` | 3001 | Web-based SQL editor for MySQL, PostgreSQL, and Trino |
 | **Airflow UI** | `http://localhost:8080` | 8080 | DAG orchestration UI (`AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD`) |
-| **Spark Master UI** | `http://localhost:8082` | 8082 | Compute cluster status |
 | **Trino Web UI** | `http://localhost:8084` | 8084 | Query execution status |
 | **Flink Dashboard** | `http://localhost:8085` | 8085 | Streaming jobs and task status |
 | **Polaris Console** | `http://localhost:8183` | 8183 | Catalog & RBAC UI (`POLARIS_ROOT_CLIENT_ID` / `POLARIS_ROOT_CLIENT_SECRET`; Realm: `POLARIS`) |
 | **MinIO Console** | `http://localhost:9001` | 9001 | S3 Object browser (`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`) |
-| **Trino Admin (optional)** | `http://localhost:8087` | 8087 | Administrative Trino engine (profile `trino-admin`, not started by default) |
+| **Trino Admin (optional)** | `http://localhost:8087` | 8087 | Administrative Trino engine (profile `tools`, not started by default) |
 | **Debezium Connect** | `http://127.0.0.1:8086` | 8086 | CDC connector lifecycle/status API |
 
 ### Starting the Optional Trino Admin Engine
@@ -129,7 +148,7 @@ Compose waits for health checks or successful completion of initialization jobs 
 The default startup provisions `trino` with the read-only `trino_reader` principal. An administrative Trino engine using the `trino_admin` principal (full catalog management) can be started on demand — it is **not** part of the default startup:
 
 ```bash
-docker compose --profile trino-admin up -d trino-admin
+COMPOSE_PROFILES=tools docker compose up -d trino-admin
 ```
 
 It serves on host port `8087` (`http://localhost:8087`). The read-only `trino` reader engine remains the default query engine.
@@ -229,8 +248,9 @@ docker compose --profile core --profile batch --profile streaming ps
 # Polaris and Database logs
 docker compose --profile batch logs --tail=200 postgres polaris-bootstrap polaris polaris-init
 
-# Spark cluster logs
-docker compose --profile batch logs --tail=200 spark-master spark-worker
+# Spark job logs (local execution)
+docker compose --profile batch logs --tail=200 airflow-scheduler
+docker compose --profile streaming logs --tail=200 spark-cdc
 
 # Trino query engine logs
 docker compose logs --tail=200 trino
@@ -321,5 +341,5 @@ docker compose --profile core --profile batch --profile streaming down
 To perform a complete factory reset (erasing all MySQL records, MinIO objects, Polaris metadata, and Airflow state):
 
 ```bash
-docker compose --profile core --profile batch --profile streaming --profile lakehouse-tools down -v --remove-orphans
+docker compose --profile "*" down -v --remove-orphans
 ```

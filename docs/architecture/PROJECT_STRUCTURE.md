@@ -40,7 +40,7 @@
 
 Python workspace có `ecommerce-api`, `data-generator`, `batch-pipeline` dùng chung `uv.lock`. Spark/Flink runtime nằm trong các Docker image xử lý dữ liệu.
 
-Profile `core` chứa Web/API, MySQL và MinIO; `batch` chứa nền tảng batch/catalog/query; `streaming` thêm Kafka/Debezium/Flink. Spark/Airflow, PostgreSQL/Polaris và Trino/LibreDB có mặt ở cả `batch` và `streaming`. `lakehouse-tools` chứa Spark SQL client; `trino-admin` cung cấp engine có quyền quản trị khi cần. Profile được cộng với `COMPOSE_PROFILES`, không phải bộ lọc loại các profile đã chọn.
+Profile `core` chỉ chứa Web/API và MySQL. `batch` chứa Airflow cùng nền tảng storage/catalog/query; `streaming` chứa Kafka/Debezium/Flink, storage/catalog/query và Spark CDC materializer hiện tại. `tools` chứa Polaris Console, LibreDB và Trino Admin. `lakehouse-tools` giữ Spark SQL client chạy một lần. Spark chạy `local[2]` trong container thực thi; không có master/worker. `.env.example` và launcher mặc định chọn `core`; launcher `--profiles` ghi đè danh sách cũ trong `.env`. Khi dùng Compose trực tiếp, `--profile` cộng thêm vào `COMPOSE_PROFILES`.
 
 Các dịch vụ storage/catalog dùng chung và được kết nối qua Docker network. Xem service/port chính xác trong [Compose](../../docker-compose.yml).
 

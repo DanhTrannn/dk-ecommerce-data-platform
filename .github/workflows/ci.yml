@@ -42,11 +42,11 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
 
-      - name: Validate Docker Compose (all active profiles)
-        run: >-
-          docker compose --env-file .env.example
-          --profile core --profile batch --profile streaming --profile lakehouse-tools
-          config --quiet
+      - name: Validate Docker Compose service groups
+        run: |
+          for profiles in core batch streaming tools lakehouse-tools core,batch core,batch,streaming core,batch,streaming,tools; do
+            COMPOSE_PROFILES="$profiles" docker compose --env-file .env.example config --quiet
+          done
 
       - name: Verify Airflow DAG Python compilation
         run: python3 -m compileall -q airflow/dags/

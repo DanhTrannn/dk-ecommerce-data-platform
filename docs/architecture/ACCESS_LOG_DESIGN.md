@@ -48,6 +48,8 @@ These rules reduce accidental disclosure; pattern sanitization does not prove th
 | `KAFKA_ACCESS_LOG_TOPIC` | `ecommerce.access_logs` |
 | `KAFKA_DLQ_FILE_PATH` | `data/events/dlq_access_logs.jsonl` |
 
+The producer module defaults to enabled when run without Compose overrides. Compose and `.env.example` default `KAFKA_ENABLED=false` for core-only startup; the launcher sets it to true when `streaming` is selected. An explicitly disabled producer skips events without incrementing the dropped-event counter or writing DLQ records.
+
 `send_access_event` schedules background enqueueing. If the producer is offline, enqueueing raises or the event loop is unavailable, the code increments a process-local counter and attempts a local JSONL DLQ write. The producer awaits `send`, without awaiting each broker-delivery future; it does not establish confirmed delivery for every HTTP event. DLQ writing may also fail and is logged. There is no automatic DLQ replay job, durable outbox, or end-to-end exactly-once guarantee. Compose does not currently mount a dedicated persistent volume for this API-local DLQ path.
 
 Compose forwards the producer topic variable, but the Flink access job reads the same `KAFKA_ACCESS_LOG_TOPIC` variable. Keep the producer and consumer values aligned.

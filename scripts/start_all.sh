@@ -1,182 +1,153 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# Script: start_all.sh
-# Purpose: Start the full D&K E-Commerce Lakehouse platform services with all
-#          profiles (core, batch, streaming), wait for service health, initialize
-#          Gold Marts if needed, and print an interactive dashboard URL table.
-# ==============================================================================
+# Start selected service groups; Spark jobs execute locally in their containers.
 set -euo pipefail
-
 cd "$(dirname "$0")/.."
 
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
-
+PROFILES=core
 WAIT_FOR_HEALTH=true
 BUILD_IMAGES=false
 ALLOW_DEGRADED=false
+WAIT_TIMEOUT=180
 
 usage() {
-  cat <<EOF
-${BOLD}Usage:${NC} $0 [OPTIONS]
+  cat <<'HELP'
+Usage: ./scripts/start_all.sh [OPTIONS]
 
-${BOLD}Options:${NC}
-  -b, --build       Rebuild container images before starting
-  --no-wait         Start services in background without waiting for health checks
-  --allow-degraded  Continue when a service or Gold initialization check fails
-  -h, --help        Show this help message
+  --profiles LIST   Exact comma-separated groups: core,batch,streaming,tools
+                    Default: core (MySQL, API and storefront)
+  --all             Select core,batch,streaming,tools
+  -b, --build       Build selected images before starting
+  --no-wait         Skip readiness and Gold-schema checks
+  --allow-degraded  Continue after readiness/schema failure with a warning
+  -h, --help        Show help
 
-${BOLD}Examples:${NC}
-  $0                # Fast startup of all services with health checks
-  $0 --build        # Rebuild updated images and start full stack
-  $0 --no-wait      # Instant background startup without waiting
-EOF
-  exit 0
+Examples:
+  ./scripts/start_all.sh
+  ./scripts/start_all.sh --profiles core,batch --build
+  ./scripts/start_all.sh --profiles core,batch,streaming
+  ./scripts/start_all.sh --all
+
+Selection overrides COMPOSE_PROFILES, including an old value in .env.
+Existing containers from other groups remain running. Use make down before
+starting a smaller stack if those containers should also be stopped.
+HELP
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -b|--build)
-      BUILD_IMAGES=true
-      shift
-      ;;
-    --no-wait)
-      WAIT_FOR_HEALTH=false
-      shift
-      ;;
-    --allow-degraded)
-      ALLOW_DEGRADED=true
-      shift
-      ;;
-    -h|--help)
-      usage
-      ;;
-    *)
-      echo "Unknown option: $1" >&2
-      usage
-      ;;
+    --profiles)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "--profiles requires a comma-separated list." >&2
+        exit 2
+      fi
+      PROFILES="$2"; shift 2 ;;
+    --all) PROFILES=core,batch,streaming,tools; shift ;;
+    -b|--build) BUILD_IMAGES=true; shift ;;
+    --no-wait) WAIT_FOR_HEALTH=false; shift ;;
+    --allow-degraded) ALLOW_DEGRADED=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-echo -e "${CYAN}${BOLD}=================================================================${NC}"
-echo -e "${CYAN}${BOLD}       D&K E-COMMERCE HYBRID LAKEHOUSE PLATFORM LAUNCHER         ${NC}"
-echo -e "${CYAN}${BOLD}=================================================================${NC}"
+if [[ "$PROFILES" == ,* || "$PROFILES" == *, || "$PROFILES" == *,,* ]]; then
+  echo "Invalid profile list: $PROFILES" >&2
+  exit 2
+fi
+IFS=',' read -r -a SELECTED_PROFILES <<<"$PROFILES"
+for profile in "${SELECTED_PROFILES[@]}"; do
+  case "$profile" in
+    core|batch|streaming|tools) ;;
+    *) echo "Unknown profile: $profile" >&2; exit 2 ;;
+  esac
+done
+has_profile() { [[ ",$PROFILES," == *",$1,"* ]]; }
 
-# 1. Check .env file
 if [[ ! -f .env ]]; then
-  echo -e "${YELLOW}[!] .env not found. Creating from .env.example...${NC}"
   cp .env.example .env
+  echo "Created .env from .env.example; review its local development settings."
 fi
 
-# Ensure COMPOSE_PROFILES includes core, batch, streaming
-export COMPOSE_PROFILES="core,batch,streaming"
-
-# 2. Start services via Docker Compose
-UP_ARGS=("-d")
-if [[ "$BUILD_IMAGES" == "true" ]]; then
-  UP_ARGS+=("--build")
+# Shell environment overrides Compose's .env without sourcing secrets as code.
+export COMPOSE_PROFILES="$PROFILES"
+if has_profile streaming; then
+  export KAFKA_ENABLED=true
+else
+  export KAFKA_ENABLED=false
 fi
 
-echo -e "${BLUE}[*] Starting all services with profiles [core, batch, streaming]...${NC}"
-docker compose --profile core --profile batch --profile streaming up "${UP_ARGS[@]}"
-
-if [[ "$WAIT_FOR_HEALTH" == "false" ]]; then
-  echo -e "${GREEN}[✔] Services launched in background.${NC}"
-  exit 0
+UP_ARGS=(-d)
+if [[ "$BUILD_IMAGES" == true ]]; then UP_ARGS+=(--build); fi
+if [[ "$WAIT_FOR_HEALTH" == true ]]; then
+  UP_ARGS+=(--wait --wait-timeout "$WAIT_TIMEOUT")
 fi
-
-# 3. Wait for critical services to be ready
-echo -e "\n${BLUE}[*] Waiting for services to be ready...${NC}"
-
-wait_for_url() {
-  local name="$1"
-  local url="$2"
-  local max_retries="${3:-30}"
-  local count=0
-
-  printf "    %-24s " "Checking ${name}..."
-  while [[ $count -lt $max_retries ]]; do
-    if curl -fsS "$url" > /dev/null 2>&1; then
-      echo -e "${GREEN}READY${NC}"
-      return 0
-    fi
-    sleep 2
-    count=$((count + 1))
-  done
-  echo -e "${YELLOW}TIMEOUT (will continue)${NC}"
-  return 1
-}
-
-STARTUP_FAILED=0
-wait_for_url "FastAPI Backend" "http://localhost:8000/health/ready" 30 || STARTUP_FAILED=1
-wait_for_url "Next.js Storefront" "http://localhost:3000" 30 || STARTUP_FAILED=1
-wait_for_url "Trino SQL Engine" "http://localhost:8084/v1/info" 30 || STARTUP_FAILED=1
-wait_for_url "MinIO S3" "http://localhost:9000/minio/health/live" 20 || STARTUP_FAILED=1
-wait_for_url "Polaris Console" "http://localhost:8183" 20 || STARTUP_FAILED=1
-wait_for_url "Airflow Web UI" "http://localhost:8080/health" 30 || STARTUP_FAILED=1
-wait_for_url "Flink Dashboard" "http://localhost:8085/jobs/overview" 20 || STARTUP_FAILED=1
-wait_for_url "Debezium Connect" "http://127.0.0.1:${CDC_CONNECT_PORT:-8086}/connectors/mysql-ecommerce-cdc/status" 30 || STARTUP_FAILED=1
-
-if [[ "$STARTUP_FAILED" -ne 0 && "$ALLOW_DEGRADED" != "true" ]]; then
-  echo -e "${YELLOW}[!] One or more required services failed readiness checks.${NC}" >&2
-  echo "    Re-run with --allow-degraded only when intentionally diagnosing a partial stack." >&2
-  exit 1
-fi
-
-# 4. Initialize Gold Marts on Iceberg if needed
-echo -e "\n${BLUE}[*] Verifying Lakehouse Gold Marts on Iceberg...${NC}"
-GOLD_CHECK="$(docker compose exec -T trino trino --execute "SHOW TABLES FROM lakehouse.gold LIKE 'mart_sales_daily'" 2>/dev/null || echo "")"
-if [[ "$GOLD_CHECK" != *"mart_sales_daily"* ]]; then
-  echo -e "    ${YELLOW}Gold Marts not found. Initializing schemas via Spark SQL...${NC}"
-  docker compose --profile batch --profile lakehouse-tools run --use-aliases --rm spark-client \
-    /opt/spark/bin/spark-sql \
-    --master spark://spark-master:7077 \
-    --conf spark.driver.host=spark-client \
-    --conf spark.driver.bindAddress=0.0.0.0 \
-    -f /opt/project/spark/sql/init_gold_marts.sql > /dev/null 2>&1 || {
-      if [[ "$ALLOW_DEGRADED" != "true" ]]; then
-        echo "    Gold Marts initialization failed." >&2
-        exit 1
-      fi
-    }
-  GOLD_CHECK="$(docker compose exec -T trino trino --execute "SHOW TABLES FROM lakehouse.gold LIKE 'mart_sales_daily'" 2>/dev/null || echo "")"
-  if [[ "$GOLD_CHECK" != *"mart_sales_daily"* && "$ALLOW_DEGRADED" != "true" ]]; then
-    echo "    Gold Marts verification failed after initialization." >&2
+DEGRADED=false
+echo "Starting service groups: $PROFILES (Kafka access logging: $KAFKA_ENABLED)"
+if ! docker compose up "${UP_ARGS[@]}"; then
+  if [[ "$ALLOW_DEGRADED" != true ]]; then
+    echo "Startup/readiness failed. Inspect make ps and make logs." >&2
     exit 1
   fi
-  echo -e "    ${GREEN}[✔] Gold Marts schema initialized and verified.${NC}"
-else
-  echo -e "    ${GREEN}[✔] Gold Marts already present in catalog.${NC}"
+  DEGRADED=true
+  echo "WARNING: startup/readiness failed; continuing with --allow-degraded." >&2
 fi
 
-# 5. Print Service Directory Table
-echo -e "\n${GREEN}${BOLD}=================================================================${NC}"
-echo -e "${GREEN}${BOLD}               PLATFORM SERVICES READY TO USE                    ${NC}"
-echo -e "${GREEN}${BOLD}=================================================================${NC}"
-cat <<EOF
+# Schema creation applies only to data groups, never web-only startup.
+# It does not populate analytical results or trigger batch processing.
+if [[ "$WAIT_FOR_HEALTH" == true ]] && { has_profile batch || has_profile streaming; }; then
+  gold_schema_exists() {
+    local output
+    output="$(docker compose exec -T trino trino --execute \
+      "SHOW TABLES FROM lakehouse.gold LIKE 'mart_sales_daily'" 2>/dev/null)" || return 1
+    [[ "$output" == *mart_sales_daily* ]]
+  }
+  if ! gold_schema_exists; then
+    echo "Initializing missing Gold table schemas with local Spark SQL..."
+    if ! docker compose run --rm --no-deps spark-client \
+      /opt/spark/bin/spark-sql -f /opt/project/spark/sql/init_gold_marts.sql || ! gold_schema_exists; then
+      if [[ "$ALLOW_DEGRADED" != true ]]; then
+        echo "Gold schema initialization/verification failed." >&2
+        exit 1
+      fi
+      DEGRADED=true
+      echo "WARNING: Gold schemas could not be verified." >&2
+    fi
+  fi
+fi
 
-  Service                         URL                                  Credentials / Note
-  ──────────────────────────────  ───────────────────────────────────  ──────────────────────────
-  Customer Storefront             http://localhost:3000                Public Web
-  Admin Management                http://localhost:3000/admin          admin@web.local / Admin@12345
-  BI Analytics Hub (7 Roles)      http://localhost:3000/admin/analytics
-  POS Counter (Point of Sale)     http://localhost:3000/admin/pos      Staff account with store assignment
-  FastAPI Documentation           http://localhost:8000/docs           Swagger UI
-  LibreDB Studio (SQL IDE)        http://localhost:3001                Web SQL Interface
-  Trino Query Engine              http://localhost:8084                trino
-  Airflow Web UI                  http://localhost:8080                airflow / password
-  Flink Streaming Dashboard       http://localhost:8085                Web UI
-  MinIO S3 Storage Console        http://localhost:9001                minio-root / (see .env)
-  Apache Polaris REST Console     http://localhost:8183                root / (see .env; Realm: POLARIS)
-  Apache Kafka Broker             localhost:9092, localhost:9094       PLAINTEXT
-  Debezium Connect API            http://127.0.0.1:${CDC_CONNECT_PORT:-8086}             Localhost only
-EOF
-
-echo -e "\n${BOLD}Useful Commands:${NC}"
-echo -e "  View running containers:        ${CYAN}make ps${NC}      or  ${CYAN}docker compose ps${NC}"
-echo -e "  View live logs:                 ${CYAN}make logs${NC}    or  ${CYAN}docker compose logs -f${NC}"
-echo -e "  Stop all services:              ${CYAN}make down${NC}    or  ${CYAN}./scripts/stop_all.sh${NC}\n"
+# Resolve published ports from the selected Compose model, including .env overrides.
+show_url() {
+  local label="$1" service="$2" port="$3" path="${4:-}" binding
+  binding="$(docker compose port "$service" "$port" 2>/dev/null)" || return 0
+  [[ -n "$binding" ]] || return 0
+  printf '  %-24s http://localhost:%s%s\n' "$label" "${binding##*:}" "$path"
+}
+echo
+echo "Selected service endpoints:"
+if has_profile core; then
+  show_url Storefront storefront 3000
+  show_url 'BI dashboards' storefront 3000 /admin/analytics
+  show_url 'API documentation' ecommerce-api 8000 /docs
+fi
+if has_profile batch; then show_url Airflow airflow-webserver 8080; fi
+if has_profile batch || has_profile streaming || has_profile tools; then
+  show_url Trino trino 8080
+  show_url 'MinIO Console' minio 9001
+fi
+if has_profile streaming; then
+  show_url Flink flink-jobmanager 8081
+  show_url 'Debezium Connect' debezium-connect 8083
+fi
+if has_profile tools; then
+  show_url 'Polaris Console' polaris-console 8080
+  show_url 'LibreDB Studio' libredb-studio 3000
+  show_url 'Trino Admin' trino-admin 8080
+fi
+if [[ "$DEGRADED" == true ]]; then
+  echo "WARNING: selected stack is degraded; inspect service logs."
+elif [[ "$WAIT_FOR_HEALTH" == false ]]; then
+  echo "Startup requested; readiness and schemas were not checked."
+else
+  echo "Selected services passed Compose readiness checks."
+fi
+echo 'Credentials: see .env. Status: make ps. Logs: make logs. Stop all: make down.'

@@ -83,18 +83,28 @@ make down
 cp .env.example .env
 ```
 
-The example sets `COMPOSE_PROFILES=core,batch,streaming`. Profiles supplied with `--profile` add to the environment selection; they do not restrict it to a single profile.
+The example sets `COMPOSE_PROFILES=core`, starting only MySQL, FastAPI and Next.js. The launcher selects an exact profile list, overriding older `.env` values. Direct Compose `--profile` flags add to `COMPOSE_PROFILES`; use an explicit environment override when selecting a smaller stack.
 
 #### 2. Start and Inspect the Services
 
 ```bash
-docker compose --profile core --profile batch --profile streaming up -d --build
+# Website/API/MySQL only
+make up START_FLAGS=--build
 
-docker compose --profile core --profile batch --profile streaming ps
+# Add batch processing and analytical queries
+make up PROFILES=core,batch
+
+# Add Kafka, CDC and access-log streaming
+make up PROFILES=core,batch,streaming
+
+# Optional management interfaces (Polaris Console, LibreDB and Trino Admin)
+make up PROFILES=core,batch,streaming,tools
+
+make ps
 curl -fsS http://localhost:8000/health/ready
 ```
 
-This path starts Compose services directly. See the [setup guide](docs/runbook/SETUP.md) for initialization dependencies, catalog operation, and troubleshooting.
+The launcher waits for selected services and initializes missing Gold schemas only for data groups. It enables Kafka access logging when `streaming` is selected. Existing containers from other groups remain running; `make down` stops all groups while retaining data volumes. Core-only startup serves transactional features; analytical dashboards require the data platform and a completed publication. See the [setup guide](docs/runbook/SETUP.md) for profile boundaries and direct Compose commands.
 
 #### 3. Service Access Endpoints
 
@@ -111,12 +121,11 @@ Ports and credentials below follow the default configuration; environment overri
 | **MinIO Console** | 9001 | `http://localhost:9001` | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` |
 | **Polaris Console** | 8183 | `http://localhost:8183` | `POLARIS_ROOT_CLIENT_ID` / `POLARIS_ROOT_CLIENT_SECRET`; realm `POLARIS` |
 | **Airflow UI** | 8080 | `http://localhost:8080` | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
-| **Spark Master UI** | 8082 | `http://localhost:8082` | Cluster status |
 | **Trino** | 8084 | `http://localhost:8084` | Query engine / Web UI |
 | **Flink Dashboard** | 8085 | `http://localhost:8085` | Job status |
 | **Kafka** | 9092, 9094 | `localhost:9094` | External listener; Docker clients use `kafka:9092` |
 | **Debezium Connect** | 8086 | `http://127.0.0.1:8086` | Connector lifecycle/status |
-| **Trino Admin (optional)** | 8087 | `http://localhost:8087` | Separate `trino-admin` profile |
+| **Trino Admin (optional)** | 8087 | `http://localhost:8087` | Optional `tools` profile |
 
 Additional staff accounts and store assignments are managed through the application.
 
@@ -176,7 +185,7 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 | **Object Storage** | MinIO | `latest-dev` | Landing, Iceberg files, and processing state |
 | **Table Format** | Apache Iceberg | 1.10.1 | Tables, snapshots, and commits |
 | **Catalog** | Apache Polaris | 1.6.0 | REST catalog and access control |
-| **Batch Processing** | Apache Spark | 3.5.9 | Extraction, transformations, gates, maintenance |
+| **Batch Processing** | Apache Spark | 3.5.9 | Local execution inside job containers; extraction, transforms, gates and maintenance |
 | **Orchestration** | Apache Airflow | 2.10.5 | Batch and maintenance DAGs |
 | **Metadata DB** | PostgreSQL | 16.8 | Polaris and Airflow metadata |
 | **Query Engine** | Trino | 483 | SQL over Iceberg |
@@ -279,7 +288,7 @@ System reconciliation renders one chart per metric so order counts and VND use i
 
 ```bash
 # Validate all active Compose profiles with the example environment
-docker compose --env-file .env.example --profile core --profile batch --profile streaming --profile lakehouse-tools config --quiet
+docker compose --env-file .env.example --profile "*" config --quiet
 
 # Python static checks
 uv lock --check
@@ -299,7 +308,7 @@ The [GitHub Actions workflow](.github/workflows/ci.yml) runs on pushes to `dev`,
 
 | Job | Checks |
 |---|---|
-| **Repository validation** | Validate Compose with `.env.example` and the four profiles shown above; compile Airflow DAG Python files; run Ruff |
+| **Repository validation** | Validate each Compose service group and supported combinations with `.env.example`; compile Airflow DAG Python files; run Ruff |
 | **Storefront** | Install dependencies with `npm ci`; run lint, TypeScript typecheck, and the Next.js production build |
 
 CI uses `--env-file .env.example` because `.env` is not committed and Compose requires the service-account credentials. `uv lock --check` is an additional local check in the commands above.

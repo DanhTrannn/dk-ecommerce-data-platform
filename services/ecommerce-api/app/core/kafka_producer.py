@@ -102,6 +102,8 @@ def send_access_event(event: dict[str, Any]) -> None:
     synchronous or async middleware code alike. If the Kafka producer is
     offline or the event loop is unavailable, the event is saved to DLQ.
     """
+    if not _KAFKA_ENABLED:
+        return
     if _producer is None:
         record_dropped_event(event, reason="producer_offline")
         return

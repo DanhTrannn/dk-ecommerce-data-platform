@@ -3,7 +3,7 @@ x-airflow-common: &airflow-common
     context: .
     dockerfile: infrastructure/docker/airflow/Dockerfile
   image: lakehouse-airflow:2.10.5
-  profiles: ["batch", "streaming"]
+  profiles: ["batch"]
   user: "${AIRFLOW_UID:-50000}:0"
   environment: &airflow-environment
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -14,6 +14,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-change-me-airflow-secret}
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
     AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+    AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type":"spark","host":"${SPARK_MASTER_URL:-local[2]}"}'
     PIPELINE_ENV: ${PIPELINE_ENV:-local}
     FLINK_REQUIRED_JOBS: ${FLINK_REQUIRED_JOBS:-kafka_to_lakehouse_pure_streaming,oltp_cdc_to_bronze}
     PIPELINE_RUN_DIRECTORY: /data/pipeline-runs
@@ -31,7 +32,7 @@ x-airflow-common: &airflow-common
 
     POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
     POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
-    SPARK_MASTER_URL: spark://spark-master:7077
+    SPARK_MASTER_URL: ${SPARK_MASTER_URL:-local[2]}
     TRINO_URL: http://trino:8080
     LAKEHOUSE_OLTP_MODE: ${LAKEHOUSE_OLTP_MODE:-cdc}
     OLTP_WRITER_LOCK: /run/lakehouse-writer/oltp.lock
@@ -48,6 +49,8 @@ x-airflow-common: &airflow-common
       condition: service_healthy
     lakehouse-writer-init:
       condition: service_completed_successfully
+    polaris-init:
+      condition: service_completed_successfully
 
 x-spark-common: &spark-common
   build:
@@ -56,7 +59,6 @@ x-spark-common: &spark-common
     args:
       ICEBERG_VERSION: ${ICEBERG_VERSION:-1.10.1}
   image: lakehouse-spark:3.5.9-iceberg-${ICEBERG_VERSION:-1.10.1}
-  profiles: ["batch", "streaming"]
   environment:
     POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
   networks: ["lakehouse-network"]
@@ -95,7 +97,7 @@ x-polaris-database-environment: &polaris-database-environment
 services:
   mysql:
     image: mysql:8.4.5
-    profiles: ["core", "batch", "streaming"]
+    profiles: ["core", "batch", "streaming", "tools"]
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-ecommerce}
       MYSQL_USER: ${MYSQL_USER:-ecommerce_app}
@@ -158,7 +160,7 @@ services:
       API_BOOTSTRAP_ADMIN_PASSWORD: ${API_BOOTSTRAP_ADMIN_PASSWORD:-Admin@12345}
       API_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${API_BOOTSTRAP_ADMIN_DISPLAY_NAME:-Admin}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
-      KAFKA_ENABLED: ${KAFKA_ENABLED:-true}
+      KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
       KAFKA_ACCESS_LOG_TOPIC: ${KAFKA_ACCESS_LOG_TOPIC:-ecommerce.access_logs}
     ports:
       - "${API_PORT:-8000}:8000"
@@ -198,7 +200,7 @@ services:
   minio:
     image: cgr.dev/chainguard/minio:latest-dev
     command: server /data --console-address ":9001"
-    profiles: ["core", "batch", "streaming"]
+    profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
@@ -216,7 +218,7 @@ services:
 
   minio-init:
     image: cgr.dev/chainguard/minio-client:latest-dev
-    profiles: ["core", "batch", "streaming"]
+    profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
     entrypoint: ["/bin/sh", "/bootstrap/init.sh"]
     environment:
       MINIO_ENDPOINT: http://minio:9000
@@ -247,7 +249,7 @@ services:
 
   postgres:
     image: postgres:16.8-alpine
-    profiles: ["batch", "streaming"]
+    profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
@@ -268,7 +270,7 @@ services:
 
   polaris-bootstrap:
     image: apache/polaris-admin-tool:1.6.0
-    profiles: ["batch", "streaming"]
+    profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -299,7 +301,7 @@ services:
 
   polaris:
     image: apache/polaris:1.6.0
-    profiles: ["batch", "streaming"]
+    profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
     environment:
       <<: *polaris-database-environment
       POLARIS_PERSISTENCE_RELATIONAL_JDBC_MAX_RETRIES: 5
@@ -332,7 +334,7 @@ services:
 
   polaris-init:
     image: alpine/curl:8.21.0
-    profiles: ["batch", "streaming"]
+    profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
     environment:
       POLARIS_URL: http://polaris:8181
       POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
@@ -366,7 +368,7 @@ services:
       context: https://github.com/apache/polaris-tools.git#e5fea020aedcb1834f306d9a13de7fccbfff1943:console
       dockerfile: docker/Dockerfile
     image: polaris-console:1.4.0-e5fea020
-    profiles: ["batch", "streaming"]
+    profiles: ["tools"]
     environment:
       VITE_POLARIS_API_URL: ${POLARIS_PUBLIC_API_URL:-http://localhost:8181}
       VITE_OAUTH_TOKEN_URL: ${POLARIS_PUBLIC_API_URL:-http://localhost:8181}/api/catalog/v1/oauth/tokens
@@ -385,29 +387,6 @@ services:
       retries: 10
     networks: ["lakehouse-network"]
 
-  spark-master:
-    <<: *spark-common
-    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master", "--host", "spark-master"]
-    ports:
-      - "${SPARK_MASTER_PORT:-7077}:7077"
-      - "${SPARK_MASTER_UI_PORT:-8082}:8080"
-    volumes:
-      - spark-work:/opt/spark/work-dir
-
-  spark-worker:
-    <<: *spark-common
-    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
-    environment:
-      SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-1}
-      SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-1g}
-    ports:
-      - "${SPARK_WORKER_UI_PORT:-8083}:8081"
-    volumes:
-      - spark-work:/opt/spark/work-dir
-    depends_on:
-      spark-master:
-        condition: service_started
-
   lakehouse-writer-init:
     image: alpine/curl:8.21.0
     profiles: ["batch", "streaming"]
@@ -423,18 +402,14 @@ services:
     entrypoint: ["/opt/project/spark/with-polaris-credentials.sh"]
     command:
       - /opt/spark/bin/spark-submit
-      - --conf
-      - spark.driver.host=spark-cdc
-      - --conf
-      - spark.driver.bindAddress=0.0.0.0
-      - --conf
-      - spark.cores.max=1
+      - --master
+      - ${SPARK_MASTER_URL:-local[2]}
       - --driver-memory
       - 768m
       - /opt/project/pipelines/src/jobs/cdc/apply_cdc_to_lakehouse.py
     environment:
       PYTHONPATH: /opt/project/pipelines/src
-      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_MASTER_URL: ${SPARK_MASTER_URL:-local[2]}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
       MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
@@ -455,8 +430,6 @@ services:
     depends_on:
       polaris-init:
         condition: service_completed_successfully
-      spark-worker:
-        condition: service_started
       flink-cdc-submit:
         condition: service_started
       lakehouse-writer-init:
@@ -467,6 +440,7 @@ services:
     profiles: ["lakehouse-tools"]
     entrypoint: ["/opt/project/spark/with-polaris-credentials.sh"]
     environment:
+      SPARK_MASTER_URL: ${SPARK_MASTER_URL:-local[2]}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
       MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
@@ -476,11 +450,7 @@ services:
     command:
       - /opt/spark/bin/spark-sql
       - --master
-      - spark://spark-master:7077
-      - --conf
-      - spark.driver.host=spark-client
-      - --conf
-      - spark.driver.bindAddress=0.0.0.0
+      - ${SPARK_MASTER_URL:-local[2]}
       - -e
       - SHOW NAMESPACES IN lakehouse
     volumes:
@@ -488,8 +458,6 @@ services:
     depends_on:
       polaris-init:
         condition: service_completed_successfully
-      spark-worker:
-        condition: service_started
 
   airflow-init:
     <<: *airflow-common
@@ -507,7 +475,7 @@ services:
         --email admin@example.local || true) &&
         (airflow connections delete spark_default || true) &&
         airflow connections add spark_default
-        --conn-host spark://spark-master:7077
+        --conn-host "$${SPARK_MASTER_URL}"
         --conn-type spark
     environment:
       <<: *airflow-environment
@@ -542,7 +510,7 @@ services:
 
   trino:
     image: trinodb/trino:483
-    profiles: ["batch", "streaming"]
+    profiles: ["batch", "streaming", "tools"]
     entrypoint: ["/bin/sh", "/opt/trino/start.sh"]
     environment:
       POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
@@ -569,7 +537,7 @@ services:
 
   trino-admin:
     image: trinodb/trino:483
-    profiles: ["trino-admin"]
+    profiles: ["tools"]
     entrypoint: ["/bin/sh", "/opt/trino/start.sh"]
     environment:
       POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
@@ -590,7 +558,7 @@ services:
 
   libredb-studio:
     image: ghcr.io/libredb/libredb-studio:latest
-    profiles: ["batch", "streaming"]
+    profiles: ["tools"]
     ports:
       - "${LIBREDB_PORT:-3001}:3000"
     environment:
@@ -791,7 +759,6 @@ networks:
 volumes:
   mysql-data:
   minio-data:
-  spark-work:
   postgres-data:
   polaris-spark-client-credentials:
   polaris-spark-airflow-credentials:
