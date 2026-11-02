@@ -32,7 +32,11 @@ echo "[submit-job] JobManager is ready."
 
 # Idempotency check: skip submission if job is already RUNNING
 RUNNING_JOBS="$(curl -sf "http://${JOB_MANAGER_ADDRESS}/jobs/overview" 2>/dev/null || echo "{}")"
-if echo "$RUNNING_JOBS" | grep -qE "\"name\":\"(${JOB_NAME_PATTERN})\".*\"state\":\"RUNNING\""; then
+if printf '%s' "$RUNNING_JOBS" | python3 -c '
+import json, re, sys
+jobs = json.load(sys.stdin).get("jobs", [])
+sys.exit(0 if any(j.get("state") == "RUNNING" and re.search(sys.argv[1], j.get("name", "")) for j in jobs) else 1)
+' "$JOB_NAME_PATTERN"; then
     echo "[submit-job] Streaming Lakehouse job is already RUNNING. Skipping."
     exit 0
 fi

@@ -199,6 +199,7 @@ CREATE TABLE IF NOT EXISTS lakehouse.silver.silver_orders (
     receiver_name_pseudonymized     STRING,
     receiver_phone_pseudonymized    STRING,
     shipping_address_text_pseudonymized STRING,
+    shipping_region                 STRING,
     status                          STRING,
     payment_method                  STRING,
     store_id                        BIGINT,

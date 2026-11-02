@@ -1,9 +1,10 @@
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
+from app.modules.analytics.schemas import AnalyticsDataStatus
 
 
-class StoreDashboardResponse(BaseModel):
+class StoreDashboardResponse(AnalyticsDataStatus):
     store_name: str
     today_orders: int
     today_revenue_vnd: int

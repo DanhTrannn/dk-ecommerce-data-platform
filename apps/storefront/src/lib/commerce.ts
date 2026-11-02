@@ -805,7 +805,7 @@ export interface DepletionVelocitySignal {
   on_hand: number;
   units_sold_last_hour: number;
   depletion_rate_per_min: number;
-  estimated_minutes_to_stockout: number;
+  estimated_minutes_to_stockout: number | null;
   alert_level: string;
 }
 
@@ -893,6 +893,10 @@ export interface CashInTransitSignal {
 }
 
 export interface AnalyticsDataStatus {
+  source_run_id: string | null;
+  data_updated_at: string | null;
+  served_from_cache: boolean;
+  cache_age_seconds: number;
   data_source: "lakehouse" | "oltp" | "oltp_fallback";
   is_degraded: boolean;
   degraded_reason: string | null;
@@ -1003,6 +1007,10 @@ export interface ReconciliationVariance {
 export interface SystemMetricsResponse extends AnalyticsDataStatus {
   role: "system";
   pipeline_status: string;
+  cdc_apply_status: string | null;
+  cdc_heartbeat_at: string | null;
+  cdc_pending_events: number;
+  cdc_apply_lag_seconds: number | null;
   data_freshness_minutes: number | null;
   data_freshness_sla_minutes: number;
   reconciliation_variance: ReconciliationVariance[];

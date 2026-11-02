@@ -1,6 +1,6 @@
-export const AUTO_REFRESH_INTERVAL_MS = 60_000;
+export const AUTO_REFRESH_INTERVAL_MS = 15_000;
 
-const AUTO_REFRESH_ROLES = new Set(["store", "inventory", "operations", "marketing"]);
+const AUTO_REFRESH_ROLES = new Set(["executive", "sales", "store", "inventory", "operations", "marketing", "system"]);
 
 export function shouldAutoRefreshRole(role: string): boolean {
   return AUTO_REFRESH_ROLES.has(role);

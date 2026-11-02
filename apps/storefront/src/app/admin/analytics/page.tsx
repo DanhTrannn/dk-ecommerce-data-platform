@@ -121,14 +121,14 @@ function AnalyticsHubContent() {
           </div>}
         </div>
         <div className="mt-4 grid gap-3 border-t border-line pt-4 text-xs leading-5 text-muted sm:grid-cols-2 xl:grid-cols-3">
-          <div><p className="font-semibold text-ink">Nguồn phản hồi</p><p>{sourceName(metrics?.data_source)}</p></div>
+          <div><p className="font-semibold text-ink">Nguồn phản hồi</p><p>{sourceName(metrics?.data_source)}</p>{metrics?.data_updated_at && <p>Công bố: {new Date(metrics.data_updated_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false })} · UTC+7</p>}{metrics?.served_from_cache && <p>Bản lưu: {Math.round(metrics.cache_age_seconds)} giây trước</p>}</div>
           <div><p className="font-semibold text-ink">Phạm vi đo</p><p>{role.scope}</p></div>
-          <div><p className="font-semibold text-ink">Lần tải thành công</p><p>{receivedAt ? `${receivedAt} · UTC+7` : "Chưa có phản hồi thành công"}</p><p>{autoRefresh ? "Tải lại mỗi 60 giây khi trang đang hiển thị." : "Tải lại thủ công."} Đây không phải thời điểm Gold được cập nhật.</p></div>
+          <div><p className="font-semibold text-ink">Lần tải thành công</p><p>{receivedAt ? `${receivedAt} · UTC+7` : "Chưa có phản hồi thành công"}</p><p>{autoRefresh ? "Tải lại mỗi 15 giây khi trang đang hiển thị." : "Tải lại thủ công."} Đây không phải thời điểm Gold được cập nhật.</p></div>
         </div>
         <details className="mt-4 border-t border-line pt-3"><summary className="cursor-pointer text-xs font-semibold text-muted">Báo cáo này giúp trả lời điều gì?</summary><ul className="mt-2 list-inside list-disc space-y-1 text-sm leading-6 text-muted">{role.questions.map(question => <li key={question}>{question}</li>)}</ul></details>
       </section>
 
-      {metrics?.is_degraded && <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-4 text-sm leading-6 text-warning" role="status"><Icon className="mt-1 shrink-0" name="alert" size={18} /><div><p className="font-semibold">Nguồn thay thế hoặc dữ liệu chưa đầy đủ</p><p>{metrics.degraded_reason ?? "Phản hồi đang được đánh dấu degraded. Xem nguồn và định nghĩa trước khi diễn giải."}</p><p>Không coi công thức nguồn thay thế là bản sao của Gold.</p></div></div>}
+      {metrics?.is_degraded && <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-4 text-sm leading-6 text-warning" role="status"><Icon className="mt-1 shrink-0" name="alert" size={18} /><div><p className="font-semibold">Dữ liệu OLAP cần kiểm tra</p><p>{metrics.degraded_reason ?? "Phản hồi đang được đánh dấu degraded. Xem nguồn và định nghĩa trước khi diễn giải."}</p><p>Kiểm tra thời điểm công bố và trạng thái CDC trước khi sử dụng số liệu.</p></div></div>}
       {error && <div className="feedback-error" role="alert"><p className="font-semibold">Không tải được báo cáo mới</p><p className="mt-1">{error}</p>{metrics && <p className="mt-1">Các số bên dưới vẫn là lần tải thành công lúc {receivedAt}; chưa được cập nhật.</p>}<button className="mt-2 min-h-8 font-semibold underline" onClick={() => setRefreshVersion(value => value + 1)} type="button">Thử lại</button></div>}
       {loading && <LoadingDashboard />}
       {metrics && <div aria-busy={pending} className="space-y-5" key={requestKey}>

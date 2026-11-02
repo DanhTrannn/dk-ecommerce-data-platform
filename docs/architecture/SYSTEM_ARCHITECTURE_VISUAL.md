@@ -21,14 +21,14 @@ Bản vẽ tổng quan: [08-system-architecture.drawio](../diagram/08-system-arc
 | Trino 483 | Đọc Iceberg qua Polaris/MinIO để phục vụ SQL |
 | LibreDB Studio | Giao diện SQL cho người vận hành |
 
-Frontend không truy cập MySQL/Trino trực tiếp. FastAPI đọc Trino cho báo cáo lịch sử và MySQL cho chỉ số vận hành. API không gọi Spark để xử lý từng request.
+Frontend không truy cập MySQL/Trino trực tiếp. FastAPI đọc Trino cho tất cả KPI; MySQL phục vụ giao dịch, auth/RBAC và đối soát nguồn. API không gọi Spark để xử lý từng request.
 
 ## 2. Ba đường dữ liệu
 
 | Luồng | Đường đi | Điểm ra và giới hạn |
 |---|---|---|
 | Batch OLTP | MySQL → Spark → Landing Parquet/manifest → Bronze → Silver → Gold | DAG có cursor tăng dần và quality gate |
-| CDC OLTP | MySQL binlog → Debezium → Kafka → Flink | Append-only `bronze.oltp_cdc_events`; chưa tự materialize CDC thành Silver/Gold |
+| CDC OLTP | MySQL binlog → Debezium → Kafka → Flink | Append-only `bronze.oltp_cdc_events` → Spark CDC → typed Silver / dependent Gold → publication manifest |
 | Access log | FastAPI middleware → Kafka → Flink | Ghi các bảng log Landing/Bronze/Silver/Gold bằng StatementSet |
 
 `customer_credentials` bị loại khỏi batch và CDC. PII của các bảng phân tích cần được xử lý trước khi phục vụ ở Silver/Gold.
@@ -49,7 +49,7 @@ Catalog `lakehouse` có sáu namespace: `landing`, `bronze`, `silver`, `gold`, `
 
 Gate trước Gold so sánh MySQL/Silver. Gate sau Gold kiểm tra parity, khóa, tham chiếu và lineage. Kết quả ghi vào `lakehouse.system.data_quality_results`; lỗi gate làm DAG thất bại. Đây là logic vận hành của pipeline.
 
-Cursor batch được commit sau Bronze, trước Silver/Gold; lỗi ở tầng sau cần phục hồi từ dữ liệu đã giữ, không mặc định toàn DAG rollback. Các bảng Gold được ghi riêng; gate sau Gold không tạo transaction nguyên tử trên toàn bộ bảng. `payments` đang dùng cursor created_at dù COD completion sửa status; cập nhật cũ ngoài lookback có thể bị bỏ qua. Chi tiết tại [schema](OLTP_SCHEMA.md#3-bảng-và-cursor-trích-xuất).
+Batch mode giữ cơ chế cursor commit sau Bronze và bảng Gold commit độc lập. Mặc định CDC mode, Spark áp dụng bản ghi theo transaction vào Silver, làm mới các bảng Gold phụ thuộc, rồi công bố offsets cùng snapshot IDs trong `system.analytics_publications`. API chỉ đọc phiên công bố hoàn chỉnh. Writer batch và CDC dùng chung `flock` trên cùng Docker host; không chạy hai chế độ cùng lúc. `payments` vẫn dùng cursor created_at trong batch mode, trong khi CDC theo dõi cập nhật cũ. Chi tiết tại [schema](OLTP_SCHEMA.md#3-bảng-và-cursor-trích-xuất) và [CDC](CDC_DASHBOARD_DATA_SPEC.md#6-cdc-materialization-and-dashboard-publication).
 
 ## 4. Lịch chạy và độ mới
 
@@ -58,10 +58,10 @@ Cursor batch được commit sau Bronze, trước Silver/Gold; lỗi ở tầng 
 | `lakehouse_oltp_pipeline` | Hằng ngày 02:00, Asia/Ho_Chi_Minh |
 | `lakehouse_oltp_maintenance` | Hằng ngày 03:00 |
 | `lakehouse_streaming_maintenance` | Mỗi 2 giờ |
-| Flink access logs/CDC | Liên tục, checkpoint 10 giây |
-| BI Hub | Một số vai trò tự tải lại sau 60 giây khi trang hoạt động |
+| Flink access logs/CDC | Liên tục, checkpoint 10 giây; Spark CDC polling mặc định 30 giây |
+| BI Hub | Các dashboard tự tải lại sau 15 giây khi trang hoạt động |
 
-Checkpoint và chu kỳ tải lại UI không phải cam kết latency end-to-end. Gold OLTP thay đổi theo batch thực tế. Ngưỡng freshness 15/60 phút trên trang system là ngưỡng hiển thị; batch hằng ngày không đáp ứng ngưỡng 15 phút liên tục.
+Checkpoint và chu kỳ tải lại UI không phải cam kết latency end-to-end. Gold OLTP thay đổi theo batch thực tế. Trang system tách tuổi phiên công bố, heartbeat CDC, pending events và sai lệch so với MySQL. Không có dữ liệu mới thì phiên công bố không đổi; poll 15 giây của trình duyệt không phải SLA lan truyền.
 
 DAG được tạo ở trạng thái paused theo Compose. Streaming maintenance kiểm tra có job RUNNING và chọn một job phù hợp; chưa xác nhận riêng cả CDC và access-log job đều khỏe. Lịch maintenance và batch ở hai DAG khác nhau không tạo dependency chờ nhau.
 
@@ -73,13 +73,13 @@ BI Hub `/admin/analytics` gọi FastAPI; API xác thực vai trò và cửa hàn
 
 | Vai trò hiển thị | Vai trò tài khoản | Nguồn chính / nội dung |
 |---|---|---|
-| Executive | `admin` | Gold fact_order và mart trả hàng; doanh thu, cost/profit, đơn; bổ sung COD đang giao từ OLTP |
-| Sales | `sales_manager` | Gold fact_order/fact_order_item/mart_sales_daily; doanh thu kênh, cửa hàng, sản phẩm |
-| Marketing | `marketing_manager` | Gold fact_web_events trong 30 ngày; bổ sung coupon/review từ OLTP |
-| Store | `store_manager` | MySQL theo cửa hàng; doanh thu hôm nay, số đơn, stockout |
-| Inventory | `inventory_manager` | MySQL; lượng/giá trị tồn, inbound, depletion |
-| Operations | `operations_manager` | MySQL; đơn chờ, shipment, COD lỗi, return |
-| System | `system_admin` | Gold freshness và đối soát count/tiền với MySQL |
+| Executive | `admin` | Published Gold fact_order và Silver return requests, payments/shipments |
+| Sales | `sales_manager` | Published Gold facts, dimensions và sales mart |
+| Marketing | `marketing_manager` | Gold fact_web_events và published Silver coupons/redemptions/reviews |
+| Store | `store_manager` | Published Gold orders/current inventory, theo cửa hàng được gán |
+| Inventory | `inventory_manager` | Published Gold current inventory + Silver inbound, order items |
+| Operations | `operations_manager` | Published Gold orders/shipments + Silver returns |
+| System | `system_admin` | Publication/CDC health + Gold đối soát với MySQL |
 
 Admin có quyền truy cập các dashboard; các vai trò khác bị giới hạn bởi `validate_role_access`. Store manager bị cố định theo cửa hàng được gán bằng `resolve_effective_store_id`. Đây là lọc ở ứng dụng/API, không phải row-level security tự động trong Trino.
 
@@ -92,17 +92,17 @@ Quyền xem dashboard không cấp quyền ghi nghiệp vụ. UI cho `operations
 | `GET /api/v1/admin/analytics/role-metrics` | Chỉ số theo vai trò và store hợp lệ |
 | `GET /api/v1/admin/analytics/stores` | Danh sách cửa hàng theo quyền |
 | `GET /api/v1/admin/analytics/sales-trend` | Biểu đồ theo ngày, quyền admin/sales_manager |
-| `GET /api/v1/admin/analytics/overview` | Tổng quan OLTP, quyền admin |
+| `GET /api/v1/admin/analytics/overview` | Tổng quan OLAP đã công bố, quyền admin |
 
-Response chỉ số có `data_source`, `is_degraded`, `degraded_reason`. Trino lỗi có thể dẫn đến OLTP fallback; marketing không có event trong cửa sổ cũng có thể fallback. Công thức fallback có thể khác Gold, nên UI cần hiển thị nguồn. [Metrics Catalog](METRICS_CATALOG.md) định nghĩa công thức, grain và giới hạn diễn giải; dữ liệu generator vẫn là dữ liệu tổng hợp sau khi xử lý qua pipeline.
+Response chỉ số có `data_source`, `source_run_id`, `data_updated_at`, `is_degraded`, và metadata cache. Trino lỗi dùng phản hồi OLAP thành công gần nhất trong giới hạn tuổi cache, sau đó trả 503; API không chuyển KPI sang MySQL. Mọi KPI đọc cùng phiên snapshot đã công bố, ngoại trừ fact web events có lifecycle streaming riêng. [Metrics Catalog](METRICS_CATALOG.md) định nghĩa công thức, grain và giới hạn diễn giải; dữ liệu generator vẫn là dữ liệu tổng hợp sau khi xử lý qua pipeline.
 
-Store/inventory/operations ưu tiên OLTP ngay cả khi Trino đang hoạt động. Marketing/store/inventory/operations tự tải lại 60 giây khi trang hoạt động; việc reload không khiến batch Gold tự chạy.
+Executive, sales, marketing, store, inventory, operations, system, admin overview, store overview, và sales trend đều đọc Trino. Các trang phân tích tự tải lại 15 giây khi đang hiển thị. Poll giao diện không đồng nghĩa dữ liệu nguồn mới đã được xử lý.
 
 BI Hub tổ chức từng góc nhìn theo tổng quan → xu hướng (khi có API phù hợp) → phân nhóm/bảng chi tiết → bước kiểm tra. Bộ chọn 7/30/90 ngày chỉ tác động biểu đồ và bảng xu hướng, không đổi KPI toàn nguồn. Bộ chọn cửa hàng áp dụng góc nhìn store theo quyền của API. Tìm kiếm, sắp xếp và xuất CSV giới hạn trong từng bảng.
 
-Giao diện tách thời điểm nhận phản hồi (UTC+7) khỏi tuổi dữ liệu Gold, hiển thị nguồn/fallback riêng cho xu hướng, và cung cấp từ điển chỉ số theo nguồn phản hồi. Không dựng target/delta khi API chưa cung cấp. Các bước marketing được trình bày như lượng sự kiện/proxy, các nhóm giao vận có thể chồng lặp không dùng làm cơ cấu đơn. Khi system dùng fallback, giá trị Gold/variance thay thế không được diễn giải như kết quả đối soát đã đo. Các hành động là hướng dẫn hoặc liên kết tới màn hình nghiệp vụ có quyền truy cập.
+Giao diện hiển thị thời điểm công bố snapshot (UTC+7), nguồn OLAP và cảnh báo cache, và cung cấp từ điển chỉ số theo nguồn phản hồi. Không dựng target/delta khi API chưa cung cấp. Các bước marketing được trình bày như lượng sự kiện/proxy, các nhóm giao vận có thể chồng lặp không dùng làm cơ cấu đơn. Khi System dùng cache OLAP, dữ liệu không biểu thị một lần đối soát mới. Các hành động là hướng dẫn hoặc liên kết tới màn hình nghiệp vụ có quyền truy cập.
 
-Đối soát system vẽ từng metric thành biểu đồ riêng, so sánh MySQL/Gold: số đơn có đơn vị đơn, các trường tiền có đơn vị VND và trục độc lập. Tooltip tiền giữ giá trị đầy đủ, badge dùng variance_percent từ API. Chỉ hiển thị cặp so sánh khi nguồn là lakehouse và có dữ liệu; fallback hiển thị trạng thái thiếu nguồn cùng bảng, không dựng cột Gold bằng 0.
+Đối soát system vẽ từng metric thành biểu đồ riêng, so sánh MySQL/Gold: số đơn có đơn vị đơn, các trường tiền có đơn vị VND và trục độc lập. Tooltip tiền giữ giá trị đầy đủ, badge dùng variance_percent từ API. Chỉ hiển thị cặp so sánh khi nguồn là lakehouse và có dữ liệu; cache OLAP được đánh dấu degraded, không dùng để kết luận đối soát mới.
 
 Nguồn serving: [router](../../services/ecommerce-api/app/modules/analytics/router.py), [service](../../services/ecommerce-api/app/modules/analytics/service.py), [schemas](../../services/ecommerce-api/app/modules/analytics/schemas.py), [BI Hub](../../apps/storefront/src/app/admin/analytics/page.tsx).
 

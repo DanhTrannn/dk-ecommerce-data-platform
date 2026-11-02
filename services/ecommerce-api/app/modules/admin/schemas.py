@@ -1,9 +1,10 @@
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from app.modules.analytics.schemas import AnalyticsDataStatus
 
 
-class AdminOverviewResponse(BaseModel):
+class AdminOverviewResponse(AnalyticsDataStatus):
     active_products: int
     active_variants: int
     low_stock_variants: int

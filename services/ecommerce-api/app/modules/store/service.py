@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -7,7 +6,7 @@ from app.core.errors import not_found
 from app.models.catalog import Category, Product, ProductVariant
 from app.models.customer import Customer, CustomerCredential
 from app.models.multicity import Store, StoreInventory
-from app.models.order import Order, OrderItem, Payment
+from app.models.order import Order, OrderItem
 from app.modules.orders.schemas import OrderDetailResponse
 from app.modules.orders.service import get_order_detail
 from app.modules.store.schemas import (
@@ -19,105 +18,8 @@ from app.modules.store.schemas import (
 
 
 def get_store_dashboard(db: Session, store_id: int) -> StoreDashboardResponse:
-    store = db.execute(
-        select(Store).where(Store.store_id == store_id)
-    ).scalar_one_or_none()
-    if store is None:
-        raise not_found("Không tìm thấy cửa hàng.")
-
-    now = datetime.now(UTC).replace(tzinfo=None)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    today_revenue_vnd = int(
-        db.scalar(
-            select(func.coalesce(func.sum(Payment.amount_vnd), 0))
-            .join(Order, Order.order_id == Payment.order_id)
-            .where(
-                Order.store_id == store_id,
-                Order.created_at >= today_start,
-                Payment.status == "succeeded",
-            )
-        )
-        or 0
-    )
-
-    today_orders = int(
-        db.scalar(
-            select(func.count())
-            .select_from(Order)
-            .where(
-                Order.store_id == store_id,
-                Order.created_at >= today_start,
-            )
-        )
-        or 0
-    )
-
-    total_orders = int(
-        db.scalar(
-            select(func.count())
-            .select_from(Order)
-            .where(Order.store_id == store_id)
-        )
-        or 0
-    )
-
-    completed_orders = int(
-        db.scalar(
-            select(func.count())
-            .select_from(Order)
-            .where(Order.store_id == store_id, Order.status == "completed")
-        )
-        or 0
-    )
-
-    total_revenue_vnd = int(
-        db.scalar(
-            select(func.coalesce(func.sum(Payment.amount_vnd), 0))
-            .join(Order, Order.order_id == Payment.order_id)
-            .where(
-                Order.store_id == store_id,
-                Payment.status == "succeeded",
-            )
-        )
-        or 0
-    )
-
-    low_stock_items = int(
-        db.scalar(
-            select(func.count())
-            .select_from(StoreInventory)
-            .where(
-                StoreInventory.store_id == store_id,
-                StoreInventory.on_hand <= 5,
-            )
-        )
-        or 0
-    )
-
-    active_staff = int(
-        db.scalar(
-            select(func.count())
-            .select_from(Customer)
-            .where(
-                Customer.store_id == store_id,
-                Customer.role == "store_manager",
-                Customer.status == "active",
-            )
-        )
-        or 0
-    )
-
-    return StoreDashboardResponse(
-        store_name=store.name,
-        today_orders=today_orders,
-        today_revenue_vnd=today_revenue_vnd,
-        total_orders=total_orders,
-        completed_orders=completed_orders,
-        total_revenue_vnd=total_revenue_vnd,
-        low_stock_items=low_stock_items,
-        active_staff=active_staff,
-    )
+    from app.modules.analytics.service import get_store_overview
+    return get_store_overview(store_id)
 
 
 def list_store_orders(

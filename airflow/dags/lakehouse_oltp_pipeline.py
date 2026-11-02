@@ -18,7 +18,7 @@ from datetime import timedelta
 import pendulum
 import pymysql
 from airflow.exceptions import AirflowException
-from airflow.operators.python import PythonOperator
+from airflow.operators.python import BranchPythonOperator, PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.utils.task_group import TaskGroup
 from lakehouse.config import load_config
@@ -172,6 +172,23 @@ with DAG(
         task_id="check_pipeline_context",
         python_callable=begin_run,
     )
+    choose_writer = BranchPythonOperator(
+        task_id="choose_writer_mode",
+        python_callable=lambda: (
+            "validate_cdc_reconciliation" if os.environ.get("LAKEHOUSE_OLTP_MODE", "cdc") == "cdc"
+            else "landing_zone.check_mysql_connection"
+        ),
+    )
+    cdc_reconcile = SparkSubmitOperator(
+        task_id="validate_cdc_reconciliation",
+        application=SPARK_APP_RECONCILE,
+        application_args=[
+            "--config-path", CONFIG_PATH,
+            "--run-id", "{{ ti.xcom_pull(task_ids='check_pipeline_context', key='run_id') }}",
+            "--batch-date", "{{ ti.xcom_pull(task_ids='check_pipeline_context', key='batch_date') }}",
+            "--tolerance-pct", "0.05",
+        ],
+    )
 
     # 1. LANDING ZONE EXTRACTION & MANIFEST VALIDATION
     with TaskGroup(
@@ -310,5 +327,7 @@ with DAG(
     # 1. Check Context -> 2. Landing Zone -> 3. Bronze Layer -> 4. Load Cursors ->
     # 5. Silver Layer -> 6. Reconciliation Gate -> 7. Gold Layer (Dimensions, Facts, Marts)
     # (Iceberg Table Maintenance is decoupled into dedicated off-peak DAG: lakehouse_oltp_maintenance)
-    check_context >> tg_landing >> tg_bronze >> load_cursors >> tg_silver >> validate_reconciliation >> tg_gold >> validate_gold_quality
+    check_context >> choose_writer
+    choose_writer >> [tg_landing, cdc_reconcile]
+    tg_landing >> tg_bronze >> load_cursors >> tg_silver >> validate_reconciliation >> tg_gold >> validate_gold_quality
 

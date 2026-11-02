@@ -38,7 +38,7 @@ uv run --locked --package ecommerce-api -- uvicorn app.main:app --host 0.0.0.0 -
 
 With Kafka disabled, the current producer path routes access events to the local DLQ. For streaming from a host API, enable Kafka and use its externally advertised listener (default `localhost:9094`), rather than Docker DNS `kafka:9092`. Set the CORS origin for the frontend. A host analytics process also needs a host-reachable Trino URL; see the analytics client configuration below.
 
-For host analytics set `API_TRINO_URL=http://localhost:8084` (or your Trino host port). Docker defaults to `http://trino:8080`; the client also attempts the default host URL when no explicit URL was supplied.
+For host analytics set `API_TRINO_URL=http://localhost:8084` (or your Trino host port). Docker defaults to `http://trino:8080`; the client also attempts the default host URL when no explicit URL was supplied. Analytical KPI endpoints read a completed `system.analytics_publications` manifest and pin Silver/Gold tables to its Iceberg snapshots. Trino failures can serve a bounded last-good OLAP response; cold or expired caches return 503. These KPI routes do not fall back to MySQL, which remains the transactional and reconciliation source. The dashboard refresh interval is 15 seconds and does not trigger Spark or Airflow processing.
 
 ## Settings and request conventions
 

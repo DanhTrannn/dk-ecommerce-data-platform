@@ -159,6 +159,9 @@ CREATE TABLE IF NOT EXISTS lakehouse.gold.fact_order (
     store_key                       BIGINT                          COMMENT 'Foreign key to dim_store (0 if online)',
     order_date_key                  INT                             COMMENT 'Date key YYYYMMDD',
     order_date                      DATE                            COMMENT 'Order placement date',
+    created_at                      TIMESTAMP                       COMMENT 'Original UTC order timestamp',
+    order_date_vn                   DATE                            COMMENT 'Vietnam business date',
+    shipping_region                 STRING                          COMMENT 'Coarse region derived before PII hashing',
     channel                         STRING                          COMMENT 'Sales channel (online or pos)',
     status                          STRING                          COMMENT 'Final or current order status',
     payment_method                  STRING                          COMMENT 'Payment method (cod, vietqr, momo, zalopay)',
@@ -230,6 +233,9 @@ CREATE TABLE IF NOT EXISTS lakehouse.gold.fact_shipment (
     shipment_date                   DATE                            COMMENT 'Shipment date',
     status                          STRING                          COMMENT 'Shipment status (assigned, picked_up, delivered, failed)',
     attempt_count                   INT                             COMMENT 'Number of delivery attempts made',
+    dispatched_at                   TIMESTAMP,
+    delivered_at                    TIMESTAMP,
+    failed_at                       TIMESTAMP,
     is_boom                         BOOLEAN                         COMMENT 'True if shipment marked failed (boom)',
     is_delivered                    BOOLEAN                         COMMENT 'True if successfully delivered',
     cod_amount_expected_vnd         BIGINT                          COMMENT 'COD collection target in VND',
@@ -429,13 +435,25 @@ def ensure_oltp_gold_tables(spark: SparkSession) -> None:
     spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.gold")
     for table_name, ddl in GOLD_TABLE_DDL.items():
         spark.sql(ddl)
-        # Self-healing migration for fact_order_item created prior to order_date partitioning
-        if table_name == "fact_order_item":
-            try:
-                table_cols = [f.name.lower() for f in spark.table("lakehouse.gold.fact_order_item").schema.fields]
-                if "order_date" not in table_cols:
-                    spark.sql("DROP TABLE IF EXISTS lakehouse.gold.fact_order_item")
-                    spark.sql(ddl)
-            except Exception:
-                pass
+    additions = {
+        "fact_order": {"created_at": "TIMESTAMP", "order_date_vn": "DATE", "shipping_region": "STRING"},
+        "fact_order_item": {"order_date": "DATE"},
+        "fact_shipment": {"dispatched_at": "TIMESTAMP", "delivered_at": "TIMESTAMP", "failed_at": "TIMESTAMP"},
+    }
+    for table, fields in additions.items():
+        present = set(spark.table(f"lakehouse.gold.{table}").columns)
+        for name, kind in fields.items():
+            if name not in present:
+                spark.sql(f"ALTER TABLE lakehouse.gold.{table} ADD COLUMN {name} {kind}")
+
+
+# Current balances are separate from historical daily inventory observations.
+GOLD_TABLE_DDL["fact_inventory_current"] = """
+CREATE TABLE IF NOT EXISTS lakehouse.gold.fact_inventory_current (
+    location_type STRING, location_id BIGINT, variant_key BIGINT, product_key BIGINT,
+    on_hand_quantity BIGINT, reserved_quantity BIGINT, unit_cost_vnd BIGINT,
+    inventory_value_cost_vnd BIGINT, is_low_stock BOOLEAN, is_out_of_stock BOOLEAN,
+    _gold_ingested_at TIMESTAMP, _source_run_id STRING
+) USING iceberg TBLPROPERTIES ('format-version'='2')
+"""
 

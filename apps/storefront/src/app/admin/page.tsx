@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { AUTO_REFRESH_INTERVAL_MS } from "@/lib/dashboard-refresh";
 import { Icon } from "@/components/ui/Icon";
 import {
   ApiError,
@@ -26,7 +27,10 @@ export default function AdminOverviewPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const inFlight = useRef(false);
   const loadData = useCallback(() => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setRefreshing(true);
     getAdminOverview()
       .then((overviewData) => {
@@ -40,11 +44,16 @@ export default function AdminOverviewPage() {
       .finally(() => {
         setLoading(false);
         setRefreshing(false);
+        inFlight.current = false;
       });
   }, []);
 
   useEffect(() => {
     loadData();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") loadData();
+    }, AUTO_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
   }, [loadData]);
 
   if (loading && !data) {
@@ -130,6 +139,8 @@ export default function AdminOverviewPage() {
           Xử lý đơn
         </Link>
       </header>
+      <p className="mt-3 text-xs leading-5 text-muted">Nguồn: Lakehouse · Trino / Iceberg. Công bố: {data.data_updated_at ? new Date(data.data_updated_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false }) : "Chưa có thời điểm"} · UTC+7. Tải lại mỗi 15 giây.</p>
+      {data.is_degraded && <p className="mt-2 text-sm text-warning" role="status">{data.degraded_reason}</p>}
 
       {/* BANNER SANG TRUNG TÂM BI LAKEHOUSE */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-accent/25 bg-gradient-to-r from-accent/10 via-moss/5 to-surface px-5 py-4 shadow-sm">

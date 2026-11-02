@@ -24,6 +24,7 @@ from lakehouse.oltp.gold import (
 )
 from lakehouse.oltp.gold_ddl import ensure_oltp_gold_tables
 from lakehouse.spark import spark_session
+from lakehouse.writer import oltp_writer_lock
 from pyspark.sql import functions as F
 
 if TYPE_CHECKING:
@@ -101,21 +102,21 @@ def run_gold_facts(spark: SparkSession, run_id: str, snapshot_date: str) -> None
 
     print(f"[{run_id}] [Facts] Building fact_order...")
     fact_order = build_fact_order(silver_orders, silver_order_items, run_id, silver_product_variants)
-    fact_order.writeTo("lakehouse.gold.fact_order").overwritePartitions()
+    fact_order.writeTo("lakehouse.gold.fact_order").overwrite(F.lit(True))
 
     print(f"[{run_id}] [Facts] Building fact_order_item...")
     fact_order_item = build_fact_order_item(
         silver_order_items, silver_orders, run_id, silver_product_variants
     )
-    fact_order_item.writeTo("lakehouse.gold.fact_order_item").overwritePartitions()
+    fact_order_item.writeTo("lakehouse.gold.fact_order_item").overwrite(F.lit(True))
 
     print(f"[{run_id}] [Facts] Building fact_shipment...")
     fact_shipment = build_fact_shipment(silver_shipments, run_id)
-    fact_shipment.writeTo("lakehouse.gold.fact_shipment").overwritePartitions()
+    fact_shipment.writeTo("lakehouse.gold.fact_shipment").overwrite(F.lit(True))
 
     print(f"[{run_id}] [Facts] Building fact_return_exchange...")
     fact_return_exchange = build_fact_return_exchange(silver_return_requests, silver_return_items, run_id)
-    fact_return_exchange.writeTo("lakehouse.gold.fact_return_exchange").overwritePartitions()
+    fact_return_exchange.writeTo("lakehouse.gold.fact_return_exchange").overwrite(F.lit(True))
 
     print(f"[{run_id}] [Facts] Building fact_inventory_daily_snapshot...")
     fact_inventory_daily_snapshot = build_fact_inventory_daily_snapshot(
@@ -123,7 +124,10 @@ def run_gold_facts(spark: SparkSession, run_id: str, snapshot_date: str) -> None
     )
     fact_inventory_daily_snapshot.writeTo("lakehouse.gold.fact_inventory_daily_snapshot").overwritePartitions()
 
-    print(f"[{run_id}] [Facts] All 5 Gold Facts successfully built!")
+    current = fact_inventory_daily_snapshot.select(*spark.table("lakehouse.gold.fact_inventory_current").columns)
+    current.writeTo("lakehouse.gold.fact_inventory_current").overwrite(F.lit(True))
+
+    print(f"[{run_id}] [Facts] All 6 Gold Facts successfully built!")
 
 
 def run_gold_marts(spark: SparkSession, run_id: str) -> None:
@@ -140,24 +144,24 @@ def run_gold_marts(spark: SparkSession, run_id: str) -> None:
 
     print(f"[{run_id}] [Marts] Building mart_sales_daily...")
     mart_sales_daily = build_mart_sales_daily(fact_order, fact_order_item, dim_product, run_id)
-    mart_sales_daily.writeTo("lakehouse.gold.mart_sales_daily").overwritePartitions()
+    mart_sales_daily.writeTo("lakehouse.gold.mart_sales_daily").overwrite(F.lit(True))
 
     print(f"[{run_id}] [Marts] Building mart_logistics_performance...")
     mart_logistics_performance = build_mart_logistics_performance(fact_shipment, dim_delivery_staff, run_id)
-    mart_logistics_performance.writeTo("lakehouse.gold.mart_logistics_performance").overwritePartitions()
+    mart_logistics_performance.writeTo("lakehouse.gold.mart_logistics_performance").overwrite(F.lit(True))
 
     print(f"[{run_id}] [Marts] Building mart_product_returns...")
     mart_product_returns = build_mart_product_returns(fact_return_exchange, dim_variant, run_id)
-    mart_product_returns.writeTo("lakehouse.gold.mart_product_returns").overwritePartitions()
+    mart_product_returns.writeTo("lakehouse.gold.mart_product_returns").overwrite(F.lit(True))
 
     print(f"[{run_id}] [Marts] Building mart_inventory_health...")
     mart_inventory_health = build_mart_inventory_health(fact_inventory_daily_snapshot, dim_product, run_id)
-    mart_inventory_health.writeTo("lakehouse.gold.mart_inventory_health").overwritePartitions()
+    mart_inventory_health.writeTo("lakehouse.gold.mart_inventory_health").overwrite(F.lit(True))
 
     print(f"[{run_id}] [Marts] All 4 Gold Data Marts successfully built!")
 
 
-def main() -> None:
+def _run() -> None:
     args = parse_args(sys.argv[1:])
     app_name = f"build_oltp_gold_{args.stage}" if args.stage != "all" else "build_oltp_gold"
     spark = spark_session(app_name)
@@ -179,6 +183,11 @@ def main() -> None:
 
     finally:
         spark.stop()
+
+
+def main() -> None:
+    with oltp_writer_lock():
+        _run()
 
 
 if __name__ == "__main__":

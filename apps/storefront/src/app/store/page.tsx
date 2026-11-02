@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { AUTO_REFRESH_INTERVAL_MS } from "@/lib/dashboard-refresh";
 import { Icon } from "@/components/ui/Icon";
 import { apiFetch } from "@/lib/api-client";
 import { formatMetricVnd, formatVnd } from "@/lib/api";
 
-interface DashboardData {
+import type { AnalyticsDataStatus } from "@/lib/commerce";
+
+interface DashboardData extends AnalyticsDataStatus {
   store_name: string;
   today_orders: number;
   today_revenue_vnd: number;
@@ -25,22 +28,31 @@ export default function StoreDashboardPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const inFlight = useRef(false);
   const loadData = useCallback(() => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setRefreshing(true);
     apiFetch<DashboardData>("/api/v1/admin/store/dashboard")
       .then((res) => {
         setData(res);
+        setError(null);
         setLastUpdated(new Date());
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Không thể tải dữ liệu."))
       .finally(() => {
         setLoading(false);
         setRefreshing(false);
+        inFlight.current = false;
       });
   }, []);
 
   useEffect(() => {
     loadData();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") loadData();
+    }, AUTO_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
   }, [loadData]);
 
   if (loading) {
@@ -56,7 +68,7 @@ export default function StoreDashboardPage() {
     );
   }
 
-  if (error) {
+  if (error && !data) {
     return (
       <section className="feedback-error">
         <h1 className="font-semibold">Không tải được dữ liệu cửa hàng</h1>
@@ -95,6 +107,8 @@ export default function StoreDashboardPage() {
           </button>
         </div>
       </header>
+      <p className="mt-3 text-xs leading-5 text-muted">Nguồn: Lakehouse · Trino / Iceberg. Công bố: {data.data_updated_at ? new Date(data.data_updated_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false }) : "Chưa có thời điểm"} · UTC+7. Tải lại mỗi 15 giây.</p>
+      {data.is_degraded && <p className="mt-2 text-sm text-warning" role="status">{data.degraded_reason}</p>}
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
         <article className="min-w-0 overflow-hidden rounded-2xl bg-ink p-6 text-paper shadow-lift">

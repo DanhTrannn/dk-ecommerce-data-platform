@@ -225,6 +225,7 @@ def create_table_environment(
         EnvironmentSettings.new_instance().in_streaming_mode().build(),
     )
     t_env.get_config().set("pipeline.name", pipeline_name)
+    t_env.get_config().set_local_timezone("UTC")
     return t_env
 
 

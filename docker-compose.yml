@@ -32,16 +32,21 @@ x-airflow-common: &airflow-common
     POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
     SPARK_MASTER_URL: spark://spark-master:7077
     TRINO_URL: http://trino:8080
+    LAKEHOUSE_OLTP_MODE: ${LAKEHOUSE_OLTP_MODE:-cdc}
+    OLTP_WRITER_LOCK: /run/lakehouse-writer/oltp.lock
   volumes:
     - ./airflow/dags:/opt/airflow/dags:ro
     - ./pipelines:/opt/project/pipelines:ro
     - airflow-logs:/opt/airflow/logs
     - pipeline-run-data:/data/pipeline-runs
     - polaris-spark-airflow-credentials:/run/polaris:ro
+    - lakehouse-writer-lock:/run/lakehouse-writer
   networks: ["lakehouse-network"]
   depends_on:
     postgres:
       condition: service_healthy
+    lakehouse-writer-init:
+      condition: service_completed_successfully
 
 x-spark-common: &spark-common
   build:
@@ -144,6 +149,7 @@ services:
     profiles: ["core"]
     environment:
       API_DATABASE_URL: mysql+pymysql://${MYSQL_USER:-ecommerce_app}:${MYSQL_PASSWORD:-password}@mysql:3306/${MYSQL_DATABASE:-ecommerce}
+      API_ANALYTICS_CACHE_MAX_AGE_SECONDS: ${API_ANALYTICS_CACHE_MAX_AGE_SECONDS:-3600}
       API_SECRET_KEY: ${API_SECRET_KEY:-change-me-with-at-least-32-random-characters}
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:3000}
       API_BOOTSTRAP_ADMIN_EMAIL: ${API_BOOTSTRAP_ADMIN_EMAIL:-admin@web.local}
@@ -344,6 +350,7 @@ services:
       - polaris-credential-state:/run/polaris-state
       - polaris-spark-client-credentials:/run/polaris-output/spark-client
       - polaris-spark-airflow-credentials:/run/polaris-output/spark-airflow
+      - polaris-spark-cdc-credentials:/run/polaris-output/spark-cdc
       - polaris-flink-credentials:/run/polaris-output/flink
       - polaris-trino-reader-credentials:/run/polaris-output/trino-reader
       - polaris-trino-admin-credentials:/run/polaris-output/trino-admin
@@ -398,6 +405,60 @@ services:
     depends_on:
       spark-master:
         condition: service_started
+
+  lakehouse-writer-init:
+    image: alpine/curl:8.21.0
+    profiles: ["batch", "streaming"]
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c", "touch /run/lakehouse-writer/oltp.lock && chmod 666 /run/lakehouse-writer/oltp.lock"]
+    volumes:
+      - lakehouse-writer-lock:/run/lakehouse-writer
+
+  spark-cdc:
+    <<: *spark-common
+    profiles: ["streaming"]
+    restart: on-failure
+    entrypoint: ["/opt/project/spark/with-polaris-credentials.sh"]
+    command:
+      - /opt/spark/bin/spark-submit
+      - --conf
+      - spark.driver.host=spark-cdc
+      - --conf
+      - spark.driver.bindAddress=0.0.0.0
+      - --conf
+      - spark.cores.max=1
+      - --driver-memory
+      - 768m
+      - /opt/project/pipelines/src/jobs/cdc/apply_cdc_to_lakehouse.py
+    environment:
+      PYTHONPATH: /opt/project/pipelines/src
+      SPARK_MASTER_URL: spark://spark-master:7077
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
+      MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
+      POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
+      POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
+      POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
+      POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
+      SILVER_PSEUDONYMIZE_SALT: ${SILVER_PSEUDONYMIZE_SALT:-ecommerce_lakehouse_pii_salt_2026_nd13_secure}
+      LAKEHOUSE_OLTP_MODE: ${LAKEHOUSE_OLTP_MODE:-cdc}
+      CDC_APPLY_INTERVAL_SECONDS: ${CDC_APPLY_INTERVAL_SECONDS:-30}
+      MYSQL_ECOMMERCE_READER_URL: mysql+pymysql://${MYSQL_USER:-ecommerce_app}:${MYSQL_PASSWORD:-password}@mysql:3306/${MYSQL_DATABASE:-ecommerce}
+      OLTP_WRITER_LOCK: /run/lakehouse-writer/oltp.lock
+    volumes:
+      - ./pipelines:/opt/project/pipelines:ro
+      - ./database/schema.sql:/opt/project/database/schema.sql:ro
+      - polaris-spark-cdc-credentials:/run/polaris:ro
+      - lakehouse-writer-lock:/run/lakehouse-writer
+    depends_on:
+      polaris-init:
+        condition: service_completed_successfully
+      spark-worker:
+        condition: service_started
+      flink-cdc-submit:
+        condition: service_started
+      lakehouse-writer-init:
+        condition: service_completed_successfully
 
   spark-client:
     <<: *spark-common
@@ -731,6 +792,8 @@ volumes:
   postgres-data:
   polaris-spark-client-credentials:
   polaris-spark-airflow-credentials:
+  polaris-spark-cdc-credentials:
+  lakehouse-writer-lock:
   polaris-flink-credentials:
   polaris-trino-reader-credentials:
   polaris-trino-admin-credentials:

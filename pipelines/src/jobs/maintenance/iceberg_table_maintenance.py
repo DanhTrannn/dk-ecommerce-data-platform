@@ -30,6 +30,7 @@ TABLE_PROFILES: dict[str, list[str]] = {
         "gold.fact_shipment",
         "gold.fact_return_exchange",
         "gold.fact_inventory_daily_snapshot",
+        "gold.fact_inventory_current",
         # Gold Data Marts
         "gold.mart_sales_daily",
         "gold.mart_logistics_performance",

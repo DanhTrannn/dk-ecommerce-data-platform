@@ -4,6 +4,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit, urlunsplit
 from typing import Any
 
 try:
@@ -92,6 +93,16 @@ class TrinoClient:
         except Exception:
             return False
 
+    @staticmethod
+    def _coordinator_uri(uri: str, active_url: str) -> str:
+        target, origin = urlsplit(uri), urlsplit(active_url)
+        return urlunsplit((origin.scheme, origin.netloc, target.path, target.query, ""))
+
+    @staticmethod
+    def _raise_query_error(body) -> None:
+        if "error" in body:
+            raise AppError(INTERNAL_ERROR, "Trino query failed: " + body["error"].get("message", "unknown error"), status_code=502)
+
     def execute_query(self, sql: str, timeout: float = 30.0) -> list[dict[str, Any]]:
         """Execute SQL query against Trino and return list of dictionaries."""
         clean_sql = sql.strip().rstrip(";")
@@ -111,6 +122,7 @@ class TrinoClient:
                         )
 
                     body = post_resp.json()
+                    self._raise_query_error(body)
                     next_uri = body.get("nextUri")
                     columns: list[str] = [c["name"] for c in body.get("columns", [])]
                     all_rows: list[list[Any]] = body.get("data", [])
@@ -124,7 +136,7 @@ class TrinoClient:
                                 status_code=504,
                             )
 
-                        poll_resp = client.get(next_uri)
+                        poll_resp = client.get(self._coordinator_uri(next_uri, active_url))
                         if poll_resp.status_code != 200:
                             raise AppError(
                                 INTERNAL_ERROR,
@@ -178,6 +190,7 @@ class TrinoClient:
                             status_code=500,
                         )
                     body = json.loads(resp.read().decode("utf-8"))
+                    self._raise_query_error(body)
 
                 next_uri = body.get("nextUri")
                 columns: list[str] = [c["name"] for c in body.get("columns", [])]
@@ -192,7 +205,7 @@ class TrinoClient:
                             status_code=504,
                         )
 
-                    poll_req = urllib.request.Request(next_uri, headers=headers)
+                    poll_req = urllib.request.Request(self._coordinator_uri(next_uri, active_url), headers=headers)
                     with urllib.request.urlopen(poll_req, timeout=timeout) as poll_resp:
                         if poll_resp.status != 200:
                             raise AppError(

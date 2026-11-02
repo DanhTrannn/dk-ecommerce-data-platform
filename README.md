@@ -24,13 +24,13 @@
 The **D&K E-Commerce Data Platform** is a local Data Engineering project combining an e-commerce source application, batch data processing, MySQL change capture, and access-log streaming. MySQL contains 28 OLTP tables; 27 are configured for analytical ingestion. Data is stored in Apache Iceberg on MinIO, cataloged by Polaris, and queried through Trino. A Next.js/FastAPI application provides Storefront, POS, administration, and ECharts dashboards.
 
 > [!NOTE]
-> The platform has three data paths: **OLTP batch**, **MySQL binlog CDC**, and **access-log streaming**. CDC currently writes an append-only Bronze event log; OLTP Silver/Gold tables are built by Spark batch jobs.
+> The platform has three data paths: **OLTP batch**, **MySQL binlog CDC**, and **access-log streaming**. The CDC path continuously publishes Bronze events into typed Silver and affected Gold tables through a persistent Spark consumer; the daily Airflow DAG runs source-to-Silver reconciliation in CDC mode.
 
 ## Overview
 
 The project covers data collection, incremental extraction, Medallion transformations, data quality, reconciliation, and SQL analytics. The website and POS provide transactional source data; the generator supplies configurable synthetic datasets and simulated API traffic.
 
-Historical analytics use Trino over Iceberg. Current store, inventory, and logistics indicators use MySQL through FastAPI. Responses identify their data source and any fallback. Machine learning training and scoring remain outside the implemented scope.
+All seven analytics roles, admin overview, store overview, and sales trends query Trino over a pinned Iceberg publication. MySQL remains the transactional source for checkout, POS, inventory operations, authentication, RBAC, and source reconciliation. If Trino is unavailable, the API serves a bounded last-good OLAP response or returns 503; it does not switch analytical aggregates to MySQL. Machine learning training and scoring remain outside the implemented scope.
 
 ## Features
 
@@ -39,7 +39,7 @@ Historical analytics use Trino over Iceberg. Current store, inventory, and logis
 - **Medallion Processing:** Bronze source history, Silver typing/deduplication/MERGE and PII pseudonymization, and Gold dimensions/facts/marts.
 - **Data Quality and Reconciliation:** Source-to-Silver reconciliation and post-Gold checks, with audit results in `lakehouse.system.data_quality_results`.
 - **Open Lakehouse Storage:** MinIO object storage, Iceberg tables/snapshots, Polaris catalog, and scheduled maintenance.
-- **Role-Based Analytics:** Seven dashboard views with API-level role and store filtering, Trino historical queries, and explicitly marked OLTP fallback.
+- **Role-Based Analytics:** Seven dashboard views with API-level role and store filtering, Trino/Iceberg publications, bounded last-good OLAP cache, and API-level role/store filtering.
 - **Access-Log Analytics:** Request volume, duration percentiles, error rates, product interactions, and event-based marketing funnels.
 - **Synthetic Data Generation:** Version 0.7 generates deterministic SQL history and historical access logs from YAML configurations; live API traffic can feed the Kafka stream.
 - **Operational Source Application:** Storefront, cart/checkout, POS, store inventory, in-house delivery, COD failure tracking, returns/refunds, and product reviews.
@@ -144,6 +144,8 @@ OLTP batch:
 
 MySQL CDC:
   MySQL binlog -> Debezium -> Kafka -> Flink -> Bronze CDC events
+  Bronze -> Spark CDC consumer -> typed Silver -> affected Gold/Data Marts
+  Spark CDC consumer -> atomic publication manifest (Kafka offsets + Iceberg snapshots)
 
 Access logs:
   FastAPI middleware -> Kafka -> Flink -> Iceberg log tables
@@ -154,7 +156,7 @@ Storage / catalog:
 
 Serving:
   Iceberg -> Trino -> FastAPI analytics -> Admin BI Hub / ECharts
-  MySQL -----------> FastAPI operational metrics
+  MySQL -----------> FastAPI transactions, auth/RBAC, source reconciliation
   Trino -----------> LibreDB Studio
 ```
 
@@ -180,13 +182,13 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 | **Query Engine** | Trino | 483 | SQL over Iceberg |
 | **SQL UI** | LibreDB Studio | `latest` | Database/query interface |
 
-The OLTP Gold model defines **6 dimensions, 5 facts, and 4 marts**. The log model defines **1 fact and 3 marts**. Row counts depend on the loaded dataset and completed pipeline runs.
+The OLTP Gold model defines **6 dimensions, 6 facts (including current inventory), and 4 marts**. The log model defines **1 fact and 3 marts**. Row counts depend on the loaded dataset and completed pipeline runs.
 
 The OLTP batch DAG is scheduled daily at 02:00 Asia/Ho_Chi_Minh; OLTP maintenance runs at 03:00 and streaming maintenance every two hours. Flink runs continuously with a configured 10-second checkpoint interval. That interval is not a measured end-to-end latency guarantee.
 
 Source–Silver reconciliation runs before Gold processing; a second gate checks Gold counts, monetary parity, keys, references, lineage, and PII tokens. Failures mark the task/DAG unsuccessful and results are recorded in `lakehouse.system.data_quality_results`. These runtime gates remain part of data processing.
 
-Batch cursors advance after Bronze; Gold tables commit independently. CDC does not yet apply changes into typed Silver/Gold, and the payments created_at cursor can miss older COD status updates. Maintenance targets an explicit subset of tables. Current transaction, permission, security and recovery limits are documented in [scope](docs/project/SCOPE.md) and [setup](docs/runbook/SETUP.md).
+CDC materialization applies transaction-complete Bronze changes to typed Silver, refreshes dependent Gold tables, and advances its Kafka checkpoint only after validation and publication. The daily batch path remains available in explicit batch mode; reconciliation runs read-only in CDC mode. The Spark and Airflow writers share a local filesystem lock. Maintenance targets an explicit subset of tables. Current transaction, permission, security and recovery limits are documented in [scope](docs/project/SCOPE.md) and [setup](docs/runbook/SETUP.md).
 
 ---
 
@@ -255,21 +257,21 @@ Importing the same SQL dataset twice is rejected by unique keys. See the [genera
 
 ### Operational Signals and Analytical Metrics
 
-The BI Hub combines historical Trino queries with current MySQL indicators. API responses expose `data_source`, `is_degraded`, and `degraded_reason` so the UI can identify OLTP fallback or incomplete data.
+The BI Hub reads a pinned Iceberg snapshot set through Trino. Responses identify the publication ID/time and whether the bounded last-good cache is serving stale data. System reconciliation compares published Gold counts/revenue with current MySQL source values.
 
 | Role | Implemented Indicators | Primary Source | Interpretation |
 |---|---|---|---|
-| **Executive** | Order totals, revenue, COGS, profit, AOV, COD in transit | Gold + MySQL enrichment | Gold and OLTP fallback have different revenue rules |
+| **Executive** | Order totals, revenue, COGS, profit, AOV, COD in transit | Gold + Silver, pinned publication | Financial recognition follows the documented Gold formula |
 | **Sales** | Store/channel contributions, top products, category shares | Gold facts and sales mart | Order counts across categories are not additive |
-| **Store** | Today's revenue/orders, low stock, stockout SKUs | MySQL, restricted by store | Today's boundary uses Asia/Ho_Chi_Minh |
-| **Inventory** | On-hand units/value, inbound batches, depletion signals | MySQL | Current inventory state |
-| **Operations** | Pending orders, waiting time, failed shipments, COD failure by region, returns | MySQL | Field names and detection formulas are documented separately |
-| **Marketing** | 30-day event funnel, coupon usage, recent negative reviews | Gold events + MySQL | Funnel counts events, not unique people or linked sessions |
-| **System** | Gold freshness, order-count and monetary variance | Gold compared with MySQL | UI freshness thresholds differ from the daily batch schedule |
+| **Store** | Today's revenue/orders, low stock, stockout SKUs | Gold current inventory and orders, restricted by store | Today's boundary uses Asia/Ho_Chi_Minh |
+| **Inventory** | On-hand units/value, inbound batches, depletion signals | Gold current inventory + Silver, pinned publication | Current inventory state |
+| **Operations** | Pending orders, waiting time, failed shipments, COD failure by region, returns | Gold + Silver, pinned publication | Field names and detection formulas are documented separately |
+| **Marketing** | 30-day event funnel, coupon usage, recent negative reviews | Gold events + Silver, pinned publication | Funnel counts events, not unique people or linked sessions |
+| **System** | Publication age, CDC heartbeat/pending events, order-count and monetary variance | Published Gold compared with current MySQL | Source values may be ahead while CDC is applying events |
 
-Refreshing a dashboard does not refresh batch Gold. Definitions, windows, denominators, and current limitations are detailed in the [Metrics Catalog](docs/architecture/METRICS_CATALOG.md).
+Dashboard refresh reads the latest complete publication; new OLTP data appears after CDC capture, application, dependent Gold refresh, and publication. Definitions, windows, denominators, and current limitations are detailed in the [Metrics Catalog](docs/architecture/METRICS_CATALOG.md).
 
-System reconciliation renders one chart per metric so order counts and VND use independent scales. Fallback values are not shown as measured Gold comparisons.
+System reconciliation renders one chart per metric so order counts and VND use independent scales. Cached OLAP responses are marked degraded and are not presented as a new source comparison.
 
 ---
 

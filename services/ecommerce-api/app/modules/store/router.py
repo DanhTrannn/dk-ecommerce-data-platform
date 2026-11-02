@@ -25,7 +25,7 @@ from app.modules.store.service import (
 admin_store_router = APIRouter(prefix="/admin/store", tags=["admin-store"])
 
 
-def _resolve_store_id(db: Session, actor: Customer, store_id: int | None) -> int:
+def _resolve_store_id(db: Session, actor: Customer, store_id: int | None, *, analytics: bool = False) -> int:
     if actor.role == "store_manager":
         if actor.store_id is None:
             raise forbidden("Tài khoản không gắn với cửa hàng nào.")
@@ -33,6 +33,12 @@ def _resolve_store_id(db: Session, actor: Customer, store_id: int | None) -> int
     if actor.role == "admin":
         if store_id is not None:
             return store_id
+        if analytics:
+            from app.modules.analytics.service import get_active_stores_list
+            stores = get_active_stores_list(actor)
+            if not stores:
+                raise not_found("Chưa có cửa hàng trong dữ liệu OLAP.")
+            return stores[0].store_id
         first_store = db.execute(
             select(Store).where(Store.is_active == True).order_by(Store.store_id).limit(1)
         ).scalar_one_or_none()
@@ -48,7 +54,7 @@ def store_dashboard(
     actor: Customer = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ) -> StoreDashboardResponse:
-    resolved_store_id = _resolve_store_id(db, actor, store_id)
+    resolved_store_id = _resolve_store_id(db, actor, store_id, analytics=True)
     return get_store_dashboard(db, resolved_store_id)
 
 

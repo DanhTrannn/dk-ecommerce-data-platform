@@ -23,6 +23,7 @@ RUN mkdir -p /tmp/iceberg \
 
 FROM apache/spark:3.5.9-java17-python3
 USER root
+RUN python3 -m pip install --no-cache-dir PyYAML==6.0.2
 COPY --from=iceberg /tmp/iceberg/*.jar /opt/spark/jars/
 COPY infrastructure/spark/conf/spark-defaults.conf /opt/project/spark/spark-defaults.conf
 COPY infrastructure/spark/bin/with-polaris-credentials.sh /opt/project/spark/with-polaris-credentials.sh

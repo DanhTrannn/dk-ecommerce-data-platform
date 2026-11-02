@@ -10,12 +10,12 @@ MySQL 8.4 row binlog
   -> ecommerce.ecommerce.<table> Kafka topics
   -> PyFlink oltp_cdc_to_bronze
   -> lakehouse.bronze.oltp_cdc_events (Iceberg v2)
-  -> Trino replay, audit, and downstream processing
+  -> Spark CDC materializer -> typed Silver -> affected Gold/Data Marts
+  -> system.analytics_publications (exact table snapshots + committed Kafka offsets)
+  -> Trino -> FastAPI role dashboards
 ```
 
-The existing Spark incremental batch pipeline remains in place for historical
-backfills, Silver/Gold construction, and source-to-target reconciliation. CDC is
-the continuous change log; no measured end-to-end latency is asserted here.
+The live pipeline has a persistent Spark consumer that reads Bronze offsets, applies complete MySQL transactions to typed Silver, refreshes dependent Gold tables, validates results, and then commits an Iceberg publication manifest. The daily Airflow DAG performs source-to-Silver reconciliation in default CDC mode. Set `LAKEHOUSE_OLTP_MODE=batch` for a controlled batch handoff only after stopping the CDC consumer. No end-to-end latency SLA is claimed.
 
 Access logs continue through their separate
 `ecommerce.access_logs -> Flink -> Landing/Bronze/Silver/Gold` pipeline.
@@ -114,16 +114,25 @@ ORDER BY table_name, operation;
   Pseudonymization remains mandatory before exposing customer data downstream.
 - Use the Spark reconciliation and Gold quality gates after recovery or replay.
 
-## 6. Current boundary
+## 6. Remaining recovery limits
 
-CDC capture through Iceberg Bronze is implemented. Automatic CDC materialization
-into every typed Silver table and incremental Gold mart refresh is not yet part
-of this path; those layers continue to be built and verified by the scheduled
-Spark pipeline. Operational dashboard endpoints still query MySQL for current
-transactional actions, while Trino serves analytical history.
+CDC capture and CDC-driven typed Silver/Gold publication are implemented. Store, inventory, checkout, POS and other transaction endpoints still use MySQL because they perform operational reads/writes. KPI dashboard APIs use Trino publications. Flink replacement jobs must be checked for their actual restore point; Bronze `event_id` is deterministic but the sink does not impose a physical uniqueness constraint.
 
 Implementation references: [connector configuration](../../infrastructure/debezium/register-connector.sh),
 [MySQL account](../../infrastructure/mysql/create-cdc-user.sh),
 [Flink job](../../pipelines/src/jobs/cdc/mysql_cdc_to_bronze.py),
 [sink DDL/checkpoint factory](../../pipelines/src/lakehouse/flink.py),
 [submission script](../../infrastructure/flink/bin/submit-job.sh).
+
+
+## 7. CDC materialization and dashboard publication
+
+`spark-cdc` is a persistent Spark micro-batch consumer (default poll interval 30 seconds). It deduplicates records by topic coordinates plus source transaction/binlog identity (because Kafka offsets can be reused after a topic reset), waits for Debezium transaction END and its `event_count`, applies inserts/updates/deletes to the 27 typed Silver tables, and tracks per-key binlog ordering in `system.cdc_row_state`. PII fields use the same pseudonymization path as batch Silver; coarse shipping region is derived before address pseudonymization. Invalid rows are quarantined and block checkpoint advancement.
+
+For initial bootstrap, legacy Bronze history can contain transactions whose END record predates retained Kafka metadata. The first publication therefore requires symmetric all-column parity between all 27 curated Silver tables and a live read of their MySQL source tables. After bootstrap, missing or incomplete transaction END metadata blocks publication. A source write during the one-time all-table parity check can cause a fail-closed retry.
+
+After applying Silver, the consumer rebuilds only dependent Gold tables (whole-table replacement currently removes groups lost after deletes), runs reference/order/inventory checks, and appends a publication row with exact Iceberg snapshot IDs and Kafka offsets. This is table-level dependency refresh, not row/partition-level incremental Gold processing. The API pins Silver/Gold queries with `FOR VERSION AS OF`; web-event Gold remains on its separate access-log streaming lifecycle. It uses a bounded last-good OLAP response during Trino errors, then returns HTTP 503 when no unexpired response exists. It never substitutes MySQL analytics.
+
+`system.cdc_pipeline_state` reports consumer heartbeat, status, pending event count and oldest pending event. The System dashboard compares published Gold with current MySQL source counts/revenue, so its reconciliation can temporarily reflect source changes waiting in CDC. Dashboard browser refresh is 15 seconds; that is a polling interval, not a CDC propagation SLA.
+
+Operational boundaries: the shared POSIX `flock` serializes writers only on this Docker host; it is not a distributed lock. Kafka transaction completeness depends on the transaction metadata topic and the configured topic prefix. The source cursor uses MySQL GTID UUID and binlog file/position ordering; changed source identity fails closed until an operator performs a controlled rebootstrap. Kafka offsets alone are not treated as a globally unique source checkpoint. The daily batch and CDC writer must not run concurrently.

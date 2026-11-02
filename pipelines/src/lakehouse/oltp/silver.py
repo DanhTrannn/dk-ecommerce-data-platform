@@ -295,6 +295,11 @@ def merge_oltp_table(
         )
         result.quarantined = quarantine_count
 
+    if table.name == "orders":
+        from lakehouse.oltp.cdc import region_column
+
+        valid_df = valid_df.withColumn("shipping_region", region_column(F.col("shipping_address_text")))
+
     if table.pseudonymize:
         for col_name in table.pseudonymize:
             if col_name in valid_df.columns:

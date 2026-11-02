@@ -1,7 +1,7 @@
 """PyFlink Pure Streaming Job: Kafka → Medallion Lakehouse (Landing, Bronze, Silver, Gold).
 
 Consumes access logs in real time from Kafka topic ``ecommerce.access_logs``,
-transforms timestamps using Pendulum in the Asia/Ho_Chi_Minh timezone,
+transforms timestamps using Pendulum in the UTC timezone,
 and writes concurrently into all 4 Medallion layers using an Apache Flink StatementSet
 with Merge-on-Read Iceberg tables:
   1. lakehouse.landing.access_logs     (Raw JSON + routing metadata)
@@ -37,7 +37,7 @@ from pyflink.datastream.functions import MapFunction
 from pyflink.table import Schema
 from pyflink.table.types import DataTypes
 
-VN_TZ = pendulum.timezone("Asia/Ho_Chi_Minh")
+STORAGE_TZ = pendulum.timezone("UTC")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,7 +52,7 @@ CHECKPOINT_INTERVAL_MS = 10_000
 
 
 # ---------------------------------------------------------------------------
-# Event parsing with Pendulum Asia/Ho_Chi_Minh timezone
+# Event parsing with Pendulum UTC timezone
 # ---------------------------------------------------------------------------
 class ParseAccessLog(MapFunction):
     """Parse raw JSON string from Kafka into multi-layer schema fields."""
@@ -64,13 +64,13 @@ class ParseAccessLog(MapFunction):
             log.warning("Unparseable message dropped: %.120s", raw)
             return None
 
-        now_dt = pendulum.now(VN_TZ)
+        now_dt = pendulum.now(STORAGE_TZ)
         now_ts_str = now_dt.strftime("%Y-%m-%d %H:%M:%S.%f")
 
         # Parse event timestamp in Asia/Ho_Chi_Minh
         ts_str: str = msg.get("timestamp") or ""
         try:
-            event_dt = pendulum.parse(ts_str).in_timezone(VN_TZ)
+            event_dt = pendulum.parse(ts_str).in_timezone(STORAGE_TZ)
         except Exception:
             event_dt = now_dt
         event_ts_str = event_dt.strftime("%Y-%m-%d %H:%M:%S.%f")
@@ -79,7 +79,7 @@ class ParseAccessLog(MapFunction):
         # Observed timestamp in container
         obs_str: str = msg.get("observed_timestamp") or ""
         try:
-            obs_dt = pendulum.parse(obs_str).in_timezone(VN_TZ)
+            obs_dt = pendulum.parse(obs_str).in_timezone(STORAGE_TZ)
         except Exception:
             obs_dt = event_dt
         obs_ts_str = obs_dt.strftime("%Y-%m-%d %H:%M:%S.%f")

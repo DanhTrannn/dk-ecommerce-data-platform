@@ -67,20 +67,20 @@ CDC_INSERT_SQL = """
         CONCAT(topic, ':', CAST(kafka_partition AS STRING), ':', CAST(kafka_offset AS STRING)),
         topic,
         JSON_VALUE(payload, '$.source.db'),
-        COALESCE(
+        CASE WHEN topic LIKE '%.transaction' THEN '__transaction__' ELSE COALESCE(
             JSON_VALUE(payload, '$.source.table'),
             REGEXP_EXTRACT(topic, '[^.]+$', 0)
-        ),
+        ) END,
         CASE
             WHEN payload IS NULL THEN 't'
-            ELSE JSON_VALUE(payload, '$.op')
+            ELSE COALESCE(JSON_VALUE(payload, '$.op'), JSON_VALUE(payload, '$.status'))
         END,
         COALESCE(
             TO_TIMESTAMP_LTZ(CAST(JSON_VALUE(payload, '$.ts_ms') AS BIGINT), 3),
             kafka_timestamp
         ),
         TO_TIMESTAMP_LTZ(CAST(JSON_VALUE(payload, '$.source.ts_ms') AS BIGINT), 3),
-        JSON_VALUE(payload, '$.transaction.id'),
+        COALESCE(JSON_VALUE(payload, '$.transaction.id'), JSON_VALUE(payload, '$.id')),
         JSON_VALUE(payload, '$.source.server_id'),
         JSON_VALUE(payload, '$.source.file'),
         CAST(JSON_VALUE(payload, '$.source.pos') AS BIGINT),
@@ -107,7 +107,7 @@ def main() -> None:
     bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
     topic_prefix = os.environ.get("CDC_TOPIC_PREFIX", "ecommerce")
     database_name = os.environ.get("MYSQL_DATABASE", "ecommerce")
-    topic_pattern = rf"{topic_prefix}\.{database_name}\..*"
+    topic_pattern = rf"{topic_prefix}\.({database_name}\..*|transaction)"
     group_id = os.environ.get("CDC_FLINK_GROUP_ID", "flink-oltp-cdc-bronze-v1")
 
     env = create_stream_environment(checkpoint_interval_ms=CHECKPOINT_INTERVAL_MS)

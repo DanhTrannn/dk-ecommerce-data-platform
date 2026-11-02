@@ -11,7 +11,7 @@ Vai trò dashboard, API và phạm vi truy cập được mô tả trong [kiến
 - Tiền là số nguyên VND. Lợi nhuận trong Gold là doanh thu trừ giá vốn, chưa trừ đầy đủ chi phí vận hành, thuế và quảng cáo.
 - Phải kiểm tra grain trước khi SUM hoặc JOIN. `fact_order` có một dòng/đơn; `fact_order_item` có một dòng/chi tiết đơn.
 - Đếm đơn toàn hệ thống bằng `COUNT(DISTINCT order_id)` trên fact. Một đơn có nhiều nhóm sản phẩm sẽ xuất hiện ở nhiều dòng `mart_sales_daily`.
-- `data_source` cho biết `lakehouse`, `oltp` hoặc `oltp_fallback`. `is_degraded` và `degraded_reason` cho biết nguồn thay thế hoặc dữ liệu chưa đầy đủ.
+- `data_source` là `lakehouse` cho KPI. `source_run_id` và `data_updated_at` xác định publication; `served_from_cache`, `cache_age_seconds`, `is_degraded` và `degraded_reason` cho biết phản hồi đang giữ phiên OLAP cũ do lỗi truy vấn. Không có truy vấn KPI thay thế trên MySQL.
 - Ngày hôm nay ở chỉ số cửa hàng dùng Asia/Ho_Chi_Minh. Log Flink chuyển timestamp sang giờ Việt Nam trước SQL cast và tạo event_date theo ngày đó; Spark session dùng UTC. Kiểm tra timestamp lưu và múi giờ engine khi đối chiếu ngày/giờ, không mặc định tất cả bucket là UTC.
 
 ## 2. Doanh thu, giá vốn và lợi nhuận
@@ -34,7 +34,7 @@ Vai trò dashboard, API và phạm vi truy cập được mô tả trong [kiến
 
 **Hai cách ghi nhận doanh thu đang khác nhau:** `fact_order.net_revenue_vnd` loại bốn trạng thái không ghi nhận, nên có thể còn tính đơn chưa giao. Sales mart chỉ cộng item revenue của đơn delivered/completed. GMV order total còn có thể chứa phí ship, trong khi tổng item không tương đương order total. Không mô tả tất cả các trường này bằng cùng một tên “doanh thu đã giao”.
 
-OLTP fallback executive dùng tiền thanh toán thành công trừ hoàn tiền thành công, COGS của đơn delivered/completed và GMV bỏ đơn cancelled. Vì thế fallback không phải bản sao công thức Gold; UI cần hiển thị nguồn. Biểu đồ sales trend cộng mart theo ngày, nên `orders_count` có thể trùng đơn khi cộng qua danh mục.
+Executive dùng định nghĩa doanh thu/COGS của Gold. Sales trend lấy giá trị doanh thu theo mart và đếm đơn riêng từ `fact_order`, nên số đơn không bị cộng lặp theo danh mục.
 
 Gold order hiện suy ra net revenue từ trạng thái và order total, không trực tiếp trừ mọi refund trả lẻ. Khi mới trả một phần và order chưa returned, net revenue có thể chưa phản ánh khoản hoàn một phần. Không dùng công thức này như số liệu kế toán đã đối soát hoàn tiền đầy đủ.
 
@@ -53,7 +53,7 @@ Gold order hiện suy ra net revenue từ trạng thái và order total, không 
 | Thời gian chờ trung bình | Trung bình số giờ từ created_at tới hiện tại của đơn paid/confirmed/processing |
 | Giao vận có vấn đề | Trường API `shipping_sla_violations_count` hiện đếm shipment attempt_count > 1 hoặc status failed; chưa phải so sánh deadline SLA |
 | Tỷ lệ COD lỗi theo vùng | Shipment COD failed / tổng shipment COD trong nhóm địa chỉ; nhóm vùng dựa trên từ khóa địa chỉ |
-| Tiền COD đang giao | Tổng order total của COD có shipment dispatched/in_transit; chưa phải số dư tiền thực tế shipper đang giữ |
+| Tiền COD đang giao | Tổng doanh thu Gold của COD có shipment assigned/picked_up/in_transit; chưa phải số dư tiền thực tế shipper đang giữ |
 | Coupon burn rate | Số redemption trong 15 phút / 15; phần trăm sử dụng = used_count / total_usage_limit, không tự đặt limit khi coupon không có cap |
 | Đánh giá xấu gần đây | Đếm rating <= 2 trong 45 phút, nhóm theo product |
 
@@ -78,7 +78,7 @@ Một số trường API vẫn optional để tương thích giao diện. Khi th
 
 Funnel hiện đếm **sự kiện**, không phải unique visitor hoặc chuỗi session đã gắn kết. Nhiều request của cùng người có thể được tính nhiều lần; tỷ lệ không được hiểu là xác suất một người mua hàng. `total_visitors` là tên API cho lượt sự kiện đầu phễu. Cột `success_2xx_count` ở mart hiện cộng `is_success`, mà logic bao gồm cả phản hồi <400.
 
-Khi không có log trong kỳ hoặc nguồn lỗi, marketing có thể dùng OLTP fallback: số đơn, cart item và khách hàng được tạo trong 30 ngày. Đây là proxy nghiệp vụ, không thay thế phép đo truy cập web; response đánh dấu degraded.
+Marketing tiếp tục đọc Gold web events và typed Silver cho voucher, coupon, review. Khi bảng event rỗng, metric trả rỗng/0 theo hợp đồng; không dựng proxy từ MySQL.
 
 ## 5. Chỉ số kỹ thuật DE
 
@@ -87,16 +87,16 @@ Khi không có log trong kỳ hoặc nguồn lỗi, marketing có thể dùng OL
 | Row count từng tầng | COUNT theo table/run_id hoặc snapshot cụ thể; phân biệt Bronze history và Silver current state |
 | Source–Silver variance | `abs(source-target)/abs(source) × 100`; source=0/target!=0 được tính 100%; ngưỡng gate mặc định 0,05% |
 | Gold parity | Count/tiền, PK, FK, lineage và PII token được kiểm tra bởi quality gate |
-| Gold freshness | Thời gian hiện tại trừ `MAX(_gold_ingested_at)` của fact_order; không phải tuổi của từng bản ghi nguồn |
+| Publication age | Thời gian hiện tại trừ `system.analytics_publications.published_at`; phiên không đổi khi không có CDC mới |
 | CDC event count | Đếm theo table_name, operation, event_date; số event khác số bản ghi hiện hữu ở nguồn |
 | CDC traceability | event_id, before/after, binlog và Kafka offset; kiểm tra replay/truy vết từ Bronze |
 | Processing duration / throughput | Lấy từ log thời gian và khối lượng lần chạy; repo không ấn định con số benchmark |
 
-Trang system đánh dấu degraded khi variance >5% hoặc freshness >15 phút; unhealthy khi variance >20%, freshness >60 phút hoặc chưa xác định được freshness. Đây là ngưỡng giao diện, khác ngưỡng đối soát pipeline 0,05%. Lịch batch hằng ngày khiến Gold có thể cũ hơn ngưỡng UI giữa hai lần chạy.
+System API đánh dấu unhealthy khi heartbeat quá 180 giây, consumer báo lỗi hoặc variance >20%; degraded khi CDC có pending quá 120 giây hoặc variance >5%. Heartbeat và tuổi publication là hai phép đo khác nhau; khi nguồn không thay đổi, publication có thể cũ nhưng CDC vẫn khỏe.
 
 Đối soát dashboard dùng hai metric: `total_orders` so COUNT đơn MySQL với COUNT DISTINCT order_id Gold; `gross_revenue_vnd` so SUM orders.total_vnd với SUM fact_order.gross_revenue_vnd, đều gồm mọi trạng thái. Chênh lệch = abs(OLTP−Gold)/OLTP × 100, làm tròn hai chữ số; OLTP=0 thì 0% nếu Gold=0, ngược lại 100%.
 
-UI vẽ từng metric riêng để số đơn không dùng chung thang với doanh thu. Số đơn có đơn vị đơn; tiền có trục VND, nhãn rút gọn và tooltip giá trị đầy đủ; badge dùng variance_percent từ API. Trong fallback, API còn trả các giá trị placeholder Gold=0/variance=100%, nhưng UI ẩn cột so sánh và hiển thị thiếu nguồn. Không đọc các placeholder như chênh lệch đã đo.
+UI vẽ từng metric riêng để số đơn không dùng chung thang với doanh thu. Số đơn có đơn vị đơn; tiền có trục VND, nhãn rút gọn và tooltip giá trị đầy đủ; badge dùng variance_percent từ API. Nếu Trino lỗi, API trả phản hồi OLAP gần nhất trong giới hạn cache; UI ẩn việc so sánh mới khi phản hồi lấy từ cache.
 
 ## 6. Cách trình bày kết quả
 

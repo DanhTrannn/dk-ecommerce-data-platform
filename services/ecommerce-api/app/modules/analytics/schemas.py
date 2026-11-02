@@ -34,7 +34,7 @@ class DepletionVelocitySignal(BaseModel):
     on_hand: int = 0
     units_sold_last_hour: int = 0
     depletion_rate_per_min: float = 0.0
-    estimated_minutes_to_stockout: int = 0
+    estimated_minutes_to_stockout: int | None = None
     alert_level: str = "normal"
 
 
@@ -142,6 +142,10 @@ class AnalyticsDataStatus(BaseModel):
     data_source: str = "lakehouse"
     is_degraded: bool = False
     degraded_reason: str | None = None
+    source_run_id: str | None = None
+    data_updated_at: str | None = None
+    served_from_cache: bool = False
+    cache_age_seconds: int = 0
 
 
 class ExecutiveMetricsResponse(AnalyticsDataStatus):
@@ -274,6 +278,10 @@ class SystemMetricsResponse(AnalyticsDataStatus):
     data_freshness_minutes: int | None = None
     data_freshness_sla_minutes: int = 15
     reconciliation_variance: list[ReconciliationVariance] = Field(default_factory=list)
+    cdc_apply_status: str = "unknown"
+    cdc_heartbeat_at: str | None = None
+    cdc_pending_events: int = 0
+    cdc_apply_lag_seconds: int = 0
 
 
 class DailySalesTrendPoint(BaseModel):

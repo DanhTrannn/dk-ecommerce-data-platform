@@ -385,6 +385,9 @@ def build_fact_order(
             F.coalesce(F.col("o.store_id"), F.lit(0)).alias("store_key"),
             F.date_format(F.col("o.created_at"), "yyyyMMdd").cast("int").alias("order_date_key"),
             F.to_date(F.col("o.created_at")).alias("order_date"),
+            F.col("o.created_at").alias("created_at"),
+            F.to_date(F.from_utc_timestamp(F.col("o.created_at"), "Asia/Ho_Chi_Minh")).alias("order_date_vn"),
+            (F.col("o.shipping_region") if "shipping_region" in silver_orders.columns else F.lit("Khu vực khác")).alias("shipping_region"),
             channel_col.alias("channel"),
             F.col("o.status"),
             payment_method_col.alias("payment_method"),
@@ -495,7 +498,7 @@ def build_fact_shipment(
             F.col("delivered_at") <= F.col("estimated_delivery_at"),
         ).otherwise(None)
         if "estimated_delivery_at" in silver_shipments.columns
-        else F.lit(True)
+        else F.lit(None).cast("boolean")
     )
 
     cod_expected_col = (
@@ -519,6 +522,9 @@ def build_fact_shipment(
             F.to_date(F.col("created_at")).alias("shipment_date"),
             F.col("status"),
             F.col("attempt_count"),
+            F.col("dispatched_at"),
+            F.col("delivered_at"),
+            F.col("failed_at"),
             (F.col("status") == "failed").alias("is_boom"),
             (F.col("status") == "delivered").alias("is_delivered"),
             cod_expected_col.alias("cod_amount_expected_vnd"),

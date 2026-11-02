@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from lakehouse.config import load_config
 from lakehouse.oltp.reconcile import ReconciliationGateError, run_reconciliation_gate
 from lakehouse.spark import spark_session
+from lakehouse.writer import oltp_writer_lock
 
 
 def main() -> None:
@@ -19,24 +21,30 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config(args.config_path)
-    spark = spark_session("oltp_reconciliation_gate")
 
-    try:
-        summary = run_reconciliation_gate(
-            spark,
-            cfg,
-            tolerance_pct=args.tolerance_pct,
-            run_id=args.run_id,
-            batch_date=args.batch_date,
-            persist_results=True,
-        )
-        print(f"RECONCILIATION GATE OK: passed {summary['passed_checks']}/{summary['total_checks']} checks.")
-    except ReconciliationGateError as exc:
-        print(f"RECONCILIATION GATE FAILURE: {exc}", file=sys.stderr)
-        spark.stop()
-        sys.exit(1)
-    finally:
-        spark.stop()
+    def run():
+        spark = spark_session("oltp_reconciliation_gate")
+        try:
+            summary = run_reconciliation_gate(
+                spark,
+                cfg,
+                tolerance_pct=args.tolerance_pct,
+                run_id=args.run_id,
+                batch_date=args.batch_date,
+                persist_results=True,
+            )
+            print(f"RECONCILIATION GATE OK: passed {summary['passed_checks']}/{summary['total_checks']} checks.")
+        except ReconciliationGateError as exc:
+            print(f"RECONCILIATION GATE FAILURE: {exc}", file=sys.stderr)
+            sys.exit(1)
+        finally:
+            spark.stop()
+
+    if os.environ.get("LAKEHOUSE_OLTP_MODE", "cdc") == "cdc":
+        with oltp_writer_lock():
+            run()
+    else:
+        run()
 
 
 if __name__ == "__main__":

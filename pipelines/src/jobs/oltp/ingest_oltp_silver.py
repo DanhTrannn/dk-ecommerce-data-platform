@@ -5,6 +5,7 @@ from lakehouse.config import load_config
 from lakehouse.oltp.silver import merge_oltp_table
 from lakehouse.oltp.silver_ddl import ensure_silver_tables
 from lakehouse.spark import spark_session
+from lakehouse.writer import oltp_writer_lock
 
 
 def parse_args(args):
@@ -15,7 +16,7 @@ def parse_args(args):
     return parser.parse_args(args)
 
 
-def main():
+def _run():
     args = parse_args(sys.argv[1:])
     spark = spark_session("ingest_oltp_bronze_to_silver")
     try:
@@ -43,6 +44,11 @@ def main():
             print(f"{table.name}: inserted={result.inserted}, updated={result.updated}, quarantined={result.quarantined}")
     finally:
         spark.stop()
+
+
+def main():
+    with oltp_writer_lock():
+        _run()
 
 
 if __name__ == "__main__":

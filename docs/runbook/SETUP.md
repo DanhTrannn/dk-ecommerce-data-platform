@@ -167,7 +167,7 @@ docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_mai
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_streaming_maintenance
 ```
 
-OLTP maintenance targets 15 Gold and 8 Silver tables; log maintenance targets four log tables. Bronze CDC and the remaining tables are not automatically covered. The streaming monitor accepts a RUNNING job, so verify both named streams separately rather than treating this task alone as proof of their health.
+OLTP maintenance targets 16 Gold and 8 Silver tables; log maintenance targets four log tables. Bronze CDC and the remaining tables are not automatically covered. The streaming monitor accepts a RUNNING job, so verify both named streams separately rather than treating this task alone as proof of their health.
 
 ### Inspect Streaming and CDC
 
@@ -179,7 +179,7 @@ curl -fsS http://127.0.0.1:8086/connectors/mysql-ecommerce-cdc/status
 curl -fsS http://localhost:8085/jobs/overview
 ```
 
-CDC currently appends events to Bronze; Silver/Gold still use Spark batch. See the [CDC specification](../architecture/CDC_DASHBOARD_DATA_SPEC.md) for event semantics, inspection SQL, and recovery rules, and the [access-log design](../architecture/ACCESS_LOG_DESIGN.md) for log contracts and processing boundaries.
+CDC appends Bronze events, applies them to typed Silver/affected Gold with `spark-cdc`, then publishes offsets and pinned Iceberg snapshot IDs. In CDC mode the daily OLTP DAG checks source-to-Silver parity; manual batch processing requires a controlled handoff with CDC stopped. See the [CDC specification](../architecture/CDC_DASHBOARD_DATA_SPEC.md) for transaction gates, bootstrap, lock boundaries and recovery, and [access-log design](../architecture/ACCESS_LOG_DESIGN.md) for log contracts.
 
 ---
 
@@ -244,9 +244,9 @@ docker compose logs --tail=200 trino
 - **S3 Connectivity Errors:** Ensure container network connectivity to `http://minio:9000`. Each consumer must use its own dedicated MinIO service user (`lakehouse-*`); MinIO root credentials are not mounted into any workload.
 - **UI/API role mismatch:** operations_manager can open order/logistics/return UI routes but those APIs require admin. A 403 is not a Trino/Iceberg failure. Store confirm/cancel routes also lack the explicit CSRF dependency.
 - **Branch stock changes return 204 but do not persist:** branch-inventory PATCH and inventory/refill POST currently only flush; get_db closes the session without committing. This is an application transaction limitation, not a CDC lag symptom. See [API limits](../../services/ecommerce-api/README.md#current-limits).
-- **COD payment changes missing in Silver:** payments uses a created_at cursor even though completion updates status. Old updates outside lookback can be missed; CDC alone does not update Silver/Gold.
+- **COD payment changes missing in Silver:** payments uses a created_at cursor even though completion updates status. Old updates outside lookback can be missed; the CDC materializer applies the update after its transaction is complete.
 - **Flink recovery/replay:** submission does not pass a checkpoint/savepoint restore path. A new access-log submission starts at earliest; CDC uses group offsets with earliest fallback. Inspect restore state and offsets explicitly. The access producer has a local DLQ without automatic replay.
-- **Gold freshness warning after successful batch:** system UI uses 15/60-minute thresholds, whereas Gold is scheduled daily. Dashboard refresh reloads API data without running the DAG.
+- **Dashboard data is behind OLTP:** check Debezium, Flink Bronze, `spark-cdc` heartbeat/pending transaction state, and the latest `system.analytics_publications` row. Browser refresh polls every 15 seconds and never starts a pipeline.
 
 ### Rebuild a changed frontend
 

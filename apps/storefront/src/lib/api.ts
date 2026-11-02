@@ -1,5 +1,5 @@
 import { ApiError, apiFetch } from "./api-client";
-import type { DeliveryStaff, ReturnRequestSummary, ShipmentDetail } from "./commerce";
+import type { AnalyticsDataStatus, DeliveryStaff, ReturnRequestSummary, ShipmentDetail } from "./commerce";
 import { publicConfig } from "./config";
 
 export { ApiError };
@@ -207,7 +207,7 @@ export interface OrderDetail {
   shipment?: ShipmentDetail | null;
 }
 
-export interface AdminOverview {
+export interface AdminOverview extends AnalyticsDataStatus {
   active_products: number;
   active_variants: number;
   low_stock_variants: number;

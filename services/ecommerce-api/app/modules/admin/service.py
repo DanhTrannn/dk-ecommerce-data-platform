@@ -11,9 +11,7 @@ from app.db.uow import run_in_transaction
 from app.models.catalog import Category, Product, ProductVariant
 from app.models.customer import Customer, CustomerCredential
 from app.models.inventory import Inventory
-from app.models.order import Order, OrderItem, Payment, Refund
-from app.models.promotion import Coupon
-from app.models.review import ProductReview
+from app.models.order import Order, OrderItem
 from app.modules.admin.schemas import (
     AdminCustomerResponse,
     AdminOrderResponse,
@@ -37,96 +35,8 @@ def _parse_public_id(value: str, label: str) -> UUID:
 
 
 def get_overview(db: Session) -> AdminOverviewResponse:
-    active_products = db.scalar(
-        select(func.count()).select_from(Product).where(Product.is_active.is_(True))
-    ) or 0
-    active_variants = db.scalar(
-        select(func.count())
-        .select_from(ProductVariant)
-        .join(Product, Product.product_id == ProductVariant.product_id)
-        .where(
-            ProductVariant.is_active.is_(True),
-            Product.is_active.is_(True),
-        )
-    ) or 0
-    low_stock_variants = db.scalar(
-        select(func.count())
-        .select_from(Inventory)
-        .join(ProductVariant, ProductVariant.variant_id == Inventory.variant_id)
-        .join(Product, Product.product_id == ProductVariant.product_id)
-        .where(
-            ProductVariant.is_active.is_(True),
-            Product.is_active.is_(True),
-            Inventory.on_hand <= 5,
-        )
-    ) or 0
-    customers = db.scalar(
-        select(func.count()).select_from(Customer).where(Customer.role == "customer")
-    ) or 0
-    order_counts = {
-        status: int(count)
-        for status, count in db.execute(
-            select(Order.status, func.count()).group_by(Order.status)
-        ).all()
-    }
-    total_reviews = db.scalar(select(func.count()).select_from(ProductReview)) or 0
-    now = datetime.now(UTC).replace(tzinfo=None)
-    active_coupons = db.scalar(
-        select(func.count())
-        .select_from(Coupon)
-        .where(
-            Coupon.is_active.is_(True),
-            Coupon.starts_at <= now,
-            Coupon.ends_at > now,
-        )
-    ) or 0
-    gross_revenue = db.scalar(
-        select(func.coalesce(func.sum(Payment.amount_vnd), 0)).where(
-            Payment.status == "succeeded"
-        )
-    ) or 0
-    refunded_amount = db.scalar(
-        select(func.coalesce(func.sum(Refund.amount_vnd), 0)).where(
-            Refund.status == "succeeded"
-        )
-    ) or 0
-
-    # COGS for fulfilled/delivered orders
-    cogs_vnd = db.scalar(
-        select(func.coalesce(func.sum(OrderItem.quantity * OrderItem.cost_price_vnd), 0))
-        .join(Order, Order.order_id == OrderItem.order_id)
-        .where(Order.status.in_(("delivered", "completed")))
-    ) or 0
-
-    net_rev = int(gross_revenue) - int(refunded_amount)
-    gross_profit = net_rev - int(cogs_vnd)
-    gross_margin = round((gross_profit / net_rev) * 100, 1) if net_rev > 0 else 0.0
-
-    boom_count = order_counts.get("failed_delivery", 0)
-    return_count = order_counts.get("returned", 0)
-
-    return AdminOverviewResponse(
-        active_products=int(active_products),
-        active_variants=int(active_variants),
-        low_stock_variants=int(low_stock_variants),
-        customers=int(customers),
-        paid_orders=order_counts.get("paid", 0),
-        confirmed_orders=order_counts.get("confirmed", 0),
-        completed_orders=order_counts.get("completed", 0),
-        cancelled_orders=order_counts.get("cancelled", 0),
-        total_reviews=int(total_reviews),
-        active_coupons=int(active_coupons),
-        gross_revenue_vnd=int(gross_revenue),
-        refunded_amount_vnd=int(refunded_amount),
-        net_revenue_vnd=net_rev,
-        cogs_vnd=int(cogs_vnd),
-        gross_profit_vnd=gross_profit,
-        gross_margin_percent=gross_margin,
-        boom_orders_count=boom_count,
-        return_orders_count=return_count,
-        shipping_orders=order_counts.get("shipping", 0),
-        delivered_orders=order_counts.get("delivered", 0),
-    )
+    from app.modules.analytics.service import get_admin_overview
+    return get_admin_overview()
 
 
 def list_products(db: Session, search: str | None = None) -> list[AdminProductResponse]:

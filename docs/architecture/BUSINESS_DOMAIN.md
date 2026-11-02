@@ -53,7 +53,7 @@ Store view trả doanh thu/số đơn hôm nay, tồn thấp và SKU hết tại
 
 Inventory view trả giá trị tồn theo giá vốn hiện tại, tổng lượng kho/cửa hàng, số phiếu nhập, SKU hết hàng và tín hiệu tốc độ bán trong 60 phút. Dự kiến thời gian hết hàng là phép chia tồn hiện tại cho tốc độ gần đây; chưa phải mô hình dự báo nhu cầu đã huấn luyện. Số SKU hết là distinct variant có tồn bằng 0 ở ít nhất một địa điểm, khác số cặp variant–địa điểm hết hàng.
 
-Gold inventory snapshot và mart hỗ trợ truy vấn phân tích, nhưng API vận hành hiện đọc MySQL. Tên bảng daily snapshot không chứng minh có đầy đủ snapshot của tất cả ngày trong lịch sử.
+Gold fact_inventory_current phục vụ KPI tồn hiện tại; fact_inventory_daily_snapshot lưu quan sát theo ngày. API vận hành giao dịch vẫn dùng MySQL, còn KPI dashboard tồn kho đọc Gold. Tên bảng daily snapshot không chứng minh có đầy đủ snapshot của tất cả ngày trong lịch sử.
 
 ## 6. Vận hành đơn và giao hàng
 
@@ -65,13 +65,13 @@ Shipper được lưu ở `delivery_staff`; thao tác cập nhật do API quản
 
 ## 7. Chất lượng và đối soát
 
-System view hiển thị tuổi Gold, trạng thái suy ra từ freshness/variance và các cặp giá trị MySQL–Gold. UI vẽ riêng từng chỉ số: total orders dùng đơn vị đơn; tiền dùng VND và trục riêng. Tooltip tiền hiển thị giá trị đầy đủ; badge chênh lệch dùng `variance_percent` từ API. Khi fallback hoặc không có cặp so sánh, UI không trình bày các giá trị placeholder Gold/variance như số liệu đối soát đã đo.
+System view hiển thị tuổi phiên công bố, trạng thái từ heartbeat CDC, pending lag và variance và các cặp giá trị MySQL–Gold. UI vẽ riêng từng chỉ số: total orders dùng đơn vị đơn; tiền dùng VND và trục riêng. Tooltip tiền hiển thị giá trị đầy đủ; badge chênh lệch dùng `variance_percent` từ API. Khi dùng phản hồi cache do Trino lỗi, UI đánh dấu degraded và không xem đó là kết quả đối soát mới.
 
-Ngưỡng 15/60 phút và 5/20% phục vụ trạng thái UI, khác ngưỡng reconciliation pipeline 0,05%. Dashboard này không thay thế kiểm tra trạng thái từng task Airflow, từng job Flink hoặc audit quality gate. Gold có lịch batch hằng ngày; nhấn refresh chỉ tải lại API.
+Heartbeat quá 180 giây hoặc variance trên 20% khiến trạng thái unhealthy; pending CDC quá 120 giây hoặc variance trên 5% khiến trạng thái degraded. Đây là tín hiệu vận hành, không thay thế kiểm tra từng task/job hoặc audit quality gate. Browser polling mỗi 15 giây chỉ tải API; thay đổi OLTP cần CDC capture, apply, refresh dependent Gold và publish.
 
 ## 8. Cách đọc nguồn và kết quả
 
-Response có `data_source`, `is_degraded`, `degraded_reason`. Thời điểm trình duyệt nhận response khác thời điểm pipeline cập nhật Gold. Marketing/store/inventory/operations tự refresh 60 giây khi trang hoạt động; các góc nhìn khác dùng thao tác tải lại.
+Response KPI có `data_source`, publication ID/time và metadata cache. Thời điểm trình duyệt nhận phản hồi khác thời điểm CDC công bố. Các dashboard tự refresh 15 giây khi tab hiển thị; polling không khởi chạy pipeline.
 
 Khi trình bày kết quả, ghi rõ dataset, kỳ dữ liệu, grain, công thức, bộ lọc, đơn vị và nguồn. Các câu hỏi mở rộng như dự báo, CLV, retention cohort, recommendation và đánh giá hiệu quả quảng cáo cần dữ liệu/mô hình bổ sung; chưa phải chức năng hiện có.
 

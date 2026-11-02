@@ -8,7 +8,7 @@ import { barOption, reconciliationOption } from "./chart-options";
 export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetricsResponse; userRole: string; trend?: ReactNode }) {
   const kpiGrid = "grid gap-4 sm:grid-cols-2 xl:grid-cols-4";
   const allTime = "Toàn bộ nguồn hiện có";
-  const current = "Trạng thái hiện tại";
+  const current = "Lần công bố OLAP gần nhất";
 
   switch (metrics.role) {
     case "executive": {
@@ -196,16 +196,16 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
       </>;
     }
     case "system": {
-      const comparable = metrics.data_source === "lakehouse" && metrics.reconciliation_variance.length > 0;
+      const comparable = metrics.data_source === "lakehouse" && !metrics.served_from_cache && metrics.reconciliation_variance.length > 0;
       const variances = metrics.reconciliation_variance;
       const maximum = comparable ? Math.max(...variances.map(row => row.variance_percent)) : null;
       const status = { healthy: "Trong ngưỡng UI", degraded: "Cần kiểm tra", unhealthy: "Bất thường" }[metrics.pipeline_status] ?? "Chưa xác định";
       const label = (row: ReconciliationVariance) => row.metric_name === "total_orders" ? "Tổng đơn" : row.metric_name === "gross_revenue_vnd" ? "Tổng giá trị đơn (VND)" : row.metric_name;
       return <>
         <div className="grid gap-4 sm:grid-cols-3">
-          <MetricCard detail="Theo freshness và variance của API; không phải kiểm tra trực tiếp từng job." emphasis label="Tình trạng dữ liệu phân tích" scope="Phản hồi hiện tại" value={status} warning={metrics.pipeline_status !== "healthy"} />
-          <MetricCard detail={`Ngưỡng hiển thị ${metrics.data_freshness_sla_minutes} phút; lịch batch hằng ngày 02:00 UTC+7, không phải SLA 15 phút.`} label="Tuổi dữ liệu Gold" scope="Từ lần nạp fact_order gần nhất" value={metrics.data_freshness_minutes == null ? "Chưa xác định" : `${number(metrics.data_freshness_minutes)} phút`} warning={metrics.data_freshness_minutes == null || metrics.data_freshness_minutes > metrics.data_freshness_sla_minutes} />
-          <MetricCard detail={comparable ? "Trong các chỉ số đối soát API trả về. Không so đơn và VND trên cùng trục giá trị." : "Không có số đo Lakehouse để đối soát; không dùng giá trị fallback làm kết quả kiểm chứng."} label="Sai lệch lớn nhất" scope="MySQL hiện tại ↔ Gold" value={percent(maximum)} warning={maximum != null && maximum > 0} />
+          <MetricCard detail="Theo heartbeat CDC, độ trễ áp dụng và variance của API; không phải kiểm tra trực tiếp từng job." emphasis label="Tình trạng dữ liệu phân tích" scope="Phản hồi hiện tại" value={status} warning={metrics.pipeline_status !== "healthy"} />
+          <MetricCard detail={`CDC: ${metrics.cdc_apply_status ?? "chưa có heartbeat"}; ${metrics.cdc_pending_events} sự kiện đang chờ. Không có thay đổi mới thì không tạo lần công bố mới.`} label="Tuổi lần công bố" scope="Từ lần công bố OLAP gần nhất" value={metrics.data_freshness_minutes == null ? "Chưa xác định" : `${number(metrics.data_freshness_minutes)} phút`} warning={metrics.cdc_apply_status === "failed" || !metrics.cdc_heartbeat_at} />
+          <MetricCard detail={comparable ? "Trong các chỉ số đối soát API trả về. Không so đơn và VND trên cùng trục giá trị." : "Không có kết quả đối soát mới. Phản hồi đang lấy từ cache OLAP hoặc thiếu nguồn."} label="Sai lệch lớn nhất" scope="MySQL hiện tại ↔ Gold" value={percent(maximum)} warning={maximum != null && maximum > 0} />
         </div>
         <Panel title="Đối soát dữ liệu OLTP và Lakehouse" subtitle="Tổng đơn và giá trị tiền có thang đo riêng; mỗi biểu đồ so sánh cùng một chỉ số giữa MySQL và Gold.">
           {comparable ? <>
@@ -223,7 +223,7 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
                 </section>;
               })}
             </div>
-          </> : <EmptyState title="Chưa đủ dữ liệu để đối soát" detail="Lakehouse chưa có số đo hợp lệ hoặc đang dùng nguồn thay thế. Không diễn giải Gold bằng 0 hay variance 100% trong fallback là chênh lệch đã đo được." />}
+          </> : <EmptyState title="Chưa đủ dữ liệu để đối soát" detail="Chưa có cặp số liệu OLAP mới để so sánh. Khi API phục vụ cache, phản hồi không đại diện cho lần đối soát hiện tại." />}
           <DetailTable caption="Đối soát MySQL và Gold" filename="doi-soat-nguon-gold" rows={variances} rowKey={row => row.metric_name} columns={[
             { key: "metric", label: "Chỉ số / đơn vị", value: label },
             { key: "oltp", label: "MySQL", value: row => row.oltp_value, numeric: true },
@@ -232,9 +232,9 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
           ]} />
         </Panel>
         <NextSteps userRole={userRole} items={[
-          { title: "Kiểm tra lần nạp Gold gần nhất", detail: "Đối chiếu DAG lakehouse_oltp_pipeline, task thất bại và lịch batch 02:00 Asia/Ho_Chi_Minh. Làm mới trang chỉ tải lại kết quả truy vấn." },
+          { title: "Kiểm tra publication OLAP gần nhất", detail: "Kiểm tra spark-cdc, heartbeat, số sự kiện đang chờ và run_id của publication. DAG hằng ngày đối soát dữ liệu; làm mới trang chỉ tải lại kết quả truy vấn." },
           { title: "Đọc kết quả quality gate", detail: "Tra lakehouse.system.data_quality_results theo run_id. Ngưỡng đối soát pipeline mặc định 0,05% khác ngưỡng cảnh báo UI; kiểm tra bảng và snapshot liên quan." },
-          { title: "Tách CDC khỏi độ mới Gold", detail: "CDC hiện lưu Bronze append-only. Checkpoint 10 giây không có nghĩa Gold OLTP được cập nhật mỗi 10 giây." },
+          { title: "Đọc độ trễ áp dụng CDC", detail: "Đối chiếu event tại Bronze với publication và snapshot Gold. Checkpoint Flink 10 giây cùng poll 30 giây không tạo cam kết latency đầu-cuối." },
         ]} />
       </>;
     }
