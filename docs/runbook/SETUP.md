@@ -244,7 +244,7 @@ docker compose logs --tail=200 trino
 - **S3 Connectivity Errors:** Ensure container network connectivity to `http://minio:9000`. Each consumer must use its own dedicated MinIO service user (`lakehouse-*`); MinIO root credentials are not mounted into any workload.
 - **UI/API role mismatch:** operations_manager can open order/logistics/return UI routes but those APIs require admin. A 403 is not a Trino/Iceberg failure. Store confirm/cancel routes also lack the explicit CSRF dependency.
 - **Branch stock changes return 204 but do not persist:** branch-inventory PATCH and inventory/refill POST currently only flush; get_db closes the session without committing. This is an application transaction limitation, not a CDC lag symptom. See [API limits](../../services/ecommerce-api/README.md#current-limits).
-- **COD payment changes missing in Silver:** payments uses a created_at cursor even though completion updates status. Old updates outside lookback can be missed; the CDC materializer applies the update after its transaction is complete.
+- **COD payment changes missing in Silver:** payments uses updated_at. Existing databases require the explicit timestamp upgrade and one-time Silver refresh described below. A created_at-only legacy schema cannot capture later COD updates.
 - **Flink recovery/replay:** submission does not pass a checkpoint/savepoint restore path. A new access-log submission starts at earliest; CDC uses group offsets with earliest fallback. Inspect restore state and offsets explicitly. The access producer has a local DLQ without automatic replay.
 - **Dashboard data is behind OLTP:** check Debezium, Flink Bronze, `spark-cdc` heartbeat/pending transaction state, and the latest `system.analytics_publications` row. Browser refresh polls every 15 seconds and never starts a pipeline.
 
@@ -258,6 +258,55 @@ curl -fsS http://localhost:3000/admin/analytics -o /dev/null
 ```
 
 HTTP success only verifies that the page is served. Sign in with an appropriate role to inspect KPI requests, source/degraded labels and system reconciliation. Order counts and VND use separate metric charts; full monetary values are available in tooltips/table cells.
+
+---
+
+## 7.1. Upgrade payment timestamps and analytical publication schema
+
+For an existing environment, keep MySQL/MinIO/Polaris/Spark/Flink/Trino available. Pause source writes (API, POS and import/generator tasks) and scheduled OLTP batch tasks. Let CDC drain completed transactions before stopping `spark-cdc`; check that `system.cdc_pipeline_state` reports `idle` with zero pending events. The payment refresh assumes this maintenance window; it is not a concurrent source snapshot protocol.
+
+Build images containing the new Python modules and packaged SQL, then stop the source API and CDC writer:
+
+```bash
+docker compose build ecommerce-api spark-cdc airflow-scheduler
+docker compose stop ecommerce-api
+# Wait for CDC to report idle / pending_events=0, then:
+docker compose stop spark-cdc
+```
+
+Upgrade MySQL in place using the application database connection:
+
+```bash
+docker compose run --rm --no-deps ecommerce-api python -m app.db.upgrade_payment_timestamp
+```
+
+This adds or normalizes `payments.updated_at` with `ON UPDATE CURRENT_TIMESTAMP(6)` and its delta index. Repeating the command preserves existing rows and timestamps. It does not recreate the database or add a migration framework.
+
+In the default CDC mode, refresh existing Silver payments and rebuild all Gold outputs while retaining transport/source offsets:
+
+```bash
+docker compose run --rm --no-deps -e SPARK_MASTER_URL=local[2] spark-cdc /opt/spark/bin/spark-submit --master local[2] --conf spark.driver.host=127.0.0.1 --conf spark.driver.bindAddress=0.0.0.0 /opt/project/pipelines/src/jobs/cdc/apply_cdc_to_lakehouse.py --once --refresh-payments --rebuild-gold
+```
+
+The job adds missing Iceberg columns without dropping tables, refreshes canonical facts/marts, validates financial parity, and publishes schema version 3. Do not manually delete publication rows or CDC checkpoints. If it reports incomplete transactions or a quality failure, resolve the issue before resuming writes. Missing historical item cost blocks publication; today's variant cost is not a replacement.
+
+Restart the updated services after a successful publication:
+
+```bash
+docker compose up -d --no-deps ecommerce-api spark-cdc
+```
+
+For batch mode, keep CDC stopped, set `LAKEHOUSE_OLTP_MODE=batch` in the relevant services and recreate the Airflow services with that setting. Upgrade MySQL first, then run the OLTP DAG. The new timestamp on existing payments makes them eligible for the next incremental extraction. The post-Gold quality task creates a batch publication only after validation. Batch is rejected at DAG startup while `LAKEHOUSE_OLTP_MODE=cdc`.
+
+Verify `system.analytics_publications.schema_version=3`, its `source_mode` and snapshot entry for `lakehouse.gold.fact_inventory_current`. API reads require schema 3; older publications produce a clear unavailable response until rebuilt. The inventory alert threshold is `on_hand_quantity <= 5`. Current inventory is replaced fully; daily inventory history is retained separately.
+
+---
+
+## 7.2. Kafka data directory
+
+Kafka sets `KAFKA_LOG_DIRS=/var/lib/kafka/data`, matching the `kafka-data` volume. Existing installs that used the image default `/tmp/kafka-logs` require a one-time copy before recreating the broker: stop API/CDC/Connect and Kafka, back up the stopped broker's log directory, copy its complete contents (including `meta.properties` and cluster metadata) into the empty named volume, preserve UID/GID 1000, then recreate Kafka and resume consumers. Changing the environment setting alone does not move existing logs.
+
+The full-stack check migrated this environment and verified that topic/partition log end offsets did not move backwards across broker recreation. The private recovery copy and test logs are stored outside the repository.
 
 ---
 

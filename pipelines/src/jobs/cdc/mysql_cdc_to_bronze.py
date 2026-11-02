@@ -10,6 +10,7 @@ from lakehouse.sql import literal, load_sql, render_sql
 
 import logging
 import os
+import re
 
 from lakehouse.flink import (
     create_stream_environment,
@@ -49,7 +50,7 @@ def main() -> None:
     bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
     topic_prefix = os.environ.get("CDC_TOPIC_PREFIX", "ecommerce")
     database_name = os.environ.get("MYSQL_DATABASE", "ecommerce")
-    topic_pattern = rf"{topic_prefix}\.{database_name}\..*"
+    topic_pattern = rf"{re.escape(topic_prefix)}\.(?:{re.escape(database_name)}\..*|transaction)"
     group_id = os.environ.get("CDC_FLINK_GROUP_ID", "flink-oltp-cdc-bronze-v1")
 
     env = create_stream_environment(checkpoint_interval_ms=CHECKPOINT_INTERVAL_MS)

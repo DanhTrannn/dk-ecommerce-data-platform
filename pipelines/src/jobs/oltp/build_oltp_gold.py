@@ -3,14 +3,12 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
 
 from lakehouse.oltp.gold.pipeline import run_gold_dimensions, run_gold_facts, run_gold_marts
 from lakehouse.oltp.gold_ddl import ensure_oltp_gold_tables
 from lakehouse.spark import spark_session
 
-if TYPE_CHECKING:
-    pass
+from lakehouse.writer import oltp_writer_lock
 
 VALID_STAGES = ("all", "dimensions", "facts", "marts")
 
@@ -21,7 +19,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--snapshot-date",
         default=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-        help="Inventory snapshot date (YYYY-MM-DD)",
+        help="Logical batch date; inventory snapshots use the actual Vietnam observation date",
     )
     parser.add_argument(
         "--stage",
@@ -32,7 +30,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     return parser.parse_args(args)
 
 
-def main() -> None:
+def _run() -> None:
     args = parse_args(sys.argv[1:])
     app_name = f"build_oltp_gold_{args.stage}" if args.stage != "all" else "build_oltp_gold"
     spark = spark_session(app_name)
@@ -54,6 +52,11 @@ def main() -> None:
 
     finally:
         spark.stop()
+
+
+def main() -> None:
+    with oltp_writer_lock():
+        _run()
 
 
 if __name__ == "__main__":

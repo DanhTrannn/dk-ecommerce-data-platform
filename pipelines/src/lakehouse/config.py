@@ -29,12 +29,12 @@ MUTABLE_TABLES = frozenset({
     "return_requests",
     "return_items",
     "refunds",
+    "payments",
     "inbound_receipts",
 })
 
 APPEND_ONLY_TABLES = frozenset({
     "order_items",
-    "payments",
     "order_status_history",
     "inventory_transactions",
     "inbound_receipt_items",

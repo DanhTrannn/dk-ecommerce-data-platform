@@ -59,6 +59,7 @@ def spark_session(job_name: str):
         .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions") \
         .config("spark.sql.catalog.lakehouse", "org.apache.iceberg.spark.SparkCatalog") \
         .config("spark.sql.catalog.lakehouse.type", "rest") \
+        .config("spark.sql.catalog.lakehouse.cache-enabled", "false") \
         .config("spark.sql.catalog.lakehouse.uri", os.environ["POLARIS_CATALOG_URI"]) \
         .config("spark.sql.catalog.lakehouse.oauth2-server-uri", f"{os.environ['POLARIS_CATALOG_URI']}/v1/oauth/tokens") \
         .config("spark.sql.catalog.lakehouse.warehouse", os.environ["POLARIS_CATALOG_NAME"]) \

@@ -27,6 +27,10 @@ def merge_oltp_table(
     result = MergeResult()
 
     deduped = _dedup_by_pk(bronze_df, table.pk, table.cursor_field)
+    if table.name == "orders":
+        from lakehouse.oltp.cdc import region_column
+
+        deduped = deduped.withColumn("shipping_region", region_column(F.col("shipping_address_text")))
 
     # Treat a missing primary key as a quarantinable row-level violation.
     if table.pk in deduped.columns:

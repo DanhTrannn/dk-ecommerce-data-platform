@@ -5,13 +5,15 @@ CREATE TABLE IF NOT EXISTS lakehouse.gold.mart_sales_daily (
     category_id                     BIGINT                          COMMENT 'Product category ID',
     category_name                   STRING                          COMMENT 'Product category name',
     total_orders                    BIGINT                          COMMENT 'Total distinct orders placed',
-    successful_orders               BIGINT                          COMMENT 'Distinct delivered/completed orders',
+    successful_orders               BIGINT                          COMMENT 'Distinct fulfilled orders, including subsequent returns',
     boom_orders                     BIGINT                          COMMENT 'Distinct failed delivery (boom) orders',
     items_sold                      BIGINT                          COMMENT 'Total units delivered to customers',
-    gross_revenue_vnd               BIGINT                          COMMENT 'Gross revenue of delivered units in VND',
+    gross_revenue_vnd               BIGINT                          COMMENT 'Recognized merchandise after discounts and before refunds',
     cogs_vnd                        BIGINT                          COMMENT 'Cost of goods sold of delivered units in VND',
-    gross_profit_vnd                BIGINT                          COMMENT 'Gross profit in VND (gross_revenue - cogs)',
+    gross_profit_vnd                BIGINT                          COMMENT 'Net merchandise revenue less recognized COGS',
     gross_profit_margin_pct         DOUBLE                          COMMENT 'Gross profit percentage',
+    refunded_amount_vnd             BIGINT,
+    net_revenue_vnd                 BIGINT,
     _gold_ingested_at               TIMESTAMP                       COMMENT 'UTC timestamp written to Gold',
     _source_run_id                  STRING                          COMMENT 'Batch run ID'
 )

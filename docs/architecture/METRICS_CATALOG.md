@@ -11,39 +11,41 @@ Vai trò dashboard, API và phạm vi truy cập được mô tả trong [kiến
 - Tiền là số nguyên VND. Lợi nhuận trong Gold là doanh thu trừ giá vốn, chưa trừ đầy đủ chi phí vận hành, thuế và quảng cáo.
 - Phải kiểm tra grain trước khi SUM hoặc JOIN. `fact_order` có một dòng/đơn; `fact_order_item` có một dòng/chi tiết đơn.
 - Đếm đơn toàn hệ thống bằng `COUNT(DISTINCT order_id)` trên fact. Một đơn có nhiều nhóm sản phẩm sẽ xuất hiện ở nhiều dòng `mart_sales_daily`.
-- `data_source` cho biết `lakehouse`, `oltp` hoặc `oltp_fallback`. `is_degraded` và `degraded_reason` cho biết nguồn thay thế hoặc dữ liệu chưa đầy đủ.
+- `data_source=lakehouse`. Khi Trino lỗi, API có thể giữ kết quả OLAP đã đọc thành công trong thời hạn cache và đánh dấu degraded; không tổng hợp MySQL để thay thế.
 - Ngày hôm nay ở chỉ số cửa hàng dùng Asia/Ho_Chi_Minh. Log Flink mới và Spark dùng UTC. Các partition log cũ theo giờ Việt Nam cần được replay/migrate rõ ràng trước khi so sánh chuỗi thời gian.
 
 ## 2. Doanh thu, giá vốn và lợi nhuận
 
+Publication schema 3 dùng chung transformation cho batch và CDC. Tiền là số nguyên VND. Ngày báo cáo là ngày đặt hàng theo Asia/Ho_Chi_Minh; giao hàng hoặc hoàn tiền về sau có thể làm thay đổi kết quả của ngày đặt hàng cũ.
+
 | Chỉ số | Công thức hiện tại | Nguồn / grain |
 |---|---|---|
-| GMV executive | `SUM(gross_revenue_vnd)`; mỗi giá trị gốc là `orders.total_vnd` | `fact_order`, một dòng/đơn, không lọc bỏ trạng thái trong truy vấn executive |
-| Giá vốn mỗi đơn | `SUM(quantity × cost_price_vnd)`; dùng cột snapshot nếu schema có cột này (null thành 0), chỉ fallback cột variant khi schema thiếu snapshot | `fact_order` / `fact_order_item` |
-| Net revenue mỗi đơn | 0 nếu `failed_delivery`, `returned`, `cancelled`, `payment_failed`; các trạng thái khác lấy `total_vnd` | `fact_order.net_revenue_vnd` |
-| Net profit mỗi đơn | 0 cho bốn trạng thái trên; còn lại `total_vnd - total_cost_vnd` | `fact_order.net_profit_vnd` |
-| Gross profit executive | `SUM(net_profit_vnd)` | `fact_order`; tên API không có nghĩa là lợi nhuận kế toán sau mọi chi phí |
-| COGS executive | `SUM(net_revenue_vnd - net_profit_vnd)` | `fact_order` |
-| Gross margin | `gross_profit / net_revenue × 100`, trả 0 nếu mẫu số không dương | API executive |
-| Total orders | `COUNT(DISTINCT order_id)` | `fact_order` |
-| AOV executive | `net_revenue / total_orders`, trả 0 nếu mẫu số hoặc doanh thu không dương | API executive; mẫu số gồm mọi đơn |
-| Doanh thu sales mart | Tổng `item_total_vnd` của đơn `delivered`/`completed` | `mart_sales_daily`, ngày × kênh × cửa hàng × danh mục |
-| COGS/profit sales mart | Tổng item cost/profit của đơn `delivered`/`completed` | `mart_sales_daily` |
-| Tỷ lệ giao thất bại executive | `SUM(is_boom) / total_orders × 100` | `fact_order`, `is_boom` khi đơn `failed_delivery` |
-| Return rate executive | `SUM(total_return_requests)` ở mart trả hàng / số đơn × 100 | Mart có grain theo chi tiết trả hàng; chưa phải tỷ lệ số đơn được trả distinct |
+| GMV executive / tổng giá trị đơn | SUM `order_total_vnd` = SUM `orders.total_vnd`, gồm mọi trạng thái và phí vận chuyển | `fact_order`, một dòng/đơn; chỉ số giá trị đơn đặt, không phải doanh thu đã ghi nhận |
+| Doanh thu hàng hóa trước hoàn tiền | Tổng giá trị dòng hàng trừ giảm giá được phân bổ; chỉ ghi nhận đơn `delivered`, `completed`, `returned` | `gross_revenue_vnd` ở item, order và sales mart; không gồm phí vận chuyển |
+| Giảm giá từng dòng | Phân bổ theo giá trị dòng hàng trước giảm giá; hiệu hai phần nguyên của tổng lũy kế theo `order_item_id` | Tổng phân bổ đúng giảm giá cấp đơn, không phát sinh sai số cộng VND |
+| Hoàn tiền hàng hóa | Refund `succeeded`, nối payment để xác định đơn; ưu tiên các dòng trả hoàn tất và kiểm định đạt, phần còn lại phân bổ theo giá trị hàng hóa chưa hoàn; tổng giới hạn bởi tiền hàng của đơn | `refunded_amount_vnd`; phần vượt giá trị hàng hóa không được trừ tiếp vào doanh thu hàng hóa |
+| Doanh thu thuần | Doanh thu hàng hóa trước hoàn tiền trừ hoàn tiền hàng hóa thành công | `net_revenue_vnd`, cùng định nghĩa ở fact, mart, executive, admin và store |
+| Giá vốn ghi nhận | `(quantity - completed_passed_return_quantity) × order_items.cost_price_vnd` của đơn đã ghi nhận doanh thu | Dùng giá vốn snapshot lúc đặt hàng; thiếu giá vốn thì chặn publication, không lấy giá vốn hiện tại thay thế |
+| Lợi nhuận gộp | Doanh thu thuần trừ giá vốn ghi nhận | `net_profit_vnd` / `gross_profit_vnd`; chưa trừ đầy đủ chi phí vận hành, thuế và quảng cáo |
+| Biên lợi nhuận | Lợi nhuận gộp / doanh thu thuần × 100; API trả 0 khi mẫu số không dương | Executive, admin và sales mart |
+| Total orders | COUNT DISTINCT order_id, gồm mọi trạng thái | `fact_order`; không cộng tổng đơn qua danh mục |
+| AOV executive | Doanh thu thuần / số đơn đã giao, gồm đơn có trả hàng; 0 khi không có mẫu số | `is_revenue_recognized` ở fact_order |
+| Sales trend | Tổng net revenue, COGS và profit của mart theo ngày; số đơn lấy COUNT DISTINCT từ fact | Cùng công thức với executive nhưng có bộ lọc kỳ |
+| Tỷ lệ giao thất bại | Số đơn `failed_delivery` / tổng đơn × 100 | `fact_order` |
+| Tỷ lệ yêu cầu trả hàng | COUNT DISTINCT return_id không cancelled / tổng đơn × 100 | Silver return requests; chưa phải tỷ lệ số đơn trả distinct |
 
-**Hai cách ghi nhận doanh thu đang khác nhau:** `fact_order.net_revenue_vnd` loại bốn trạng thái không ghi nhận, nên có thể còn tính đơn chưa giao. Sales mart chỉ cộng item revenue của đơn delivered/completed. GMV order total còn có thể chứa phí ship, trong khi tổng item không tương đương order total. Không mô tả tất cả các trường này bằng cùng một tên “doanh thu đã giao”.
+Đơn chờ thanh toán, đã xác nhận hoặc đang giao chưa tạo doanh thu hàng hóa. Đơn đã trả vẫn giữ doanh thu ban đầu; hoàn tiền thành công được trừ riêng để xử lý trả một phần. Giá vốn được hoàn nhập theo số lượng trả hoàn tất và kiểm định đạt.
 
-OLTP fallback executive dùng tiền thanh toán thành công trừ hoàn tiền thành công, COGS của đơn delivered/completed và GMV bỏ đơn cancelled. Vì thế fallback không phải bản sao công thức Gold; UI cần hiển thị nguồn. Biểu đồ sales trend cộng mart theo ngày, nên `orders_count` có thể trùng đơn khi cộng qua danh mục.
+Tiền thanh toán thành công và tiền hoàn cho khách là dòng tiền riêng, có thể bao gồm vận chuyển hoặc hoàn tiền cho đơn hủy. Không dùng tổng payment thay cho doanh thu hàng hóa. Tổng tiền thu hộ COD đang giao lấy `order_total_vnd`, không lấy doanh thu đã ghi nhận.
 
-Gold order hiện suy ra net revenue từ trạng thái và order total, không trực tiếp trừ mọi refund trả lẻ. Khi mới trả một phần và order chưa returned, net revenue có thể chưa phản ánh khoản hoàn một phần. Không dùng công thức này như số liệu kế toán đã đối soát hoàn tiền đầy đủ.
+Kiểm tra trước publication đối chiếu tổng doanh thu trước hoàn, hoàn tiền, doanh thu thuần, giá vốn và lợi nhuận giữa item → order → sales mart. Đơn vị là VND; không dùng tổng số đơn theo danh mục để đối soát số đơn toàn hệ thống.
 
-## 3. Chỉ số vận hành từ MySQL
+## 3. Chỉ số vận hành từ Lakehouse đã công bố
 
 | Chỉ số | Công thức / phạm vi |
 |---|---|
-| Doanh thu/số đơn cửa hàng hôm nay | Tổng `Order.total_vnd` / đếm đơn của store từ 00:00 giờ Việt Nam, trạng thái paid/shipping/delivered/completed |
-| Tồn kho thấp cửa hàng | Số dòng `store_inventory` có `on_hand <= 5` tại store được phép |
+| Doanh thu/số đơn cửa hàng hôm nay | Tổng `fact_order.net_revenue_vnd` / đếm đơn đặt của store trong ngày Việt Nam; chỉ doanh thu được áp dụng điều kiện ghi nhận |
+| Tồn kho thấp cửa hàng | Số dòng `fact_inventory_current` có `is_low_stock`, tức `on_hand_quantity <= 5`, tại store được phép |
 | Giá trị tồn kho | Tổng `on_hand × variant.cost_price_vnd` ở kho trung tâm và cửa hàng |
 | Số lượng tồn | Tổng on_hand theo từng nhóm kho/cửa hàng |
 | Số SKU hết hàng | Số variant distinct xuất hiện với on_hand=0 ở kho hoặc cửa hàng; không phải số cặp SKU–địa điểm |
@@ -78,7 +80,7 @@ Một số trường API vẫn optional để tương thích giao diện. Khi th
 
 Funnel hiện đếm **sự kiện**, không phải unique visitor hoặc chuỗi session đã gắn kết. Nhiều request của cùng người có thể được tính nhiều lần; tỷ lệ không được hiểu là xác suất một người mua hàng. `total_visitors` là tên API cho lượt sự kiện đầu phễu. Cột `success_2xx_count` ở mart hiện cộng `is_success`, mà logic bao gồm cả phản hồi <400.
 
-Khi không có log trong kỳ hoặc nguồn lỗi, marketing có thể dùng OLTP fallback: số đơn, cart item và khách hàng được tạo trong 30 ngày. Đây là proxy nghiệp vụ, không thay thế phép đo truy cập web; response đánh dấu degraded.
+Marketing không fallback MySQL khi thiếu log. Số sự kiện không mặc định là số khách duy nhất hoặc số giao dịch; trường total_visitors hiện là số sự kiện đầu phễu.
 
 ## 5. Chỉ số kỹ thuật DE
 
@@ -87,17 +89,21 @@ Khi không có log trong kỳ hoặc nguồn lỗi, marketing có thể dùng OL
 | Row count từng tầng | COUNT theo table/run_id hoặc snapshot cụ thể; phân biệt Bronze history và Silver current state |
 | Source–Silver variance | `abs(source-target)/abs(source) × 100`; source=0/target!=0 được tính 100%; ngưỡng gate mặc định 0,05% |
 | Gold parity | Count/tiền, PK, FK, lineage và PII token được kiểm tra bởi quality gate |
-| Gold freshness | Thời gian hiện tại trừ `MAX(_gold_ingested_at)` của fact_order; không phải tuổi của từng bản ghi nguồn |
+| Gold freshness | Thời gian hiện tại trừ `published_at` của publication; không phải tuổi của từng bản ghi nguồn |
 | CDC event count | Đếm theo table_name, operation, event_date; số event khác số bản ghi hiện hữu ở nguồn |
 | CDC traceability | event_id, before/after, binlog và Kafka offset; kiểm tra replay/truy vết từ Bronze |
 | Processing duration / throughput | Lấy từ log thời gian và khối lượng lần chạy; repo không ấn định con số benchmark |
 
-Trang system đánh dấu degraded khi variance >5% hoặc freshness >15 phút; unhealthy khi variance >20%, freshness >60 phút hoặc chưa xác định được freshness. Đây là ngưỡng giao diện, khác ngưỡng đối soát pipeline 0,05%. Lịch batch hằng ngày khiến Gold có thể cũ hơn ngưỡng UI giữa hai lần chạy.
+Ở CDC mode, API đánh giá heartbeat, trạng thái xử lý, độ trễ sự kiện và variance; ngưỡng hiển thị tuổi publication là 5 phút. Ở batch mode, API không đòi heartbeat CDC và dùng ngưỡng publication 1.500 phút cho lịch hằng ngày. Đây là ngưỡng cảnh báo, chưa phải SLA đã đo.
 
-Đối soát dashboard dùng hai metric: `total_orders` so COUNT đơn MySQL với COUNT DISTINCT order_id Gold; `gross_revenue_vnd` so SUM orders.total_vnd với SUM fact_order.gross_revenue_vnd, đều gồm mọi trạng thái. Chênh lệch = abs(OLTP−Gold)/OLTP × 100, làm tròn hai chữ số; OLTP=0 thì 0% nếu Gold=0, ngược lại 100%.
+Đối soát dashboard dùng hai metric: `total_orders` so COUNT đơn MySQL với COUNT DISTINCT order_id Gold; `order_total_vnd` so SUM orders.total_vnd với SUM fact_order.order_total_vnd, đều gồm mọi trạng thái. Chênh lệch = abs(OLTP−Gold)/OLTP × 100, làm tròn hai chữ số; OLTP=0 thì 0% nếu Gold=0, ngược lại 100%.
 
-UI vẽ từng metric riêng để số đơn không dùng chung thang với doanh thu. Số đơn có đơn vị đơn; tiền có trục VND, nhãn rút gọn và tooltip giá trị đầy đủ; badge dùng variance_percent từ API. Trong fallback, API còn trả các giá trị placeholder Gold=0/variance=100%, nhưng UI ẩn cột so sánh và hiển thị thiếu nguồn. Không đọc các placeholder như chênh lệch đã đo.
+UI vẽ từng metric riêng để số đơn không dùng chung thang với doanh thu. Số đơn có đơn vị đơn; tiền có trục VND, nhãn rút gọn và tooltip giá trị đầy đủ; badge dùng variance_percent từ API. Khi không có nguồn đối soát mới, không tự tạo variance để thay thế.
 
 ## 6. Cách trình bày kết quả
 
 Ghi rõ dataset, dữ liệu tổng hợp hay phát sinh thật, thời gian chạy, tầng/bảng, bộ lọc, grain, công thức, đơn vị và nguồn response. Các tài liệu A–D mô tả nghiệp vụ và giới hạn, không cung cấp bộ số liệu đo để thay thế truy vấn thực tế.
+
+## 7. Ngày quan sát tồn kho
+
+`fact_inventory_current` và snapshot tồn kho mới dùng ngày quan sát thực tế theo Asia/Ho_Chi_Minh, đối chiếu với `_gold_ingested_at`. Ngày logical của Airflow dùng để truy vết kỳ xử lý, không được dùng để ghi tồn hiện tại đè lên ngày quá khứ. Lịch sử snapshot của các ngày khác được giữ nguyên.

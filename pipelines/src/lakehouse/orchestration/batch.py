@@ -53,6 +53,9 @@ def check_mysql() -> str:
 def begin_run(**context) -> None:
     import pendulum
 
+    if os.environ.get("LAKEHOUSE_OLTP_MODE", "cdc") != "batch":
+        raise RuntimeError("Batch DAG is disabled while CDC owns the curated tables; select LAKEHOUSE_OLTP_MODE=batch before running it")
+
     vn_tz = pendulum.timezone("Asia/Ho_Chi_Minh")
     run_id = uuid.uuid4().hex
     # Use Airflow execution interval for true idempotency and deterministic backfilling

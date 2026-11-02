@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS lakehouse.gold.dim_product (
     product_name                    STRING                          COMMENT 'Product display name',
     slug                            STRING                          COMMENT 'URL friendly slug',
     category_id                     BIGINT                          COMMENT 'Category id',
+    category_code                   STRING,
     category_name                   STRING                          COMMENT 'Category display name',
     base_price_vnd                  BIGINT                          COMMENT 'Base listed price in VND',
     is_active                       BOOLEAN                         COMMENT 'Product active status',

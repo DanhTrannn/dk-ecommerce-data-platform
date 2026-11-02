@@ -380,6 +380,7 @@ def _transition_order(
                 ).scalar_one_or_none()
                 if payment and payment.status != "succeeded":
                     payment.status = "succeeded"
+                    payment.updated_at = now
         db.add(
             OrderStatusHistory(
                 order_id=order.order_id,

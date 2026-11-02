@@ -19,10 +19,12 @@ _lock = Lock()
 class PublishedReader:
     def __init__(self, client=None):
         self.client = client or default_trino_client
-        rows = self.client.execute_query("""SELECT run_id, published_at, source_event_at, snapshots_json
+        rows = self.client.execute_query("""SELECT run_id, published_at, source_event_at, snapshots_json, schema_version, source_mode
             FROM lakehouse.system.analytics_publications ORDER BY published_at DESC LIMIT 1""")
         if not rows:
-            raise AppError(INTERNAL_ERROR, "Lakehouse chưa có lần công bố CDC hoàn tất.", status_code=503)
+            raise AppError(INTERNAL_ERROR, "Lakehouse chưa có lần công bố hoàn tất.", status_code=503)
+        if rows[0].get("schema_version") != 3:
+            raise AppError(INTERNAL_ERROR, "Dữ liệu phân tích cần được xây dựng lại theo schema mới.", status_code=503)
         self.publication = rows[0]
         self.snapshots = json.loads(rows[0]["snapshots_json"])
 
@@ -86,6 +88,6 @@ def serve(key, build, client=None):
             )
         raise AppError(
             INTERNAL_ERROR,
-            "Chưa đọc được dữ liệu OLAP đã công bố. Hãy kiểm tra Trino và materializer CDC.",
+            "Chưa đọc được dữ liệu OLAP đã công bố. Hãy kiểm tra Trino và pipeline công bố dữ liệu.",
             status_code=503,
         ) from error

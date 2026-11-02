@@ -15,7 +15,7 @@ MySQL 8.4 row binlog
   -> Trino -> FastAPI role dashboards
 ```
 
-The live pipeline has a persistent Spark consumer that reads Bronze offsets, applies complete MySQL transactions to typed Silver, refreshes dependent Gold tables, validates results, and then commits an Iceberg publication manifest. The daily Airflow DAG performs source-to-Silver reconciliation in default CDC mode. Set `LAKEHOUSE_OLTP_MODE=batch` for a controlled batch handoff only after stopping the CDC consumer. No end-to-end latency SLA is claimed.
+The CDC pipeline has a persistent Spark consumer that reads Bronze offsets, applies complete MySQL transactions to typed Silver, refreshes dependent Gold tables, validates results, and then commits an Iceberg publication manifest. The OLTP Airflow DAG is blocked in default CDC mode to prevent competing batch writers. Set `LAKEHOUSE_OLTP_MODE=batch` for a controlled batch handoff only after stopping the CDC consumer. No end-to-end latency SLA is claimed.
 
 Access logs continue through their separate
 `ecommerce.access_logs -> Flink -> Landing/Bronze/Silver/Gold` pipeline.
@@ -136,3 +136,17 @@ After applying Silver, the consumer rebuilds only dependent Gold tables (whole-t
 `system.cdc_pipeline_state` reports consumer heartbeat, status, pending event count and oldest pending event. The System dashboard compares published Gold with current MySQL source counts/revenue, so its reconciliation can temporarily reflect source changes waiting in CDC. Dashboard browser refresh is 15 seconds; that is a polling interval, not a CDC propagation SLA.
 
 Operational boundaries: the shared POSIX `flock` serializes writers only on this Docker host; it is not a distributed lock. Kafka transaction completeness depends on the transaction metadata topic and the configured topic prefix. The source cursor uses MySQL GTID UUID and binlog file/position ordering; changed source identity fails closed until an operator performs a controlled rebootstrap. Kafka offsets alone are not treated as a globally unique source checkpoint. The daily batch and CDC writer must not run concurrently.
+
+## Publication schema 3 and compatibility repair
+
+Batch and CDC now use the same merchandise transformations and snapshot publication helper. `schema_version=3` and `source_mode` distinguish the metric contract and writer. The API rejects older contracts until rebuilt; cached results never trigger MySQL fallback.
+
+`fact_inventory_current` is provisioned explicitly and refreshed by both writers. Daily snapshots remain separate. Orders expose the UTC creation timestamp, Vietnam order date and coarse shipping region required by the API. Payment extraction uses `updated_at`; existing databases need the explicit timestamp upgrade and current-payment refresh in [SETUP](../runbook/SETUP.md#71-upgrade-payment-timestamps-and-analytical-publication-schema).
+
+Merchandise revenue excludes shipping, recognizes fulfilled orders, allocates discounts in integer VND and deducts successful refunds. Completed accepted returns reverse historical item cost. Fact/item/mart financial totals are checked before publication; see [metrics](METRICS_CATALOG.md). An upgrade with no new CDC events still rebuilds and publishes the changed contract.
+
+The Flink CDC subscription includes the transaction topic and maps Debezium BEGIN/END records into Bronze. Spark disables the Iceberg catalog cache and explicitly refreshes Bronze table metadata before each read because Flink commits snapshots externally. Source checkpoints include snapshot rows with binlog coordinates, so an initial snapshot does not replay indefinitely when Kafka offsets are reused.
+
+Controlled batch publications retain the last CDC transport/source checkpoint. Returning to CDC rebuilds and republishes the current contract even without new source changes. Inventory snapshots use their actual Vietnam observation date; an Airflow logical interval does not reconstruct historical stock. Publication validation checks the inventory observation date and successful refund money against Silver as well as fact/mart parity.
+
+Kafka broker logs and internal Connect offset/schema-history topics reside in the named `kafka-data` volume via `KAFKA_LOG_DIRS=/var/lib/kafka/data`. Existing data under the old image-default directory must be migrated before broker recreation; source-binlog ordering remains a separate replay safeguard.

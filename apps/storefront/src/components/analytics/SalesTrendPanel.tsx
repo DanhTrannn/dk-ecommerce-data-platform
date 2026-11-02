@@ -71,7 +71,7 @@ export function SalesTrendPanel({ refreshVersion }: { refreshVersion: number }) 
             { name: "Lợi nhuận gộp", type: "line", showSymbol: false, data: dates.map(date => pointsByDate.get(date)?.profit_vnd ?? null), lineStyle: { width: 2 } },
           ],
         }} />
-        <p className="mb-5 text-xs leading-5 text-muted">{cached ? "Đang hiển thị bản OLAP đã tải thành công trước đó; thời điểm công bố nằm trong phản hồi." : "Gold mart: ngày × kênh × cửa hàng × danh mục, chỉ đơn delivered/completed. Ngày theo pipeline; đơn được đếm riêng từ fact_order, không cộng qua danh mục."} Các ngày không có điểm không được tự điền 0. Không coi tổng biểu đồ là cùng định nghĩa với KPI doanh thu thuần.</p>
+        <p className="mb-5 text-xs leading-5 text-muted">{cached ? "Đang hiển thị bản OLAP đã tải thành công trước đó; thời điểm công bố nằm trong phản hồi." : "Doanh thu hàng hóa sau giảm giá và hoàn tiền, không gồm phí vận chuyển. Nhóm theo ngày đặt hàng (giờ Việt Nam); số đơn đếm riêng từ fact_order."} Các ngày không có điểm không được tự điền 0. Biểu đồ và KPI dùng cùng định nghĩa doanh thu thuần, với phạm vi thời gian riêng.</p>
         <details className="border-t border-line pt-4"><summary className="cursor-pointer text-sm font-semibold text-ink">Xem số liệu và xuất CSV · {points.length} ngày có dữ liệu</summary><div className="mt-4"><DetailTable caption="Xu hướng doanh thu theo ngày" columns={columns} filename={`xu-huong-${days}-ngay-${response.data_source}`} rowKey={row => row.date} rows={points} /></div></details>
       </>}
     </>}

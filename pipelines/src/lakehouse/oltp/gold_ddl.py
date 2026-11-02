@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from lakehouse.sql import load_sql
+import re
 
 
 from typing import TYPE_CHECKING
@@ -39,6 +40,7 @@ GOLD_TABLE_DDL["fact_shipment"] = load_sql("spark/gold/fact_shipment.sql")
 GOLD_TABLE_DDL["fact_return_exchange"] = load_sql("spark/gold/fact_return_exchange.sql")
 
 GOLD_TABLE_DDL["fact_inventory_daily_snapshot"] = load_sql("spark/gold/fact_inventory_daily_snapshot.sql")
+GOLD_TABLE_DDL["fact_inventory_current"] = load_sql("spark/gold/fact_inventory_current.sql")
 
 # ==========================================
 # 3. DATA MARTS
@@ -57,6 +59,14 @@ def ensure_oltp_gold_tables(spark: SparkSession) -> None:
     spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.gold")
     for table_name, ddl in GOLD_TABLE_DDL.items():
         spark.sql(ddl)
+        # Additive repair for environments created before the module refactor.
+        # Existing rows/snapshots are preserved; the next Gold build fills fields.
+        existing = {field.name.lower() for field in spark.table(f"lakehouse.gold.{table_name}").schema.fields}
+        for name, kind in re.findall(
+            r"^    ([a-z_]+)\s+(BIGINT|INT|STRING|BOOLEAN|TIMESTAMP|DATE|DOUBLE)\b", ddl, re.M
+        ):
+            if name not in existing:
+                spark.sql(f"ALTER TABLE lakehouse.gold.{table_name} ADD COLUMN {name} {kind}")
         if table_name == "fact_order_item":
             columns = {field.name.lower() for field in spark.table("lakehouse.gold.fact_order_item").schema.fields}
             if "order_date" not in columns:

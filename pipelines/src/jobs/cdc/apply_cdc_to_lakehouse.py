@@ -19,9 +19,11 @@ from pyspark.sql import functions as F
 
 from lakehouse.config import load_config
 from lakehouse.oltp import gold
+from lakehouse.oltp.gold.inventory import inventory_observation_date
 from lakehouse.oltp.cdc import apply_table, curate_rows, ensure_cdc_state, source_columns
-from lakehouse.oltp.gold_ddl import GOLD_TABLE_DDL, ensure_oltp_gold_tables
-from lakehouse.oltp.quality import QualityCheckResult, persist_quality_results
+from lakehouse.oltp.gold_ddl import ensure_oltp_gold_tables
+from lakehouse.oltp.publication import SCHEMA_VERSION, ensure_publications, publish
+from lakehouse.oltp.quality import QualityCheckResult, persist_quality_results, financial_consistency_checks
 from lakehouse.oltp.silver_ddl import ensure_silver_tables
 from lakehouse.spark import spark_session
 from lakehouse.writer import oltp_writer_lock
@@ -55,10 +57,7 @@ def ensure_tables(spark):
         spark.sql("ALTER TABLE lakehouse.silver.silver_orders ADD COLUMN shipping_region STRING")
     ensure_oltp_gold_tables(spark)
     ensure_cdc_state(spark)
-    spark.sql(f"""CREATE TABLE IF NOT EXISTS {PUBLICATIONS} (
-        run_id STRING, published_at TIMESTAMP, source_event_at TIMESTAMP,
-        snapshots_json STRING, offsets_json STRING, changed_tables_json STRING
-    ) USING iceberg TBLPROPERTIES ('format-version'='2')""")
+    ensure_publications(spark)
     spark.sql(f"""CREATE TABLE IF NOT EXISTS {HEARTBEAT} (
         consumer_id STRING, status STRING, checked_at TIMESTAMP,
         pending_events BIGINT, pending_since TIMESTAMP, detail STRING
@@ -133,7 +132,7 @@ def refresh_gold(spark, changed, run_id, initial=False):
     def fact(name):
         return spark.table(f"lakehouse.gold.{name}")
 
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = inventory_observation_date()
     definitions = [
         ("dim_date", set(), lambda: gold.build_dim_date(spark)),
         (
@@ -158,15 +157,29 @@ def refresh_gold(spark, changed, run_id, initial=False):
             lambda: gold.build_dim_customer(silver("customers"), silver("cities"), run_id),
         ),
         (
-            "fact_order",
-            {"orders", "order_items", "product_variants"},
-            lambda: gold.build_fact_order(silver("orders"), silver("order_items"), run_id, silver("product_variants")),
+            "fact_order_item",
+            {"orders", "order_items", "product_variants", "payments", "refunds", "return_requests", "return_items"},
+            lambda: gold.build_fact_order_item(
+                silver("order_items"),
+                silver("orders"),
+                run_id,
+                silver("product_variants"),
+                silver_payments=silver("payments"),
+                silver_refunds=silver("refunds"),
+                silver_return_requests=silver("return_requests"),
+                silver_return_items=silver("return_items"),
+            ),
         ),
         (
-            "fact_order_item",
-            {"orders", "order_items", "product_variants"},
-            lambda: gold.build_fact_order_item(
-                silver("order_items"), silver("orders"), run_id, silver("product_variants")
+            "fact_order",
+            {"orders", "payments", "fact_order_item"},
+            lambda: gold.build_fact_order(
+                silver("orders"),
+                silver("order_items"),
+                run_id,
+                silver("product_variants"),
+                fact_order_items=fact("fact_order_item"),
+                silver_payments=silver("payments"),
             ),
         ),
         ("fact_shipment", {"shipments"}, lambda: gold.build_fact_shipment(silver("shipments"), run_id)),
@@ -292,6 +305,7 @@ def validate_publication(spark, cfg, columns, changed, refreshed, run_id):
                 "One current balance per location/variant",
             )
         )
+    results.extend(financial_consistency_checks(spark))
     if results:
         persist_quality_results(
             spark,
@@ -315,9 +329,9 @@ def _with_source_order(events):
 
 
 def _source_checkpoint(events):
-    ordered = (
-        _with_source_order(events).filter(F.col("transaction_id").isNotNull()).orderBy(F.col("_source_order").desc())
-    )
+    # Snapshot rows also have a binlog position. Excluding them keeps the
+    # source cursor behind a new snapshot and replays that snapshot forever.
+    ordered = _with_source_order(events).filter(F.col("binlog_file").isNotNull()).orderBy(F.col("_source_order").desc())
     row = ordered.select("_file_number", "_source_position", "_source_row", "_source_uuid").first()
     if row is None or row._file_number is None:
         return None
@@ -329,10 +343,20 @@ def _source_checkpoint(events):
     }
 
 
-def process_once(spark, cfg, types, ddl):
+def process_once(spark, cfg, types, ddl, force_rebuild=False):
     publication = latest_publication(spark)
     offsets = json.loads(publication["offsets_json"]) if publication else {}
+    needs_rebuild = (
+        force_rebuild
+        or not publication
+        or publication.get("schema_version") != SCHEMA_VERSION
+        or publication.get("source_mode") != "cdc"
+    )
     prior_cursor = offsets.get(SOURCE_CURSOR_KEY)
+    # Flink is an external Iceberg writer. A long-lived Spark catalog can keep
+    # an old table snapshot in memory even while Flink commits new checkpoints.
+    spark.catalog.refreshTable(BRONZE)
+    spark._jvm.org.apache.iceberg.spark.Spark3Util.loadIcebergTable(spark._jsparkSession, BRONZE).refresh()
     all_events = spark.table(BRONZE).dropDuplicates(EVENT_IDENTITY)
     source_rows = all_events.filter(F.col("operation").isin("r", "c", "u", "d"))
     if publication and prior_cursor is None:
@@ -398,9 +422,9 @@ def process_once(spark, cfg, types, ddl):
     )
     try:
         pending = batch.count()
-        if not pending and publication:
+        if not pending and publication and not needs_rebuild:
             heartbeat(spark, "idle")
-            return
+            return True
         data = batch.filter(F.col("operation").isin("r", "c", "u", "d"))
         transactions = data.filter(F.col("transaction_id").isNotNull()).select("transaction_id").distinct()
         # END may land in a later Iceberg snapshot. Do not acknowledge a partial
@@ -462,16 +486,8 @@ def process_once(spark, cfg, types, ddl):
                 log.info("Silver %s: applied %s keys", table.name, count)
         if publication is None:
             verify_bootstrap(spark, cfg)
-        refreshed = refresh_gold(spark, changed, run_id, initial=publication is None)
+        refreshed = refresh_gold(spark, changed, run_id, initial=needs_rebuild)
         validate_publication(spark, cfg, ddl, changed, refreshed, run_id)
-        snapshots = json.loads(publication["snapshots_json"]) if publication else {}
-        targets = {f"lakehouse.silver.{t.silver_table}" for t in cfg.tables if publication is None or t.name in changed}
-        targets.update(f"lakehouse.gold.{name}" for name in (GOLD_TABLE_DDL if publication is None else refreshed))
-        for target in sorted(targets):
-            rows = spark.sql(
-                f"SELECT snapshot_id FROM {target}.snapshots ORDER BY committed_at DESC, snapshot_id DESC LIMIT 1"
-            ).collect()
-            snapshots[target] = rows[0].snapshot_id if rows else None
         for row in batch.groupBy("topic", "kafka_partition").agg(F.max("kafka_offset").alias("offset")).collect():
             key = f"{row.topic}:{row.kafka_partition}"
             offsets[key] = max(int(offsets.get(key, -1)), int(row.offset))
@@ -491,13 +507,12 @@ def process_once(spark, cfg, types, ddl):
             source_at = max(source_at, publication["source_event_at"])
         elif not changed and publication:
             source_at = publication["source_event_at"]
-        source_sql = f"TIMESTAMP {quote(source_at)}" if source_at else "CAST(NULL AS TIMESTAMP)"
-        spark.sql(f"""INSERT INTO {PUBLICATIONS} SELECT {quote(run_id)}, current_timestamp(), {source_sql},
-            {quote(json.dumps(snapshots))}, {quote(json.dumps(offsets))}, {quote(json.dumps(sorted(changed)))}""")
+        publish(spark, cfg, run_id, mode="cdc", source_at=source_at, offsets=offsets, changed=changed)
         heartbeat(spark, "idle")
         log.info(
             "Published %s: %s changed source tables, %s refreshed Gold tables", run_id, len(changed), len(refreshed)
         )
+        return True
     finally:
         batch.unpersist()
 
@@ -507,10 +522,16 @@ def main():
     parser.add_argument("--config-path", default="/opt/project/pipelines/config/default.yml")
     parser.add_argument("--schema-path", default="/opt/project/database/schema.sql")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--rebuild-gold", action="store_true", help="Rebuild all Gold outputs, retaining CDC offsets")
+    parser.add_argument(
+        "--refresh-payments",
+        action="store_true",
+        help="Reload current payments; requires paused source writes and a drained CDC stream",
+    )
     args = parser.parse_args()
     if os.environ.get("LAKEHOUSE_OLTP_MODE", "cdc") != "cdc":
         return
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO, force=True)
     cfg = load_config(args.config_path)
     types = source_columns(args.schema_path)
     import re
@@ -523,11 +544,20 @@ def main():
     try:
         with oltp_writer_lock():
             ensure_tables(spark)
+            if args.refresh_payments:
+                from lakehouse.oltp.payment_refresh import refresh_payments
+
+                refresh_payments(spark)
+        rebuild = args.rebuild_gold or args.refresh_payments
         while True:
             started = time.monotonic()
             try:
                 with oltp_writer_lock():
-                    process_once(spark, cfg, types, ddl)
+                    completed = process_once(spark, cfg, types, ddl, force_rebuild=rebuild)
+                    if completed:
+                        rebuild = False
+                    elif args.once:
+                        raise RuntimeError("CDC transaction/snapshot is incomplete; no publication was created")
             except Exception:
                 log.exception("CDC application failed; publication checkpoint retained")
                 heartbeat(spark, "failed", detail="CDC application failed; inspect driver logs and quality audit")

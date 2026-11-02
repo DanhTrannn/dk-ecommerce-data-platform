@@ -1,6 +1,6 @@
 """Analytical serving through Trino; MySQL is used only for source reconciliation.
 
-Business queries use one completed CDC publication, including typed Silver
+Business queries use one completed batch or CDC publication, including typed Silver
 snapshots for signals not yet modeled as dedicated Gold marts.
 """
 
@@ -93,7 +93,7 @@ def _pct(part, total):
 
 
 def _cash(reader):
-    row = reader.one("""SELECT COALESCE(SUM(o.gross_revenue_vnd),0) amount, count(*) shipments
+    row = reader.one("""SELECT COALESCE(SUM(o.order_total_vnd),0) amount, count(*) shipments
         FROM lakehouse.gold.fact_order o JOIN lakehouse.gold.fact_shipment s ON o.order_id=s.order_id
         WHERE o.payment_method='cod' AND s.status IN ('assigned','picked_up','in_transit')""")
     return CashInTransitSignal(total_cod_amount_vnd=_n(row, "amount"), dispatched_shipments_count=_n(row, "shipments"))
@@ -101,10 +101,11 @@ def _cash(reader):
 
 def get_executive_metrics(db: Session | None = None, trino_client: TrinoClient | None = None):
     def build(reader):
-        row = reader.one("""SELECT COALESCE(SUM(gross_revenue_vnd),0) gmv,
+        row = reader.one("""SELECT COALESCE(SUM(order_total_vnd),0) gmv,
             COALESCE(SUM(net_revenue_vnd),0) revenue,
             COALESCE(SUM(net_revenue_vnd-net_profit_vnd),0) cogs,
             COALESCE(SUM(net_profit_vnd),0) profit, count(DISTINCT order_id) orders,
+            count_if(is_revenue_recognized) recognized_orders,
             count_if(is_boom) boom FROM lakehouse.gold.fact_order""")
         returns = reader.one(
             "SELECT count(DISTINCT return_id) n FROM lakehouse.silver.silver_return_requests WHERE status <> 'cancelled'"
@@ -117,7 +118,7 @@ def get_executive_metrics(db: Session | None = None, trino_client: TrinoClient |
             gross_profit_vnd=_n(row, "profit"),
             gross_margin_percent=_pct(_n(row, "profit"), revenue),
             total_orders=orders,
-            aov_vnd=round(revenue / orders) if orders and revenue > 0 else 0,
+            aov_vnd=round(revenue / _n(row, "recognized_orders")) if _n(row, "recognized_orders") else 0,
             boom_rate_percent=_pct(_n(row, "boom"), orders),
             return_rate_percent=_pct(_n(returns, "n"), orders),
             cash_in_transit=_cash(reader),
@@ -134,13 +135,13 @@ def get_sales_metrics(db: Session | None = None, trino_client: TrinoClient | Non
             count(DISTINCT CASE WHEN o.net_revenue_vnd>0 THEN o.order_id END) order_count
             FROM lakehouse.gold.fact_order o LEFT JOIN lakehouse.gold.dim_store s ON o.store_key=s.store_key
             GROUP BY 1,2 ORDER BY revenue_vnd DESC""")
-        products = reader.query("""SELECT p.product_id,p.product_name,COALESCE(SUM(i.quantity),0) units_sold,
-            COALESCE(SUM(i.item_total_vnd),0) revenue_vnd FROM lakehouse.gold.fact_order_item i
+        products = reader.query("""SELECT p.product_id,p.product_name,COALESCE(SUM(i.recognized_quantity),0) units_sold,
+            COALESCE(SUM(i.net_revenue_vnd),0) revenue_vnd FROM lakehouse.gold.fact_order_item i
             JOIN lakehouse.gold.fact_order o ON i.order_id=o.order_id
-            JOIN lakehouse.gold.dim_product p ON i.product_key=p.product_key WHERE o.is_delivered
+            JOIN lakehouse.gold.dim_product p ON i.product_key=p.product_key WHERE o.is_revenue_recognized
             GROUP BY p.product_id,p.product_name ORDER BY revenue_vnd DESC LIMIT 10""")
         cats = reader.query("""SELECT category_id,COALESCE(category_name,'Chưa phân loại') category_name,
-            COALESCE(SUM(gross_revenue_vnd),0) revenue_vnd FROM lakehouse.gold.mart_sales_daily
+            COALESCE(SUM(net_revenue_vnd),0) revenue_vnd FROM lakehouse.gold.mart_sales_daily
             GROUP BY 1,2 ORDER BY revenue_vnd DESC""")
         total = sum(_n(c, "revenue_vnd") for c in cats)
         return SalesMetricsResponse(
@@ -217,11 +218,10 @@ def _store(reader, store_id):
 
 def _store_values(reader, store_id):
     store_id, name = _store(reader, store_id)
-    row = reader.one(f"""SELECT COALESCE(SUM(gross_revenue_vnd),0) revenue,count(DISTINCT order_id) orders
-        FROM lakehouse.gold.fact_order WHERE store_key={store_id} AND order_date_vn={VN_TODAY}
-        AND status IN ('paid','shipping','delivered','completed')""")
+    row = reader.one(f"""SELECT COALESCE(SUM(net_revenue_vnd),0) revenue,count(DISTINCT order_id) orders
+        FROM lakehouse.gold.fact_order WHERE store_key={store_id} AND order_date_vn={VN_TODAY}""")
     low = reader.one(
-        f"SELECT count(*) n FROM lakehouse.gold.fact_inventory_current WHERE location_type='store' AND location_id={store_id} AND on_hand_quantity<=5"
+        f"SELECT count(*) n FROM lakehouse.gold.fact_inventory_current WHERE location_type='store' AND location_id={store_id} AND is_low_stock"
     )
     stocks = reader.query(f"""SELECT v.variant_id,v.sku,v.product_name,i.on_hand_quantity on_hand
         FROM lakehouse.gold.fact_inventory_current i JOIN lakehouse.gold.dim_variant v ON i.variant_key=v.variant_key
@@ -301,7 +301,7 @@ def get_inventory_metrics(db=None, trino_client=None):
             )
         low = reader.query("""SELECT v.variant_id,v.sku,v.product_name,i.on_hand_quantity on_hand
             FROM lakehouse.gold.fact_inventory_current i JOIN lakehouse.gold.dim_variant v ON i.variant_key=v.variant_key
-            WHERE i.location_type='warehouse' AND i.on_hand_quantity<=5 ORDER BY v.variant_id LIMIT 10""")
+            WHERE i.location_type='warehouse' AND i.is_low_stock ORDER BY v.variant_id LIMIT 10""")
         return InventoryMetricsResponse(
             total_inventory_value_vnd=_n(row, "value"),
             warehouse_stock_units=_n(row, "warehouse"),
@@ -367,7 +367,7 @@ def _timestamp(value):
 def get_system_metrics(db=None, trino_client=None):
     def build(reader):
         row = reader.one(
-            "SELECT count(DISTINCT order_id) orders,COALESCE(SUM(gross_revenue_vnd),0) revenue FROM lakehouse.gold.fact_order"
+            "SELECT count(DISTINCT order_id) orders,COALESCE(SUM(order_total_vnd),0) revenue FROM lakehouse.gold.fact_order"
         )
         comparisons = []
         if db is not None:
@@ -382,12 +382,13 @@ def get_system_metrics(db=None, trino_client=None):
                 )
                 for name, a, b in [
                     ("total_orders", count, _n(row, "orders")),
-                    ("gross_revenue_vnd", revenue, _n(row, "revenue")),
+                    ("order_total_vnd", revenue, _n(row, "revenue")),
                 ]
             ]
+        mode = reader.publication.get("source_mode", "cdc")
         states = reader.client.execute_query(
             "SELECT * FROM lakehouse.system.cdc_pipeline_state WHERE consumer_id='oltp-cdc'"
-        )
+        ) if mode == "cdc" else []
         state = states[0] if states else {}
         now = datetime.now(UTC)
         checked = _timestamp(state.get("checked_at"))
@@ -401,12 +402,16 @@ def get_system_metrics(db=None, trino_client=None):
             else ("degraded" if lag > 120 or variance > 5 else "healthy")
         )
         published = _timestamp(reader.publication["published_at"])
+        freshness = max(0, int((now - published).total_seconds() / 60))
+        freshness_limit = 5 if mode == "cdc" else 1500
+        if mode == "batch":
+            status = "healthy" if freshness <= freshness_limit else "degraded"
         return SystemMetricsResponse(
             pipeline_status=status,
-            data_freshness_minutes=max(0, int((now - published).total_seconds() / 60)),
-            data_freshness_sla_minutes=5,
+            data_freshness_minutes=freshness,
+            data_freshness_sla_minutes=freshness_limit,
             reconciliation_variance=comparisons,
-            cdc_apply_status=state.get("status", "unknown"),
+            cdc_apply_status=state.get("status", "unknown") if mode == "cdc" else "not_applicable",
             cdc_heartbeat_at=str(state.get("checked_at")) if checked else None,
             cdc_pending_events=_n(state, "pending_events"),
             cdc_apply_lag_seconds=lag,
@@ -439,11 +444,11 @@ def get_sales_trend(days=30, db=None, trino_client=None):
 
     def build(reader):
         rows = reader.query(f"""WITH money AS (
-            SELECT order_date,SUM(gross_revenue_vnd) revenue_vnd,SUM(cogs_vnd) cogs_vnd,SUM(gross_profit_vnd) profit_vnd
-            FROM lakehouse.gold.mart_sales_daily WHERE order_date>=current_date-INTERVAL '{days}' DAY GROUP BY order_date
+            SELECT order_date,SUM(net_revenue_vnd) revenue_vnd,SUM(cogs_vnd) cogs_vnd,SUM(gross_profit_vnd) profit_vnd
+            FROM lakehouse.gold.mart_sales_daily WHERE order_date BETWEEN {VN_TODAY}-INTERVAL '{days - 1}' DAY AND {VN_TODAY} GROUP BY order_date
         ), counts AS (
             SELECT order_date,count(DISTINCT order_id) orders_count FROM lakehouse.gold.fact_order
-            WHERE order_date>=current_date-INTERVAL '{days}' DAY GROUP BY order_date
+            WHERE order_date BETWEEN {VN_TODAY}-INTERVAL '{days - 1}' DAY AND {VN_TODAY} GROUP BY order_date
         ) SELECT CAST(c.order_date AS varchar) date,COALESCE(m.revenue_vnd,0) revenue_vnd,
             COALESCE(m.cogs_vnd,0) cogs_vnd,COALESCE(m.profit_vnd,0) profit_vnd,c.orders_count
             FROM counts c LEFT JOIN money m ON c.order_date=m.order_date ORDER BY c.order_date""")
@@ -457,13 +462,13 @@ def get_admin_overview():
         row = reader.one(f"""SELECT
             (SELECT count(*) FROM lakehouse.silver.silver_products WHERE is_active) products,
             (SELECT count(*) FROM lakehouse.silver.silver_product_variants v JOIN lakehouse.silver.silver_products p ON v.product_id=p.product_id WHERE v.is_active AND p.is_active) variants,
-            (SELECT count(*) FROM lakehouse.gold.fact_inventory_current i JOIN lakehouse.gold.dim_variant v ON i.variant_key=v.variant_key JOIN lakehouse.gold.dim_product p ON i.product_key=p.product_key WHERE i.location_type='warehouse' AND i.on_hand_quantity<=5 AND v.is_active AND p.is_active) low,
+            (SELECT count(*) FROM lakehouse.gold.fact_inventory_current i JOIN lakehouse.gold.dim_variant v ON i.variant_key=v.variant_key JOIN lakehouse.gold.dim_product p ON i.product_key=p.product_key WHERE i.location_type='warehouse' AND i.is_low_stock AND v.is_active AND p.is_active) low,
             (SELECT count(*) FROM lakehouse.silver.silver_customers WHERE role='customer') customers,
             (SELECT count(*) FROM lakehouse.silver.silver_product_reviews) reviews,
             (SELECT count(*) FROM lakehouse.silver.silver_coupons WHERE is_active AND starts_at<={NOW_UTC} AND ends_at>{NOW_UTC}) coupons,
-            (SELECT COALESCE(SUM(amount_vnd),0) FROM lakehouse.silver.silver_payments WHERE status='succeeded') revenue,
-            (SELECT COALESCE(SUM(amount_vnd),0) FROM lakehouse.silver.silver_refunds WHERE status='succeeded') refunds,
-            (SELECT COALESCE(SUM(total_cost_vnd),0) FROM lakehouse.gold.fact_order WHERE is_delivered) cogs""")
+            (SELECT COALESCE(SUM(gross_revenue_vnd),0) FROM lakehouse.gold.fact_order) revenue,
+            (SELECT COALESCE(SUM(refunded_amount_vnd),0) FROM lakehouse.gold.fact_order) refunds,
+            (SELECT COALESCE(SUM(total_cost_vnd),0) FROM lakehouse.gold.fact_order) cogs""")
         counts = {
             r["status"]: _n(r, "n")
             for r in reader.query("SELECT status,count(*) n FROM lakehouse.gold.fact_order GROUP BY status")
@@ -502,7 +507,7 @@ def get_store_overview(store_id):
     def build(reader):
         metrics = _store_values(reader, store_id)
         row = reader.one(f"""SELECT count(*) orders,count_if(status='completed') completed,
-            COALESCE(SUM(CASE WHEN status IN ('paid','shipping','delivered','completed') THEN gross_revenue_vnd ELSE 0 END),0) revenue
+            COALESCE(SUM(net_revenue_vnd),0) revenue
             FROM lakehouse.gold.fact_order WHERE store_key={int(metrics.store_id)}""")
         staff = reader.one(
             f"SELECT count(*) n FROM lakehouse.silver.silver_customers WHERE store_id={int(metrics.store_id)} AND role='store_manager' AND status='active'"

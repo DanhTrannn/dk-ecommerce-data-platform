@@ -4,15 +4,22 @@ from __future__ import annotations
 
 import argparse
 import sys
+import os
 
 from lakehouse.oltp.quality import GoldQualityGateError, run_gold_quality_gate
 from lakehouse.spark import spark_session
+from lakehouse.config import load_config
+from lakehouse.oltp.publication import publish
+from lakehouse.writer import oltp_writer_lock
 
 
 def parse_args(args: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Post-Gold data quality gate")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--batch-date", required=True)
+    parser.add_argument(
+        "--config-path", default=os.environ.get("PIPELINE_CONFIG_PATH", "/opt/project/pipelines/config/default.yml")
+    )
     return parser.parse_args(args)
 
 
@@ -25,10 +32,9 @@ def main() -> None:
             run_id=args.run_id,
             batch_date=args.batch_date,
         )
-        print(
-            "GOLD QUALITY GATE OK: "
-            f"passed {summary['passed_checks']}/{summary['total_checks']} checks."
-        )
+        print(f"GOLD QUALITY GATE OK: passed {summary['passed_checks']}/{summary['total_checks']} checks.")
+        if os.environ.get("LAKEHOUSE_OLTP_MODE", "cdc") == "batch":
+            publish(spark, load_config(args.config_path), args.run_id, mode="batch")
     except GoldQualityGateError as exc:
         print(f"GOLD QUALITY GATE FAILURE: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -37,4 +43,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    with oltp_writer_lock():
+        main()

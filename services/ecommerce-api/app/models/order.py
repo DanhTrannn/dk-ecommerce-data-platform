@@ -182,6 +182,12 @@ class Payment(Base):
         DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
     )
 
+    updated_at: Mapped[datetime] = mapped_column(
+        DATETIME(fsp=6), nullable=False,
+        server_default=text("CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)"),
+        server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+    )
+
     order: Mapped["Order"] = relationship(back_populates="payment")
 
     __table_args__ = (
@@ -197,6 +203,7 @@ class Payment(Base):
         Index("uq_payments_order_id", "order_id", unique=True),
         Index("uq_payments_payment_idempotency_key", "payment_idempotency_key", unique=True),
         Index("ix_payments_created_at_payment_id", "created_at", "payment_id"),
+        Index("ix_payments_updated_at_payment_id", "updated_at", "payment_id"),
     )
 
 

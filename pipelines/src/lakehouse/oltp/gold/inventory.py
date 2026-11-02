@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from pyspark.sql import DataFrame, functions as F
+
+
+def inventory_observation_date() -> str:
+    """Current stock is observed now; an Airflow interval is not stock history."""
+    return datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date().isoformat()
 
 
 def build_fact_inventory_daily_snapshot(
@@ -58,7 +66,7 @@ def build_fact_inventory_daily_snapshot(
         F.col("c.reserved_quantity"),
         unit_cost.alias("unit_cost_vnd"),
         inv_value.alias("inventory_value_cost_vnd"),
-        (F.col("c.on_hand_quantity") < 10).alias("is_low_stock"),
+        (F.col("c.on_hand_quantity") <= 5).alias("is_low_stock"),
         (F.col("c.on_hand_quantity") == 0).alias("is_out_of_stock"),
         F.current_timestamp().alias("_gold_ingested_at"),
         F.lit(run_id).alias("_source_run_id"),

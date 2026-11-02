@@ -12,18 +12,17 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
 
   switch (metrics.role) {
     case "executive": {
-      const fallback = metrics.data_source === "oltp_fallback";
       const financials = [
-        { name: "GMV", value: metrics.gmv_vnd, note: fallback ? "Order total, bỏ đơn cancelled" : "Tổng order total, gồm mọi trạng thái" },
+        { name: "GMV", value: metrics.gmv_vnd, note: "Tổng giá trị đơn, gồm mọi trạng thái và phí vận chuyển" },
         { name: "Giá vốn", value: metrics.cogs_vnd, note: "Theo quy tắc nguồn; xem định nghĩa chỉ số" },
-        { name: "COD đang giao", value: metrics.cash_in_transit?.total_cod_amount_vnd ?? null, note: "OLTP hiện tại; không phải số dư tiền đã thu hộ" },
+        { name: "COD đang giao", value: metrics.cash_in_transit?.total_cod_amount_vnd ?? null, note: "Theo lần công bố OLAP; chưa phải tiền đã thu hộ" },
       ];
       return <>
         <div className={kpiGrid}>
-          <MetricCard detail={fallback ? "Thanh toán thành công trừ hoàn tiền thành công." : "Theo net_revenue của fact_order; có thể gồm đơn chưa giao."} emphasis label="Doanh thu thuần" scope={allTime} value={formatMetricVnd(metrics.net_revenue_vnd)} />
+          <MetricCard detail="Hàng đã giao, sau giảm giá và hoàn tiền thành công; không gồm phí vận chuyển." emphasis label="Doanh thu thuần" scope={allTime} value={formatMetricVnd(metrics.net_revenue_vnd)} />
           <MetricCard detail={`Biên lợi nhuận: ${metrics.net_revenue_vnd > 0 ? percent(metrics.gross_margin_percent) : "chưa có mẫu số dương"}. Chưa trừ đủ chi phí vận hành.`} label="Lợi nhuận gộp" scope={allTime} value={formatMetricVnd(metrics.gross_profit_vnd)} warning={metrics.gross_profit_vnd < 0} />
           <MetricCard detail="Đơn duy nhất, gồm mọi trạng thái." label="Tổng đơn" scope={allTime} value={number(metrics.total_orders)} />
-          <MetricCard detail="Doanh thu thuần chia tổng đơn; chưa có dữ liệu kỳ trước để tính tăng trưởng." label="Giá trị đơn trung bình" scope={allTime} value={metrics.total_orders > 0 ? formatMetricVnd(metrics.aov_vnd) : "—"} />
+          <MetricCard detail="Doanh thu thuần chia số đơn đã giao, gồm đơn có trả hàng." label="Giá trị đơn trung bình" scope={allTime} value={metrics.total_orders > 0 ? formatMetricVnd(metrics.aov_vnd) : "—"} />
         </div>
         {trend}
         <div className="grid gap-5 xl:grid-cols-2">
@@ -200,11 +199,11 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
       const variances = metrics.reconciliation_variance;
       const maximum = comparable ? Math.max(...variances.map(row => row.variance_percent)) : null;
       const status = { healthy: "Trong ngưỡng UI", degraded: "Cần kiểm tra", unhealthy: "Bất thường" }[metrics.pipeline_status] ?? "Chưa xác định";
-      const label = (row: ReconciliationVariance) => row.metric_name === "total_orders" ? "Tổng đơn" : row.metric_name === "gross_revenue_vnd" ? "Tổng giá trị đơn (VND)" : row.metric_name;
+      const label = (row: ReconciliationVariance) => row.metric_name === "total_orders" ? "Tổng đơn" : (row.metric_name === "gross_revenue_vnd" || row.metric_name === "order_total_vnd") ? "Tổng giá trị đơn (VND)" : row.metric_name;
       return <>
         <div className="grid gap-4 sm:grid-cols-3">
           <MetricCard detail="Theo heartbeat CDC, độ trễ áp dụng và variance của API; không phải kiểm tra trực tiếp từng job." emphasis label="Tình trạng dữ liệu phân tích" scope="Phản hồi hiện tại" value={status} warning={metrics.pipeline_status !== "healthy"} />
-          <MetricCard detail={`CDC: ${metrics.cdc_apply_status ?? "chưa có heartbeat"}; ${metrics.cdc_pending_events} sự kiện đang chờ. Không có thay đổi mới thì không tạo lần công bố mới.`} label="Tuổi lần công bố" scope="Từ lần công bố OLAP gần nhất" value={metrics.data_freshness_minutes == null ? "Chưa xác định" : `${number(metrics.data_freshness_minutes)} phút`} warning={metrics.cdc_apply_status === "failed" || !metrics.cdc_heartbeat_at} />
+          <MetricCard detail={`CDC: ${metrics.cdc_apply_status ?? "chưa có heartbeat"}; ${metrics.cdc_pending_events} sự kiện đang chờ. Không có thay đổi mới thì không tạo lần công bố mới.`} label="Tuổi lần công bố" scope="Từ lần công bố OLAP gần nhất" value={metrics.data_freshness_minutes == null ? "Chưa xác định" : `${number(metrics.data_freshness_minutes)} phút`} warning={metrics.cdc_apply_status === "failed" || (metrics.cdc_apply_status !== "not_applicable" && !metrics.cdc_heartbeat_at)} />
           <MetricCard detail={comparable ? "Trong các chỉ số đối soát API trả về. Không so đơn và VND trên cùng trục giá trị." : "Không có kết quả đối soát mới. Phản hồi đang lấy từ cache OLAP hoặc thiếu nguồn."} label="Sai lệch lớn nhất" scope="MySQL hiện tại ↔ Gold" value={percent(maximum)} warning={maximum != null && maximum > 0} />
         </div>
         <Panel title="Đối soát dữ liệu OLTP và Lakehouse" subtitle="Tổng đơn và giá trị tiền có thang đo riêng; mỗi biểu đồ so sánh cùng một chỉ số giữa MySQL và Gold.">

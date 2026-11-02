@@ -59,9 +59,9 @@ tables:
     mutability: append_only
     silver_table: silver_order_items
   - name: payments
-    cursor_field: created_at
+    cursor_field: updated_at
     pk: payment_id
-    mutability: append_only
+    mutability: mutable
     silver_table: silver_payments
   - name: order_status_history
     cursor_field: created_at

@@ -62,6 +62,7 @@ def build_dim_product(
         F.col("p.name").alias("product_name"),
         F.col("p.slug"),
         F.col("p.category_id"),
+        F.col("c.code").alias("category_code"),
         F.coalesce(F.col("c.name"), F.lit("Unknown")).alias("category_name"),
         base_price_col.alias("base_price_vnd"),
         F.col("p.is_active"),

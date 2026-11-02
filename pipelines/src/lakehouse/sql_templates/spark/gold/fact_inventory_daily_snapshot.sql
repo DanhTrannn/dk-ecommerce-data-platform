@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS lakehouse.gold.fact_inventory_daily_snapshot (
     reserved_quantity               INT                             COMMENT 'Units reserved for pending orders',
     unit_cost_vnd                   BIGINT                          COMMENT 'COGS unit price in VND',
     inventory_value_cost_vnd        BIGINT                          COMMENT 'Stock valuation at cost (on_hand * unit_cost)',
-    is_low_stock                    BOOLEAN                         COMMENT 'True if on_hand < 10 units',
+    is_low_stock                    BOOLEAN                         COMMENT 'True if on_hand <= 5 units',
     is_out_of_stock                 BOOLEAN                         COMMENT 'True if on_hand == 0',
     _gold_ingested_at               TIMESTAMP                       COMMENT 'UTC timestamp written to Gold',
     _source_run_id                  STRING                          COMMENT 'Batch run ID'

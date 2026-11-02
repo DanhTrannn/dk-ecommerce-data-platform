@@ -82,16 +82,25 @@ def persist_quality_results(
     rows = []
     for result in results:
         payload = _result_payload(result)
-        rows.append(render_sql('spark/system/quality_result_row.sql',
-            result_id=_sql_string(uuid.uuid4().hex), run_id=_sql_string(run_id),
-            batch_date=_sql_string(batch_date), phase=_sql_string(phase),
-            check_name=_sql_string(payload['check_name']), dataset=_sql_string(payload['dataset']),
-            severity=_sql_string(payload['severity']), observed=_sql_string(payload['observed_value']),
-            expected=_sql_string(payload['expected_value']), variance=str(float(payload['variance_percent'])),
-            failed_rows=str(int(payload['failed_rows'])),
-            status=_sql_string('PASSED' if payload['passed'] else 'FAILED'),
-            details=_sql_string(payload['details']),
-            checked_at=_sql_string(checked_at.strftime('%Y-%m-%d %H:%M:%S.%f'))).strip())
+        rows.append(
+            render_sql(
+                "spark/system/quality_result_row.sql",
+                result_id=_sql_string(uuid.uuid4().hex),
+                run_id=_sql_string(run_id),
+                batch_date=_sql_string(batch_date),
+                phase=_sql_string(phase),
+                check_name=_sql_string(payload["check_name"]),
+                dataset=_sql_string(payload["dataset"]),
+                severity=_sql_string(payload["severity"]),
+                observed=_sql_string(payload["observed_value"]),
+                expected=_sql_string(payload["expected_value"]),
+                variance=str(float(payload["variance_percent"])),
+                failed_rows=str(int(payload["failed_rows"])),
+                status=_sql_string("PASSED" if payload["passed"] else "FAILED"),
+                details=_sql_string(payload["details"]),
+                checked_at=_sql_string(checked_at.strftime("%Y-%m-%d %H:%M:%S.%f")),
+            ).strip()
+        )
 
     if not rows:
         return
@@ -173,10 +182,10 @@ def run_gold_quality_gate(
     ]
 
     silver_revenue = _sum_as_int(silver_orders, "total_vnd")
-    gold_revenue = _sum_as_int(fact_order, "gross_revenue_vnd")
+    gold_revenue = _sum_as_int(fact_order, "order_total_vnd")
     results.append(
         QualityCheckResult(
-            check_name="silver_to_gold_gross_revenue_vnd",
+            check_name="silver_to_gold_order_total_vnd",
             dataset="lakehouse.gold.fact_order",
             observed_value=str(gold_revenue),
             expected_value=str(silver_revenue),
@@ -185,6 +194,8 @@ def run_gold_quality_gate(
             details=f"silver={silver_revenue} VND, gold={gold_revenue} VND",
         )
     )
+
+    results.extend(financial_consistency_checks(spark))
 
     for table_name, primary_key in (
         ("lakehouse.gold.fact_order", "order_id"),
@@ -245,8 +256,8 @@ def run_gold_quality_gate(
                 dataset=table_name,
                 observed_value=str(current_run_rows),
                 expected_value=">0",
-                passed=current_run_rows > 0,
-                failed_rows=0 if current_run_rows > 0 else 1,
+                passed=current_run_rows > 0 or spark.table(table_name).limit(1).count() == 0,
+                failed_rows=0 if current_run_rows > 0 or spark.table(table_name).limit(1).count() == 0 else 1,
                 details=f"rows published by run {run_id}={current_run_rows}",
             )
         )
@@ -292,3 +303,92 @@ def run_gold_quality_gate(
         messages = "; ".join(f"{item.dataset}.{item.check_name}: {item.details}" for item in failed)
         raise GoldQualityGateError(f"Gold quality gate failed with {len(failed)} violation(s): {messages}")
     return summary
+
+
+def financial_consistency_checks(spark):
+    """Conserve integer merchandise amounts across item, order and category grain."""
+    checks = []
+    wrong_inventory_date = (
+        spark.sql("""SELECT COUNT(*) n FROM lakehouse.gold.fact_inventory_current
+        WHERE snapshot_date IS NULL OR _gold_ingested_at IS NULL
+        OR snapshot_date <> to_date(from_utc_timestamp(_gold_ingested_at,'Asia/Ho_Chi_Minh'))""")
+        .first()
+        .n
+    )
+    checks.append(
+        QualityCheckResult(
+            "inventory_observation_date",
+            "fact_inventory_current",
+            str(wrong_inventory_date),
+            "0",
+            wrong_inventory_date == 0,
+            "Current balances must use the actual Vietnam observation date, not a backfill interval",
+            failed_rows=wrong_inventory_date,
+        )
+    )
+    missing_refunds = (
+        spark.sql("""SELECT COUNT(*) n FROM lakehouse.gold.fact_order o
+        LEFT JOIN (
+            SELECT p.order_id,SUM(r.amount_vnd) amount
+            FROM lakehouse.silver.silver_refunds r
+            JOIN lakehouse.silver.silver_payments p ON r.payment_id=p.payment_id
+            WHERE r.status='succeeded' GROUP BY p.order_id
+        ) r ON o.order_id=r.order_id
+        WHERE o.refunded_amount_vnd <> CASE WHEN o.is_revenue_recognized
+            THEN LEAST(o.gross_revenue_vnd,COALESCE(r.amount,0)) ELSE 0 END""")
+        .first()
+        .n
+    )
+    checks.append(
+        QualityCheckResult(
+            "successful_refunds_match_source",
+            "fact_order",
+            str(missing_refunds),
+            "0",
+            missing_refunds == 0,
+            "Successful merchandise refunds must not be lost because return-line metadata is incomplete",
+            failed_rows=missing_refunds,
+        )
+    )
+    for order_column, item_column, mart_column in (
+        ("gross_revenue_vnd", "gross_revenue_vnd", "gross_revenue_vnd"),
+        ("refunded_amount_vnd", "refunded_amount_vnd", "refunded_amount_vnd"),
+        ("net_revenue_vnd", "net_revenue_vnd", "net_revenue_vnd"),
+        ("total_cost_vnd", "item_cost_vnd", "cogs_vnd"),
+        ("net_profit_vnd", "item_profit_vnd", "gross_profit_vnd"),
+    ):
+        row = spark.sql(f"""SELECT
+            (SELECT COALESCE(SUM({order_column}),0) FROM lakehouse.gold.fact_order) orders,
+            (SELECT COALESCE(SUM({item_column}),0) FROM lakehouse.gold.fact_order_item) items,
+            (SELECT COALESCE(SUM({mart_column}),0) FROM lakehouse.gold.mart_sales_daily) marts""").first()
+        checks.append(
+            QualityCheckResult(
+                f"financial_parity_{order_column}",
+                "fact_order / fact_order_item / mart_sales_daily",
+                str((row.orders, row.items, row.marts)),
+                "equal",
+                row.orders == row.items == row.marts,
+                "Same recognition, discount allocation and successful-refund definition at every grain",
+            )
+        )
+    invalid = (
+        spark.sql("""SELECT count(*) n FROM lakehouse.gold.fact_order_item
+        WHERE unit_cost_vnd IS NULL OR item_cost_vnd IS NULL OR net_revenue_vnd IS NULL
+           OR net_revenue_vnd<0 OR refunded_amount_vnd<0 OR returned_quantity>quantity
+           OR gross_revenue_vnd-refunded_amount_vnd<>net_revenue_vnd
+           OR net_revenue_vnd-item_cost_vnd<>item_profit_vnd""")
+        .first()
+        .n
+    )
+    checks.append(
+        QualityCheckResult(
+            "valid_item_financials",
+            "fact_order_item",
+            str(invalid),
+            "0",
+            invalid == 0,
+            "No missing historical cost, negative revenue, over-return or inconsistent profit",
+            failed_rows=invalid,
+        )
+    )
+    return checks

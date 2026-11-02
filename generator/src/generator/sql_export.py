@@ -1303,7 +1303,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
             _write_insert(
                 stream,
                 "payments",
-                ("payment_id", "payment_reference", "order_id", "payment_idempotency_key", "status", "currency_code", "amount_vnd", "failure_code", "attempted_at", "created_at"),
+                ("payment_id", "payment_reference", "order_id", "payment_idempotency_key", "status", "currency_code", "amount_vnd", "failure_code", "attempted_at", "created_at", "updated_at"),
                 payment_rows,
             )
             _write_insert(
@@ -1790,6 +1790,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                         None,
                         order_time,
                         order_time,
+                        completed_at if payment_method == "cod" and completed_at else order_time,
                     )
                 )
                 history_index += 1

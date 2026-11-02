@@ -109,6 +109,12 @@ def ensure_silver_tables(spark: SparkSession) -> None:
     for ddl in SILVER_TABLE_DDL.values():
         spark.sql(ddl)
     spark.sql(SILVER_QUARANTINE_DDL)
+    order_columns = set(spark.table("lakehouse.silver.silver_orders").columns)
+    if "shipping_region" not in order_columns:
+        spark.sql("ALTER TABLE lakehouse.silver.silver_orders ADD COLUMN shipping_region STRING")
+    payment_columns = set(spark.table("lakehouse.silver.silver_payments").columns)
+    if "updated_at" not in payment_columns:
+        spark.sql("ALTER TABLE lakehouse.silver.silver_payments ADD COLUMN updated_at TIMESTAMP")
 
     # Existing local environments may have created the quarantine table before
     # multi-violation reporting was introduced. Iceberg schema evolution keeps

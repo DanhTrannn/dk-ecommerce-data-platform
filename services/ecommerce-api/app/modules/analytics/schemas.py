@@ -137,7 +137,7 @@ class CashInTransitSignal(BaseModel):
 # -----------------------------------------------------------------------------
 
 class AnalyticsDataStatus(BaseModel):
-    """Expose whether a response came from the Lakehouse or a bounded OLTP fallback."""
+    """Expose the validated Lakehouse publication and bounded cached-result age."""
 
     data_source: str = "lakehouse"
     is_degraded: bool = False

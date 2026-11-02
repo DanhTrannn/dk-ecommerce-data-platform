@@ -14,7 +14,9 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import StringType, StructField, StructType
 from pyspark.sql.window import Window
 
-from lakehouse.oltp.silver import _pseudonymize, _pseudonymized_column_name, _validate_rows, write_quarantine
+from lakehouse.oltp.silver.pii import _pseudonymize, _pseudonymized_column_name
+from lakehouse.oltp.silver.validation import _validate_rows
+from lakehouse.oltp.silver.quarantine import write_quarantine
 
 STATE = "lakehouse.system.cdc_row_state"
 REGIONS = ("Bình Tân", "Quận 1", "Quận 7", "Thủ Đức", "Gò Vấp", "Tân Bình", "Cầu Giấy", "Đống Đa", "Hoàn Kiếm")
