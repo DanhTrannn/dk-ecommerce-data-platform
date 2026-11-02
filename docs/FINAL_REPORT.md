@@ -881,7 +881,7 @@ Kiến trúc an toàn thông tin của hệ thống Lakehouse được phân đ�
 ![Quyền ứng dụng và dữ liệu người dùng](docs/diagram/security-app.svg)
 
 * **Bảo mật công cụ, Catalog và Phân vùng lưu trữ**:
-  * **Apache Polaris REST Catalog RBAC [10]**: Toàn bộ quyền truy cập siêu dữ liệu Iceberg được quản lý tập trung theo mô hình "RBAC as Code" thông qua cấu hình `infrastructure/polaris/rbac.yml`:
+  * **Apache Polaris REST Catalog RBAC [10]**: Quyền truy cập siêu dữ liệu Iceberg được khởi tạo một lần từ `infrastructure/polaris/rbac.yml`; sau bootstrap, quản trị viên chỉnh sửa quyền qua Polaris Console hoặc Management API. Các vai trò ban đầu gồm:
     * `spark_writer`: Gán vai trò `spark_writer_catalog_role` với đặc quyền `CATALOG_MANAGE_CONTENT`, cho phép đọc/ghi dữ liệu trên toàn bộ các namespace (`landing`, `bronze`, `silver`, `gold`, `quarantine`, `system`).
     * `flink_writer`: Gán vai trò `flink_writer_catalog_role` dành riêng cho các tiến trình xử lý luồng CDC và Access Logs.
     * `trino_reader`: Gán vai trò `trino_reader_catalog_role` với các đặc quyền chỉ đọc khắt khe: `TABLE_READ_DATA`, `NAMESPACE_LIST`, `VIEW_READ_PROPERTIES`. Tuyệt đối không cấp quyền ghi (`MANAGE_CONTENT`) hay sửa đổi lược đồ bảng, bảo vệ kho dữ liệu Gold khỏi mọi hành vi can thiệp trái phép từ các công cụ BI và người dùng phân tích.
@@ -1163,7 +1163,7 @@ Hệ thống sử dụng tệp `.env` (được sao chép và thiết lập từ
 
 #### **3. Cơ chế chia sẻ thông tin xác thực động qua Docker Volumes (Dynamic Credential Sharing)**
 Nhằm tuân thủ nguyên tắc an toàn thông tin đặc quyền tối thiểu và loại bỏ nguy cơ rò rỉ khóa bí mật (Hard-coded Credentials) trong mã nguồn, hệ thống thiết kế cơ chế cấp phát quyền động thông qua Apache Polaris và chia sẻ qua Docker Volumes:
-* Dịch vụ `polaris-init` (thực thi script `sync_polaris_rbac.py`) tự động đọc tệp khai báo vai trò `infrastructure/polaris/rbac.yml`, tạo lập các tài khoản ủy thác (Principals) gồm `spark_writer`, `flink_writer`, `trino_reader`, `trino_admin`.
+* Ở lần đầu, dịch vụ `polaris-init` (thực thi `sync_polaris_rbac.py`) đọc mẫu bootstrap `infrastructure/polaris/rbac.yml` và tạo các principal `spark_writer`, `flink_writer`, `trino_reader`, `trino_admin`. Trạng thái hoàn tất và credential được lưu trong volume riêng; các lần init sau kiểm tra identity và khôi phục file đầu ra nếu thiếu, không áp lại quyền YAML hoặc tự reset credential. Cài đặt hiện có được tiếp nhận bằng credential đang dùng, giữ nguyên phân quyền trên Console.
 * Polaris tự sinh các cặp khóa OAuth2 (`client_id` và `client_secret`) tạm thời và xuất ra các thư mục volume riêng biệt:
   * `/run/polaris-output/spark-client` (phân quyền gắn POSIX `uid: 185, gid: 185`) $\rightarrow$ gắn kết trực tiếp vào container `spark-client` và `airflow-scheduler`.
   * `/run/polaris-output/flink` (phân quyền `uid: 9999, gid: 9999`) $\rightarrow$ gắn kết vào `flink-jobmanager` và `flink-taskmanager`.
@@ -1603,7 +1603,7 @@ Nền tảng Data Lakehouse của D&K được thiết lập trên sự kết h�
      * `lakehouse.gold`: Các bảng Chiều (Dimensions), Sự kiện (Facts) và Data Marts phân tích.
      * `lakehouse.quarantine`: Không gian cách ly dữ liệu lỗi, vi phạm ràng buộc schema hoặc logic.
      * `lakehouse.system`: Bảng lưu vết siêu dữ liệu kiểm toán và kết quả kiểm tra chất lượng dữ liệu (`data_quality_results`).
-   * **Quản lý kiểm soát truy cập theo mô hình RBAC-as-Code**: Toàn bộ chính sách phân quyền trên Catalog được định nghĩa bằng tệp cấu hình `infrastructure/polaris/rbac.yml` và được script `sync_polaris_rbac.py` tự động đồng bộ khi khởi tạo:
+   * **Khởi tạo RBAC và quản trị quyền qua Console**: `infrastructure/polaris/rbac.yml` cung cấp quyền ban đầu cho môi trường mới. Sau bootstrap, quyền được quản lý qua Console/Management API; script `sync_polaris_rbac.py` không đồng bộ lại YAML, không purge identity và không tự reset credential. Các quyền ban đầu bao gồm:
      * Cấp vai trò `spark_writer` với quyền `CATALOG_MANAGE_CONTENT` trên toàn bộ catalog.
      * Cấp vai trò `flink_writer` với quyền ghi dữ liệu streaming vào Bronze và Silver.
      * Cấp vai trò `trino_reader` chỉ với các đặc quyền đọc dữ liệu (`TABLE_READ_DATA`, `NAMESPACE_LIST`, `VIEW_READ_PROPERTIES`), ngăn chặn hoàn toàn việc sửa đổi dữ liệu từ tầng BI.
@@ -1613,11 +1613,11 @@ Nền tảng Data Lakehouse của D&K được thiết lập trên sự kết h�
      * Khai báo lớp Catalog: `org.apache.iceberg.spark.SparkCatalog`.
      * Kiểu Catalog: `org.apache.iceberg.rest.RESTCatalog` kết nối tới `http://polaris:8181/api/catalog`.
      * Lớp FileIO: `org.apache.iceberg.aws.s3.S3FileIO` trỏ về endpoint MinIO `http://minio:9000`.
-     * Tự động nạp thông tin xác thực OAuth2 động từ volume `/run/polaris-output/spark-client/credentials.json`.
+     * Đọc OAuth client ID/secret từ `/run/polaris/clients.env` trong volume credential riêng của từng consumer Spark, rồi xác thực với Polaris.
    * **Cấu hình Apache Trino (`infrastructure/trino/catalog/lakehouse.properties`)**:
      * Sử dụng connector `iceberg` với `iceberg.catalog.type = rest`.
      * Kết nối danh mục Polaris qua `iceberg.rest-catalog.uri = http://polaris:8181/api/catalog`.
-     * Tự động nạp Bearer Token xác thực của `trino_reader` từ `/run/polaris-output/trino-reader/credentials.json`.
+     * Đọc OAuth client ID/secret của `trino_reader` từ `/run/polaris/clients.env` trong volume credential riêng; Trino sử dụng các credential này để xác thực với Polaris.
 
 > [!TIP]
 > **Gợi ý ảnh chụp màn hình minh chứng — [Hình 4.18: Giao diện quản trị Apache Polaris REST Console quản lý các namespace Lakehouse]**

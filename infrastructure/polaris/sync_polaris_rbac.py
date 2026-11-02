@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""
-Apache Polaris RBAC as Code Reconciler.
+"""Bootstrap Polaris once; subsequent init preserves Console-managed access.
 
-Reads a declarative YAML configuration file (rbac.yml) and idempotently
-synchronizes Polaris catalogs, namespaces, catalog roles, principal roles,
-privilege grants, and principals.
+The historical filename remains the Compose entrypoint. YAML is a first-run
+seed, not an authoritative configuration for an already initialized realm.
 """
 
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import logging
 import os
@@ -20,49 +19,16 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import yaml
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] [polaris-rbac] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger("polaris-rbac")
-
-TOP_LEVEL_PRIVILEGES = {
-    "CATALOG_MANAGE_ACCESS",
-    "CATALOG_MANAGE_CONTENT",
-    "CATALOG_MANAGE_METADATA",
-    "CATALOG_READ_PROPERTIES",
-    "CATALOG_WRITE_PROPERTIES",
-    "NAMESPACE_CREATE",
-    "NAMESPACE_DROP",
-    "NAMESPACE_LIST",
-    "NAMESPACE_READ_PROPERTIES",
-    "NAMESPACE_WRITE_PROPERTIES",
-    "NAMESPACE_FULL_METADATA",
-    "TABLE_CREATE",
-    "TABLE_DROP",
-    "TABLE_LIST",
-    "TABLE_READ_PROPERTIES",
-    "TABLE_READ_DATA",
-    "TABLE_WRITE_DATA",
-    "TABLE_WRITE_PROPERTIES",
-    "TABLE_FULL_METADATA",
-    "VIEW_CREATE",
-    "VIEW_DROP",
-    "VIEW_LIST",
-    "VIEW_READ_PROPERTIES",
-    "VIEW_WRITE_PROPERTIES",
-    "VIEW_FULL_METADATA",
-}
-
-SYSTEM_CATALOG_ROLES = {"catalog_admin"}
-SYSTEM_PRINCIPAL_ROLES = {"service_admin"}
-SYSTEM_PRINCIPALS = {"root"}
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [polaris-bootstrap] %(message)s")
+logger = logging.getLogger("polaris-bootstrap")
+STATE_VERSION = 1
+OWNER_PROPERTY = "tlcn.bootstrap-id"
 
 
 def expand_env(val: Any) -> Any:
@@ -118,6 +84,7 @@ class PolarisClient:
             headers={
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Accept": "application/json",
+                "Polaris-Realm": self.realm,
             },
             method="POST",
         )
@@ -177,6 +144,8 @@ class PolarisClient:
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 status = resp.status
+                if status not in expected_statuses:
+                    raise RuntimeError(f"Unexpected HTTP {status} for {method} {path}")
                 body = resp.read().decode("utf-8")
                 res = json.loads(body) if body else None
                 return status, res
@@ -187,10 +156,9 @@ class PolarisClient:
                 res = json.loads(body) if body else None
             except Exception:
                 res = body
-            if e.code in expected_statuses or e.code in (404, 409):
+            if e.code in expected_statuses:
                 return e.code, res
-            logger.error("HTTP %s on %s %s: %s", e.code, method, path, body)
-            raise
+            raise RuntimeError(f"Polaris returned HTTP {e.code} for {method} {path}") from None
 
 
 def load_saved_credentials(cred_file: Path) -> Dict[str, str]:
@@ -211,630 +179,426 @@ def load_saved_credentials(cred_file: Path) -> Dict[str, str]:
     return creds
 
 
-class PolarisRbacReconciler:
-    """Orchestrates reconciliation of the Polaris RBAC model from config."""
+class PolarisBootstrap:
+    """One local initialization lock, one durable marker, separate secret state."""
 
-    def __init__(
-        self,
-        client: PolarisClient,
-        config: Dict[str, Any],
-        *,
-        state_file: Path,
-    ):
+    def __init__(self, client, state_file, ready_file, config_path, catalog=None):
         self.client = client
-        self.config = expand_env(config)
-        self.state_file = state_file
-        self.catalog_name: str = self.config["catalog"]["name"]
-        self.saved_creds = load_saved_credentials(state_file)
-        self.output_creds: Dict[str, str] = dict(self.saved_creds)
-        self.credential_outputs: List[Dict[str, Any]] = self.config.get("credential_outputs", [])
+        self.state_file = Path(state_file)
+        self.ready_file = Path(ready_file)
+        self.config_path = Path(config_path)
+        self.expected_catalog = catalog
+        self.state = None
+        self.config = None
+        self.credentials = {}
 
-    def reconcile_catalog(self) -> None:
-        """Ensure catalog exists and has correct storage configuration."""
-        cat_conf = self.config["catalog"]
-        name = cat_conf["name"]
-        s3 = cat_conf.get("s3", {})
-        default_base = cat_conf.get(
-            "default_base_location", f"s3://{name}/warehouse"
-        )
-        allowed_locations = cat_conf.get("allowed_locations", [f"s3://{name}/"])
-        s3_endpoint = s3.get("endpoint", "http://minio:9000")
-        s3_endpoint_internal = s3.get("endpoint_internal", "http://minio:9000")
-        region = s3.get("region", "us-east-1")
-
-        status, res = self.client.request(
-            "GET", f"/api/management/v1/catalogs/{name}", expected_statuses=(200, 404)
-        )
-
-        catalog_data = {
-            "name": name,
-            "type": "INTERNAL",
-            "readOnly": False,
-            "properties": {"default-base-location": default_base},
-            "storageConfigInfo": {
-                "storageType": "S3",
-                "allowedLocations": allowed_locations,
-                "endpoint": s3_endpoint,
-                "endpointInternal": s3_endpoint_internal,
-                "pathStyleAccess": True,
-                "region": region,
-            },
-        }
-
-        if status == 404:
-            logger.info("Catalog '%s' does not exist. Creating...", name)
-            self.client.request(
-                "POST",
-                "/api/management/v1/catalogs",
-                payload={"catalog": catalog_data},
-            )
-            logger.info("Catalog '%s' created successfully.", name)
-        else:
-            entity_version = res.get("entityVersion", 1)
-            update_payload = {
-                "currentEntityVersion": entity_version,
-                "properties": {"default-base-location": default_base},
-                "storageConfigInfo": catalog_data["storageConfigInfo"],
-            }
-            self.client.request(
-                "PUT",
-                f"/api/management/v1/catalogs/{name}",
-                payload=update_payload,
-            )
-            logger.info("Catalog '%s' configuration verified and updated.", name)
-
-    def purge_unmanaged_entities(self) -> None:
-        """Purge principals and roles that are not listed in rbac.yml (except system ones)."""
-        purge_principals = self.config.get("purge_unmanaged_principals", False)
-        purge_roles = self.config.get("purge_unmanaged_roles", False)
-
-        if purge_principals:
-            managed_principals: Set[str] = set(self.config.get("principals", {}).keys())
-            status, res = self.client.request("GET", "/api/management/v1/principals")
-            if status == 200 and res:
-                for p in res.get("principals", []):
-                    p_name = p.get("name")
-                    if p_name and p_name not in SYSTEM_PRINCIPALS and p_name not in managed_principals:
-                        logger.warning("Purging unmanaged principal: '%s'", p_name)
-                        self.client.request(
-                            "DELETE",
-                            f"/api/management/v1/principals/{p_name}",
-                            expected_statuses=(200, 204, 404),
-                        )
-
-        if purge_roles:
-            # Purge unmanaged principal roles
-            managed_p_roles: Set[str] = set(self.config.get("principal_roles", {}).keys())
-            status, res = self.client.request("GET", "/api/management/v1/principal-roles")
-            if status == 200 and res:
-                for r in res.get("roles", []):
-                    r_name = r.get("name")
-                    if r_name and r_name not in SYSTEM_PRINCIPAL_ROLES and r_name not in managed_p_roles:
-                        logger.warning("Purging unmanaged principal role: '%s'", r_name)
-                        self.client.request(
-                            "DELETE",
-                            f"/api/management/v1/principal-roles/{r_name}",
-                            expected_statuses=(200, 204, 404),
-                        )
-
-            # Purge unmanaged catalog roles
-            managed_c_roles: Set[str] = set(self.config.get("catalog_roles", {}).keys())
-            status, res = self.client.request(
-                "GET", f"/api/management/v1/catalogs/{self.catalog_name}/catalog-roles"
-            )
-            if status == 200 and res:
-                for r in res.get("roles", []):
-                    r_name = r.get("name")
-                    if r_name and r_name not in SYSTEM_CATALOG_ROLES and r_name not in managed_c_roles:
-                        logger.warning("Purging unmanaged catalog role: '%s'", r_name)
-                        self.client.request(
-                            "DELETE",
-                            f"/api/management/v1/catalogs/{self.catalog_name}/catalog-roles/{r_name}",
-                            expected_statuses=(200, 204, 404),
-                        )
-
-    def reconcile_catalog_roles(self) -> None:
-        """Ensure catalog roles exist and have the configured privilege grants."""
-        target_roles: Dict[str, Any] = self.config.get("catalog_roles", {})
-
-        for role_name, role_def in target_roles.items():
-            status, _ = self.client.request(
-                "GET",
-                f"/api/management/v1/catalogs/{self.catalog_name}/catalog-roles/{role_name}",
-                expected_statuses=(200, 404),
-            )
-            if status == 404:
-                logger.info(
-                    "Creating catalog role '%s' in catalog '%s'...",
-                    role_name,
-                    self.catalog_name,
-                )
-                self.client.request(
-                    "POST",
-                    f"/api/management/v1/catalogs/{self.catalog_name}/catalog-roles",
-                    payload={"catalogRole": {"name": role_name, "properties": {}}},
-                    expected_statuses=(200, 201, 409),
-                )
-
-            # Reconcile privilege grants
-            _, grants_res = self.client.request(
-                "GET",
-                f"/api/management/v1/catalogs/{self.catalog_name}/catalog-roles/{role_name}/grants",
-            )
-            existing_grants = {
-                g.get("privilege")
-                for g in (grants_res.get("grants", []) if grants_res else [])
-                if g.get("privilege")
-            }
-
-            configured_grants: List[Dict[str, str]] = role_def.get("grants", [])
-            target_privileges = {
-                g.get("privilege") for g in configured_grants if g.get("privilege")
-            }
-
-            # Add missing privileges
-            for grant in configured_grants:
-                priv = grant.get("privilege")
-                if priv and priv not in existing_grants:
-                    logger.info(
-                        "Granting privilege '%s' to catalog role '%s'...",
-                        priv,
-                        role_name,
-                    )
-                    self.client.request(
-                        "PUT",
-                        f"/api/management/v1/catalogs/{self.catalog_name}/catalog-roles/{role_name}/grants",
-                        payload={"grant": {"type": grant.get("type", "catalog"), "privilege": priv}},
-                        expected_statuses=(200, 201, 409),
-                    )
-
-            # Revoke unconfigured top-level privileges if prune requested
-            if self.config.get("prune_unmanaged_privileges", False):
-                for priv in (existing_grants & TOP_LEVEL_PRIVILEGES) - target_privileges:
-                    logger.info(
-                        "Revoking privilege '%s' from catalog role '%s'...",
-                        priv,
-                        role_name,
-                    )
-                    self.client.request(
-                        "POST",
-                        f"/api/management/v1/catalogs/{self.catalog_name}/catalog-roles/{role_name}/grants",
-                        payload={"grant": {"type": "catalog", "privilege": priv}},
-                        expected_statuses=(200, 201, 204),
-                    )
-
-    def reconcile_principal_roles(self) -> None:
-        """Ensure principal roles exist and inherit the assigned catalog roles."""
-        target_roles: Dict[str, Any] = self.config.get("principal_roles", {})
-
-        for role_name, role_def in target_roles.items():
-            status, _ = self.client.request(
-                "GET",
-                f"/api/management/v1/principal-roles/{role_name}",
-                expected_statuses=(200, 404),
-            )
-            if status == 404:
-                logger.info("Creating principal role '%s'...", role_name)
-                self.client.request(
-                    "POST",
-                    "/api/management/v1/principal-roles",
-                    payload={"principalRole": {"name": role_name, "properties": {}}},
-                    expected_statuses=(200, 201, 409),
-                )
-
-            # Assigned catalog roles
-            _, cat_roles_res = self.client.request(
-                "GET",
-                f"/api/management/v1/principal-roles/{role_name}/catalog-roles/{self.catalog_name}",
-            )
-            assigned_roles = {
-                r.get("name")
-                for r in (cat_roles_res.get("roles", []) if cat_roles_res else [])
-                if r.get("name")
-            }
-
-            configured_cat_roles: Set[str] = set(role_def.get("catalog_roles", []))
-
-            # Add missing catalog roles
-            for cr in configured_cat_roles - assigned_roles:
-                logger.info(
-                    "Binding catalog role '%s' to principal role '%s'...",
-                    cr,
-                    role_name,
-                )
-                self.client.request(
-                    "PUT",
-                    f"/api/management/v1/principal-roles/{role_name}/catalog-roles/{self.catalog_name}",
-                    payload={"catalogRole": {"name": cr}},
-                    expected_statuses=(200, 201, 409),
-                )
-
-            # Revoke removed catalog roles
-            for cr in assigned_roles - configured_cat_roles:
-                logger.info(
-                    "Revoking catalog role '%s' from principal role '%s'...",
-                    cr,
-                    role_name,
-                )
-                self.client.request(
-                    "DELETE",
-                    f"/api/management/v1/principal-roles/{role_name}/catalog-roles/{self.catalog_name}/{cr}",
-                    expected_statuses=(200, 204, 404),
-                )
-
-    def reconcile_principals(self) -> None:
-        """Ensure principals exist, have valid credentials, and principal roles assigned."""
-        target_principals: Dict[str, Any] = self.config.get("principals", {})
-
-        for principal_name, p_def in target_principals.items():
-            export_spec = p_def.get("credentials_export", {})
-            id_var = export_spec.get("client_id_var")
-            secret_var = export_spec.get("client_secret_var")
-
-            # Check if saved credentials are still valid
-            saved_id = self.saved_creds.get(id_var) if id_var else None
-            saved_secret = self.saved_creds.get(secret_var) if secret_var else None
-
-            creds_valid = False
-            if saved_id and saved_secret:
-                test_token = self.client.obtain_token(saved_id, saved_secret)
-                if test_token:
-                    creds_valid = True
-                    logger.info("Reusing valid credentials for principal '%s'.", principal_name)
-
-            client_id = saved_id
-            client_secret = saved_secret
-
-            if not creds_valid:
-                # Check if principal exists
-                status, _ = self.client.request(
-                    "GET",
-                    f"/api/management/v1/principals/{principal_name}",
-                    expected_statuses=(200, 404),
-                )
-
-                if status == 404:
-                    logger.info("Creating principal '%s'...", principal_name)
-                    _, create_res = self.client.request(
-                        "POST",
-                        "/api/management/v1/principals",
-                        payload={
-                            "principal": {
-                                "name": principal_name,
-                                "properties": {"service": self.catalog_name},
-                            },
-                            "credentialRotationRequired": False,
-                        },
-                    )
-                    creds = (create_res or {}).get("credentials", {})
-                    client_id = creds.get("clientId")
-                    client_secret = creds.get("clientSecret")
-                else:
-                    logger.info("Rotating/resetting credentials for '%s'...", principal_name)
-                    _, reset_res = self.client.request(
-                        "POST",
-                        f"/api/management/v1/principals/{principal_name}/reset",
-                        payload={},
-                    )
-                    creds = (reset_res or {}).get("credentials", {})
-                    client_id = creds.get("clientId")
-                    client_secret = creds.get("clientSecret")
-
-                if not client_id or not client_secret:
-                    raise RuntimeError(
-                        f"Failed to obtain credentials for principal '{principal_name}'"
-                    )
-
-            if id_var and client_id:
-                self.output_creds[id_var] = client_id
-            if secret_var and client_secret:
-                self.output_creds[secret_var] = client_secret
-
-            # Reconcile principal roles
-            _, p_roles_res = self.client.request(
-                "GET",
-                f"/api/management/v1/principals/{principal_name}/principal-roles",
-            )
-            assigned_p_roles = {
-                r.get("name")
-                for r in (p_roles_res.get("roles", []) if p_roles_res else [])
-                if r.get("name")
-            }
-
-            configured_p_roles: Set[str] = set(p_def.get("principal_roles", []))
-
-            for pr in configured_p_roles - assigned_p_roles:
-                logger.info(
-                    "Assigning principal role '%s' to principal '%s'...",
-                    pr,
-                    principal_name,
-                )
-                self.client.request(
-                    "PUT",
-                    f"/api/management/v1/principals/{principal_name}/principal-roles",
-                    payload={"principalRole": {"name": pr}},
-                    expected_statuses=(200, 201, 409),
-                )
-
-            for pr in assigned_p_roles - configured_p_roles:
-                logger.info(
-                    "Revoking principal role '%s' from principal '%s'...",
-                    pr,
-                    principal_name,
-                )
-                self.client.request(
-                    "DELETE",
-                    f"/api/management/v1/principals/{principal_name}/principal-roles/{pr}",
-                    expected_statuses=(200, 204, 404),
-                )
-
-    def _managed_keys(self) -> Set[str]:
-        managed: Set[str] = set()
-        for p_def in self.config.get("principals", {}).values():
-            export_spec = p_def.get("credentials_export", {})
-            for key in (export_spec.get("client_id_var"), export_spec.get("client_secret_var")):
-                if key:
-                    managed.add(key)
-        return managed
-
-    def _validate_credentials(self, keys: List[str], label: str) -> None:
-        missing = [key for key in keys if key not in self.output_creds]
-        if missing:
-            raise RuntimeError(
-                f"Missing credentials for {label}: {', '.join(sorted(missing))}"
-            )
-
-    def _validated_outputs(self) -> List[Tuple[Path, List[str], Optional[int], Optional[int]]]:
-        validated: List[Tuple[Path, List[str], Optional[int], Optional[int]]] = []
-        for output in self.credential_outputs:
-            principal = output.get("principal")
-            p_def = self.config.get("principals", {}).get(principal)
-            if not p_def:
-                raise RuntimeError(f"Unknown principal in credential_outputs: {principal}")
-
-            export_spec = p_def.get("credentials_export", {})
-            keys = [
-                key
-                for key in (export_spec.get("client_id_var"), export_spec.get("client_secret_var"))
-                if key
-            ]
-            if not keys:
-                raise RuntimeError(
-                    f"Principal '{principal}' has no credentials_export variables"
-                )
-
-            path = Path(output["directory"]) / "clients.env"
-            self._validate_credentials(keys, str(path))
-            validated.append((path, keys, output.get("uid"), output.get("gid")))
-        return validated
-
-    def _write_private_file(
-        self,
-        path: Path,
-        content: str,
-        *,
-        uid: Optional[int] = None,
-        gid: Optional[int] = None,
-    ) -> None:
+    @staticmethod
+    def private_write(path, content, uid=None, gid=None):
+        path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(path.parent, 0o700)
-
-        fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
-        tmp_file = Path(tmp_name)
+        fd, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(content)
                 handle.flush()
                 os.fchmod(handle.fileno(), 0o600)
                 if uid is not None or gid is not None:
-                    os.fchown(
-                        handle.fileno(),
-                        uid if uid is not None else -1,
-                        gid if gid is not None else -1,
-                    )
-            os.replace(tmp_file, path)
+                    os.fchown(handle.fileno(), uid if uid is not None else -1, gid if gid is not None else -1)
+                os.fsync(handle.fileno())
+            os.replace(name, path)
             if uid is not None or gid is not None:
-                os.chown(
-                    path.parent,
-                    uid if uid is not None else -1,
-                    gid if gid is not None else -1,
-                )
-        except Exception:
-            tmp_file.unlink(missing_ok=True)
-            raise
-
-    def _write_private_env(
-        self,
-        path: Path,
-        keys: List[str],
-        *,
-        uid: Optional[int] = None,
-        gid: Optional[int] = None,
-    ) -> None:
-        self._validate_credentials(keys, str(path))
-
-        lines = [
-            f"# Generated automatically by sync_polaris_rbac.py at "
-            f"{time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}"
-        ]
-        lines.extend(f"{key}='{self.output_creds[key]}'" for key in sorted(keys))
-        lines.append("")
-
-        self._write_private_file(path, "\n".join(lines), uid=uid, gid=gid)
-        logger.info("Wrote private credentials to '%s'.", path)
-
-    def _manifest_path(self) -> Path:
-        return self.state_file.parent / "credential-outputs.json"
-
-    def _load_output_manifest(self) -> List[Path]:
-        manifest = self._manifest_path()
-        if not manifest.is_file():
-            return []
-        try:
-            raw = json.loads(manifest.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("Ignoring unreadable credential output manifest '%s': %s", manifest, exc)
-            return []
-        if not isinstance(raw, list):
-            logger.warning("Ignoring malformed credential output manifest '%s'.", manifest)
-            return []
-        return [Path(item) for item in raw if isinstance(item, str)]
-
-    def _prune_stale_outputs(self, configured: List[Path]) -> None:
-        configured_paths = {os.path.abspath(str(path)) for path in configured}
-        for path in self._load_output_manifest():
-            if os.path.abspath(str(path)) in configured_paths:
-                continue
-            if path.name != "clients.env":
-                logger.warning("Ignoring unexpected credential output manifest entry '%s'.", path)
-                continue
+                os.chown(path.parent, uid if uid is not None else -1, gid if gid is not None else -1)
+            directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
             try:
-                path.unlink()
-                logger.info("Removed stale credentials file '%s'.", path)
-            except FileNotFoundError:
-                pass
-            except OSError as exc:
-                logger.warning("Could not remove stale credentials file '%s': %s", path, exc)
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            Path(name).unlink(missing_ok=True)
 
-    def _write_output_manifest(self, paths: List[Path]) -> None:
-        content = json.dumps([str(path) for path in paths], indent=2) + "\n"
-        self._write_private_file(self._manifest_path(), content)
+    def save_state(self):
+        self.private_write(self.ready_file, json.dumps(self.state, indent=2) + "\n")
 
-    def _write_validated_outputs(
-        self,
-        validated: List[Tuple[Path, List[str], Optional[int], Optional[int]]],
-    ) -> None:
-        for path, keys, uid, gid in validated:
-            self._write_private_env(path, keys, uid=uid, gid=gid)
+    def save_credentials(self):
+        lines = ["# Polaris runtime credentials; private bootstrap state."]
+        for key, value in sorted(self.credentials.items()):
+            if not re.fullmatch(r"[A-Z_][A-Z0-9_]*", key) or not value or any(c in value for c in "'\r\n"):
+                raise RuntimeError("Invalid credential state encoding; restore the private credential file")
+            lines.append(f"{key}='{value}'")
+        self.private_write(self.state_file, "\n".join(lines) + "\n")
 
-    def write_credential_state(self) -> None:
-        managed_keys = sorted(self._managed_keys())
-        self._write_private_env(self.state_file, managed_keys)
+    def load_state(self):
+        if not self.ready_file.exists() or self.ready_file.stat().st_size == 0:
+            return None  # Empty ready files are from the previous reconciler.
+        try:
+            state = json.loads(self.ready_file.read_text())
+        except (ValueError, OSError) as exc:
+            raise RuntimeError("Invalid Polaris bootstrap marker; restore its backup, do not erase it") from exc
+        if not isinstance(state, dict) or state.get("version") != STATE_VERSION:
+            raise RuntimeError("Unsupported Polaris bootstrap marker")
+        if state.get("status") not in ("initializing", "complete") or not isinstance(state.get("config"), dict):
+            raise RuntimeError("Incomplete Polaris bootstrap marker")
+        identities = state.get("principal_client_ids")
+        if not isinstance(identities, dict):
+            raise RuntimeError("Invalid principal identities in bootstrap marker")
+        if state["status"] == "complete" and set(identities) != set(state["config"].get("principals", {})):
+            raise RuntimeError("Completed bootstrap marker is missing principal identities")
+        if state["status"] == "initializing" and not state.get("bootstrap_id"):
+            raise RuntimeError("Partial bootstrap marker is missing its initialization identity")
+        if state.get("realm") != self.client.realm:
+            raise RuntimeError("Polaris realm differs from the saved bootstrap state")
+        if self.expected_catalog and self.expected_catalog != state.get("catalog"):
+            raise RuntimeError("Polaris catalog differs from the saved bootstrap state")
+        return state
 
-    def write_credential_outputs(self) -> None:
-        self._write_validated_outputs(self._validated_outputs())
+    def validate_config(self):
+        config = self.config
+        if not isinstance(config, dict) or not isinstance(config.get("catalog"), dict):
+            raise RuntimeError("Bootstrap template requires a catalog")
+        self.catalog = config["catalog"].get("name")
+        if not isinstance(self.catalog, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", self.catalog):
+            raise RuntimeError("Invalid bootstrap catalog name")
+        if self.expected_catalog and self.expected_catalog != self.catalog:
+            raise RuntimeError("Bootstrap catalog and selected runtime catalog differ")
+        for group in ("catalog_roles", "principal_roles"):
+            roles = config.get(group, {})
+            if not isinstance(roles, dict) or any(not re.fullmatch(r"[A-Za-z0-9_-]+", name) for name in roles):
+                raise RuntimeError(f"Invalid {group} in bootstrap template")
+        for role in config.get("principal_roles", {}).values():
+            if set(role.get("catalog_roles", [])) - set(config.get("catalog_roles", {})) - {"catalog_admin"}:
+                raise RuntimeError("Principal role references an unknown catalog role")
+        if any(
+            not isinstance(ns, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", ns) for ns in config.get("namespaces", [])
+        ):
+            raise RuntimeError("Invalid bootstrap namespace")
+        principals = config.get("principals")
+        if not isinstance(principals, dict) or not principals:
+            raise RuntimeError("Bootstrap template requires service principals")
+        self.exports = {}
+        names = set()
+        for principal, definition in principals.items():
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", principal):
+                raise RuntimeError("Invalid bootstrap principal name")
+            if set(definition.get("principal_roles", [])) - set(config.get("principal_roles", {})):
+                raise RuntimeError(f"Principal {principal} references an unknown principal role")
+            export = definition.get("credentials_export", {})
+            keys = [export.get("client_id_var"), export.get("client_secret_var")]
+            if any(not isinstance(k, str) or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", k) for k in keys):
+                raise RuntimeError(f"Invalid credential variable mapping for {principal}")
+            if len(set(keys)) != 2 or names.intersection(keys):
+                raise RuntimeError("Credential variable mappings must be distinct per principal")
+            names.update(keys)
+            self.exports[principal] = keys
+        outputs = config.get("credential_outputs", [])
+        paths = set()
+        for output in outputs:
+            if output.get("principal") not in self.exports:
+                raise RuntimeError("Credential output references an unknown principal")
+            path = Path(output["directory"]) / "clients.env"
+            if not path.is_absolute() or path in paths or path in (self.ready_file, self.state_file):
+                raise RuntimeError("Credential outputs must have distinct absolute paths")
+            if any(not isinstance(output.get(k), int) or output[k] < 0 for k in ("uid", "gid")):
+                raise RuntimeError("Credential output requires numeric UID/GID")
+            paths.add(path)
+        if set(self.exports) != {o["principal"] for o in outputs}:
+            raise RuntimeError("Every service principal requires a credential output")
 
-    def write_credentials(self) -> None:
-        managed_keys = sorted(self._managed_keys())
-        self._validate_credentials(managed_keys, str(self.state_file))
-        validated = self._validated_outputs()
-        configured_paths = [path for path, _, _, _ in validated]
+    def catalog_record(self):
+        return self.client.request("GET", f"/api/management/v1/catalogs/{self.catalog}", expected_statuses=(200, 404))
 
-        self._prune_stale_outputs(configured_paths)
-        self.write_credential_state()
-        self._write_validated_outputs(validated)
-        self._write_output_manifest(configured_paths)
+    @staticmethod
+    def creation_time(catalog):
+        created = catalog.get("createTimestamp")
+        if created is None:
+            raise RuntimeError("Catalog identity is missing its creation timestamp")
+        return created
 
-    def reconcile_namespaces(self) -> None:
-        """Ensure all required namespaces exist in the catalog."""
-        target_namespaces: List[str] = self.config.get("namespaces", [])
-        if not target_namespaces:
-            return
+    def verify_existing(self, catalog):
+        if self.state.get("catalog_created_at") != self.creation_time(catalog):
+            raise RuntimeError("Catalog was replaced or bootstrap state belongs to another environment")
+        previous = self.state.get("principal_client_ids", {})
+        identities = {}
+        for principal, keys in self.exports.items():
+            status, record = self.client.request(
+                "GET", f"/api/management/v1/principals/{principal}", expected_statuses=(200, 404)
+            )
+            if status == 404:
+                raise RuntimeError(
+                    f"Principal {principal} is missing; restore it explicitly, init will not recreate it"
+                )
+            client_id, secret = (self.credentials.get(k) for k in keys)
+            if not client_id or not secret or record.get("clientId") != client_id:
+                raise RuntimeError(f"Missing/mismatched saved credentials for {principal}; automatic reset is disabled")
+            if principal in previous and previous[principal] != client_id:
+                raise RuntimeError(f"Principal {principal} was replaced; restore matching bootstrap state")
+            if not self.client.obtain_token(client_id, secret):
+                raise RuntimeError(
+                    f"Saved credentials for {principal} cannot authenticate; restore/update credentials explicitly"
+                )
+            identities[principal] = client_id
+        self.state["principal_client_ids"] = identities
 
-        for ns in target_namespaces:
-            status, _ = self.client.request(
+    def restore_outputs(self):
+        # Authentication for ALL principals finishes before any output is changed.
+        for output in self.config["credential_outputs"]:
+            path = Path(output["directory"]) / "clients.env"
+            values = {key: self.credentials[key] for key in self.exports[output["principal"]]}
+            valid_encoding = all(v and not any(c in v for c in "'\r\n") for v in values.values())
+            if not valid_encoding:
+                raise RuntimeError("Credential output contains unsupported characters")
+            if path.is_file() and load_saved_credentials(path) == values:
+                os.chmod(path.parent, 0o700)
+                os.chown(path.parent, output["uid"], output["gid"])
+                os.chmod(path, 0o600)
+                os.chown(path, output["uid"], output["gid"])
+                continue
+            text = "# Polaris runtime credentials; this file belongs to one consumer.\n"
+            text += "".join(f"{key}='{value}'\n" for key, value in sorted(values.items()))
+            self.private_write(path, text, output["uid"], output["gid"])
+            logger.info("Restored private credential output %s", path)
+        os.chmod(self.state_file, 0o600)
+
+    def create_catalog(self):
+        status, record = self.catalog_record()
+        if status == 404:
+            if self.state.get("catalog_created_at") is not None:
+                raise RuntimeError("Catalog disappeared during bootstrap; restore metadata instead of recreating it")
+            conf = self.config["catalog"]
+            s3 = conf.get("s3", {})
+            self.client.request(
                 "POST",
-                f"/api/catalog/v1/{self.catalog_name}/namespaces",
-                payload={"namespace": [ns], "properties": {}},
+                "/api/management/v1/catalogs",
+                payload={
+                    "catalog": {
+                        "name": self.catalog,
+                        "type": "INTERNAL",
+                        "readOnly": False,
+                        "properties": {
+                            "default-base-location": conf.get(
+                                "default_base_location", f"s3://{self.catalog}/warehouse"
+                            ),
+                            OWNER_PROPERTY: self.state["bootstrap_id"],
+                        },
+                        "storageConfigInfo": {
+                            "storageType": "S3",
+                            "allowedLocations": conf.get("allowed_locations", [f"s3://{self.catalog}/"]),
+                            "endpoint": s3.get("endpoint", "http://minio:9000"),
+                            "endpointInternal": s3.get("endpoint_internal", "http://minio:9000"),
+                            "pathStyleAccess": s3.get("path_style_access", True),
+                            "region": s3.get("region", "us-east-1"),
+                        },
+                    }
+                },
+            )
+            _, record = self.catalog_record()
+        if record.get("properties", {}).get(OWNER_PROPERTY) != self.state["bootstrap_id"]:
+            raise RuntimeError("Partial bootstrap found a catalog it did not create; explicit adoption is required")
+        if self.state.get("catalog_created_at") not in (None, self.creation_time(record)):
+            raise RuntimeError("Catalog changed during bootstrap")
+        self.state["catalog_created_at"] = self.creation_time(record)
+        self.save_state()
+
+    def create_roles(self):
+        for name, definition in self.config.get("catalog_roles", {}).items():
+            base = f"/api/management/v1/catalogs/{self.catalog}/catalog-roles"
+            status, _ = self.client.request("GET", f"{base}/{name}", expected_statuses=(200, 404))
+            if status == 404:
+                self.client.request(
+                    "POST",
+                    base,
+                    payload={"catalogRole": {"name": name, "properties": {OWNER_PROPERTY: self.state["bootstrap_id"]}}},
+                )
+            _, grants = self.client.request("GET", f"{base}/{name}/grants")
+            existing = {g["privilege"] for g in grants.get("grants", [])}
+            for grant in definition.get("grants", []):
+                if grant["privilege"] not in existing:
+                    self.client.request("PUT", f"{base}/{name}/grants", payload={"grant": grant})
+        for name, definition in self.config.get("principal_roles", {}).items():
+            base = "/api/management/v1/principal-roles"
+            status, role = self.client.request("GET", f"{base}/{name}", expected_statuses=(200, 404))
+            if status == 404:
+                self.client.request(
+                    "POST",
+                    base,
+                    payload={
+                        "principalRole": {"name": name, "properties": {OWNER_PROPERTY: self.state["bootstrap_id"]}}
+                    },
+                )
+            elif role.get("properties", {}).get(OWNER_PROPERTY) != self.state["bootstrap_id"]:
+                raise RuntimeError(f"Principal role {name} was not created by this bootstrap")
+            _, assigned = self.client.request("GET", f"{base}/{name}/catalog-roles/{self.catalog}")
+            existing = {r["name"] for r in assigned.get("roles", [])}
+            for role in definition.get("catalog_roles", []):
+                if role not in existing:
+                    self.client.request(
+                        "PUT", f"{base}/{name}/catalog-roles/{self.catalog}", payload={"catalogRole": {"name": role}}
+                    )
+
+    def create_principals(self):
+        for principal, keys in self.exports.items():
+            base = "/api/management/v1/principals"
+            status, record = self.client.request("GET", f"{base}/{principal}", expected_statuses=(200, 404))
+            if status == 404:
+                if any(k in self.credentials for k in keys) or principal in self.state["principal_client_ids"]:
+                    raise RuntimeError(f"Principal {principal} disappeared during bootstrap; refusing recreation")
+                _, result = self.client.request(
+                    "POST",
+                    base,
+                    payload={
+                        "principal": {"name": principal, "properties": {"service": self.catalog}},
+                        "credentialRotationRequired": False,
+                    },
+                )
+                issued = result.get("credentials", {})
+                if not issued.get("clientId") or not issued.get("clientSecret"):
+                    raise RuntimeError(
+                        f"No credentials issued for {principal}; recover explicitly, do not reset bootstrap state"
+                    )
+                self.credentials.update(dict(zip(keys, (issued["clientId"], issued["clientSecret"]))))
+                self.save_credentials()  # Persist each issued secret before further API calls.
+            else:
+                client_id, secret = (self.credentials.get(k) for k in keys)
+                if (
+                    not client_id
+                    or not secret
+                    or record.get("clientId") != client_id
+                    or not self.client.obtain_token(client_id, secret)
+                ):
+                    raise RuntimeError(
+                        f"Cannot resume principal {principal}; restore saved credentials, automatic reset is disabled"
+                    )
+            self.state["principal_client_ids"][principal] = self.credentials[keys[0]]
+            self.save_state()
+            _, assigned = self.client.request("GET", f"{base}/{principal}/principal-roles")
+            existing = {r["name"] for r in assigned.get("roles", [])}
+            for role in self.config["principals"][principal].get("principal_roles", []):
+                if role not in existing:
+                    self.client.request(
+                        "PUT", f"{base}/{principal}/principal-roles", payload={"principalRole": {"name": role}}
+                    )
+
+    def initialize(self):
+        self.create_catalog()
+        self.create_roles()
+        self.create_principals()
+        for namespace in self.config.get("namespaces", []):
+            self.client.request(
+                "POST",
+                f"/api/catalog/v1/{self.catalog}/namespaces",
+                payload={"namespace": [namespace], "properties": {}},
                 expected_statuses=(200, 201, 409),
             )
-            if status in (200, 201):
-                logger.info("Namespace '%s' created in catalog '%s'.", ns, self.catalog_name)
-            else:
-                logger.info("Namespace '%s' already exists.", ns)
+        _, catalog = self.catalog_record()
+        self.verify_existing(catalog)
+        self.restore_outputs()
+        self.state["status"] = "complete"
+        self.save_state()
+        logger.info("Polaris bootstrap completed; future permissions are managed through Console/API")
 
-    def reconcile(self) -> None:
-        """Execute full reconciliation sequence."""
-        logger.info("Starting Polaris RBAC reconciliation...")
-        self.reconcile_catalog()
-        self.purge_unmanaged_entities()
-        self.reconcile_catalog_roles()
-        self.reconcile_principal_roles()
-        self.reconcile_principals()
-        self.write_credentials()
-        self.reconcile_namespaces()
-        logger.info("Polaris RBAC reconciliation completed successfully.")
+    def _run(self):
+        self.state = self.load_state()
+        self.credentials = load_saved_credentials(self.state_file)
+        if self.state:
+            self.config = self.state["config"]
+        else:
+            with self.config_path.open(encoding="utf-8") as handle:
+                self.config = expand_env(yaml.safe_load(handle))
+        self.validate_config()
+        status, catalog = self.catalog_record()
+        if self.state is not None:
+            if self.state.get("catalog") != self.catalog:
+                raise RuntimeError("Saved bootstrap catalog/config mismatch")
+            if self.state["status"] == "initializing":
+                self.initialize()
+                return
+            if status == 404:
+                raise RuntimeError("Bootstrapped catalog is missing; restore metadata, init will not recreate it")
+            self.verify_existing(catalog)
+            self.restore_outputs()
+            logger.info(
+                "Polaris already bootstrapped; Console-managed roles, grants and catalog configuration preserved"
+            )
+            return
+        if status == 200:
+            self.state = {
+                "version": STATE_VERSION,
+                "status": "complete",
+                "realm": self.client.realm,
+                "catalog": self.catalog,
+                "config": self.config,
+                "catalog_created_at": self.creation_time(catalog),
+                "principal_client_ids": {},
+            }
+            self.verify_existing(catalog)
+            self.restore_outputs()
+            self.save_state()
+            logger.info("Adopted existing Polaris catalog and credentials without modifying remote RBAC")
+            return
+        if self.credentials or self.ready_file.exists():
+            raise RuntimeError(
+                "Existing local state has no matching catalog; restore metadata instead of reinitializing"
+            )
+        # Detect global-name collisions before creating any remote objects.
+        for principal in self.exports:
+            found, _ = self.client.request(
+                "GET", f"/api/management/v1/principals/{principal}", expected_statuses=(200, 404)
+            )
+            if found == 200:
+                raise RuntimeError(f"Principal {principal} already exists without matching local state")
+        for role in self.config.get("principal_roles", {}):
+            found, _ = self.client.request(
+                "GET", f"/api/management/v1/principal-roles/{role}", expected_statuses=(200, 404)
+            )
+            if found == 200:
+                raise RuntimeError(f"Principal role {role} already exists outside this bootstrap")
+        self.state = {
+            "version": STATE_VERSION,
+            "status": "initializing",
+            "realm": self.client.realm,
+            "catalog": self.catalog,
+            "bootstrap_id": uuid.uuid4().hex,
+            "config": self.config,
+            "principal_client_ids": {},
+        }
+        self.save_state()
+        self.initialize()
+
+    def run(self):
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.state_file.parent, 0o700)
+        lock_path = self.state_file.parent / "bootstrap.lock"
+        with lock_path.open("a") as lock:
+            os.chmod(lock_path, 0o600)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self._run()
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Synchronize Apache Polaris RBAC from YAML")
+def main():
+    parser = argparse.ArgumentParser(description="Bootstrap Polaris once; preserve Console-managed RBAC on restart")
     parser.add_argument(
-        "--config",
-        "-c",
-        default=os.environ.get("POLARIS_RBAC_CONFIG", "/bootstrap/rbac.yml"),
-        help="Path to rbac.yml configuration file",
+        "--config", "-c", default=os.environ.get("POLARIS_RBAC_CONFIG", str(Path(__file__).with_name("rbac.yml")))
     )
-    parser.add_argument(
-        "--polaris-url",
-        default=os.environ.get("POLARIS_URL", "http://polaris:8181"),
-        help="Base URL of Apache Polaris server",
-    )
-    parser.add_argument(
-        "--realm",
-        default=os.environ.get("POLARIS_REALM", "POLARIS"),
-        help="Polaris realm name",
-    )
-    parser.add_argument(
-        "--root-client-id",
-        default=os.environ.get("POLARIS_ROOT_CLIENT_ID", "root"),
-        help="Polaris root client ID",
-    )
-    parser.add_argument(
-        "--root-client-secret",
-        default=os.environ.get("POLARIS_ROOT_CLIENT_SECRET", "password"),
-        help="Polaris root client secret",
-    )
+    parser.add_argument("--polaris-url", default=os.environ.get("POLARIS_URL", "http://polaris:8181"))
+    parser.add_argument("--realm", default=os.environ.get("POLARIS_REALM", "POLARIS"))
+    parser.add_argument("--catalog", default=os.environ.get("POLARIS_CATALOG"))
+    parser.add_argument("--root-client-id", default=os.environ.get("POLARIS_ROOT_CLIENT_ID", "root"))
+    parser.add_argument("--root-client-secret", default=os.environ.get("POLARIS_ROOT_CLIENT_SECRET", "password"))
     parser.add_argument(
         "--credential-state-file",
-        default=os.environ.get(
-            "POLARIS_CREDENTIAL_STATE_FILE", "/run/polaris-state/clients.env"
-        ),
-        help="Root-only state file used to reuse existing principal credentials",
+        default=os.environ.get("POLARIS_CREDENTIAL_STATE_FILE", "/run/polaris-state/clients.env"),
     )
-    parser.add_argument(
-        "--ready-file",
-        default="/run/polaris-state/ready",
-        help="Path to touched ready file",
-    )
-
+    parser.add_argument("--ready-file", default=os.environ.get("POLARIS_READY_FILE", "/run/polaris-state/ready"))
     args = parser.parse_args()
-
-    config_path = Path(args.config)
-    if not config_path.is_file():
-        # Fallback to local path if running outside container
-        local_fallback = Path(__file__).parent / "rbac.yml"
-        if local_fallback.is_file():
-            config_path = local_fallback
-        else:
-            logger.error("Configuration file not found: %s", args.config)
-            sys.exit(1)
-
-    logger.info("Loading RBAC configuration from %s", config_path)
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-
-    client = PolarisClient(
-        base_url=args.polaris_url,
-        realm=args.realm,
-        root_client_id=args.root_client_id,
-        root_client_secret=args.root_client_secret,
-    )
-
-    reconciler = PolarisRbacReconciler(
-        client=client,
-        config=config,
-        state_file=Path(args.credential_state_file),
-    )
-
-    reconciler.reconcile()
-
-    ready_path = Path(args.ready_file)
+    client = PolarisClient(args.polaris_url, args.realm, args.root_client_id, args.root_client_secret)
+    bootstrap = PolarisBootstrap(client, args.credential_state_file, args.ready_file, args.config, args.catalog)
     try:
-        ready_path.parent.mkdir(parents=True, exist_ok=True)
-        ready_path.touch()
-    except Exception as e:
-        logger.warning("Could not touch ready file %s: %s", ready_path, e)
+        bootstrap.run()
+    except (RuntimeError, OSError, ValueError, yaml.YAMLError) as exc:
+        logger.error("Polaris initialization failed: %s", exc)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

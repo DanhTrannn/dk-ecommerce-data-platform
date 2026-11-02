@@ -1,6 +1,7 @@
-# Apache Polaris RBAC & Catalog Configuration (RBAC as Code)
-# Declaratively reconciled by sync_polaris_rbac.py.
-# Any modification to this file will be automatically reconciled upon running polaris-init.
+# Apache Polaris first-run bootstrap template.
+# After bootstrap, manage catalogs and permissions through Console/Management API.
+# Rerunning polaris-init verifies saved identities and restores credential files;
+# it does not apply later edits to this template or reset credentials.
 
 version: "1"
 
@@ -23,12 +24,6 @@ namespaces:
   - gold
   - quarantine
   - system
-
-# Policy on principals not defined in this file (except 'root')
-# If true, any principal existing in Polaris that is not defined below will be purged.
-purge_unmanaged_principals: true
-purge_unmanaged_roles: true
-prune_unmanaged_privileges: true
 
 # Catalog roles and their privileges on the catalog
 catalog_roles:

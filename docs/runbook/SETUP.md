@@ -103,7 +103,7 @@ After MySQL becomes healthy, `ecommerce-api` initializes the catalog/admin if ne
 2. On a fresh volume, `postgres` provisions databases for `polaris` and `airflow`; its initialization script also retains a legacy `hue` database definition. There is no active Hue service in this Compose stack.
 3. `polaris-bootstrap` initializes the JDBC metadata store and default `POLARIS` realm.
 4. `polaris-init` creates the `lakehouse` catalog mapped to `s3://lakehouse/warehouse` and registers the namespaces (`landing`, `bronze`, `silver`, `gold`, `quarantine`, `system`).
-5. `polaris-init` provisions **four dedicated service principals** (`spark_writer`, `flink_writer`, `trino_reader`, `trino_admin`) from `infrastructure/polaris/rbac.yml`. Each consumer receives its **own private `clients.env`** written to `polaris-spark-client-credentials`, `polaris-spark-airflow-credentials`, `polaris-flink-credentials`, `polaris-trino-reader-credentials`, or `polaris-trino-admin-credentials` (per-consumer Docker volumes, `0600` files). Principal credentials are also cached in a **root-only state file** under `polaris-credential-state` (`/run/polaris-state/`) so restarts reuse existing credentials without rotating them. There is no shared credential volume anymore.
+5. On a new installation, `polaris-init` bootstraps **four dedicated service principals** (`spark_writer`, `flink_writer`, `trino_reader`, `trino_admin`) from `infrastructure/polaris/rbac.yml`. Each consumer receives its **own private `clients.env`** written to `polaris-spark-client-credentials`, `polaris-spark-airflow-credentials`, `polaris-flink-credentials`, `polaris-trino-reader-credentials`, or `polaris-trino-admin-credentials` (per-consumer Docker volumes, `0600` files). Principal credentials are also cached in a **root-only state file** under `polaris-credential-state` (`/run/polaris-state/`) so subsequent init verifies identities and restores missing output files without applying YAML or resetting credentials. Existing catalogs/credentials are adopted without RBAC changes. See section 6 for the JSON bootstrap marker and recovery.
 6. `mysql-cdc-init` provisions the dedicated replication account; `debezium-init` idempotently registers the MySQL connector.
 7. `flink-cdc-submit` starts the continuous Kafka-to-Iceberg Bronze CDC job alongside access-log streaming.
 
@@ -202,38 +202,48 @@ CDC appends Bronze events, applies them to typed Silver/affected Gold with `spar
 
 ---
 
-## 6. Polaris RBAC as Code (`rbac.yml`)
+## 6. Polaris first-run bootstrap and Console-managed RBAC
 
-The platform manages Polaris access control declaratively using `infrastructure/polaris/rbac.yml`. Changes made to this YAML file are automatically reconciled by `infrastructure/polaris/sync_polaris_rbac.py` inside `polaris-init`.
+`infrastructure/polaris/rbac.yml` seeds a new installation once. After initialization, manage catalog properties, roles, grants and principal assignments through Polaris Console or the Management API. Editing YAML and rerunning `polaris-init` does not reconcile an initialized environment.
 
-### Configuration Structure (`infrastructure/polaris/rbac.yml`)
-- **`catalog`**: Defines catalog settings, S3 endpoints, and default warehouse locations.
-- **`namespaces`**: Pre-created Iceberg namespaces (`landing`, `bronze`, `silver`, `gold`, `quarantine`, `system`).
-- **`catalog_roles`**: Defines catalog-level roles and their granted privileges (e.g. `CATALOG_MANAGE_CONTENT`, `TABLE_READ_DATA`).
-- **`principal_roles`**: Maps principal roles to catalog roles (e.g., binding `spark_writer_role` to `spark_writer_catalog_role`).
-- **`principals`**: Defines exactly four principals (`spark_writer`, `flink_writer`, `trino_reader`, `trino_admin`), their role bindings, and target environment variable names in their `clients.env`.
-- **`credential_outputs`**: Maps each principal to its private output directory under `/run/polaris-output/` (one per consumer: `spark-client`, `spark-airflow`, `flink`, `trino-reader`, `trino-admin`) with the owning UID/GID. Each consumer mounts **only** its own `clients.env` — never another consumer's credentials.
-- **Reader least privilege**: `trino_reader_catalog_role` gets only metadata/listing and data read privileges (`CATALOG_READ_PROPERTIES`, `NAMESPACE_LIST`, `NAMESPACE_READ_PROPERTIES`, `TABLE_LIST`, `TABLE_READ_PROPERTIES`, `TABLE_READ_DATA`, `VIEW_LIST`, `VIEW_READ_PROPERTIES`) — no write, drop, or management privileges.
-- **Writer scope**: Spark/Flink writers have CATALOG_MANAGE_CONTENT at catalog level, not per-table write allowlists. The batch reader URL uses application MYSQL_USER; the separate CDC account has replication/SELECT grants on *.*, although the connector captures only 27 tables.
-- **`purge_unmanaged_principals: true`**: Automatically removes any unmanaged principals (excluding `root`).
-- **`purge_unmanaged_roles: true`**: Automatically removes any unmanaged principal roles and catalog roles.
-- **`prune_unmanaged_privileges: true`**: Revokes any privilege granted outside this file.
+### Bootstrap template
 
-`rbac.yml` is authoritative: if you manually create a principal or role in Polaris, the next `polaris-init` run removes it.
+- **`catalog` / `namespaces`**: Initial S3 catalog settings and the six namespaces.
+- **`catalog_roles` / `principal_roles`**: Initial privileges and role bindings. The seed reader role has metadata/data-read privileges; the seed Spark/Flink roles manage catalog content.
+- **`principals`**: Four initial identities: `spark_writer`, `flink_writer`, `trino_reader`, `trino_admin`.
+- **`credential_outputs`**: Six private consumer files for Spark CDC, Spark SQL, Airflow, Flink, Trino Reader and Trino Admin. Each consumer mounts only its own `clients.env`, mode `0600`, with its configured UID/GID.
 
-### Applying RBAC Changes on Demand
-Whenever you add, modify, or remove roles, privileges, or principals in `rbac.yml`, apply the changes immediately with:
+The historical entrypoint name `sync_polaris_rbac.py` remains for compatibility; it implements one-time bootstrap. It has no purge, privilege-revocation, catalog-update or credential-reset operation.
+
+### Persistent state and restart behavior
+
+The existing `polaris-credential-state` volume contains:
+
+| File | Purpose |
+|---|---|
+| `clients.env` | Private saved client IDs/secrets; preserve this file with metadata backups |
+| `ready` | Atomic JSON marker: state version, realm, catalog name/creation timestamp, original template/output mapping and principal client IDs |
+| `bootstrap.lock` | Serializes initialization processes on this local volume |
+
+A new installation writes `status=initializing` before remote changes and `status=complete` only after identities, namespaces, credentials and outputs are verified. Each issued credential is saved before proceeding to further API calls. An interrupted initialization resumes the saved plan without automatically resetting credentials.
+
+An existing catalog with the previous empty `ready` marker or valid saved credentials is adopted without modifying remote catalog/RBAC. Missing or mismatched credentials block adoption. A completed marker uses its saved configuration; subsequent template edits, including a missing template file, are not applied. The selected realm/catalog must still match the marker.
+
+On subsequent init, the script verifies catalog creation identity, service-principal client IDs and credential authentication. It leaves current roles, grants, namespaces and catalog properties unchanged. Missing consumer files are restored from saved credentials; existing matching files keep their content. Intentionally revoked privileges are not restored.
+
+### Inspect or restore credential outputs
+
+Once Polaris is healthy, rerun only its initialization service:
 
 ```bash
-docker compose run --rm polaris-init
+docker compose run --rm --no-deps polaris-init
 ```
 
-The reconciler:
-1. Re-authenticates as Polaris `root`.
-2. Verifies and applies changes to catalog, catalog roles, grants, and principal roles.
-3. Preserves existing valid credentials in the per-consumer `clients.env` files and the root-only state file without rotating unnecessarily.
-4. Generates credentials for new principals, writes each consumer's private `clients.env` (`0600`, owned by the consumer UID from `credential_outputs`), and updates the root-only state file.
-5. Purges any unmanaged principals/roles and prunes unmanaged privileges if enabled.
+`--no-deps` avoids rerunning storage initialization. This verifies the existing bootstrap and restores outputs; it does not apply RBAC edits. Use Console/Management API for access changes.
+
+For a malformed marker, missing metadata, replaced principal or invalid secret, init returns nonzero without recreating identities or rotating credentials. Restore matching metadata/private state from backup, or explicitly update runtime credentials after an operator-managed rotation. Do not erase the marker to force YAML reconciliation. If a process dies after a server issues a credential but before it can be saved locally, recovery requires an explicit credential operation; restart does not silently reset that principal.
+
+The ready marker detects catalog replacement by its creation timestamp and principals by client ID. This local initialization state is not a distributed coordination mechanism or a substitute for backing up PostgreSQL and credential volumes. MinIO initialization remains unchanged in this Polaris-only phase.
 
 ---
 

@@ -41,7 +41,17 @@
 - Kiểm tra cả 15 tổ hợp nhóm chính; chạy riêng core đạt đúng 3 dịch vụ healthy; Spark SQL và toàn bộ DAG batch chạy local đạt 13/13 task, 26/26 quality checks.
 - CDC local đồng bộ được thay đổi và hoàn nguyên tới API; 10 endpoint analytics đạt; 328 dòng tồn kho lịch sử và tổng tài chính giữ nguyên. Test/log/dữ liệu kiểm tra chỉ lưu cục bộ ngoài Git.
 
-Các quyết định 3–26 chưa được coi là hoàn thành bởi đợt này. Cơ chế batch/CDC, bootstrap RBAC, đồng bộ MinIO, luồng Access Log và lịch maintenance vẫn theo code hiện tại cho tới đợt tương ứng.
+Các quyết định 3–26 không thuộc phạm vi đợt 1; tiến độ các đợt sau được ghi dưới đây.
+
+**Đợt 2a — Polaris, hoàn thành mục 3 (2026-11-02):**
+
+- YAML chỉ là mẫu bootstrap lần đầu. Sau khi hoàn tất, init dùng state đã lưu để kiểm tra identity/credential và khôi phục file đầu ra; không áp lại YAML, purge, thu hồi grant, cập nhật catalog hay tự reset credential.
+- Tận dụng volume `polaris-credential-state`: `ready` là JSON ghi nhận trạng thái initializing/complete, realm, catalog/creation timestamp, client ID và cấu hình khởi tạo. Ghi file atomically, lưu từng credential mới trước bước API tiếp theo; khóa cục bộ bảo vệ init đồng thời.
+- Cài đặt cũ được tiếp nhận mà không sửa catalog/RBAC. State sai, metadata thiếu, principal bị thay thế hoặc secret không hợp lệ làm init thất bại rõ ràng; không tự tạo lại identity.
+- 15 kiểm tra tích hợp đạt trên catalog/principal tạm riêng, gồm giữ thay đổi quyền thủ công, không khôi phục quyền đã thu hồi, khôi phục file mất, retry và init đồng thời. Trên hệ thống đang chạy, 26 bản ghi catalog/RBAC và nội dung credential trước/sau giữ nguyên; sáu output có đúng UID/GID và mode 0600.
+- Spark SQL, Spark trong Airflow và Trino đọc được dữ liệu; 10 endpoint analytics đạt; Flink/CDC tiếp tục hoạt động. Test/log chỉ lưu cục bộ ngoài Git.
+
+**Tiếp theo:** mục 4 (đồng bộ MinIO tại chỗ) chưa triển khai. Các mục 5–26 vẫn theo kế hoạch; đợt Polaris không thay đổi luồng batch/CDC hoặc cơ chế MinIO hiện tại.
 
 ## Chi tiết để chốt khi triển khai
 
