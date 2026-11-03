@@ -10,7 +10,7 @@ Vai trò dashboard, API và phạm vi truy cập được mô tả trong [kiến
 
 - Tiền là số nguyên VND. Lợi nhuận trong Gold là doanh thu trừ giá vốn, chưa trừ đầy đủ chi phí vận hành, thuế và quảng cáo.
 - Phải kiểm tra grain trước khi SUM hoặc JOIN. `fact_order` có một dòng/đơn; `fact_order_item` có một dòng/chi tiết đơn.
-- Đếm đơn toàn hệ thống bằng `COUNT(DISTINCT order_id)` trên fact. Một đơn có nhiều nhóm sản phẩm sẽ xuất hiện ở nhiều dòng `mart_sales_daily`.
+- Executive và xu hướng cộng `total_orders` từ `mart_order_daily`; pipeline đếm từ một dòng/đơn trước khi tổng hợp. Một đơn có nhiều nhóm sản phẩm sẽ xuất hiện ở nhiều dòng `mart_sales_daily`.
 - `data_source=lakehouse`. Khi Trino lỗi, API có thể giữ kết quả OLAP đã đọc thành công trong thời hạn cache và đánh dấu degraded; không tổng hợp MySQL để thay thế.
 - Ngày hôm nay ở chỉ số cửa hàng dùng Asia/Ho_Chi_Minh. Log Flink mới và Spark dùng UTC. Các partition log cũ theo giờ Việt Nam cần được replay/migrate rõ ràng trước khi so sánh chuỗi thời gian.
 
@@ -20,25 +20,29 @@ Publication schema 3 dùng chung transformation cho batch và CDC. Tiền là s�
 
 | Chỉ số | Công thức hiện tại | Nguồn / grain |
 |---|---|---|
-| GMV executive / tổng giá trị đơn | SUM `order_total_vnd` = SUM `orders.total_vnd`, gồm mọi trạng thái và phí vận chuyển | `fact_order`, một dòng/đơn; chỉ số giá trị đơn đặt, không phải doanh thu đã ghi nhận |
+| GMV executive / tổng giá trị đơn | SUM `order_total_vnd` = SUM `orders.total_vnd`, gồm mọi trạng thái và phí vận chuyển | Executive đọc `mart_order_daily.order_total_vnd`; pipeline tổng hợp từ fact một dòng/đơn. Chỉ số giá trị đơn đặt, không phải doanh thu đã ghi nhận |
 | Doanh thu hàng hóa trước hoàn tiền | Tổng giá trị dòng hàng trừ giảm giá được phân bổ; chỉ ghi nhận đơn `delivered`, `completed`, `returned` | `gross_revenue_vnd` ở item, order và sales mart; không gồm phí vận chuyển |
 | Giảm giá từng dòng | Phân bổ theo giá trị dòng hàng trước giảm giá; hiệu hai phần nguyên của tổng lũy kế theo `order_item_id` | Tổng phân bổ đúng giảm giá cấp đơn, không phát sinh sai số cộng VND |
 | Hoàn tiền hàng hóa | Refund `succeeded`, nối payment để xác định đơn; ưu tiên các dòng trả hoàn tất và kiểm định đạt, phần còn lại phân bổ theo giá trị hàng hóa chưa hoàn; tổng giới hạn bởi tiền hàng của đơn | `refunded_amount_vnd`; phần vượt giá trị hàng hóa không được trừ tiếp vào doanh thu hàng hóa |
 | Doanh thu thuần | Doanh thu hàng hóa trước hoàn tiền trừ hoàn tiền hàng hóa thành công | `net_revenue_vnd`, cùng định nghĩa ở fact, mart, executive, admin và store |
 | Giá vốn ghi nhận | `(quantity - completed_passed_return_quantity) × order_items.cost_price_vnd` của đơn đã ghi nhận doanh thu | Dùng giá vốn snapshot lúc đặt hàng; thiếu giá vốn thì chặn publication, không lấy giá vốn hiện tại thay thế |
 | Lợi nhuận gộp | Doanh thu thuần trừ giá vốn ghi nhận | `net_profit_vnd` / `gross_profit_vnd`; chưa trừ đầy đủ chi phí vận hành, thuế và quảng cáo |
-| Biên lợi nhuận | Lợi nhuận gộp / doanh thu thuần × 100; API trả 0 khi mẫu số không dương | Executive, admin và sales mart |
-| Total orders | COUNT DISTINCT order_id, gồm mọi trạng thái | `fact_order`; không cộng tổng đơn qua danh mục |
-| AOV executive | Doanh thu thuần / số đơn đã giao, gồm đơn có trả hàng; 0 khi không có mẫu số | `is_revenue_recognized` ở fact_order |
-| Sales trend | Tổng net revenue, COGS và profit của mart theo ngày; số đơn lấy COUNT DISTINCT từ fact | Cùng công thức với executive nhưng có bộ lọc kỳ |
-| Tỷ lệ giao thất bại | Số đơn `failed_delivery` / tổng đơn × 100 | `fact_order` |
-| Tỷ lệ yêu cầu trả hàng | COUNT DISTINCT return_id không cancelled / tổng đơn × 100 | Silver return requests; chưa phải tỷ lệ số đơn trả distinct |
+| Biên lợi nhuận | Lợi nhuận gộp / doanh thu thuần × 100 | Executive trả `null` khi mẫu số không dương; admin và category mart giữ cách xử lý hiện tại |
+| Total orders | SUM `mart_order_daily.total_orders`, gồm mọi trạng thái | Ngày × kênh × cửa hàng; không cộng tổng đơn qua danh mục |
+| AOV executive | SUM net revenue / SUM recognized_orders; `null` khi không có mẫu số | `mart_order_daily`; mẫu số gồm delivered/completed/returned, không phải tổng đơn mọi trạng thái |
+| Sales trend | SUM net revenue, COGS, profit và total_orders từ `mart_order_daily` theo ngày | Cùng công thức với executive nhưng có bộ lọc kỳ; ngày không có dòng không tự điền 0 |
+| Tỷ lệ giao thất bại | Số đơn `failed_delivery` / tổng đơn × 100 | `mart_order_daily.boom_orders / total_orders` |
+| Tỷ lệ yêu cầu trả hàng | COUNT DISTINCT return_id không cancelled / tổng đơn × 100 | Pipeline tổng hợp Silver request theo đơn trước khi JOIN và rollup `mart_order_daily`; chưa phải tỷ lệ đơn trả distinct |
+
+Executive, Sales và xu hướng chỉ truy vấn mart trong cùng publication schema 3. `mart_order_daily` có grain ngày × kênh × cửa hàng; `mart_product_sales_daily` có grain ngày × sản phẩm; `mart_sales_daily` tiếp tục phục vụ danh mục. Số đơn đóng góp điểm bán đếm đơn có doanh thu thuần dương; tổng đơn Executive/xu hướng gồm mọi trạng thái. Top sản phẩm xếp theo doanh thu thuần, số lượng đã trừ hàng trả hoàn tất/kiểm định đạt. Tỷ trọng danh mục được tính lại từ tổng tiền, không cộng hoặc lấy trung bình tỷ lệ từng dòng.
+
+Mart rỗng làm KPI Executive trả `null`, danh sách Sales/xu hướng trả rỗng; giao diện hiển thị — hoặc trạng thái chưa có dữ liệu. Có dòng nguồn hợp lệ nhưng không phát sinh doanh thu thì số tiền 0 vẫn được giữ. AOV/biên lợi nhuận/tỷ trọng không có mẫu số hợp lệ trả `null`. Mart chưa nằm trong publication gây phản hồi unavailable hoặc cache có đánh dấu, không đọc fact/MySQL để thay thế. Các vai trò khác chưa thay đổi hợp đồng trong đợt này.
 
 Đơn chờ thanh toán, đã xác nhận hoặc đang giao chưa tạo doanh thu hàng hóa. Đơn đã trả vẫn giữ doanh thu ban đầu; hoàn tiền thành công được trừ riêng để xử lý trả một phần. Giá vốn được hoàn nhập theo số lượng trả hoàn tất và kiểm định đạt.
 
 Tiền thanh toán thành công và tiền hoàn cho khách là dòng tiền riêng, có thể bao gồm vận chuyển hoặc hoàn tiền cho đơn hủy. Không dùng tổng payment thay cho doanh thu hàng hóa. Tổng tiền thu hộ COD đang giao lấy `order_total_vnd`, không lấy doanh thu đã ghi nhận.
 
-Kiểm tra trước publication đối chiếu tổng doanh thu trước hoàn, hoàn tiền, doanh thu thuần, giá vốn và lợi nhuận giữa item → order → sales mart. Đơn vị là VND; không dùng tổng số đơn theo danh mục để đối soát số đơn toàn hệ thống.
+Kiểm tra trước publication đối chiếu tổng doanh thu trước hoàn, hoàn tiền, doanh thu thuần, giá vốn và lợi nhuận giữa item → order → category/order/product marts. Đơn vị là VND; không dùng tổng số đơn theo danh mục để đối soát số đơn toàn hệ thống.
 
 ## 3. Chỉ số vận hành từ Lakehouse đã công bố
 

@@ -73,8 +73,8 @@ BI Hub `/admin/analytics` gọi FastAPI; API xác thực vai trò và cửa hàn
 
 | Vai trò hiển thị | Vai trò tài khoản | Nguồn chính / nội dung |
 |---|---|---|
-| Executive | `admin` | Published Gold fact_order và Silver return requests, payments/shipments |
-| Sales | `sales_manager` | Published Gold facts, dimensions và sales mart |
+| Executive | `admin` | Published `mart_order_daily` (tài chính, số đơn, yêu cầu trả và COD đang giao) |
+| Sales | `sales_manager` | Published `mart_order_daily`, `mart_product_sales_daily`, `mart_sales_daily` |
 | Marketing | `marketing_manager` | Gold fact_web_events và published Silver coupons/redemptions/reviews |
 | Store | `store_manager` | Published Gold orders/current inventory, theo cửa hàng được gán |
 | Inventory | `inventory_manager` | Published Gold current inventory + Silver inbound, order items |

@@ -904,15 +904,15 @@ export interface AnalyticsDataStatus {
 
 export interface ExecutiveMetricsResponse extends AnalyticsDataStatus {
   role: "executive";
-  gmv_vnd: number;
-  net_revenue_vnd: number;
-  cogs_vnd: number;
-  gross_profit_vnd: number;
-  gross_margin_percent: number;
-  total_orders: number;
-  aov_vnd: number;
-  boom_rate_percent: number;
-  return_rate_percent: number;
+  gmv_vnd: number | null;
+  net_revenue_vnd: number | null;
+  cogs_vnd: number | null;
+  gross_profit_vnd: number | null;
+  gross_margin_percent: number | null;
+  total_orders: number | null;
+  aov_vnd: number | null;
+  boom_rate_percent: number | null;
+  return_rate_percent: number | null;
   margin_erosion?: MarginErosionSignal | null;
   cash_in_transit?: CashInTransitSignal | null;
 }
@@ -935,7 +935,7 @@ export interface CategoryShareMetric {
   category_id: number;
   category_name: string;
   revenue_vnd: number;
-  share_percent: number;
+  share_percent: number | null;
 }
 
 export interface SalesMetricsResponse extends AnalyticsDataStatus {

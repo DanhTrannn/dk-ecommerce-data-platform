@@ -60,7 +60,17 @@ Các quyết định 3–26 không thuộc phạm vi đợt 1; tiến độ các
 - Trên dữ liệu thật, chạy init hai lần đều có toàn bộ bộ đếm thay đổi bằng 0; metadata 7 user, 7 policy và danh sách/ETag/kích thước 35.535 object giữ nguyên trước/sau. Cả 7 credential xác thực được.
 - Chạy lại toàn bộ stack đạt readiness; Spark SQL, Spark trong Airflow và Trino đọc được dữ liệu; 10 endpoint analytics đạt. Hai job Flink RUNNING, access log mới tới đủ Landing/Bronze/Silver/Gold trong khoảng 10 giây; CDC báo idle, pending 0. Có một checkpoint bị bỏ qua lúc khởi động do task chưa chạy đủ, không tăng thêm trong lượt kiểm tra. Tổng tài chính giữ nguyên: 33 đơn, doanh thu thuần 19.405.100 VND, lợi nhuận gộp 11.228.115 VND.
 
-**Tiếp theo:** các mục 5–26 vẫn theo kế hoạch. Đợt MinIO không thay đổi transformation, luồng batch/CDC hoặc nội dung 7 policy hiện tại; chỉ đổi cơ chế khởi tạo/đồng bộ identity.
+**Đợt 3a — Executive, Sales và sales trend (2026-11-03):**
+
+- Triển khai phần mục 6, 9–10 cho ba góc nhìn này; giữ toàn bộ bảng nguồn theo mục 5. Các vai trò khác, admin/store overview và access-log realtime vẫn giữ luồng hiện tại, chưa hoàn thành toàn bộ mục 6–10.
+- Thêm `mart_order_daily` ở grain ngày đặt hàng Việt Nam × kênh × cửa hàng để số đơn cộng được; tổng hợp quan hệ shipment/return trước khi JOIN để không nhân số đơn và tiền. Thêm `mart_product_sales_daily` ở grain ngày × sản phẩm, dùng lượng bán và tiền đã phân bổ giảm giá/hoàn tiền ở fact. `mart_sales_daily` tiếp tục phục vụ danh mục.
+- Batch và CDC cập nhật hai mart; publication schema 3 bổ sung snapshot ID, giữ checkpoint nguồn. CDC phát hiện publication cũ chưa có hai mart và build lại Gold trước khi công bố. API Executive/Sales/trend chỉ truy vấn mart đã pin snapshot, không tổng hợp fact/Silver/MySQL để thay thế.
+- Mart rỗng trả KPI Executive null hoặc danh sách Sales/trend rỗng; số 0 hợp lệ vẫn được giữ. AOV không có đơn được ghi nhận, tỷ lệ/biên lợi nhuận không có mẫu số hợp lệ trả null. Giao diện hiển thị —/empty/error phù hợp, giữ nhãn cache cũ và bổ sung thời điểm công bố ở xu hướng. Sửa định nghĩa KPI, nhãn tổng giá trị đơn và số đơn có doanh thu thuần dương.
+- Kiểm tra cục bộ ngoài Git: 28 kiểm tra Spark trên fixture riêng (gồm đa danh mục và quan hệ một-nhiều), 12 kiểm tra hợp đồng API với client giả lập, 6 kiểm tra trình duyệt (màn hình thật và phản hồi rỗng/0/lỗi được chặn ở trình duyệt). Không có lỗi JavaScript trong lượt kiểm tra. Ruff, compile, TypeScript, frontend lint/build, Compose config và diff check đạt; lint còn cảnh báo ảnh có sẵn ngoài phạm vi sửa.
+- Trên dữ liệu thật, 10 endpoint hoạt động; giá trị Executive, danh sách Sales và các điểm xu hướng khớp trước/sau. Bản công bố nâng cấp đạt 61 quality checks, giữ nguyên offsets khi chưa có thay đổi nguồn; 369 dòng tồn kho lịch sử giữ nguyên. Tổng tài chính: 33 đơn, doanh thu thuần 19.405.100 VND, lợi nhuận gộp 11.228.115 VND.
+- Đổi/khôi phục tên sản phẩm kiểm tra được MySQL → CDC → product mart → API, lần lượt khoảng 61/67 giây trong lượt chạy này; nguồn đã được khôi phục. Đây không phải benchmark hoặc SLA. Bước build 6 mart chạy trong Airflow đạt 11 kiểm tra tài chính/grain; không chạy lại toàn bộ DAG batch trong đợt này.
+
+**Tiếp theo:** chuyển lần lượt Store/Inventory, Operations, Marketing sang mart; khai thác các mart chưa có dashboard theo mục 7 và tiếp tục các mục refactor còn lại. Danh sách bảng giữ/bỏ, bảng được purge vẫn cần duyệt riêng trước khi xóa; đợt 3a không xóa bảng/dữ liệu nguồn hay thay kiến trúc batch/CDC đã chốt cho các đợt sau.
 
 ## Chi tiết để chốt khi triển khai
 

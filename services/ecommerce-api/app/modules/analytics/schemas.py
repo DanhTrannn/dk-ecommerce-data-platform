@@ -126,7 +126,7 @@ class MarginErosionSignal(BaseModel):
 
 
 class CashInTransitSignal(BaseModel):
-    """Real-time tracking of floating COD cash held by couriers."""
+    """Published COD order value attached to active shipments, not collected cash."""
     total_cod_amount_vnd: int = 0
     dispatched_shipments_count: int = 0
     carrier_breakdown: dict[str, int] = Field(default_factory=dict)
@@ -152,15 +152,15 @@ class ExecutiveMetricsResponse(AnalyticsDataStatus):
     model_config = ConfigDict(from_attributes=True)
 
     role: str = "executive"
-    gmv_vnd: int = 0
-    net_revenue_vnd: int = 0
-    cogs_vnd: int = 0
-    gross_profit_vnd: int = 0
-    gross_margin_percent: float = 0.0
-    total_orders: int = 0
-    aov_vnd: int = 0
-    boom_rate_percent: float = 0.0
-    return_rate_percent: float = 0.0
+    gmv_vnd: int | None = None
+    net_revenue_vnd: int | None = None
+    cogs_vnd: int | None = None
+    gross_profit_vnd: int | None = None
+    gross_margin_percent: float | None = None
+    total_orders: int | None = None
+    aov_vnd: int | None = None
+    boom_rate_percent: float | None = None
+    return_rate_percent: float | None = None
     margin_erosion: MarginErosionSignal | None = None
     cash_in_transit: CashInTransitSignal | None = None
 
@@ -183,7 +183,7 @@ class CategoryShareMetric(BaseModel):
     category_id: int
     category_name: str
     revenue_vnd: int = 0
-    share_percent: float = 0.0
+    share_percent: float | None = None
 
 
 class SalesMetricsResponse(AnalyticsDataStatus):
