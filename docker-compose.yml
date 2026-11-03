@@ -217,11 +217,15 @@ services:
     networks: ["lakehouse-network"]
 
   minio-init:
-    image: cgr.dev/chainguard/minio-client:latest-dev
+    build:
+      context: .
+      dockerfile: infrastructure/minio/Dockerfile
+    image: lakehouse-minio-init:0.1.0
     profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
     entrypoint: ["/bin/sh", "/bootstrap/init.sh"]
     environment:
       MINIO_ENDPOINT: http://minio:9000
+      AWS_REGION: ${AWS_REGION:-us-east-1}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
       MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}

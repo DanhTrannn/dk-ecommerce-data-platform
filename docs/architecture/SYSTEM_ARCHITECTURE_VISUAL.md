@@ -108,7 +108,7 @@ Nguồn serving: [router](../../services/ecommerce-api/app/modules/analytics/rou
 
 ### Quyền truy cập storage và catalog
 
-MinIO có bảy identity theo workload. Polaris có `spark_writer`, `flink_writer`, `trino_reader`, `trino_admin`; credential tách theo consumer. Code batch chỉ đọc OLTP, nhưng Compose mặc định dùng `MYSQL_USER` của ứng dụng; chưa tách MySQL user chỉ có quyền SELECT. Polaris chỉ bootstrap từ YAML ở lần đầu; sau đó quyền được quản lý trên Console/API, init không áp lại YAML hoặc tự reset credential. Cài đặt cũ được tiếp nhận mà không sửa quyền. Chi tiết state và khôi phục nằm trong [SETUP](../runbook/SETUP.md).
+MinIO có bảy identity theo workload, được đồng bộ tại chỗ theo cấu hình repo mỗi lần init; tài khoản đúng cấu hình được giữ nguyên, quyền dư trên tài khoản quản lý bị thu hồi và tài khoản ngoài danh sách được bảo toàn. Polaris có `spark_writer`, `flink_writer`, `trino_reader`, `trino_admin`; credential tách theo consumer. Code batch chỉ đọc OLTP, nhưng Compose mặc định dùng `MYSQL_USER` của ứng dụng; chưa tách MySQL user chỉ có quyền SELECT. Polaris chỉ bootstrap từ YAML ở lần đầu; sau đó quyền được quản lý trên Console/API, init không áp lại YAML hoặc tự reset credential. Cài đặt cũ được tiếp nhận mà không sửa quyền. Chi tiết state và khôi phục nằm trong [SETUP](../runbook/SETUP.md).
 
 Writer Polaris hiện có quyền quản lý nội dung ở mức catalog, chưa giới hạn riêng từng bảng. MySQL CDC user riêng có các quyền replication/SELECT được grant trên `*.*`; danh sách capture 27 bảng không phải giới hạn quyền SQL tương đương. Bronze CDC giữ raw row images nên vẫn cần kiểm soát PII.
 

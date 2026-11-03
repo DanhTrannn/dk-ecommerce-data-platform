@@ -7,7 +7,7 @@
 1. **Tách Compose profile:** không bắt buộc chạy toàn bộ stack; tách nhóm dịch vụ ứng dụng, batch, streaming và công cụ quản trị. Cập nhật launcher, Makefile và hướng dẫn theo profile mới. Đợt 1 đã chốt `core` mặc định, `batch`, `streaming`, `tools`; `lakehouse-tools` giữ Spark SQL client dùng một lần. Launcher nhận danh sách profile chính xác; Compose trực tiếp vẫn áp dụng quy tắc cộng profile của Docker.
 2. **Spark chạy local:** bỏ Spark master/worker; job Airflow và Spark SQL chạy local trong container thực thi. Đồng bộ connection `spark_default`, biến môi trường, bootstrap và tài liệu.
 3. **Polaris RBAC chỉ bootstrap lần đầu từ YAML:** giữ identity và phân quyền hiện có. Sau khởi tạo, người dùng thêm/sửa/thu hồi quyền trên Console; YAML không còn đồng bộ trạng thái đang chạy. Init chạy lại không được ghi đè thay đổi thủ công, purge identity/role hay tự reset credential. Lưu trạng thái hoàn tất bootstrap cùng môi trường để restart không khởi tạo lại.
-4. **MinIO đồng bộ mỗi lần init:** giữ 7 tài khoản và policy; cấu hình repo là nguồn chuẩn. Tạo phần thiếu, cập nhật phần khác và thu hồi quyền gắn dư trên tài khoản được quản lý; không xóa/tạo lại toàn bộ hoặc tác động tài khoản ngoài phạm vi repo. Giữ credential ổn định khi cấu hình không đổi; thay đổi secret trong cấu hình phải được áp dụng. Thay đổi thủ công trên tài nguyên được quản lý sẽ bị ghi đè ở lần init sau. Không xóa bucket/dữ liệu; chỉ báo hoàn tất khi đồng bộ thành công. Cách xử lý tài khoản bị bỏ khỏi cấu hình sẽ chốt trước triển khai.
+4. **MinIO đồng bộ mỗi lần init:** giữ 7 tài khoản và policy; cấu hình repo là nguồn chuẩn. Tạo phần thiếu, cập nhật phần khác và thu hồi quyền gắn dư trên tài khoản được quản lý; không xóa/tạo lại toàn bộ hoặc tác động tài khoản ngoài phạm vi repo. Giữ credential ổn định khi cấu hình không đổi; thay đổi secret trong cấu hình phải được áp dụng. Thay đổi thủ công trên tài nguyên được quản lý sẽ bị ghi đè ở lần init sau. Không xóa bucket/dữ liệu; chỉ báo hoàn tất khi đồng bộ thành công. Tài khoản/policy ngoài danh sách, kể cả tên `lakehouse-*` đã bỏ khỏi cấu hình, được giữ và cảnh báo; vô hiệu hóa/xóa là thao tác chủ động riêng.
 5. **Giữ bảng nguồn MySQL:** dữ liệu phát sinh từ web vẫn được lưu đầy đủ; tinh gọn analytics không đồng nghĩa xóa bảng nghiệp vụ nguồn.
 6. **Tách nguồn dashboard:** dashboard phân tích đọc datamart, không fallback MySQL hoặc truy vấn fact để thay thế mart. Ngoại lệ đã chốt: dashboard realtime access log đọc Landing qua lớp API/query có phân quyền. Hiển thị rõ nguồn và thời điểm cập nhật; thiếu dữ liệu thì để trống.
 7. **Mart hiện có phải có dashboard:** bổ sung biểu đồ/góc nhìn cho các mart chưa được sử dụng, gồm HTTP metrics, product demand và marketing funnel. Không loại mart chỉ vì hiện chưa có dashboard.
@@ -51,12 +51,21 @@ Các quyết định 3–26 không thuộc phạm vi đợt 1; tiến độ các
 - 15 kiểm tra tích hợp đạt trên catalog/principal tạm riêng, gồm giữ thay đổi quyền thủ công, không khôi phục quyền đã thu hồi, khôi phục file mất, retry và init đồng thời. Trên hệ thống đang chạy, 26 bản ghi catalog/RBAC và nội dung credential trước/sau giữ nguyên; sáu output có đúng UID/GID và mode 0600.
 - Spark SQL, Spark trong Airflow và Trino đọc được dữ liệu; 10 endpoint analytics đạt; Flink/CDC tiếp tục hoạt động. Test/log chỉ lưu cục bộ ngoài Git.
 
-**Tiếp theo:** mục 4 (đồng bộ MinIO tại chỗ) chưa triển khai. Các mục 5–26 vẫn theo kế hoạch; đợt Polaris không thay đổi luồng batch/CDC hoặc cơ chế MinIO hiện tại.
+**Đợt 2b — MinIO, hoàn thành mục 4 (2026-11-03):**
+
+- Thay purge theo prefix bằng đồng bộ tại chỗ đúng 7 user/policy. Tạo phần thiếu; cập nhật policy/secret khi lệch; giữ tài khoản và secret đang đúng; thu hồi policy gắn dư và membership nhóm trên các user quản lý. Không xóa user, nhóm hay dữ liệu object.
+- Dùng image init riêng gồm Python, Boto3 và MinIO CLI. Kiểm tra toàn bộ cấu hình trước khi sửa, xác minh IAM thay đổi bằng policy tạm và kiểm tra credential qua S3. Lỗi quyền/kết nối không bị coi là secret sai; không in secret ra log. Không thêm dịch vụ chạy nền hoặc cơ sở dữ liệu trạng thái.
+- Policy quản lý đang dùng chung với user ngoài phạm vi hoặc nhóm chứa user ngoài phạm vi không được cập nhật ngầm; init thất bại để xử lý chia sẻ rõ ràng. Tên `lakehouse-*` ngoài danh sách được giữ và cảnh báo. Bucket duy trì private; cập nhật nhiều user không phải giao dịch atomic và có thể chạy lại sau lỗi.
+- Đạt 19 kiểm tra tích hợp trên MinIO tạm riêng: khởi tạo mới, chạy lại, đổi secret/policy tại chỗ, thu hồi quyền dư, bảo toàn tài khoản ngoài phạm vi, chặn policy dùng chung và retry sau gián đoạn. Script/log kiểm tra chỉ lưu cục bộ ngoài Git.
+- Trên dữ liệu thật, chạy init hai lần đều có toàn bộ bộ đếm thay đổi bằng 0; metadata 7 user, 7 policy và danh sách/ETag/kích thước 35.535 object giữ nguyên trước/sau. Cả 7 credential xác thực được.
+- Chạy lại toàn bộ stack đạt readiness; Spark SQL, Spark trong Airflow và Trino đọc được dữ liệu; 10 endpoint analytics đạt. Hai job Flink RUNNING, access log mới tới đủ Landing/Bronze/Silver/Gold trong khoảng 10 giây; CDC báo idle, pending 0. Có một checkpoint bị bỏ qua lúc khởi động do task chưa chạy đủ, không tăng thêm trong lượt kiểm tra. Tổng tài chính giữ nguyên: 33 đơn, doanh thu thuần 19.405.100 VND, lợi nhuận gộp 11.228.115 VND.
+
+**Tiếp theo:** các mục 5–26 vẫn theo kế hoạch. Đợt MinIO không thay đổi transformation, luồng batch/CDC hoặc nội dung 7 policy hiện tại; chỉ đổi cơ chế khởi tạo/đồng bộ identity.
 
 ## Chi tiết để chốt khi triển khai
 
 - Danh sách bảng giữ/bỏ và bảng được phép purge do người dùng chỉ rõ, duyệt trước khi xóa.
-- Cách xử lý tài khoản MinIO bị bỏ khỏi cấu hình. Tên/default Compose profile đã chốt ở đợt 1.
+- Tên/default Compose profile đã chốt ở đợt 1; tài khoản MinIO bị bỏ khỏi cấu hình được giữ/cảnh báo theo đợt 2b.
 
 ## Quy tắc thực hiện
 

@@ -886,7 +886,7 @@ Kiến trúc an toàn thông tin của hệ thống Lakehouse được phân đ�
     * `flink_writer`: Gán vai trò `flink_writer_catalog_role` dành riêng cho các tiến trình xử lý luồng CDC và Access Logs.
     * `trino_reader`: Gán vai trò `trino_reader_catalog_role` với các đặc quyền chỉ đọc khắt khe: `TABLE_READ_DATA`, `NAMESPACE_LIST`, `VIEW_READ_PROPERTIES`. Tuyệt đối không cấp quyền ghi (`MANAGE_CONTENT`) hay sửa đổi lược đồ bảng, bảo vệ kho dữ liệu Gold khỏi mọi hành vi can thiệp trái phép từ các công cụ BI và người dùng phân tích.
     * `trino_admin`: Gán vai trò `trino_admin_catalog_role` phục vụ các tác vụ bảo trì siêu dữ liệu và cấu hình nâng cao.
-  * **Phân quyền lưu trữ đối tượng MinIO [8]**: Thiết lập 7 tài khoản định danh khối lượng công việc (Workload Identities) độc lập với các chính sách IAM chuyên biệt, ngăn chặn hoàn toàn việc chia sẻ khóa truy cập giữa các phân hệ và cô lập tài nguyên lưu trữ theo đúng phạm vi nhiệm vụ được giao.
+  * **Phân quyền lưu trữ đối tượng MinIO [8]**: Sử dụng 7 tài khoản workload với policy IAM theo phạm vi công việc. `minio-init` đồng bộ tại chỗ theo cấu hình repo: tạo phần thiếu, cập nhật policy/secret khi cần và thu hồi quyền gắn dư trên tài khoản quản lý. Tài khoản đúng cấu hình và dữ liệu object được giữ nguyên; tài khoản ngoài danh sách không bị xóa theo prefix. Spark trong Airflow sử dụng identity Spark, còn các thao tác orchestration có identity Airflow riêng.
 
 ![Quyền engine, catalog và object storage](docs/diagram/security-engines.svg)
 
@@ -1091,7 +1091,7 @@ Bảng 4.1 tổng hợp thông số kỹ thuật, cổng dịch vụ và trách 
 | 3 | `ecommerce-api` | `./services/ecommerce-api` | `8000:8000` | `core` | Máy chủ REST API nghiệp vụ bán hàng, xác thực JWT, và ghi nhận access logs. |
 | 4 | `storefront` | `./apps/storefront` | `3000:3000` | `core` | Giao diện người dùng Web Storefront, quầy POS và Admin Web Console. |
 | 5 | `minio` | `minio/minio:RELEASE.2024-10-13` | `9000, 9001` | `core` | Lưu trữ đối tượng S3-compatible cho các phân tầng Lakehouse (Landing, Bronze, Silver, Gold). |
-| 6 | `minio-init` | `minio/mc:RELEASE.2024-10-14` | - | `core` | Tự động tạo bucket `lakehouse`, cấu hình chính sách truy cập và tài khoản dịch vụ. |
+| 6 | `minio-init` | `lakehouse-minio-init:0.1.0` | - | `batch`, `streaming`, `tools`, `lakehouse-tools` | Init một lần chạy: giữ bucket private và đồng bộ tại chỗ 7 user/policy bằng Python, Boto3 và MinIO CLI. |
 | 7 | `postgres` | `postgres:16-alpine` | `5432:5432` | `core` | Cơ sở dữ liệu lưu siêu dữ liệu (Metadata DB) cho Apache Polaris Catalog và Apache Airflow. |
 | 8 | `polaris-bootstrap` | Custom SQL client | - | `core` | Khởi tạo lược đồ quan hệ và cơ sở dữ liệu nội bộ cho Polaris trên PostgreSQL. |
 | 9 | `polaris` | `apache/polaris:latest` | `8181:8181` | `core` | Máy chủ Apache Polaris REST Catalog quản lý metadata bảng Apache Iceberg theo chuẩn mở. |

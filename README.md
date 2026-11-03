@@ -131,7 +131,7 @@ Additional staff accounts and store assignments are managed through the applicat
 
 ### Service Identities
 
-Storage workloads use seven scoped MinIO identities and four Polaris principals: `spark_writer`, `flink_writer`, `trino_reader`, and `trino_admin`. Each consumer mounts its own credential file. Polaris uses YAML only for first-run bootstrap; later access changes are managed through Console/API and preserved when init runs again. MinIO initialization uses the root identity to provision accounts; regular workloads use their assigned identities. Details are in the [setup guide](docs/runbook/SETUP.md).
+Storage workloads use seven scoped MinIO identities and four Polaris principals: `spark_writer`, `flink_writer`, `trino_reader`, and `trino_admin`. Each consumer mounts its own credential file. Polaris uses YAML only for first-run bootstrap; later access changes are managed through Console/API and preserved when init runs again. MinIO initialization uses root only to synchronize seven managed users/policies in place; correct credentials remain unchanged, excess grants are removed, and other accounts are preserved. Regular workloads use their assigned identities. Details are in the [setup guide](docs/runbook/SETUP.md).
 
 ---
 

@@ -99,13 +99,36 @@ After MySQL becomes healthy, `ecommerce-api` initializes the catalog/admin if ne
 
 ### Automated Bootstrap Workflow
 
-1. `minio-init` creates the private `lakehouse` bucket if not present, then converges MinIO identities: it creates **seven service users** (`lakehouse-polaris`, `lakehouse-spark`, `lakehouse-flink`, `lakehouse-airflow`, `lakehouse-trino`, `lakehouse-trino-admin`, `lakehouse-uploader`), each attached to **exactly one of the seven matching policies**. All `lakehouse-*` users and policies are recreated on every run, so stale `lakehouse-*` entries that are no longer managed disappear, while anything outside that prefix (including `root`) is never touched. Access keys come from the `MINIO_*_ACCESS_KEY` / `MINIO_*_SECRET_KEY` variables in `.env`.
+1. `minio-init` builds from `infrastructure/minio/Dockerfile` and converges the private `lakehouse` bucket plus **seven explicitly managed users/policies** (`lakehouse-polaris`, `lakehouse-spark`, `lakehouse-flink`, `lakehouse-airflow`, `lakehouse-trino`, `lakehouse-trino-admin`, `lakehouse-uploader`). Correct users/policies remain unchanged; missing resources are created and drift is updated in place. Unexpected direct policies and group memberships are removed only from these users. Accounts/policies outside this exact list are preserved, including unknown `lakehouse-*` names, which produce a warning. Access keys/secrets come from `.env`; no user is deleted/recreated by synchronization.
 2. On a fresh volume, `postgres` provisions databases for `polaris` and `airflow`; its initialization script also retains a legacy `hue` database definition. There is no active Hue service in this Compose stack.
 3. `polaris-bootstrap` initializes the JDBC metadata store and default `POLARIS` realm.
 4. `polaris-init` creates the `lakehouse` catalog mapped to `s3://lakehouse/warehouse` and registers the namespaces (`landing`, `bronze`, `silver`, `gold`, `quarantine`, `system`).
 5. On a new installation, `polaris-init` bootstraps **four dedicated service principals** (`spark_writer`, `flink_writer`, `trino_reader`, `trino_admin`) from `infrastructure/polaris/rbac.yml`. Each consumer receives its **own private `clients.env`** written to `polaris-spark-client-credentials`, `polaris-spark-airflow-credentials`, `polaris-flink-credentials`, `polaris-trino-reader-credentials`, or `polaris-trino-admin-credentials` (per-consumer Docker volumes, `0600` files). Principal credentials are also cached in a **root-only state file** under `polaris-credential-state` (`/run/polaris-state/`) so subsequent init verifies identities and restores missing output files without applying YAML or resetting credentials. Existing catalogs/credentials are adopted without RBAC changes. See section 6 for the JSON bootstrap marker and recovery.
 6. `mysql-cdc-init` provisions the dedicated replication account; `debezium-init` idempotently registers the MySQL connector.
 7. `flink-cdc-submit` starts the continuous Kafka-to-Iceberg Bronze CDC job alongside access-log streaming.
+
+### MinIO identity synchronization
+
+The repository remains authoritative for the seven managed MinIO users. This differs from Polaris, whose YAML is only a first-run seed. Manual changes to a managed MinIO user's policy, group membership, enabled status or configured secret are reconciled on the next init.
+
+The one-shot init image adds Python and Boto3 (the workspace's pinned version) to the MinIO CLI runtime. Python parses CLI JSON and compares IAM documents without relying on text formatting or action/resource order. No additional long-running service or persistent synchronization database is introduced.
+
+The controller validates all local credentials/policy files before remote changes, validates changed IAM documents with temporary policies, then creates/updates only the required resources. Preflight policies have unique names and are removed after validation. Updating a policy used by an unmanaged user or a group containing unmanaged members fails before the real update; sharing must be resolved explicitly.
+
+S3 `GetBucketLocation` verifies each configured credential; the seven seed policies allow it. Only authentication errors trigger an in-place secret update. Permission, network and other verification errors fail instead of rotating a secret. Secrets are passed to CLI user commands through stdin and are not printed in logs. User status is converged to enabled, matching these configured workload identities.
+
+Once MinIO is healthy, rebuild the new init image and run it independently:
+
+```bash
+docker compose build minio-init
+docker compose run --rm --no-deps minio-init
+```
+
+The final log reports counts of created users/policies, changed secrets, repaired attachments/group memberships and bucket changes. An already correct installation reports zero changes. Any failed command/verification returns nonzero; a multi-user update is not atomic, so rerun after resolving the error. The controller does not delete users or their data. The configured bucket is created only when missing, and its bucket policy is removed when needed to maintain the repository's private-bucket configuration; object contents are retained.
+
+To rotate a managed secret deliberately, coordinate a maintenance window for its consumers, update `.env`, run `minio-init`, then recreate the consumers with the new environment. `docker compose restart` does not reload environment values. Remember that Spark in Airflow uses the Spark identity, while orchestration also receives the Airflow identity. Updating a MinIO secret does not rotate Polaris OAuth credentials.
+
+Unknown or retired `lakehouse-*` users/policies are preserved and warned about, rather than purged by prefix. Removing a name from the managed list is not an account-deletion command. Deactivation/removal remains an explicit operator action.
 
 ### Service Dependencies and Profiles
 
@@ -243,7 +266,7 @@ docker compose run --rm --no-deps polaris-init
 
 For a malformed marker, missing metadata, replaced principal or invalid secret, init returns nonzero without recreating identities or rotating credentials. Restore matching metadata/private state from backup, or explicitly update runtime credentials after an operator-managed rotation. Do not erase the marker to force YAML reconciliation. If a process dies after a server issues a credential but before it can be saved locally, recovery requires an explicit credential operation; restart does not silently reset that principal.
 
-The ready marker detects catalog replacement by its creation timestamp and principals by client ID. This local initialization state is not a distributed coordination mechanism or a substitute for backing up PostgreSQL and credential volumes. MinIO initialization remains unchanged in this Polaris-only phase.
+The ready marker detects catalog replacement by its creation timestamp and principals by client ID. This local initialization state is not a distributed coordination mechanism or a substitute for backing up PostgreSQL and credential volumes. MinIO has its separate in-place synchronization lifecycle described above; it does not use the Polaris bootstrap marker.
 
 ---
 
