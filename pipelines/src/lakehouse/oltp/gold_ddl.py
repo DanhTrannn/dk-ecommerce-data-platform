@@ -47,6 +47,8 @@ GOLD_TABLE_DDL["fact_inventory_current"] = load_sql("spark/gold/fact_inventory_c
 # ==========================================
 
 GOLD_TABLE_DDL["mart_sales_daily"] = load_sql("spark/gold/mart_sales_daily.sql")
+GOLD_TABLE_DDL["mart_order_daily"] = load_sql("spark/gold/mart_order_daily.sql")
+GOLD_TABLE_DDL["mart_product_sales_daily"] = load_sql("spark/gold/mart_product_sales_daily.sql")
 
 GOLD_TABLE_DDL["mart_logistics_performance"] = load_sql("spark/gold/mart_logistics_performance.sql")
 

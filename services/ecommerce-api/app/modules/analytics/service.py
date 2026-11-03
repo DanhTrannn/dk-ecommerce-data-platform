@@ -92,36 +92,33 @@ def _pct(part, total):
     return round(part / total * 100, 2) if total > 0 else 0.0
 
 
-def _cash(reader):
-    row = reader.one("""SELECT COALESCE(SUM(o.order_total_vnd),0) amount, count(*) shipments
-        FROM lakehouse.gold.fact_order o JOIN lakehouse.gold.fact_shipment s ON o.order_id=s.order_id
-        WHERE o.payment_method='cod' AND s.status IN ('assigned','picked_up','in_transit')""")
-    return CashInTransitSignal(total_cod_amount_vnd=_n(row, "amount"), dispatched_shipments_count=_n(row, "shipments"))
+def _mart_ratio(part, total):
+    return round(part / total * 100, 2) if total is not None and total > 0 else None
 
 
 def get_executive_metrics(db: Session | None = None, trino_client: TrinoClient | None = None):
     def build(reader):
-        row = reader.one("""SELECT COALESCE(SUM(order_total_vnd),0) gmv,
-            COALESCE(SUM(net_revenue_vnd),0) revenue,
-            COALESCE(SUM(net_revenue_vnd-net_profit_vnd),0) cogs,
-            COALESCE(SUM(net_profit_vnd),0) profit, count(DISTINCT order_id) orders,
-            count_if(is_revenue_recognized) recognized_orders,
-            count_if(is_boom) boom FROM lakehouse.gold.fact_order""")
-        returns = reader.one(
-            "SELECT count(DISTINCT return_id) n FROM lakehouse.silver.silver_return_requests WHERE status <> 'cancelled'"
-        )
-        revenue, orders = _n(row, "revenue"), _n(row, "orders")
+        row = reader.one("""SELECT count(*) group_count,
+            SUM(order_total_vnd) gmv, SUM(net_revenue_vnd) revenue,
+            SUM(cogs_vnd) cogs, SUM(gross_profit_vnd) profit, SUM(total_orders) orders,
+            SUM(recognized_orders) recognized_orders, SUM(boom_orders) boom,
+            SUM(return_requests_count) returns, SUM(cod_in_transit_vnd) cod,
+            SUM(cod_shipments_count) shipments FROM lakehouse.gold.mart_order_daily""")
+        if not row or not row["group_count"]:
+            return ExecutiveMetricsResponse()
         return ExecutiveMetricsResponse(
-            gmv_vnd=_n(row, "gmv"),
-            net_revenue_vnd=revenue,
-            cogs_vnd=_n(row, "cogs"),
-            gross_profit_vnd=_n(row, "profit"),
-            gross_margin_percent=_pct(_n(row, "profit"), revenue),
-            total_orders=orders,
-            aov_vnd=round(revenue / _n(row, "recognized_orders")) if _n(row, "recognized_orders") else 0,
-            boom_rate_percent=_pct(_n(row, "boom"), orders),
-            return_rate_percent=_pct(_n(returns, "n"), orders),
-            cash_in_transit=_cash(reader),
+            gmv_vnd=row["gmv"],
+            net_revenue_vnd=row["revenue"],
+            cogs_vnd=row["cogs"],
+            gross_profit_vnd=row["profit"],
+            total_orders=row["orders"],
+            gross_margin_percent=_mart_ratio(row["profit"], row["revenue"]),
+            aov_vnd=round(row["revenue"] / row["recognized_orders"]) if row["recognized_orders"] else None,
+            boom_rate_percent=_mart_ratio(row["boom"], row["orders"]),
+            return_rate_percent=_mart_ratio(row["returns"], row["orders"]),
+            cash_in_transit=CashInTransitSignal(
+                total_cod_amount_vnd=row["cod"], dispatched_shipments_count=row["shipments"]
+            ),
         )
 
     return serve(("executive",), build, trino_client)
@@ -129,25 +126,21 @@ def get_executive_metrics(db: Session | None = None, trino_client: TrinoClient |
 
 def get_sales_metrics(db: Session | None = None, trino_client: TrinoClient | None = None):
     def build(reader):
-        stores = reader.query("""SELECT CASE WHEN o.channel='online' OR o.store_key=0 THEN 0 ELSE o.store_key END store_id,
-            CASE WHEN o.channel='online' OR o.store_key=0 THEN 'Kênh Online Toàn Quốc' ELSE COALESCE(s.store_name,'Chưa xác định') END store_name,
-            COALESCE(SUM(o.net_revenue_vnd),0) revenue_vnd,
-            count(DISTINCT CASE WHEN o.net_revenue_vnd>0 THEN o.order_id END) order_count
-            FROM lakehouse.gold.fact_order o LEFT JOIN lakehouse.gold.dim_store s ON o.store_key=s.store_key
-            GROUP BY 1,2 ORDER BY revenue_vnd DESC""")
-        products = reader.query("""SELECT p.product_id,p.product_name,COALESCE(SUM(i.recognized_quantity),0) units_sold,
-            COALESCE(SUM(i.net_revenue_vnd),0) revenue_vnd FROM lakehouse.gold.fact_order_item i
-            JOIN lakehouse.gold.fact_order o ON i.order_id=o.order_id
-            JOIN lakehouse.gold.dim_product p ON i.product_key=p.product_key WHERE o.is_revenue_recognized
-            GROUP BY p.product_id,p.product_name ORDER BY revenue_vnd DESC LIMIT 10""")
-        cats = reader.query("""SELECT category_id,COALESCE(category_name,'Chưa phân loại') category_name,
-            COALESCE(SUM(net_revenue_vnd),0) revenue_vnd FROM lakehouse.gold.mart_sales_daily
-            GROUP BY 1,2 ORDER BY revenue_vnd DESC""")
-        total = sum(_n(c, "revenue_vnd") for c in cats)
+        stores = reader.query("""SELECT store_key store_id,store_name,
+            SUM(net_revenue_vnd) revenue_vnd,SUM(revenue_orders) order_count
+            FROM lakehouse.gold.mart_order_daily GROUP BY 1,2 ORDER BY revenue_vnd DESC,store_id""")
+        products = reader.query("""SELECT product_id,product_name,SUM(units_sold) units_sold,
+            SUM(net_revenue_vnd) revenue_vnd FROM lakehouse.gold.mart_product_sales_daily
+            GROUP BY 1,2 ORDER BY revenue_vnd DESC,product_id LIMIT 10""")
+        cats = reader.query("""SELECT category_id,category_name,SUM(net_revenue_vnd) revenue_vnd
+            FROM lakehouse.gold.mart_sales_daily GROUP BY 1,2 ORDER BY revenue_vnd DESC,category_id""")
+        total = sum(c["revenue_vnd"] for c in cats)
         return SalesMetricsResponse(
             store_contributions=[StoreContribution(**{**r, "store_id": r["store_id"] or None}) for r in stores],
             top_selling_products=[TopProductMetric(**r) for r in products],
-            category_shares=[CategoryShareMetric(**r, share_percent=_pct(_n(r, "revenue_vnd"), total)) for r in cats],
+            category_shares=[
+                CategoryShareMetric(**r, share_percent=_mart_ratio(r["revenue_vnd"], total)) for r in cats
+            ],
         )
 
     return serve(("sales",), build, trino_client)
@@ -443,15 +436,12 @@ def get_sales_trend(days=30, db=None, trino_client=None):
     days = max(1, min(int(days), 365))
 
     def build(reader):
-        rows = reader.query(f"""WITH money AS (
-            SELECT order_date,SUM(net_revenue_vnd) revenue_vnd,SUM(cogs_vnd) cogs_vnd,SUM(gross_profit_vnd) profit_vnd
-            FROM lakehouse.gold.mart_sales_daily WHERE order_date BETWEEN {VN_TODAY}-INTERVAL '{days - 1}' DAY AND {VN_TODAY} GROUP BY order_date
-        ), counts AS (
-            SELECT order_date,count(DISTINCT order_id) orders_count FROM lakehouse.gold.fact_order
-            WHERE order_date BETWEEN {VN_TODAY}-INTERVAL '{days - 1}' DAY AND {VN_TODAY} GROUP BY order_date
-        ) SELECT CAST(c.order_date AS varchar) date,COALESCE(m.revenue_vnd,0) revenue_vnd,
-            COALESCE(m.cogs_vnd,0) cogs_vnd,COALESCE(m.profit_vnd,0) profit_vnd,c.orders_count
-            FROM counts c LEFT JOIN money m ON c.order_date=m.order_date ORDER BY c.order_date""")
+        rows = reader.query(f"""SELECT CAST(order_date AS varchar) date,
+            SUM(net_revenue_vnd) revenue_vnd,SUM(cogs_vnd) cogs_vnd,
+            SUM(gross_profit_vnd) profit_vnd,SUM(total_orders) orders_count
+            FROM lakehouse.gold.mart_order_daily
+            WHERE order_date BETWEEN {VN_TODAY}-INTERVAL '{days - 1}' DAY AND {VN_TODAY}
+            GROUP BY order_date ORDER BY order_date""")
         return SalesTrendResponse(days=days, points=[DailySalesTrendPoint(**r) for r in rows])
 
     return serve(("sales-trend", days), build, trino_client)

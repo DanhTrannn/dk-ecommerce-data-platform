@@ -210,6 +210,18 @@ def refresh_gold(spark, changed, run_id, initial=False):
             ),
         ),
         (
+            "mart_order_daily",
+            {"fact_order", "fact_shipment", "return_requests", "dim_store"},
+            lambda: gold.build_mart_order_daily(
+                fact("fact_order"), fact("fact_shipment"), silver("return_requests"), fact("dim_store"), run_id
+            ),
+        ),
+        (
+            "mart_product_sales_daily",
+            {"fact_order_item", "dim_product"},
+            lambda: gold.build_mart_product_sales_daily(fact("fact_order_item"), fact("dim_product"), run_id),
+        ),
+        (
             "mart_logistics_performance",
             {"fact_shipment", "dim_delivery_staff"},
             lambda: gold.build_mart_logistics_performance(fact("fact_shipment"), fact("dim_delivery_staff"), run_id),
@@ -351,6 +363,9 @@ def process_once(spark, cfg, types, ddl, force_rebuild=False):
         or not publication
         or publication.get("schema_version") != SCHEMA_VERSION
         or publication.get("source_mode") != "cdc"
+        or not {"lakehouse.gold.mart_order_daily", "lakehouse.gold.mart_product_sales_daily"}.issubset(
+            json.loads(publication["snapshots_json"])
+        )
     )
     prior_cursor = offsets.get(SOURCE_CURSOR_KEY)
     # Flink is an external Iceberg writer. A long-lived Spark catalog can keep

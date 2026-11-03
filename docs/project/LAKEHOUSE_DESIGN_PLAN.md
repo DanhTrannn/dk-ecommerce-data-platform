@@ -64,7 +64,9 @@ Tên bảng snapshot không chứng minh đang có đầy đủ lịch sử mọ
 
 | Bảng | Grain chính |
 |---|---|
-| `mart_sales_daily` | Ngày × kênh × cửa hàng × danh mục |
+| `mart_sales_daily` | Ngày × kênh × cửa hàng × danh mục; số đơn không cộng qua danh mục |
+| `mart_order_daily` | Ngày đặt hàng Việt Nam × kênh × cửa hàng; số đơn cộng được, tài chính, yêu cầu trả và COD đang giao |
+| `mart_product_sales_daily` | Ngày đặt hàng Việt Nam × sản phẩm; doanh thu thuần và lượng bán sau trả hàng |
 | `mart_logistics_performance` | Ngày shipment × nhân viên giao vận |
 | `mart_product_returns` | Ngày trả × variant × action × reason |
 | `mart_inventory_health` | Ngày snapshot × loại địa điểm × địa điểm × danh mục |

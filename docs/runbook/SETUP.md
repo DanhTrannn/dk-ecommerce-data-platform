@@ -353,6 +353,8 @@ For batch mode, keep CDC stopped, set `LAKEHOUSE_OLTP_MODE=batch` in the relevan
 
 Verify `system.analytics_publications.schema_version=3`, its `source_mode` and snapshot entry for `lakehouse.gold.fact_inventory_current`. API reads require schema 3; older publications produce a clear unavailable response until rebuilt. The inventory alert threshold is `on_hand_quantity <= 5`. Current inventory is replaced fully; daily inventory history is retained separately.
 
+Executive/Sales and sales trends additionally require published snapshots for `mart_order_daily` and `mart_product_sales_daily`; category shares continue to use `mart_sales_daily`. These are additive schema-3 tables, not a reset of existing data. `ensure_oltp_gold_tables` creates them, batch mart processing fills them, and publication includes their snapshot IDs. CDC startup detects a publication missing either new mart and rebuilds Gold using the retained CDC offsets before publishing. Restart the updated consumer with `docker compose restart spark-cdc`, wait for a new complete publication containing both marts, then deploy the updated API/frontend. Monitor CDC errors; do not remove offsets or data to force this upgrade. API queries never substitute fact/Silver/MySQL for these marts. If a mart has no rows, Executive values are null and list endpoints return empty lists; valid zero activity remains zero.
+
 ---
 
 ## 7.2. Kafka data directory

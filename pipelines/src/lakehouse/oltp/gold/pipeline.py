@@ -18,6 +18,8 @@ from lakehouse.oltp.gold import (
     build_mart_logistics_performance,
     build_mart_product_returns,
     build_mart_sales_daily,
+    build_mart_order_daily,
+    build_mart_product_sales_daily,
 )
 
 
@@ -148,6 +150,21 @@ def run_gold_marts(spark: SparkSession, run_id: str) -> None:
         "lakehouse.gold.mart_sales_daily"
     ).overwrite(F.lit(True))
 
+    mart_order_daily = build_mart_order_daily(
+        fact_order,
+        fact_shipment,
+        spark.table("lakehouse.silver.silver_return_requests"),
+        spark.table("lakehouse.gold.dim_store"),
+        run_id,
+    )
+    mart_order_daily.select(*spark.table("lakehouse.gold.mart_order_daily").columns).writeTo(
+        "lakehouse.gold.mart_order_daily"
+    ).overwrite(F.lit(True))
+    mart_products = build_mart_product_sales_daily(fact_order_item, dim_product, run_id)
+    mart_products.select(*spark.table("lakehouse.gold.mart_product_sales_daily").columns).writeTo(
+        "lakehouse.gold.mart_product_sales_daily"
+    ).overwrite(F.lit(True))
+
     print(f"[{run_id}] [Marts] Building mart_logistics_performance...")
     mart_logistics_performance = build_mart_logistics_performance(fact_shipment, dim_delivery_staff, run_id)
     mart_logistics_performance.select(*spark.table("lakehouse.gold.mart_logistics_performance").columns).writeTo(
@@ -166,4 +183,4 @@ def run_gold_marts(spark: SparkSession, run_id: str) -> None:
         "lakehouse.gold.mart_inventory_health"
     ).overwrite(F.lit(True))
 
-    print(f"[{run_id}] [Marts] All 4 Gold Data Marts successfully built!")
+    print(f"[{run_id}] [Marts] All 6 Gold Data Marts successfully built!")

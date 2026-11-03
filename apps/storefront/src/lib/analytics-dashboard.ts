@@ -40,19 +40,19 @@ const definition = (name: string, calculation: string, unit: string, grain: stri
 export function metricDefinitions(metrics: RoleMetricsResponse): MetricDefinition[] {
   switch (metrics.role) {
     case "executive": return [
-      definition("Doanh thu thuần", "SUM(fact_order.net_revenue_vnd)", "VND", "Đơn / toàn hệ thống", "Toàn bộ nguồn hiện có", "Loại failed_delivery/returned/cancelled/payment_failed; có thể gồm đơn chưa giao."),
-      definition("Lợi nhuận gộp", "SUM(fact_order.net_profit_vnd)", "VND", "Đơn / toàn hệ thống", "Toàn bộ nguồn hiện có", "Chưa trừ đầy đủ vận hành, thuế và quảng cáo; âm cần kiểm tra."),
-      definition("Tổng đơn", "COUNT(DISTINCT order_id)", "Đơn", "Đơn duy nhất", "Toàn bộ nguồn hiện có", "Bao gồm mọi trạng thái, không chỉ đơn đã giao."),
-      definition("AOV", "Doanh thu thuần / tổng đơn", "VND/đơn", "Toàn hệ thống", "Cùng phạm vi KPI", "UI để trống khi không có đơn; API trả 0 nếu doanh thu không dương."),
-      definition("GMV", "SUM(fact_order.gross_revenue_vnd)", "VND", "Đơn", "Toàn bộ nguồn hiện có", "Gold gồm mọi trạng thái. Tổng đơn có thể chứa phí vận chuyển."),
-      definition("Tỷ lệ giao thất bại", "Số đơn failed_delivery / tổng đơn × 100", "%", "Đơn", "Cùng phạm vi KPI", "Không đồng nghĩa tất cả đều là COD. Không có mẫu số thì UI hiển thị —."),
-      definition("Tỷ lệ trả hàng", "COUNT(DISTINCT return_request_id), bỏ cancelled / tổng đơn × 100", "%", "Yêu cầu trả hàng / đơn", "Cùng phạm vi KPI", "Một đơn có thể có nhiều yêu cầu; đây không phải cơ cấu trạng thái đơn."),
-      definition("COD đang giao", "SUM(order.total_vnd) của COD có shipment assigned/picked_up/in_transit", "VND", "Đơn/shipment", "Lần công bố OLAP gần nhất", "Không phải số dư tiền thực tế đơn vị giao hàng đang giữ."),
+      definition("Doanh thu thuần", "SUM(mart_order_daily.net_revenue_vnd)", "VND", "Ngày × kênh × cửa hàng", "Toàn bộ lần công bố", "Ghi nhận delivered/completed/returned; trừ giảm giá và hoàn tiền hàng hóa thành công, không gồm vận chuyển."),
+      definition("Lợi nhuận gộp", "SUM(mart_order_daily.gross_profit_vnd)", "VND", "Ngày × kênh × cửa hàng", "Toàn bộ lần công bố", "Doanh thu thuần trừ giá vốn ghi nhận; chưa trừ chi phí vận hành, thuế và quảng cáo."),
+      definition("Tổng đơn", "SUM(mart_order_daily.total_orders)", "Đơn", "Ngày × kênh × cửa hàng", "Toàn bộ lần công bố", "Bao gồm mọi trạng thái; mỗi đơn thuộc đúng một nhóm, không cộng số đơn qua danh mục."),
+      definition("AOV", "SUM(net_revenue_vnd) / SUM(recognized_orders)", "VND/đơn", "mart_order_daily", "Cùng phạm vi KPI", "Mẫu số gồm đơn delivered/completed/returned. Không có mẫu số thì trả null và hiển thị —."),
+      definition("Tổng giá trị đơn", "SUM(mart_order_daily.order_total_vnd)", "VND", "Ngày × kênh × cửa hàng", "Toàn bộ lần công bố", "Gồm mọi trạng thái và phí vận chuyển; không phải doanh thu. Trường API giữ tên gmv_vnd."),
+      definition("Tỷ lệ giao thất bại", "SUM(boom_orders) / SUM(total_orders) × 100", "%", "mart_order_daily", "Cùng phạm vi KPI", "Đơn failed_delivery; không đồng nghĩa tất cả đều là COD. Mẫu số 0 → —."),
+      definition("Yêu cầu trả hàng / đơn", "SUM(return_requests_count) / SUM(total_orders) × 100", "%", "mart_order_daily", "Cùng phạm vi KPI", "Bỏ yêu cầu cancelled. Một đơn có thể có nhiều yêu cầu; không phải tỷ lệ đơn trả distinct."),
+      definition("COD đang giao", "SUM(mart_order_daily.cod_in_transit_vnd)", "VND", "Shipment COD assigned/picked_up/in_transit", "Lần công bố OLAP", "Tổng giá trị đơn gắn shipment đang giao; không phải tiền thực tế đã thu hộ."),
     ];
     case "sales": return [
-      definition("Đóng góp điểm bán", "SUM(fact_order.net_revenue_vnd) theo điểm bán/kênh", "VND", "Điểm bán / kênh", "Toàn bộ nguồn hiện có", "Không chịu bộ lọc kỳ của biểu đồ xu hướng."),
-      definition("Sản phẩm dẫn đầu", "SUM(fact_order_item.item_total_vnd), is_delivered = true", "VND / đơn vị", "Sản phẩm; top 10 do API trả", "Toàn bộ nguồn hiện có", "Phạm vi trạng thái khác tổng doanh thu theo điểm bán."),
-      definition("Danh mục", "SUM(gross_revenue_vnd) của mart_sales_daily theo danh mục", "VND / %", "Danh mục", "Toàn bộ nguồn hiện có", "Không cộng số đơn qua danh mục để suy ra đơn duy nhất."),
+      definition("Đóng góp điểm bán", "SUM(mart_order_daily.net_revenue_vnd) theo cửa hàng/kênh", "VND", "Ngày × kênh × cửa hàng", "Toàn bộ lần công bố", "Số đơn trong bảng đếm đơn có doanh thu thuần dương; bộ lọc kỳ chỉ áp dụng xu hướng."),
+      definition("Sản phẩm dẫn đầu", "SUM(mart_product_sales_daily.net_revenue_vnd), SUM(units_sold)", "VND / đơn vị", "Ngày × sản phẩm; top 10 theo doanh thu", "Toàn bộ lần công bố", "Số lượng đã trừ hàng trả hoàn tất và kiểm định đạt; tiền cùng quy tắc giảm giá/hoàn tiền như tổng quan."),
+      definition("Danh mục", "SUM(mart_sales_daily.net_revenue_vnd) theo danh mục", "VND / %", "Ngày × kênh × cửa hàng × danh mục", "Toàn bộ lần công bố", "Tỷ trọng tính lại từ tổng tiền; không có mẫu số dương thì để trống. Không cộng số đơn qua danh mục."),
     ];
     case "store": return [
       definition("Doanh thu hôm nay", "SUM(order.total_vnd), trạng thái paid/shipping/delivered/completed", "VND", "Đơn tại cửa hàng được chọn", "Từ 00:00 Asia/Ho_Chi_Minh", "Không phải doanh thu kế toán; bộ lọc cửa hàng áp dụng toàn bộ góc nhìn này."),

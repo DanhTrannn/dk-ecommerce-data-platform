@@ -248,6 +248,8 @@ def run_gold_quality_gate(
         "lakehouse.gold.fact_order",
         "lakehouse.gold.fact_order_item",
         "lakehouse.gold.mart_sales_daily",
+        "lakehouse.gold.mart_order_daily",
+        "lakehouse.gold.mart_product_sales_daily",
     ):
         current_run_rows = spark.table(table_name).filter(F.col("_source_run_id") == run_id).count()
         results.append(
@@ -360,14 +362,16 @@ def financial_consistency_checks(spark):
         row = spark.sql(f"""SELECT
             (SELECT COALESCE(SUM({order_column}),0) FROM lakehouse.gold.fact_order) orders,
             (SELECT COALESCE(SUM({item_column}),0) FROM lakehouse.gold.fact_order_item) items,
-            (SELECT COALESCE(SUM({mart_column}),0) FROM lakehouse.gold.mart_sales_daily) marts""").first()
+            (SELECT COALESCE(SUM({mart_column}),0) FROM lakehouse.gold.mart_sales_daily) marts,
+            (SELECT COALESCE(SUM({mart_column}),0) FROM lakehouse.gold.mart_order_daily) order_mart,
+            (SELECT COALESCE(SUM({mart_column}),0) FROM lakehouse.gold.mart_product_sales_daily) product_mart""").first()
         checks.append(
             QualityCheckResult(
                 f"financial_parity_{order_column}",
-                "fact_order / fact_order_item / mart_sales_daily",
-                str((row.orders, row.items, row.marts)),
+                "fact_order / fact_order_item / sales marts",
+                str(tuple(row)),
                 "equal",
-                row.orders == row.items == row.marts,
+                len(set(row)) == 1,
                 "Same recognition, discount allocation and successful-refund definition at every grain",
             )
         )
@@ -391,4 +395,41 @@ def financial_consistency_checks(spark):
             failed_rows=invalid,
         )
     )
+    row = spark.sql("""SELECT
+        (SELECT COUNT(*) FROM lakehouse.gold.fact_order) source_orders,
+        (SELECT COALESCE(SUM(total_orders),0) FROM lakehouse.gold.mart_order_daily) mart_orders,
+        (SELECT COUNT_IF(is_revenue_recognized) FROM lakehouse.gold.fact_order) source_recognized,
+        (SELECT COALESCE(SUM(recognized_orders),0) FROM lakehouse.gold.mart_order_daily) mart_recognized,
+        (SELECT COALESCE(SUM(order_total_vnd),0) FROM lakehouse.gold.fact_order) source_total,
+        (SELECT COALESCE(SUM(order_total_vnd),0) FROM lakehouse.gold.mart_order_daily) mart_total
+    """).first()
+    checks.append(
+        QualityCheckResult(
+            "additive_order_mart_counts",
+            "mart_order_daily",
+            str(tuple(row)),
+            "source = mart",
+            row.source_orders == row.mart_orders
+            and row.source_recognized == row.mart_recognized
+            and row.source_total == row.mart_total,
+            "Order counts and placed value must not multiply across categories, shipments or returns",
+        )
+    )
+    for table, keys in (
+        ("mart_order_daily", ["order_date", "channel", "store_key"]),
+        ("mart_product_sales_daily", ["order_date", "product_id"]),
+    ):
+        grouped = spark.table(f"lakehouse.gold.{table}").groupBy(*keys).count()
+        invalid_keys = grouped.filter("count > 1 OR " + " OR ".join(f"{key} IS NULL" for key in keys)).count()
+        checks.append(
+            QualityCheckResult(
+                "serving_mart_grain",
+                table,
+                str(invalid_keys),
+                "0",
+                invalid_keys == 0,
+                "Serving keys must be unique and non-null",
+                failed_rows=invalid_keys,
+            )
+        )
     return checks

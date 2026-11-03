@@ -9,6 +9,7 @@ from .dimensions import build_dim_customer
 from .sales import build_fact_order
 from .sales import build_fact_order_item
 from .sales import build_mart_sales_daily
+from .sales_marts import build_mart_order_daily, build_mart_product_sales_daily
 from .logistics import build_fact_shipment
 from .logistics import build_mart_logistics_performance
 from .returns import build_fact_return_exchange
@@ -26,6 +27,8 @@ __all__ = [
     "build_fact_order",
     "build_fact_order_item",
     "build_mart_sales_daily",
+    "build_mart_order_daily",
+    "build_mart_product_sales_daily",
     "build_fact_shipment",
     "build_mart_logistics_performance",
     "build_fact_return_exchange",

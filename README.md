@@ -191,7 +191,7 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 | **Query Engine** | Trino | 483 | SQL over Iceberg |
 | **SQL UI** | LibreDB Studio | `latest` | Database/query interface |
 
-The OLTP Gold model defines **6 dimensions, 6 facts (including current inventory), and 4 marts**. The log model defines **1 fact and 3 marts**. Row counts depend on the loaded dataset and completed pipeline runs.
+The OLTP Gold model defines **6 dimensions, 6 facts (including current inventory), and 6 marts**. The log model defines **1 fact and 3 marts**. Row counts depend on the loaded dataset and completed pipeline runs.
 
 The OLTP batch DAG is scheduled daily at 02:00 Asia/Ho_Chi_Minh; OLTP maintenance runs at 03:00 and streaming maintenance every two hours. Flink runs continuously with a configured 10-second checkpoint interval. That interval is not a measured end-to-end latency guarantee.
 
@@ -270,8 +270,8 @@ The BI Hub reads a pinned Iceberg snapshot set through Trino. Responses identify
 
 | Role | Implemented Indicators | Primary Source | Interpretation |
 |---|---|---|---|
-| **Executive** | Order totals, revenue, COGS, profit, AOV, COD in transit | Gold + Silver, pinned publication | Financial recognition follows the documented Gold formula |
-| **Sales** | Store/channel contributions, top products, category shares | Gold facts and sales mart | Order counts across categories are not additive |
+| **Executive** | Order totals, revenue, COGS, profit, AOV, COD in transit | Published order mart | Financial recognition follows the documented Gold formula |
+| **Sales** | Store/channel contributions, top products, category shares | Published order, product-sales and category-sales marts | Order totals use the order mart; category order counts are not additive |
 | **Store** | Today's revenue/orders, low stock, stockout SKUs | Gold current inventory and orders, restricted by store | Today's boundary uses Asia/Ho_Chi_Minh |
 | **Inventory** | On-hand units/value, inbound batches, depletion signals | Gold current inventory + Silver, pinned publication | Current inventory state |
 | **Operations** | Pending orders, waiting time, failed shipments, COD failure by region, returns | Gold + Silver, pinned publication | Field names and detection formulas are documented separately |
@@ -279,6 +279,8 @@ The BI Hub reads a pinned Iceberg snapshot set through Trino. Responses identify
 | **System** | Publication age, CDC heartbeat/pending events, order-count and monetary variance | Published Gold compared with current MySQL | Source values may be ahead while CDC is applying events |
 
 Dashboard refresh reads the latest complete publication; new OLTP data appears after CDC capture, application, dependent Gold refresh, and publication. Definitions, windows, denominators, and current limitations are detailed in the [Metrics Catalog](docs/architecture/METRICS_CATALOG.md).
+
+Executive, Sales and sales trends read only published Data Marts. `mart_order_daily` groups by Vietnam order date, channel and store so order counts are additive; `mart_product_sales_daily` supplies product rankings, while `mart_sales_daily` retains category detail. Missing Executive data and undefined ratios return `null`; a verified zero amount remains zero. Other dashboard roles retain their current sources pending the next refactor phase.
 
 System reconciliation renders one chart per metric so order counts and VND use independent scales. Cached OLAP responses are marked degraded and are not presented as a new source comparison.
 

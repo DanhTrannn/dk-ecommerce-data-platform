@@ -13,30 +13,30 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
   switch (metrics.role) {
     case "executive": {
       const financials = [
-        { name: "GMV", value: metrics.gmv_vnd, note: "Tổng giá trị đơn, gồm mọi trạng thái và phí vận chuyển" },
+        { name: "Tổng giá trị đơn", value: metrics.gmv_vnd, note: "Tổng giá trị đơn, gồm mọi trạng thái và phí vận chuyển" },
         { name: "Giá vốn", value: metrics.cogs_vnd, note: "Theo quy tắc nguồn; xem định nghĩa chỉ số" },
         { name: "COD đang giao", value: metrics.cash_in_transit?.total_cod_amount_vnd ?? null, note: "Theo lần công bố OLAP; chưa phải tiền đã thu hộ" },
       ];
       return <>
         <div className={kpiGrid}>
           <MetricCard detail="Hàng đã giao, sau giảm giá và hoàn tiền thành công; không gồm phí vận chuyển." emphasis label="Doanh thu thuần" scope={allTime} value={formatMetricVnd(metrics.net_revenue_vnd)} />
-          <MetricCard detail={`Biên lợi nhuận: ${metrics.net_revenue_vnd > 0 ? percent(metrics.gross_margin_percent) : "chưa có mẫu số dương"}. Chưa trừ đủ chi phí vận hành.`} label="Lợi nhuận gộp" scope={allTime} value={formatMetricVnd(metrics.gross_profit_vnd)} warning={metrics.gross_profit_vnd < 0} />
+          <MetricCard detail={`Biên lợi nhuận: ${metrics.net_revenue_vnd != null && metrics.net_revenue_vnd > 0 ? percent(metrics.gross_margin_percent) : "chưa có mẫu số dương"}. Chưa trừ đủ chi phí vận hành.`} label="Lợi nhuận gộp" scope={allTime} value={formatMetricVnd(metrics.gross_profit_vnd)} warning={metrics.gross_profit_vnd != null && metrics.gross_profit_vnd < 0} />
           <MetricCard detail="Đơn duy nhất, gồm mọi trạng thái." label="Tổng đơn" scope={allTime} value={number(metrics.total_orders)} />
-          <MetricCard detail="Doanh thu thuần chia số đơn đã giao, gồm đơn có trả hàng." label="Giá trị đơn trung bình" scope={allTime} value={metrics.total_orders > 0 ? formatMetricVnd(metrics.aov_vnd) : "—"} />
+          <MetricCard detail="Doanh thu thuần chia số đơn đã giao, gồm đơn có trả hàng." label="Giá trị đơn trung bình" scope={allTime} value={formatMetricVnd(metrics.aov_vnd)} />
         </div>
         {trend}
         <div className="grid gap-5 xl:grid-cols-2">
           <Panel title="Những tỷ lệ nào cần đối chiếu?" subtitle="Hai chỉ số độc lập, có thể chồng lặp. Không suy ngược ra số đơn giao thành công.">
-            {metrics.total_orders > 0 ? <Chart height={210} label="Tỷ lệ giao thất bại và tỷ lệ trả hàng, đơn vị phần trăm, cùng mẫu số tổng đơn." option={barOption([{ name: "Giao thất bại", value: metrics.boom_rate_percent }, { name: "Trả hàng", value: metrics.return_rate_percent }], "Tỷ lệ", value => `${number(value)}%`, "#a94728")} /> : <EmptyState detail="Chưa có tổng đơn để tính tỷ lệ. Giá trị API bằng 0 không đủ để kết luận tỷ lệ bằng 0%." />}
-            <p className="mt-3 text-xs leading-5 text-muted">Gold trả hàng đếm theo chi tiết yêu cầu, không phải số đơn trả distinct. Giao thất bại không được mặc định là COD.</p>
+            {metrics.boom_rate_percent != null && metrics.return_rate_percent != null ? <Chart height={210} label="Tỷ lệ giao thất bại và yêu cầu trả hàng trên tổng đơn, đơn vị phần trăm, cùng mẫu số tổng đơn." option={barOption([{ name: "Giao thất bại", value: metrics.boom_rate_percent }, { name: "Yêu cầu trả hàng / đơn", value: metrics.return_rate_percent }], "Tỷ lệ", value => `${number(value)}%`, "#a94728")} /> : <EmptyState detail="Chưa có tổng đơn để tính tỷ lệ. Không tự thay dữ liệu thiếu bằng 0%." />}
+            <p className="mt-3 text-xs leading-5 text-muted">Đếm yêu cầu trả hàng không bị hủy; một đơn có thể có nhiều yêu cầu. Giao thất bại không được mặc định là COD.</p>
           </Panel>
-          <Panel title="Các khoản bổ sung" subtitle="Đơn vị VND. COD là tín hiệu OLTP hiện tại; các khoản khác theo phạm vi KPI.">
+          <Panel title="Các khoản bổ sung" subtitle="Đơn vị VND. Các khoản lấy từ cùng lần công bố Data Mart với KPI tổng quan.">
             <dl className="divide-y divide-line">{financials.map(item => <div className="py-4 first:pt-0" key={item.name}><div className="flex flex-wrap justify-between gap-2"><dt className="text-sm font-medium text-muted">{item.name}</dt><dd className="font-semibold tabular-nums">{item.value == null ? "—" : formatVnd(item.value)}</dd></div><p className="mt-1 text-xs leading-5 text-muted">{item.note}</p></div>)}</dl>
           </Panel>
         </div>
         <NextSteps userRole={userRole} items={[
-          { title: "Đối chiếu trước khi kết luận tăng trưởng", detail: "KPI toàn bộ nguồn và xu hướng theo ngày có quy tắc ghi nhận khác nhau. Chưa có kỳ trước đồng nhất để tính delta." },
-          { title: "Kiểm tra đơn giao thất bại", detail: metrics.total_orders > 0 ? `API ghi nhận tỷ lệ ${percent(metrics.boom_rate_percent)}. Xem đơn cụ thể để xác định tình trạng và nguyên nhân.` : "Chưa có mẫu số; kiểm tra nguồn dữ liệu trước.", href: "/admin/orders?status=failed_delivery", linkLabel: "Xem đơn" },
+          { title: "Đối chiếu trước khi kết luận tăng trưởng", detail: "KPI tổng quan và xu hướng dùng cùng quy tắc ghi nhận, với phạm vi thời gian riêng. Chưa có kỳ trước đồng nhất để tính delta." },
+          { title: "Kiểm tra đơn giao thất bại", detail: metrics.total_orders != null && metrics.total_orders > 0 ? `API ghi nhận tỷ lệ ${percent(metrics.boom_rate_percent)}. Xem đơn cụ thể để xác định tình trạng và nguyên nhân.` : "Chưa có mẫu số; kiểm tra nguồn dữ liệu trước.", href: "/admin/orders?status=failed_delivery", linkLabel: "Xem đơn" },
           { title: "Đối soát COD đang giao", detail: "Kiểm tra shipment và khoản tiền theo đơn, không coi toàn bộ giá trị đang giao là tiền thực tế bên vận chuyển đã thu.", href: "/admin/logistics", linkLabel: "Xem giao vận" },
         ]} />
       </>;
@@ -50,9 +50,9 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
       return <>
         <div className={kpiGrid}>
           <MetricCard detail="Tổng revenue_vnd của các điểm bán/kênh API trả về." emphasis label="Doanh thu theo điểm bán" scope={allTime} value={stores.length ? formatMetricVnd(total) : "—"} />
-          <MetricCard detail="Số nhóm điểm bán và kênh online trong phản hồi." label="Nhóm được ghi nhận" scope={allTime} value={number(stores.length)} />
+          <MetricCard detail="Số nhóm điểm bán và kênh online trong phản hồi." label="Nhóm được ghi nhận" scope={allTime} value={stores.length ? number(stores.length) : "—"} />
           <MetricCard detail="Doanh thu nhóm không có store_id / tổng đóng góp. Không có tổng dương thì để trống." label="Tỷ trọng online" scope={allTime} value={percent(ratio(online, total))} />
-          <MetricCard detail="API trả tối đa 10 sản phẩm, không đại diện toàn bộ danh mục." label="Sản phẩm trong top" scope={allTime} value={number(products.length)} />
+          <MetricCard detail="API trả tối đa 10 sản phẩm, không đại diện toàn bộ danh mục." label="Sản phẩm trong top" scope={allTime} value={products.length ? number(products.length) : "—"} />
         </div>
         {trend}
         <Panel title="Điểm bán và kênh nào đóng góp nhiều nhất?" subtitle="Top 10 nhóm theo doanh thu, đơn vị VND. Bảng bên dưới giữ đầy đủ nhóm từ API.">
@@ -60,11 +60,11 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
           <DetailTable caption="Đóng góp theo điểm bán và kênh" filename="dong-gop-diem-ban" rowKey={row => `${row.store_id}-${row.store_name}`} rows={stores} columns={[
             { key: "store", label: "Điểm bán / kênh", value: row => row.store_name },
             { key: "revenue", label: "Doanh thu (VND)", value: row => row.revenue_vnd, render: row => formatVnd(row.revenue_vnd), numeric: true },
-            { key: "orders", label: "Số đơn theo nguồn", value: row => row.order_count, numeric: true },
+            { key: "orders", label: "Đơn có doanh thu thuần dương", value: row => row.order_count, numeric: true },
           ]} />
         </Panel>
         <div className="grid gap-5 xl:grid-cols-2">
-          <Panel title="Sản phẩm nào dẫn đầu về doanh thu?" subtitle="Top do API trả về. Điều kiện trạng thái đơn khác KPI tổng đóng góp.">
+          <Panel title="Sản phẩm nào dẫn đầu về doanh thu?" subtitle="Top 10 theo doanh thu thuần, cùng quy tắc ghi nhận và hoàn tiền với KPI tổng quan.">
             {products.length ? <Chart label="Top sản phẩm theo doanh thu, VND." option={barOption(products.map(row => ({ name: row.product_name, value: row.revenue_vnd })), "Doanh thu", formatMetricVnd)} /> : <EmptyState />}
             <details className="mt-4"><summary className="cursor-pointer text-sm font-semibold">Xem sản phẩm và số lượng bán</summary><div className="mt-4"><DetailTable caption="Top sản phẩm" filename="top-san-pham" rowKey={row => row.product_id} rows={products} columns={[
               { key: "product", label: "Sản phẩm", value: row => row.product_name }, { key: "units", label: "Đơn vị bán", value: row => row.units_sold, numeric: true }, { key: "revenue", label: "Doanh thu (VND)", value: row => row.revenue_vnd, numeric: true },
@@ -79,7 +79,7 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
         </div>
         <NextSteps userRole={userRole} items={[
           { title: stores[0] ? `Kiểm tra đóng góp của ${stores[0].store_name}` : "Kiểm tra dữ liệu điểm bán", detail: stores[0] ? `Nhóm đứng đầu ghi nhận ${formatVnd(stores[0].revenue_vnd)} trong phạm vi nguồn. Chưa có kỳ trước để kết luận tăng trưởng.` : "Nguồn chưa trả về nhóm; kiểm tra lần nạp dữ liệu gần nhất." },
-          { title: "Đối chiếu sản phẩm với đơn gốc", detail: "Top sản phẩm, danh mục và điểm bán có điều kiện trạng thái khác nhau. Không coi chênh lệch tổng là lỗi trước khi đối chiếu định nghĩa.", href: "/admin/orders", linkLabel: "Xem đơn" },
+          { title: "Đối chiếu sản phẩm với đơn gốc", detail: "Doanh thu sản phẩm, danh mục và điểm bán dùng cùng quy tắc ghi nhận. Top 10 chỉ là một phần danh sách sản phẩm.", href: "/admin/orders", linkLabel: "Xem đơn" },
         ]} />
       </>;
     }
