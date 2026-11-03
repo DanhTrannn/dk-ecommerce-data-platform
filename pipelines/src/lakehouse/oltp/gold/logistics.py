@@ -26,7 +26,7 @@ def build_fact_shipment(
             F.col("delivered_at") <= F.col("estimated_delivery_at"),
         ).otherwise(None)
         if "estimated_delivery_at" in silver_shipments.columns
-        else F.lit(True)
+        else F.lit(None).cast("boolean")
     )
 
     cod_expected_col = (
@@ -56,7 +56,7 @@ def build_fact_shipment(
         (F.col("status") == "delivered").alias("is_delivered"),
         cod_expected_col.alias("cod_amount_expected_vnd"),
         F.coalesce(cod_collected_col, F.lit(0)).alias("cod_amount_collected_vnd"),
-        duration_expr.alias("delivery_duration_minutes"),
+        F.when(duration_expr >= 0, duration_expr).alias("delivery_duration_minutes"),
         on_time_expr.alias("is_on_time"),
         F.current_timestamp().alias("_gold_ingested_at"),
         F.lit(run_id).alias("_source_run_id"),
@@ -83,7 +83,17 @@ def build_mart_logistics_performance(
         F.count("*").alias("total_shipments"),
         F.sum(F.when(F.col("fs.status") == "delivered", 1).otherwise(0)).alias("delivered_count"),
         F.sum(F.when(F.col("fs.is_boom"), 1).otherwise(0)).alias("boom_count"),
-        F.sum(F.when(F.col("fs.is_on_time") == True, 1).otherwise(0)).alias("on_time_count"),
+        F.sum(F.when((F.col("fs.status") == "delivered") & F.col("fs.is_on_time").isNotNull(), 1).otherwise(0)).alias(
+            "on_time_eligible_count"
+        ),
+        F.sum(F.when((F.col("fs.status") == "delivered") & F.col("fs.is_on_time"), 1).otherwise(0)).alias(
+            "on_time_count"
+        ),
+        F.sum(F.when((F.col("fs.attempt_count") > 1) | (F.col("fs.status") == "failed"), 1).otherwise(0)).alias(
+            "problematic_shipments"
+        ),
+        F.count("fs.delivery_duration_minutes").alias("duration_sample_count"),
+        F.sum("fs.delivery_duration_minutes").alias("duration_minutes_sum"),
         F.round(F.avg("fs.delivery_duration_minutes"), 2).alias("avg_duration_minutes"),
         F.sum(F.coalesce(F.col("fs.cod_amount_collected_vnd"), F.lit(0))).alias("total_cod_collected_vnd"),
     )
@@ -94,9 +104,9 @@ def build_mart_logistics_performance(
     ).otherwise(0.0)
 
     on_time_rate_expr = F.when(
-        F.col("delivered_count") > 0,
-        F.round((F.col("on_time_count") / F.col("delivered_count")) * 100.0, 2),
-    ).otherwise(0.0)
+        F.col("on_time_eligible_count") > 0,
+        F.round((F.col("on_time_count") / F.col("on_time_eligible_count")) * 100.0, 2),
+    )
 
     return (
         grouped.withColumn("boom_rate_pct", boom_rate_expr)
@@ -114,6 +124,10 @@ def build_mart_logistics_performance(
             "boom_count",
             "boom_rate_pct",
             "on_time_count",
+            "on_time_eligible_count",
+            "problematic_shipments",
+            "duration_sample_count",
+            "duration_minutes_sum",
             "on_time_rate_pct",
             "avg_duration_minutes",
             "total_cod_collected_vnd",

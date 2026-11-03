@@ -152,32 +152,53 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
     </>;
     }
     case "operations": {
-      const regions = [...(metrics.regional_boom_rates ?? [])].sort((a, b) => b.boom_rate_percent - a.boom_rate_percent);
-      const bottleneck = metrics.fulfillment_bottleneck;
+      const regions = [...metrics.cod_regions].sort((a, b) => (b.failure_rate_percent ?? -1) - (a.failure_rate_percent ?? -1));
+      const fulfillment = metrics.fulfillment;
       return <>
+        <p className="text-xs text-muted">Mốc đo vận hành: {metrics.operations_observed_at ? new Date(metrics.operations_observed_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false }) : "Chưa có mốc đo"} · UTC+7. Thời gian chờ giữ theo mốc này, không tự tăng khi tải lại trang.</p>
         <div className={kpiGrid}>
-          <MetricCard detail="Đơn paid/confirmed/processing." emphasis label="Đơn chờ xuất" scope={current} value={number(metrics.pending_fulfillment_count)} />
-          <MetricCard detail="Shipment giao lại >1 lần hoặc failed; chưa phải đo vi phạm SLA." label="Giao vận cần kiểm tra" scope="Dữ liệu shipment hiện có" value={number(metrics.shipping_sla_violations_count)} warning={metrics.shipping_sla_violations_count > 0} />
-          <MetricCard detail="Shipment failed; có thể nằm trong nhóm cần kiểm tra." label="Giao thất bại" scope="Dữ liệu shipment hiện có" value={number(metrics.boom_orders_count)} warning={metrics.boom_orders_count > 0} />
-          <MetricCard detail="Số yêu cầu, không phải số đơn duy nhất đã hoàn tiền." label="Yêu cầu đổi trả" scope={allTime} value={number(metrics.return_requests_count)} />
+          <MetricCard detail="Đơn paid/confirmed theo lần quan sát; chưa phải toàn bộ đơn đang giao." emphasis label="Đơn chờ xuất" scope={current} value={number(metrics.pending_fulfillment_count)} />
+          <MetricCard detail="Shipment có attempt_count > 1 hoặc failed; không phải đo vi phạm SLA." label="Giao vận cần kiểm tra" scope={allTime} value={number(metrics.problematic_shipments_count)} warning={metrics.problematic_shipments_count != null && metrics.problematic_shipments_count > 0} />
+          <MetricCard detail="Số shipment failed, không phải số đơn hoặc riêng COD." label="Shipment thất bại" scope={allTime} value={number(metrics.failed_shipments_count)} warning={metrics.failed_shipments_count != null && metrics.failed_shipments_count > 0} />
+          <MetricCard detail="Yêu cầu duy nhất không cancelled; không đếm theo dòng hàng hoặc cộng qua SKU." label="Yêu cầu đổi trả" scope={allTime} value={number(metrics.return_requests_count)} />
         </div>
-        <Panel title="Có đơn chờ quá 2 giờ cần kiểm tra không?" subtitle="Tín hiệu OLTP tại thời điểm tải. Không cộng các nhóm chỉ số này thành tổng đơn.">
-          {bottleneck ? <div className="grid gap-5 sm:grid-cols-3">
-            <div><p className="text-sm text-muted">Đơn chờ theo tín hiệu</p><p className="mt-2 text-2xl font-semibold">{number(bottleneck.paid_unfulfilled_orders)}</p></div>
-            <div><p className="text-sm text-muted">Paid/confirmed chờ &gt; 2 giờ</p><p className={`mt-2 text-2xl font-semibold ${bottleneck.stale_unfulfilled_orders > 0 ? "text-danger" : ""}`}>{number(bottleneck.stale_unfulfilled_orders)}</p></div>
-            <div><p className="text-sm text-muted">Thời gian chờ trung bình</p><p className="mt-2 text-2xl font-semibold">{bottleneck.paid_unfulfilled_orders > 0 ? `${number(bottleneck.average_waiting_hours)} giờ` : "—"}</p></div>
-          </div> : <EmptyState detail="API chưa cung cấp tín hiệu thời gian chờ; không suy ra là không có vấn đề." />}
+        <Panel title="Có đơn chờ quá 2 giờ tại mốc đo không?" subtitle="Ngưỡng rà soát theo thời điểm công bố mart, không phải SLA đã cam kết.">
+          {fulfillment ? <div className="grid gap-5 sm:grid-cols-3">
+            <div><p className="text-sm text-muted">Đơn paid/confirmed</p><p className="mt-2 text-2xl font-semibold">{number(fulfillment.pending_orders)}</p></div>
+            <div><p className="text-sm text-muted">Chờ từ 2 giờ</p><p className={`mt-2 text-2xl font-semibold ${fulfillment.over_two_hours_orders > 0 ? "text-danger" : ""}`}>{number(fulfillment.over_two_hours_orders)}</p></div>
+            <div><p className="text-sm text-muted">Thời gian chờ trung bình</p><p className="mt-2 text-2xl font-semibold">{fulfillment.average_waiting_hours == null ? "—" : `${number(fulfillment.average_waiting_hours)} giờ`}</p></div>
+          </div> : <EmptyState detail="Chưa có dữ liệu đơn tại mốc đo; không suy ra số đơn chờ bằng 0." />}
         </Panel>
-        <Panel title="Vùng COD nào cần kiểm tra?" subtitle="Tỷ lệ đi cùng số mẫu; vùng dựa trên từ khóa địa chỉ. Không suy luận nguyên nhân chỉ từ tỷ lệ.">
-          {regions.length ? <Chart label="Tỷ lệ shipment COD thất bại theo vùng, phần trăm. Đọc cùng mẫu số trong bảng." option={barOption(regions.filter(row => row.total_cod_shipments > 0).slice(0, 10).map(row => ({ name: row.region, value: row.boom_rate_percent })), "COD thất bại", value => `${number(value)}%`, "#a94728")} /> : <EmptyState detail="Chưa có nhóm vùng COD được trả về." />}
-          <DetailTable caption="COD theo vùng và số mẫu" filename="cod-theo-vung" rowKey={row => row.region} rows={regions} columns={[
-            { key: "region", label: "Vùng", value: row => row.region }, { key: "failed", label: "COD thất bại", value: row => row.failed_cod_shipments, numeric: true }, { key: "total", label: "Tổng shipment COD", value: row => row.total_cod_shipments, numeric: true },
-            { key: "rate", label: "Tỷ lệ (%)", value: row => row.total_cod_shipments > 0 ? row.boom_rate_percent : null, numeric: true },
+        <Panel title="Giao vận theo nhân sự và địa bàn được phân công" subtitle="Cùng bộ dữ liệu đã công bố. Thiếu thời gian giao dự kiến thì tỷ lệ đúng hạn để trống; thời gian vận chuyển tính theo số mẫu hợp lệ.">
+          <DetailTable caption="Hiệu suất giao vận" filename="hieu-suat-giao-van" rows={metrics.logistics} rowKey={row => `${row.staff_id}-${row.city_id}`} columns={[
+            { key: "staff", label: "Mã nhân sự", value: row => row.staff_code }, { key: "city", label: "Địa bàn phân công", value: row => row.city_name },
+            { key: "total", label: "Shipment", value: row => row.total_shipments, numeric: true }, { key: "delivered", label: "Đã giao", value: row => row.delivered_count, numeric: true },
+            { key: "failed", label: "Thất bại", value: row => row.failed_count, numeric: true }, { key: "eligible", label: "Mẫu đo đúng hạn", value: row => row.on_time_eligible_count, numeric: true },
+            { key: "ontime", label: "Đúng hạn (%)", value: row => row.on_time_rate_percent, numeric: true }, { key: "duration", label: "Vận chuyển TB (phút)", value: row => row.average_transit_minutes, numeric: true },
+            { key: "cod", label: "COD ghi nhận đã thu (VND)", value: row => row.cod_collected_vnd, numeric: true },
           ]} />
         </Panel>
+        <Panel title="Vùng COD nào cần kiểm tra?" subtitle="Chỉ shipment của đơn COD; nhóm vùng từ địa chỉ đơn, khác địa bàn phân công nhân sự. Đọc tỷ lệ cùng số mẫu.">
+          {regions.length ? <Chart label="Tỷ lệ shipment COD thất bại theo vùng, phần trăm." option={barOption(regions.filter(row => row.failure_rate_percent != null).slice(0, 10).map(row => ({ name: row.region, value: row.failure_rate_percent! })), "COD thất bại", value => `${number(value)}%`, "#a94728")} /> : <EmptyState detail="Chưa có nhóm shipment COD được công bố." />}
+          <DetailTable caption="COD theo vùng và số mẫu" filename="cod-theo-vung" rows={regions} rowKey={row => row.region} columns={[
+            { key: "region", label: "Vùng", value: row => row.region }, { key: "failed", label: "COD thất bại", value: row => row.failed_cod_shipments, numeric: true },
+            { key: "total", label: "Shipment COD", value: row => row.total_cod_shipments, numeric: true }, { key: "rate", label: "Tỷ lệ (%)", value: row => row.failure_rate_percent, numeric: true },
+          ]} />
+        </Panel>
+        <Panel title="SKU nào có yêu cầu đổi trả?" subtitle="Top 10 theo lượng đề nghị trả, bỏ yêu cầu cancelled. Một yêu cầu có nhiều SKU xuất hiện ở nhiều dòng; không cộng cột số yêu cầu thành tổng toàn hệ thống.">
+          <DetailTable caption="Yêu cầu đổi trả theo SKU" filename="doi-tra-theo-sku" rows={metrics.product_returns} rowKey={row => row.variant_id} columns={[
+            { key: "sku", label: "SKU", value: row => row.sku }, { key: "product", label: "Sản phẩm", value: row => row.product_name },
+            { key: "requests", label: "Yêu cầu có SKU", value: row => row.request_count, numeric: true }, { key: "lines", label: "Dòng hàng", value: row => row.line_count, numeric: true },
+            { key: "requested", label: "Lượng đề nghị trả", value: row => row.requested_units, numeric: true }, { key: "accepted", label: "Hoàn tất, kiểm định đạt", value: row => row.accepted_units, numeric: true },
+            { key: "money", label: "Tiền đề nghị hoàn (VND)", value: row => row.requested_refund_vnd, numeric: true },
+          ]} />
+        </Panel>
+        <Panel title="Tiền hoàn thành công được ghi nhận bao nhiêu?" subtitle="Tổng refund succeeded, có thể gồm vận chuyển hoặc đơn hủy. Không phân bổ khoản này xuống SKU khi chưa có liên kết phù hợp.">
+          <div className="grid gap-4 sm:grid-cols-2"><div><p className="text-sm text-muted">Số refund thành công</p><p className="mt-2 text-xl font-semibold">{number(metrics.successful_refunds_count)}</p></div><div><p className="text-sm text-muted">Tổng tiền đã ghi nhận hoàn</p><p className="mt-2 text-xl font-semibold">{formatVnd(metrics.successful_refund_amount_vnd)}</p></div></div>
+        </Panel>
         <NextSteps userRole={userRole} items={[
-          { title: "Rà đơn chờ xử lý", detail: bottleneck ? `${number(bottleneck.stale_unfulfilled_orders)} đơn paid/confirmed chờ quá 2 giờ. Kiểm tra từng đơn trước khi điều chỉnh nhân lực.` : "Chưa có tín hiệu thời gian chờ; xem danh sách đơn.", href: "/admin/orders", linkLabel: "Xem đơn" },
-          { title: "Kiểm tra lịch sử giao và đổi trả", detail: "Các nhóm shipment có thể chồng lặp. Dùng bản ghi gốc để xác minh, không xem các số này là cơ cấu độc lập.", href: "/admin/logistics", linkLabel: "Xem giao vận" },
+          { title: "Rà đơn chờ tại mốc đo", detail: "Kiểm tra thời điểm quan sát trước khi dùng số đơn chờ. Refresh giao diện không tự tạo snapshot mới.", href: "/admin/orders", linkLabel: "Xem đơn" },
+          { title: "Đối chiếu giao vận và đổi trả", detail: "Phân biệt shipment, yêu cầu, dòng hàng và refund; không cộng các nhóm này thành tổng đơn.", href: "/admin/logistics", linkLabel: "Xem giao vận" },
         ]} />
       </>;
     }

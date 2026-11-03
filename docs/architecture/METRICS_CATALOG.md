@@ -36,7 +36,7 @@ Publication schema 3 dùng chung transformation cho batch và CDC. Tiền là s�
 
 Executive, Sales và xu hướng chỉ truy vấn mart trong cùng publication schema 3. `mart_order_daily` có grain ngày × kênh × cửa hàng; `mart_product_sales_daily` có grain ngày × sản phẩm; `mart_sales_daily` tiếp tục phục vụ danh mục. Số đơn đóng góp điểm bán đếm đơn có doanh thu thuần dương; tổng đơn Executive/xu hướng gồm mọi trạng thái. Top sản phẩm xếp theo doanh thu thuần, số lượng đã trừ hàng trả hoàn tất/kiểm định đạt. Tỷ trọng danh mục được tính lại từ tổng tiền, không cộng hoặc lấy trung bình tỷ lệ từng dòng.
 
-Mart rỗng làm KPI Executive trả `null`, danh sách Sales/xu hướng trả rỗng; giao diện hiển thị — hoặc trạng thái chưa có dữ liệu. Có dòng nguồn hợp lệ nhưng không phát sinh doanh thu thì số tiền 0 vẫn được giữ. AOV/biên lợi nhuận/tỷ trọng không có mẫu số hợp lệ trả `null`. Mart chưa nằm trong publication gây phản hồi unavailable hoặc cache có đánh dấu, không đọc fact/MySQL để thay thế. Store/Inventory được cập nhật ở đợt 3b như phần dưới; Operations/Marketing/System và admin overview giữ hợp đồng hiện tại.
+Mart rỗng làm KPI Executive trả `null`, danh sách Sales/xu hướng trả rỗng; giao diện hiển thị — hoặc trạng thái chưa có dữ liệu. Có dòng nguồn hợp lệ nhưng không phát sinh doanh thu thì số tiền 0 vẫn được giữ. AOV/biên lợi nhuận/tỷ trọng không có mẫu số hợp lệ trả `null`. Mart chưa nằm trong publication gây phản hồi unavailable hoặc cache có đánh dấu, không đọc fact/MySQL để thay thế. Store/Inventory được cập nhật ở đợt 3b như phần dưới; Operations cập nhật ở đợt 3c như phần dưới; Marketing/System và admin overview giữ hợp đồng hiện tại.
 
 Đơn chờ thanh toán, đã xác nhận hoặc đang giao chưa tạo doanh thu hàng hóa. Đơn đã trả vẫn giữ doanh thu ban đầu; hoàn tiền thành công được trừ riêng để xử lý trả một phần. Giá vốn được hoàn nhập theo số lượng trả hoàn tất và kiểm định đạt.
 
@@ -56,18 +56,27 @@ Kiểm tra trước publication đối chiếu tổng doanh thu trước hoàn, 
 | Cảnh báo tồn tại kho | Hai danh sách tối đa 10 dòng: `on_hand=0` và `0<on_hand<=5`, không chồng lặp. API bỏ depletion_velocity và overselling_prevented; không suy ra đã ngăn bán vượt tồn từ dữ liệu tổng hợp |
 | Phiếu nhập | COUNT receipt_id được build vào `mart_inventory_summary`; là số phiếu ghi nhận, không phải số phiếu nhận đủ hàng |
 | Lịch sử tồn | `mart_inventory_health`, tổng hợp riêng từng snapshot_date × nhóm địa điểm trong 30 ngày gần nhất; không cộng các ngày thành tồn hiện tại |
-| Đơn chờ xử lý | Query paid/confirmed/processing; processing không nằm trong CHECK trạng thái orders hiện tại, nên dữ liệu đúng DDL chỉ đóng góp paid/confirmed |
-| Đơn chờ quá 2 giờ | Đếm paid/confirmed với created_at trước ngưỡng 2 giờ |
-| Thời gian chờ trung bình | Trung bình số giờ từ created_at tới hiện tại của đơn paid/confirmed/processing |
-| Giao vận có vấn đề | Trường API `shipping_sla_violations_count` hiện đếm shipment attempt_count > 1 hoặc status failed; chưa phải so sánh deadline SLA |
-| Tỷ lệ COD lỗi theo vùng | Shipment COD failed / tổng shipment COD trong nhóm địa chỉ; nhóm vùng dựa trên từ khóa địa chỉ |
-| Tiền COD đang giao | Tổng order total của COD có shipment dispatched/in_transit; chưa phải số dư tiền thực tế shipper đang giữ |
+| Đơn chờ xử lý | `mart_operations_summary.pending_orders`, chỉ paid/confirmed; không có trạng thái processing trong DDL nguồn |
+| Đơn chờ từ 2 giờ / thời gian trung bình | Tính tại operations_observed_at khi build mart, không lấy NOW ở API; không có đơn chờ hợp lệ thì trung bình null. Ngưỡng 2 giờ là tiêu chí rà soát, không phải SLA |
+| Shipment cần kiểm tra | attempt_count > 1 OR status failed; chỉ đếm một lần/shipment. API dùng problematic_shipments_count thay shipping_sla_violations_count |
+| Shipment thất bại | status failed, API failed_shipments_count; không phải số đơn hay riêng COD |
+| COD theo vùng | mart_cod_region_daily theo ngày shipment UTC × vùng địa chỉ đơn COD. Tỷ lệ tính lại từ tổng failed/total; không dùng địa bàn phân công nhân sự thay vùng địa chỉ đơn |
+| Giao vận theo nhân sự | mart_logistics_performance theo ngày UTC × nhân sự × địa bàn được phân công. Thời gian trung bình = SUM duration_minutes_sum / SUM duration_sample_count; không lấy trung bình các trung bình |
+| Đúng hạn | Chỉ delivered có is_on_time khác null được đưa vào mẫu số. Nguồn hiện chưa có estimated_delivery_at nên is_on_time/rate null, eligible count 0; không mặc định tất cả đúng hạn |
+| Yêu cầu đổi trả toàn hệ thống | Summary đếm header return_id không cancelled, độc lập số dòng/SKU |
+| Đổi trả theo SKU | mart_product_returns bỏ cancelled; total_return_requests đếm distinct return_id trong nhóm ngày/SKU/action/reason; return_item_count là số dòng. Không cộng request count qua SKU để suy ra tổng yêu cầu |
+| Lượng đề nghị / lượng chấp nhận | total_returned_quantity giữ tên cũ cho lượng đề nghị; accepted_return_quantity chỉ lấy yêu cầu completed và dòng inspection passed |
+| Tiền đề nghị hoàn | requested_refund_amount_vnd lấy từ dòng return_items, không lặp tiền header. total_refund_amount_vnd ở mart giữ làm alias tương thích cho tiền đề nghị, không phải tiền đã trả |
+| Tiền hoàn thành công | Summary chỉ lấy refunds.status=succeeded; có thể gồm vận chuyển/đơn hủy. Không phân bổ xuống SKU khi không có liên kết phù hợp; không đồng nhất với hoàn tiền hàng hóa ở Executive |
+| Tiền COD đang giao | Tổng order total gắn shipment assigned/picked_up/in_transit; chưa phải số dư tiền thực tế shipper giữ |
 | Coupon burn rate | Số redemption trong 15 phút / 15; phần trăm sử dụng = used_count / total_usage_limit, không tự đặt limit khi coupon không có cap |
 | Đánh giá xấu gần đây | Đếm rating <= 2 trong 45 phút, nhóm theo product |
 
 Store overview và danh sách chọn cửa hàng đọc `mart_store_overview`, vẫn lọc theo role/store ở API. Số đơn hoàn thành dùng status completed; nhân sự dùng store_manager active. Cửa hàng đã được công bố nhưng chưa có đơn/nhân sự có count 0; chưa có dòng tồn thì trạng thái tồn null. `inventory_observed_at` phản ánh thời điểm quan sát từ current fact, tách với data_updated_at của publication.
 
 Tốc độ bán 60 phút và thời gian dự kiến hết hàng đã bỏ vì thời điểm tạo đơn không chứng minh thời điểm xuất hàng. Dữ liệu nguồn và lịch sử snapshot vẫn giữ nguyên.
+
+Operations chỉ đọc bốn mart đã công bố. `operations_observed_at` là mốc tính thời gian chờ; `data_updated_at` là thời điểm publication, có thể muộn hơn lúc build. Refresh không tự làm tuổi đơn tăng trên snapshot cũ; cần publication mới để cập nhật các phép đo này. Mỗi nguồn rỗng giữ giá trị null cho tổng chưa có quan sát; nguồn có dòng nhưng không thỏa điều kiện có count 0, tỷ lệ không có mẫu số giữ null. Các phần còn dữ liệu vẫn hiển thị.
 
 Mục tiêu 15 triệu/ngày, các mốc doanh thu chia sẵn theo giờ, biên lợi nhuận nội suy, tỷ lệ chia tiền cho nhà vận chuyển và nhãn “viral” áp cứng đã được bỏ. `target_achievement_percent`, run-rate, margin-erosion và channel-growth không có dữ liệu khi chưa có cách tính từ nguồn phù hợp; UI ẩn các biểu đồ tương ứng.
 

@@ -8,11 +8,12 @@ CREATE TABLE IF NOT EXISTS lakehouse.gold.fact_return_exchange (
     return_date                     DATE                            COMMENT 'Return creation date',
     action_type                     STRING                          COMMENT 'Return action (exchange or refund)',
     return_status                   STRING                          COMMENT 'Return status (requested, approved, received, completed, rejected)',
+    inspection_status               STRING,
     reason                          STRING                          COMMENT 'Customer return reason',
     returned_variant_key            BIGINT                          COMMENT 'Foreign key to dim_variant being returned',
     exchanged_variant_key           BIGINT                          COMMENT 'Foreign key to new dim_variant if exchange',
-    returned_quantity               INT                             COMMENT 'Quantity returned',
-    refund_amount_vnd               BIGINT                          COMMENT 'Total refund amount in VND (0 if exchange)',
+    returned_quantity               INT                             COMMENT 'Requested return quantity on this line',
+    refund_amount_vnd               BIGINT                          COMMENT 'Requested line refund; not proof of successful payment',
     _gold_ingested_at               TIMESTAMP                       COMMENT 'UTC timestamp written to Gold',
     _source_run_id                  STRING                          COMMENT 'Batch run ID'
 )

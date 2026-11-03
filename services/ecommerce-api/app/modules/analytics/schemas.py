@@ -41,21 +41,42 @@ class InventoryHistoryPoint(BaseModel):
     total_inventory_value_vnd: int
 
 
-class RegionalBoomRateSignal(BaseModel):
-    """Real-time alert on delivery failure (COD boom) spikes grouped by district/region."""
+class CODRegionMetric(BaseModel):
     region: str
-    total_cod_shipments: int = 0
-    failed_cod_shipments: int = 0
-    boom_rate_percent: float = 0.0
-    alert_level: str = "normal"
+    total_cod_shipments: int
+    failed_cod_shipments: int
+    failure_rate_percent: float | None
 
 
-class FulfillmentBottleneckSignal(BaseModel):
-    """Real-time operational bottleneck in packing and dispatching paid orders."""
-    paid_unfulfilled_orders: int = 0
-    stale_unfulfilled_orders: int = 0
-    bottleneck_warning: bool = False
-    average_waiting_hours: float = 0.0
+class FulfillmentMetrics(BaseModel):
+    pending_orders: int
+    over_two_hours_orders: int
+    average_waiting_hours: float | None
+
+
+class LogisticsPerformanceMetric(BaseModel):
+    staff_id: int | None
+    staff_code: str
+    city_id: int
+    city_name: str
+    total_shipments: int
+    delivered_count: int
+    failed_count: int
+    on_time_eligible_count: int
+    on_time_rate_percent: float | None
+    average_transit_minutes: float | None
+    cod_collected_vnd: int
+
+
+class ProductReturnMetric(BaseModel):
+    variant_id: int
+    sku: str
+    product_name: str
+    request_count: int
+    line_count: int
+    requested_units: int
+    accepted_units: int
+    requested_refund_vnd: int
 
 
 class StoreStockoutSignal(BaseModel):
@@ -250,15 +271,18 @@ class InventoryMetricsResponse(AnalyticsDataStatus):
 
 
 class OperationsMetricsResponse(AnalyticsDataStatus):
-    model_config = ConfigDict(from_attributes=True)
-
     role: str = "operations"
-    pending_fulfillment_count: int = 0
-    shipping_sla_violations_count: int = 0
-    boom_orders_count: int = 0
-    return_requests_count: int = 0
-    regional_boom_rates: list[RegionalBoomRateSignal] = Field(default_factory=list)
-    fulfillment_bottleneck: FulfillmentBottleneckSignal | None = None
+    pending_fulfillment_count: int | None = None
+    problematic_shipments_count: int | None = None
+    failed_shipments_count: int | None = None
+    return_requests_count: int | None = None
+    successful_refunds_count: int | None = None
+    successful_refund_amount_vnd: int | None = None
+    operations_observed_at: str | None = None
+    fulfillment: FulfillmentMetrics | None = None
+    cod_regions: list[CODRegionMetric] = Field(default_factory=list)
+    logistics: list[LogisticsPerformanceMetric] = Field(default_factory=list)
+    product_returns: list[ProductReturnMetric] = Field(default_factory=list)
 
 
 class ReconciliationVariance(BaseModel):

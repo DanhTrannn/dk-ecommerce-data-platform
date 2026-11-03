@@ -24,11 +24,8 @@ def build_fact_return_exchange(
         if "exchanged_variant_id" in silver_return_items.columns
         else F.col("ri.exchange_variant_id")
     )
-    refund_col = (
-        F.coalesce(F.col("rr.refund_amount_vnd"), F.lit(0))
-        if "refund_amount_vnd" in silver_return_requests.columns
-        else F.coalesce(F.col("ri.refund_amount_vnd"), F.lit(0))
-    )
+    # Requested money belongs to each line, never a repeated request header.
+    refund_col = F.coalesce(F.col("ri.refund_amount_vnd"), F.lit(0))
     reason_col = F.col("rr.reason") if "reason" in silver_return_requests.columns else F.col("rr.customer_reason")
 
     return ri.join(rr, F.col("ri.return_id") == F.col("rr.return_id"), "inner").select(
@@ -41,6 +38,7 @@ def build_fact_return_exchange(
         F.to_date(F.col("rr.created_at")).alias("return_date"),
         F.col("rr.action_type"),
         F.col("rr.status").alias("return_status"),
+        F.col("ri.inspection_status"),
         reason_col.alias("reason"),
         returned_variant_col.alias("returned_variant_key"),
         exchanged_variant_col.alias("exchanged_variant_key"),
@@ -56,7 +54,7 @@ def build_mart_product_returns(
     dim_variant: DataFrame,
     run_id: str,
 ) -> DataFrame:
-    fr = fact_return_exchange.alias("fr")
+    fr = fact_return_exchange.filter(F.col("return_status") != "cancelled").alias("fr")
     dv = dim_variant.alias("dv")
 
     joined = fr.join(dv, F.col("fr.returned_variant_key") == F.col("dv.variant_key"), "left")
@@ -74,8 +72,16 @@ def build_mart_product_returns(
             F.coalesce(F.col("fr.reason"), F.lit("Unknown")).alias("reason"),
         )
         .agg(
-            F.count("*").alias("total_return_requests"),
+            F.countDistinct("fr.return_id").alias("total_return_requests"),
+            F.count("fr.return_item_id").alias("return_item_count"),
             F.sum(F.col("fr.returned_quantity")).alias("total_returned_quantity"),
+            F.sum(
+                F.when(
+                    (F.col("fr.return_status") == "completed") & (F.col("fr.inspection_status") == "passed"),
+                    F.col("fr.returned_quantity"),
+                ).otherwise(0)
+            ).alias("accepted_return_quantity"),
+            F.sum(F.col("fr.refund_amount_vnd")).alias("requested_refund_amount_vnd"),
             F.sum(F.col("fr.refund_amount_vnd")).alias("total_refund_amount_vnd"),
         )
         .withColumn("_gold_ingested_at", F.current_timestamp())
@@ -91,7 +97,10 @@ def build_mart_product_returns(
             "action_type",
             "reason",
             "total_return_requests",
+            "return_item_count",
             "total_returned_quantity",
+            "accepted_return_quantity",
+            "requested_refund_amount_vnd",
             "total_refund_amount_vnd",
             "_gold_ingested_at",
             "_source_run_id",

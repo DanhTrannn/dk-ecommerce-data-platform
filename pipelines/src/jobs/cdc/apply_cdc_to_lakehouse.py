@@ -25,6 +25,7 @@ from lakehouse.oltp.gold_ddl import ensure_oltp_gold_tables
 from lakehouse.oltp.publication import SCHEMA_VERSION, ensure_publications, publish
 from lakehouse.oltp.quality import QualityCheckResult, persist_quality_results, financial_consistency_checks
 from lakehouse.oltp.inventory_quality import inventory_consistency_checks
+from lakehouse.oltp.operations_quality import operations_consistency_checks
 from lakehouse.oltp.silver_ddl import ensure_silver_tables
 from lakehouse.spark import spark_session
 from lakehouse.writer import oltp_writer_lock
@@ -260,6 +261,18 @@ def refresh_gold(spark, changed, run_id, initial=False):
                 fact("dim_store"), fact("fact_order"), silver("customers"), fact("mart_inventory_current"), run_id
             ),
         ),
+        (
+            "mart_operations_summary",
+            {"fact_order", "fact_shipment", "return_requests", "refunds"},
+            lambda: gold.build_mart_operations_summary(
+                fact("fact_order"), fact("fact_shipment"), silver("return_requests"), silver("refunds"), run_id
+            ),
+        ),
+        (
+            "mart_cod_region_daily",
+            {"fact_order", "fact_shipment"},
+            lambda: gold.build_mart_cod_region_daily(fact("fact_shipment"), fact("fact_order"), run_id),
+        ),
     ]
     refreshed = set()
     for name, dependencies, build in definitions:
@@ -341,6 +354,7 @@ def validate_publication(spark, cfg, columns, changed, refreshed, run_id):
         )
     results.extend(financial_consistency_checks(spark))
     results.extend(inventory_consistency_checks(spark))
+    results.extend(operations_consistency_checks(spark))
     if results:
         persist_quality_results(
             spark,
@@ -392,6 +406,8 @@ def process_once(spark, cfg, types, ddl, force_rebuild=False):
             "lakehouse.gold.mart_inventory_current",
             "lakehouse.gold.mart_inventory_summary",
             "lakehouse.gold.mart_store_overview",
+            "lakehouse.gold.mart_operations_summary",
+            "lakehouse.gold.mart_cod_region_daily",
         }.issubset(json.loads(publication["snapshots_json"]))
     )
     prior_cursor = offsets.get(SOURCE_CURSOR_KEY)
