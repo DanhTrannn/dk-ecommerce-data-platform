@@ -70,6 +70,9 @@ Tên bảng snapshot không chứng minh đang có đầy đủ lịch sử mọ
 | `mart_logistics_performance` | Ngày shipment × nhân viên giao vận |
 | `mart_product_returns` | Ngày trả × variant × action × reason |
 | `mart_inventory_health` | Ngày snapshot × loại địa điểm × địa điểm × danh mục |
+| `mart_inventory_current` | Một dòng SKU × địa điểm, chỉ số dư hiện tại và thời điểm quan sát gốc |
+| `mart_inventory_summary` | Một dòng tổng quan hiện tại; SKU hết hàng distinct trên mọi địa điểm, lượng/giá trị và số phiếu nhập |
+| `mart_store_overview` | Một dòng/cửa hàng, gồm cửa hàng chưa có đơn/tồn; số đơn/doanh thu, nhân sự và trạng thái tồn |
 
 Order count ở mart sales không được cộng qua các danh mục để suy ra số đơn distinct. Công thức revenue order-level và item-level có khác biệt; xem Metrics Catalog.
 

@@ -24,6 +24,7 @@ from lakehouse.oltp.cdc import apply_table, curate_rows, ensure_cdc_state, sourc
 from lakehouse.oltp.gold_ddl import ensure_oltp_gold_tables
 from lakehouse.oltp.publication import SCHEMA_VERSION, ensure_publications, publish
 from lakehouse.oltp.quality import QualityCheckResult, persist_quality_results, financial_consistency_checks
+from lakehouse.oltp.inventory_quality import inventory_consistency_checks
 from lakehouse.oltp.silver_ddl import ensure_silver_tables
 from lakehouse.spark import spark_session
 from lakehouse.writer import oltp_writer_lock
@@ -238,6 +239,27 @@ def refresh_gold(spark, changed, run_id, initial=False):
                 fact("fact_inventory_daily_snapshot"), fact("dim_product"), run_id
             ),
         ),
+        (
+            "mart_inventory_current",
+            {"fact_inventory_current", "dim_variant", "dim_product"},
+            lambda: gold.build_mart_inventory_current(
+                fact("fact_inventory_current"), fact("dim_variant"), fact("dim_product"), run_id
+            ),
+        ),
+        (
+            "mart_inventory_summary",
+            {"mart_inventory_current", "inbound_receipts"},
+            lambda: gold.build_mart_inventory_summary(
+                fact("mart_inventory_current"), silver("inbound_receipts"), run_id
+            ),
+        ),
+        (
+            "mart_store_overview",
+            {"dim_store", "fact_order", "customers", "mart_inventory_current"},
+            lambda: gold.build_mart_store_overview(
+                fact("dim_store"), fact("fact_order"), silver("customers"), fact("mart_inventory_current"), run_id
+            ),
+        ),
     ]
     refreshed = set()
     for name, dependencies, build in definitions:
@@ -318,6 +340,7 @@ def validate_publication(spark, cfg, columns, changed, refreshed, run_id):
             )
         )
     results.extend(financial_consistency_checks(spark))
+    results.extend(inventory_consistency_checks(spark))
     if results:
         persist_quality_results(
             spark,
@@ -363,9 +386,13 @@ def process_once(spark, cfg, types, ddl, force_rebuild=False):
         or not publication
         or publication.get("schema_version") != SCHEMA_VERSION
         or publication.get("source_mode") != "cdc"
-        or not {"lakehouse.gold.mart_order_daily", "lakehouse.gold.mart_product_sales_daily"}.issubset(
-            json.loads(publication["snapshots_json"])
-        )
+        or not {
+            "lakehouse.gold.mart_order_daily",
+            "lakehouse.gold.mart_product_sales_daily",
+            "lakehouse.gold.mart_inventory_current",
+            "lakehouse.gold.mart_inventory_summary",
+            "lakehouse.gold.mart_store_overview",
+        }.issubset(json.loads(publication["snapshots_json"]))
     )
     prior_cursor = offsets.get(SOURCE_CURSOR_KEY)
     # Flink is an external Iceberg writer. A long-lived Spark catalog can keep

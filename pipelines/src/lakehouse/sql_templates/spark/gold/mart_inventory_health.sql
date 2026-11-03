@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS lakehouse.gold.mart_inventory_health (
     category_name                   STRING                          COMMENT 'Product category name',
     total_variants                  BIGINT                          COMMENT 'Total distinct variants tracked',
     out_of_stock_count              BIGINT                          COMMENT 'Count of variants with zero stock',
-    low_stock_count                 BIGINT                          COMMENT 'Count of variants with on_hand < 10',
+    low_stock_count                 BIGINT                          COMMENT 'Count of variants with on_hand <= 5, including zero',
     total_on_hand_units             BIGINT                          COMMENT 'Total physical inventory units',
     total_inventory_value_vnd       BIGINT                          COMMENT 'Total inventory asset value at cost',
     _gold_ingested_at               TIMESTAMP                       COMMENT 'UTC timestamp written to Gold',

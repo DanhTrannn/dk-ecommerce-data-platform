@@ -16,6 +16,7 @@ from .returns import build_fact_return_exchange
 from .returns import build_mart_product_returns
 from .inventory import build_fact_inventory_daily_snapshot
 from .inventory import build_mart_inventory_health
+from .inventory_marts import build_mart_inventory_current, build_mart_inventory_summary, build_mart_store_overview
 
 __all__ = [
     "build_dim_date",
@@ -35,4 +36,7 @@ __all__ = [
     "build_mart_product_returns",
     "build_fact_inventory_daily_snapshot",
     "build_mart_inventory_health",
+    "build_mart_inventory_current",
+    "build_mart_inventory_summary",
+    "build_mart_store_overview",
 ]

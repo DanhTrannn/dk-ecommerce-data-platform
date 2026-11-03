@@ -85,12 +85,12 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
     }
     case "store": return <>
       <div className={kpiGrid}>
-        <MetricCard detail="Order total của paid/shipping/delivered/completed." emphasis label="Doanh thu hôm nay" scope="Từ 00:00 · UTC+7" value={formatMetricVnd(metrics.store_revenue_today_vnd)} />
-        <MetricCard detail="Cùng cửa hàng và trạng thái với doanh thu hôm nay." label="Đơn hôm nay" scope="Từ 00:00 · UTC+7" value={number(metrics.store_orders_count)} />
-        <MetricCard detail="Số dòng SKU có on_hand ≤ 5, bao gồm dòng hết hàng." label="Dòng tồn thấp" scope={current} value={number(metrics.low_stock_at_store_count)} warning={metrics.low_stock_at_store_count > 0} />
-        <MetricCard detail="Danh sách chi tiết API trả về; chưa phải tổng số SKU của cửa hàng." label="SKU hết hàng được trả về" scope={current} value={number(metrics.store_stockouts?.length ?? 0)} />
+        <MetricCard detail="Doanh thu hàng hóa đã ghi nhận, sau giảm giá/hoàn tiền; theo ngày đặt hàng Việt Nam." emphasis label="Doanh thu hôm nay" scope="Từ 00:00 · UTC+7" value={formatMetricVnd(metrics.store_revenue_today_vnd)} />
+        <MetricCard detail="Mọi trạng thái đơn tại cửa hàng; cùng ngày đặt hàng, không chỉ đơn đã ghi nhận doanh thu." label="Đơn hôm nay" scope="Từ 00:00 · UTC+7" value={number(metrics.store_orders_count)} />
+        <MetricCard detail="Số dòng SKU có on_hand ≤ 5, bao gồm dòng hết hàng." label="Dòng tồn thấp" scope={current} value={number(metrics.low_stock_at_store_count)} warning={metrics.low_stock_at_store_count != null && metrics.low_stock_at_store_count > 0} />
+        <MetricCard detail="Tổng SKU có on_hand = 0 tại cửa hàng; danh sách bên dưới trả tối đa 10 dòng." label="SKU hết hàng" scope={current} value={number(metrics.stockout_at_store_count)} />
       </div>
-      <Panel title={`SKU nào cần kiểm tra tại ${metrics.store_name ?? "cửa hàng được phân quyền"}?`} subtitle="Danh sách hết hàng hiện tại. Chưa có API lịch sử doanh thu theo cửa hàng để vẽ xu hướng đồng nhất.">
+      <Panel title={`SKU nào cần kiểm tra tại ${metrics.store_name ?? "cửa hàng được phân quyền"}?`} subtitle="Danh sách có on_hand = 0 theo lần công bố, tối đa 10 SKU; không lấy số dòng danh sách thay tổng số hết hàng.">
         <DetailTable caption="SKU hết hàng tại cửa hàng" filename={`het-hang-cua-hang-${metrics.store_id ?? "assigned"}`} rows={metrics.store_stockouts ?? []} rowKey={row => row.variant_id} columns={[
           { key: "sku", label: "SKU", value: row => row.sku }, { key: "product", label: "Sản phẩm", value: row => row.product_name }, { key: "stock", label: "Tồn hiện tại (đơn vị)", value: row => row.on_hand, numeric: true },
         ]} />
@@ -101,34 +101,56 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
         { title: "Đánh giá kết quả ngày khi đủ dữ liệu", detail: "Chưa có chỉ tiêu hoặc kỳ trước thì không kết luận cửa hàng vượt/chậm tiến độ. Không có chuỗi thời gian thì không dựng xu hướng." },
       ]} />
     </>;
-    case "inventory": return <>
+    case "inventory": {
+      const historyByDate = new Map(metrics.inventory_history.map(row => [row.date, row]));
+      const historyDates: string[] = [];
+      if (metrics.inventory_history.length) {
+        const first = metrics.inventory_history[0].date;
+        const last = metrics.inventory_history[metrics.inventory_history.length - 1].date;
+        for (let time = Date.parse(`${first}T00:00:00Z`); time <= Date.parse(`${last}T00:00:00Z`); time += 86_400_000) {
+          historyDates.push(new Date(time).toISOString().slice(0, 10));
+        }
+      }
+      return <>
+      <p className="text-xs text-muted">Quan sát tồn kho: {metrics.inventory_observed_at ? new Date(metrics.inventory_observed_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false }) : "Chưa có quan sát"} · UTC+7</p>
       <div className={kpiGrid}>
         <MetricCard detail="Lượng tồn nhân giá vốn, không phải giá bán." emphasis label="Giá trị tồn kho" scope={current} value={formatMetricVnd(metrics.total_inventory_value_vnd)} />
         <MetricCard detail="Tổng on_hand tại kho trung tâm." label="Lượng tại kho" scope={current} value={number(metrics.warehouse_stock_units)} />
         <MetricCard detail="Tổng on_hand tại các cửa hàng." label="Lượng tại cửa hàng" scope={current} value={number(metrics.store_stock_units)} />
-        <MetricCard detail="SKU duy nhất có ít nhất một địa điểm hết hàng, không phải số dòng tồn." label="SKU có điểm hết hàng" scope={current} value={number(metrics.stockout_count)} warning={metrics.stockout_count > 0} />
+        <MetricCard detail="SKU duy nhất có ít nhất một địa điểm hết hàng, không phải số dòng tồn." label="SKU có điểm hết hàng" scope={current} value={number(metrics.stockout_count)} warning={metrics.stockout_count != null && metrics.stockout_count > 0} />
       </div>
       <Panel title="Hàng đang nằm ở đâu?" subtitle="Cùng đơn vị số lượng hàng. Đây là cơ cấu lượng tồn, không phải tỷ trọng SKU.">
-        {metrics.warehouse_stock_units || metrics.store_stock_units ? <Chart height={200} label="So sánh tổng lượng tồn tại kho và cửa hàng, đơn vị hàng." option={barOption([{ name: "Kho trung tâm", value: metrics.warehouse_stock_units }, { name: "Cửa hàng", value: metrics.store_stock_units }], "Lượng tồn")} /> : <EmptyState detail="API ghi nhận lượng tồn bằng 0 ở cả hai nhóm. Kiểm tra dữ liệu nguồn trước khi kết luận không còn hàng." />}
+        {metrics.warehouse_stock_units != null || metrics.store_stock_units != null ? <Chart height={200} label="So sánh tổng lượng tồn tại kho và cửa hàng, đơn vị hàng." option={barOption([{ name: "Kho trung tâm", value: metrics.warehouse_stock_units }, { name: "Cửa hàng", value: metrics.store_stock_units }].filter((row): row is { name: string; value: number } => row.value != null), "Lượng tồn")} /> : <EmptyState detail="Chưa có quan sát lượng tồn. Dấu — là thiếu dữ liệu; số 0 chỉ hiển thị khi đã có dòng tồn hợp lệ." />}
         <p className="mt-3 text-sm text-muted">Phiếu nhập được ghi nhận: <strong className="text-ink">{number(metrics.inbound_batches_count)}</strong> · phạm vi dữ liệu nguồn hiện có.</p>
       </Panel>
-      <Panel title="SKU nào đã hết hàng?" subtitle="Các dòng cảnh báo do API trả về; có thể là tập con của tổng SKU có điểm hết hàng.">
+      <Panel title="SKU nào tại kho đã hết hàng?" subtitle="Kho trung tâm, on_hand = 0; tối đa 10 dòng. KPI phía trên đếm SKU duy nhất trên cả kho và cửa hàng.">
         <DetailTable caption="Cảnh báo hết hàng" filename="canh-bao-het-hang" rows={metrics.critical_stockout_alerts ?? []} rowKey={row => row.variant_id} columns={[
           { key: "sku", label: "SKU", value: row => row.sku }, { key: "product", label: "Sản phẩm", value: row => row.product_name }, { key: "stock", label: "Tồn (đơn vị)", value: row => row.on_hand, numeric: true },
         ]} />
       </Panel>
-      <Panel title="SKU nào có tốc độ bán cần theo dõi?" subtitle="Ước tính từ 60 phút gần nhất; không phải dự báo nhu cầu. Thời gian hết hàng phụ thuộc giả định tốc độ bán giữ nguyên.">
-        <DetailTable caption="Tốc độ bán theo SKU" filename="toc-do-ban-sku" rows={metrics.depletion_velocity ?? []} rowKey={row => row.variant_id} columns={[
-          { key: "sku", label: "SKU", value: row => row.sku }, { key: "product", label: "Sản phẩm", value: row => row.product_name }, { key: "stock", label: "Tồn", value: row => row.on_hand, numeric: true },
-          { key: "sold", label: "Bán / 60 phút", value: row => row.units_sold_last_hour, numeric: true }, { key: "rate", label: "Đơn vị / phút", value: row => row.depletion_rate_per_min, numeric: true },
-          { key: "runway", label: "Phút tồn ước tính", value: row => row.depletion_rate_per_min > 0 ? row.estimated_minutes_to_stockout : null, numeric: true },
+      <Panel title="SKU nào tại kho còn ít hàng?" subtitle="Kho trung tâm, 0 < on_hand ≤ 5; tối đa 10 dòng. Danh sách này không trùng nhóm đã hết hàng.">
+        <DetailTable caption="Tồn thấp tại kho" filename="ton-thap-tai-kho" rows={metrics.low_stock_alerts} rowKey={row => row.variant_id} columns={[
+          { key: "sku", label: "SKU", value: row => row.sku }, { key: "product", label: "Sản phẩm", value: row => row.product_name }, { key: "stock", label: "Tồn (đơn vị)", value: row => row.on_hand, numeric: true },
         ]} />
+      </Panel>
+      <Panel title="Lượng tồn thay đổi giữa các ngày quan sát thế nào?" subtitle="30 ngày gần nhất từ mart lịch sử; mỗi điểm là một ngày riêng, không cộng các ngày thành tồn hiện tại.">
+        {metrics.inventory_history.length ? <Chart label="Lượng tồn kho và cửa hàng theo ngày quan sát, cùng đơn vị hàng." option={{
+          tooltip: { trigger: "axis", renderMode: "richText", confine: true },
+          legend: { top: 0, data: ["Kho", "Cửa hàng"] }, grid: { left: 12, right: 12, bottom: 38, top: 48, containLabel: true },
+          xAxis: { type: "category", data: historyDates },
+          yAxis: { type: "value", name: "Đơn vị hàng" },
+          series: [
+            { name: "Kho", type: "line", connectNulls: false, data: historyDates.map(date => historyByDate.get(date)?.warehouse_stock_units ?? null) },
+            { name: "Cửa hàng", type: "line", connectNulls: false, data: historyDates.map(date => historyByDate.get(date)?.store_stock_units ?? null) },
+          ],
+        }} /> : <EmptyState detail="Chưa có snapshot tồn kho trong kỳ. Không tự nội suy hoặc điền số 0." />}
       </Panel>
       <NextSteps userRole={userRole} items={[
         { title: "Đối chiếu tồn trước khi điều chuyển", detail: "Kiểm tra địa điểm và tồn thực tế của SKU trong danh sách; dashboard không tự tạo lệnh điều chuyển.", href: "/admin/products", linkLabel: "Xem hàng hóa" },
         { title: "Kiểm tra phiếu nhập", detail: "Xem các phiếu và số lượng nhập liên quan trước khi quyết định bổ sung.", href: "/admin/inbound", linkLabel: "Xem phiếu nhập" },
       ]} />
     </>;
+    }
     case "operations": {
       const regions = [...(metrics.regional_boom_rates ?? [])].sort((a, b) => b.boom_rate_percent - a.boom_rate_percent);
       const bottleneck = metrics.fulfillment_bottleneck;
