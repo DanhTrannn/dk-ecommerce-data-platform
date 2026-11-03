@@ -1,10 +1,10 @@
-"""Pydantic schemas for RBAC analytics and OLTP-backed operational signals."""
+"""Pydantic schemas for published analytics and role-specific signals."""
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 # -----------------------------------------------------------------------------
-# Operational signal schemas (queried from OLTP, not a binlog CDC stream)
+# Signal schemas (serving sources are defined by the analytical services)
 # -----------------------------------------------------------------------------
 
 class VoucherBurnRateSignal(BaseModel):
@@ -26,25 +26,19 @@ class NegativeReviewSpikeSignal(BaseModel):
     warning_alert: str = ""
 
 
-class DepletionVelocitySignal(BaseModel):
-    """Real-time inventory depletion velocity and estimated runway to stockout."""
+class InventoryStockAlert(BaseModel):
+    """Published warehouse SKU balance; the query selects the alert threshold."""
     variant_id: int
     sku: str
     product_name: str
-    on_hand: int = 0
-    units_sold_last_hour: int = 0
-    depletion_rate_per_min: float = 0.0
-    estimated_minutes_to_stockout: int | None = None
-    alert_level: str = "normal"
+    on_hand: int
 
 
-class CriticalStockoutSignal(BaseModel):
-    """Real-time alert preventing overselling when on_hand hits zero."""
-    variant_id: int
-    sku: str
-    product_name: str
-    on_hand: int = 0
-    overselling_prevented: bool = True
+class InventoryHistoryPoint(BaseModel):
+    date: str
+    warehouse_stock_units: int | None
+    store_stock_units: int | None
+    total_inventory_value_vnd: int
 
 
 class RegionalBoomRateSignal(BaseModel):
@@ -65,7 +59,7 @@ class FulfillmentBottleneckSignal(BaseModel):
 
 
 class StoreStockoutSignal(BaseModel):
-    """Real-time counter stockout event at a specific physical store."""
+    """Published SKU balance with zero on-hand at a specific store."""
     variant_id: int
     sku: str
     product_name: str
@@ -222,10 +216,12 @@ class StoreMetricsResponse(AnalyticsDataStatus):
     role: str = "store"
     store_id: int | None = None
     store_name: str | None = None
-    store_revenue_today_vnd: int = 0
-    store_orders_count: int = 0
+    store_revenue_today_vnd: int | None = None
+    store_orders_count: int | None = None
     target_achievement_percent: float | None = None
-    low_stock_at_store_count: int = 0
+    low_stock_at_store_count: int | None = None
+    stockout_at_store_count: int | None = None
+    inventory_observed_at: str | None = None
     store_stockouts: list[StoreStockoutSignal] = Field(default_factory=list)
     run_rate: StoreRunRateSignal | None = None
 
@@ -242,13 +238,15 @@ class InventoryMetricsResponse(AnalyticsDataStatus):
     model_config = ConfigDict(from_attributes=True)
 
     role: str = "inventory"
-    total_inventory_value_vnd: int = 0
-    warehouse_stock_units: int = 0
-    store_stock_units: int = 0
-    inbound_batches_count: int = 0
-    stockout_count: int = 0
-    depletion_velocity: list[DepletionVelocitySignal] = Field(default_factory=list)
-    critical_stockout_alerts: list[CriticalStockoutSignal] = Field(default_factory=list)
+    total_inventory_value_vnd: int | None = None
+    warehouse_stock_units: int | None = None
+    store_stock_units: int | None = None
+    inbound_batches_count: int | None = None
+    stockout_count: int | None = None
+    inventory_observed_at: str | None = None
+    inventory_history: list[InventoryHistoryPoint] = Field(default_factory=list)
+    low_stock_alerts: list[InventoryStockAlert] = Field(default_factory=list)
+    critical_stockout_alerts: list[InventoryStockAlert] = Field(default_factory=list)
 
 
 class OperationsMetricsResponse(AnalyticsDataStatus):

@@ -798,23 +798,18 @@ export interface NegativeReviewSpikeSignal {
   warning_alert: string;
 }
 
-export interface DepletionVelocitySignal {
+export interface InventoryStockAlert {
   variant_id: number;
   sku: string;
   product_name: string;
   on_hand: number;
-  units_sold_last_hour: number;
-  depletion_rate_per_min: number;
-  estimated_minutes_to_stockout: number | null;
-  alert_level: string;
 }
 
-export interface CriticalStockoutSignal {
-  variant_id: number;
-  sku: string;
-  product_name: string;
-  on_hand: number;
-  overselling_prevented: boolean;
+export interface InventoryHistoryPoint {
+  date: string;
+  warehouse_stock_units: number | null;
+  store_stock_units: number | null;
+  total_inventory_value_vnd: number;
 }
 
 export interface RegionalBoomRateSignal {
@@ -968,23 +963,27 @@ export interface StoreMetricsResponse extends AnalyticsDataStatus {
   role: "store";
   store_id: number | null;
   store_name: string | null;
-  store_revenue_today_vnd: number;
-  store_orders_count: number;
+  store_revenue_today_vnd: number | null;
+  store_orders_count: number | null;
   target_achievement_percent: number | null;
-  low_stock_at_store_count: number;
+  low_stock_at_store_count: number | null;
+  stockout_at_store_count: number | null;
+  inventory_observed_at: string | null;
   store_stockouts?: StoreStockoutSignal[];
   run_rate?: StoreRunRateSignal | null;
 }
 
 export interface InventoryMetricsResponse extends AnalyticsDataStatus {
   role: "inventory";
-  total_inventory_value_vnd: number;
-  warehouse_stock_units: number;
-  store_stock_units: number;
-  inbound_batches_count: number;
-  stockout_count: number;
-  depletion_velocity?: DepletionVelocitySignal[];
-  critical_stockout_alerts?: CriticalStockoutSignal[];
+  total_inventory_value_vnd: number | null;
+  warehouse_stock_units: number | null;
+  store_stock_units: number | null;
+  inbound_batches_count: number | null;
+  stockout_count: number | null;
+  inventory_observed_at: string | null;
+  inventory_history: InventoryHistoryPoint[];
+  low_stock_alerts: InventoryStockAlert[];
+  critical_stockout_alerts?: InventoryStockAlert[];
 }
 
 export interface OperationsMetricsResponse extends AnalyticsDataStatus {

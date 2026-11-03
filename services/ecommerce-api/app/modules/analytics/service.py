@@ -14,16 +14,18 @@ from app.models.customer import Customer
 from app.models.order import Order
 from app.modules.admin.schemas import AdminOverviewResponse
 from app.modules.analytics.reader import serve
+from app.modules.analytics.inventory_service import (
+    get_active_stores_list as get_active_stores_list,
+    get_store_overview as get_store_overview,
+    get_store_metrics, get_inventory_metrics,
+)
 from app.modules.analytics.schemas import (
     CashInTransitSignal,
     CategoryShareMetric,
-    CriticalStockoutSignal,
     DailySalesTrendPoint,
-    DepletionVelocitySignal,
     ExecutiveMetricsResponse,
     FulfillmentBottleneckSignal,
     FunnelStep,
-    InventoryMetricsResponse,
     MarketingMetricsResponse,
     NegativeReviewSpikeSignal,
     OperationsMetricsResponse,
@@ -32,15 +34,11 @@ from app.modules.analytics.schemas import (
     SalesMetricsResponse,
     SalesTrendResponse,
     StoreContribution,
-    StoreItemResponse,
-    StoreMetricsResponse,
-    StoreStockoutSignal,
     SystemMetricsResponse,
     TopProductMetric,
     VoucherBurnRateSignal,
 )
 from app.modules.analytics.trino_client import TrinoClient
-from app.modules.store.schemas import StoreDashboardResponse
 
 ROLE_CANONICAL_MAP = {
     "executive": "executive",
@@ -197,115 +195,6 @@ def get_marketing_metrics(db: Session | None = None, trino_client: TrinoClient |
         )
 
     return serve(("marketing",), build, trino_client)
-
-
-def _store(reader, store_id):
-    where = f"store_id={int(store_id)}" if store_id is not None else "is_active AND store_key>0"
-    store = reader.one(
-        f"SELECT store_id,store_name FROM lakehouse.gold.dim_store WHERE {where} ORDER BY store_id LIMIT 1"
-    )
-    if not store:
-        raise AppError(VALIDATION_ERROR, "Cửa hàng chưa có trong dữ liệu OLAP đã công bố.", status_code=404)
-    return int(store["store_id"]), store["store_name"]
-
-
-def _store_values(reader, store_id):
-    store_id, name = _store(reader, store_id)
-    row = reader.one(f"""SELECT COALESCE(SUM(net_revenue_vnd),0) revenue,count(DISTINCT order_id) orders
-        FROM lakehouse.gold.fact_order WHERE store_key={store_id} AND order_date_vn={VN_TODAY}""")
-    low = reader.one(
-        f"SELECT count(*) n FROM lakehouse.gold.fact_inventory_current WHERE location_type='store' AND location_id={store_id} AND is_low_stock"
-    )
-    stocks = reader.query(f"""SELECT v.variant_id,v.sku,v.product_name,i.on_hand_quantity on_hand
-        FROM lakehouse.gold.fact_inventory_current i JOIN lakehouse.gold.dim_variant v ON i.variant_key=v.variant_key
-        WHERE i.location_type='store' AND i.location_id={store_id} AND i.on_hand_quantity=0 ORDER BY v.variant_id LIMIT 10""")
-    return StoreMetricsResponse(
-        store_id=store_id,
-        store_name=name,
-        store_revenue_today_vnd=_n(row, "revenue"),
-        store_orders_count=_n(row, "orders"),
-        low_stock_at_store_count=_n(low, "n"),
-        store_stockouts=[StoreStockoutSignal(**r) for r in stocks],
-    )
-
-
-def get_store_metrics(store_id=None, db=None, trino_client=None):
-    return serve(("store", store_id), lambda reader: _store_values(reader, store_id), trino_client)
-
-
-def get_active_stores_list(actor: Customer, db=None):
-    def build(reader):
-        where = (
-            f"AND store_id={int(actor.store_id)}"
-            if actor.role == "store_manager" and actor.store_id is not None
-            else ""
-        )
-        if actor.role == "store_manager" and actor.store_id is None:
-            raise AppError(FORBIDDEN, "Tài khoản chưa được gán cửa hàng.", status_code=403)
-        rows = reader.query(
-            f"SELECT store_id,store_name name,store_code code FROM lakehouse.gold.dim_store WHERE is_active {where} ORDER BY store_id"
-        )
-        # serve() caches Pydantic responses; this internal wrapper retains that contract.
-        return _StoreList(items=[StoreItemResponse(**r) for r in rows])
-
-    return serve(("stores", actor.role, actor.store_id), build).items
-
-
-from pydantic import BaseModel
-
-
-class _StoreList(BaseModel):
-    items: list[StoreItemResponse]
-
-
-def get_inventory_metrics(db=None, trino_client=None):
-    def build(reader):
-        row = reader.one("""SELECT COALESCE(SUM(inventory_value_cost_vnd),0) value,
-            COALESCE(SUM(CASE WHEN location_type='warehouse' THEN on_hand_quantity ELSE 0 END),0) warehouse,
-            COALESCE(SUM(CASE WHEN location_type='store' THEN on_hand_quantity ELSE 0 END),0) stores,
-            count(DISTINCT CASE WHEN on_hand_quantity=0 THEN variant_key END) stockouts
-            FROM lakehouse.gold.fact_inventory_current""")
-        inbound = reader.one("SELECT count(*) n FROM lakehouse.silver.silver_inbound_receipts")
-        sold = reader.query(f"""SELECT v.variant_id,v.sku,v.product_name,i.on_hand_quantity on_hand,SUM(f.quantity) units
-            FROM lakehouse.gold.fact_order_item f JOIN lakehouse.gold.fact_order o ON f.order_id=o.order_id
-            JOIN lakehouse.gold.fact_inventory_current i ON f.variant_key=i.variant_key AND i.location_type='warehouse'
-            JOIN lakehouse.gold.dim_variant v ON f.variant_key=v.variant_key
-            WHERE o.created_at >= {NOW_UTC} - INTERVAL '60' MINUTE AND o.status IN ('delivered','completed')
-            GROUP BY v.variant_id,v.sku,v.product_name,i.on_hand_quantity ORDER BY units DESC LIMIT 5""")
-        signals = []
-        for s in sold:
-            units = _n(s, "units")
-            stock = _n(s, "on_hand")
-            rate = units / 60
-            runway = round(stock / rate) if rate > 0 else None
-            signals.append(
-                DepletionVelocitySignal(
-                    variant_id=s["variant_id"],
-                    sku=s["sku"],
-                    product_name=s["product_name"],
-                    on_hand=stock,
-                    units_sold_last_hour=units,
-                    depletion_rate_per_min=round(rate, 2),
-                    estimated_minutes_to_stockout=runway,
-                    alert_level="critical"
-                    if runway is not None and runway <= 30
-                    else ("warning" if runway is not None and runway <= 120 else "normal"),
-                )
-            )
-        low = reader.query("""SELECT v.variant_id,v.sku,v.product_name,i.on_hand_quantity on_hand
-            FROM lakehouse.gold.fact_inventory_current i JOIN lakehouse.gold.dim_variant v ON i.variant_key=v.variant_key
-            WHERE i.location_type='warehouse' AND i.is_low_stock ORDER BY v.variant_id LIMIT 10""")
-        return InventoryMetricsResponse(
-            total_inventory_value_vnd=_n(row, "value"),
-            warehouse_stock_units=_n(row, "warehouse"),
-            store_stock_units=_n(row, "stores"),
-            inbound_batches_count=_n(inbound, "n"),
-            stockout_count=_n(row, "stockouts"),
-            depletion_velocity=signals,
-            critical_stockout_alerts=[CriticalStockoutSignal(**r, overselling_prevented=False) for r in low],
-        )
-
-    return serve(("inventory",), build, trino_client)
 
 
 def get_operations_metrics(db=None, trino_client=None):
@@ -491,26 +380,3 @@ def get_admin_overview():
         )
 
     return serve(("admin-overview",), build)
-
-
-def get_store_overview(store_id):
-    def build(reader):
-        metrics = _store_values(reader, store_id)
-        row = reader.one(f"""SELECT count(*) orders,count_if(status='completed') completed,
-            COALESCE(SUM(net_revenue_vnd),0) revenue
-            FROM lakehouse.gold.fact_order WHERE store_key={int(metrics.store_id)}""")
-        staff = reader.one(
-            f"SELECT count(*) n FROM lakehouse.silver.silver_customers WHERE store_id={int(metrics.store_id)} AND role='store_manager' AND status='active'"
-        )
-        return StoreDashboardResponse(
-            store_name=metrics.store_name,
-            today_orders=metrics.store_orders_count,
-            today_revenue_vnd=metrics.store_revenue_today_vnd,
-            total_orders=_n(row, "orders"),
-            completed_orders=_n(row, "completed"),
-            total_revenue_vnd=_n(row, "revenue"),
-            low_stock_items=metrics.low_stock_at_store_count,
-            active_staff=_n(staff, "n"),
-        )
-
-    return serve(("store-overview", store_id), build)

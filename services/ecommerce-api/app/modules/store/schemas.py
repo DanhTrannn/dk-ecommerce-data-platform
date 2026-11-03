@@ -6,13 +6,14 @@ from app.modules.analytics.schemas import AnalyticsDataStatus
 
 class StoreDashboardResponse(AnalyticsDataStatus):
     store_name: str
-    today_orders: int
-    today_revenue_vnd: int
+    today_orders: int | None
+    today_revenue_vnd: int | None
     total_orders: int
     completed_orders: int
     total_revenue_vnd: int
-    low_stock_items: int
+    low_stock_items: int | None
     active_staff: int
+    inventory_observed_at: str | None = None
 
 
 class StoreOrderResponse(BaseModel):

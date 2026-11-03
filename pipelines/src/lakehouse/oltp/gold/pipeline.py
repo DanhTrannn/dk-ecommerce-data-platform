@@ -20,6 +20,9 @@ from lakehouse.oltp.gold import (
     build_mart_sales_daily,
     build_mart_order_daily,
     build_mart_product_sales_daily,
+    build_mart_inventory_current,
+    build_mart_inventory_summary,
+    build_mart_store_overview,
 )
 
 
@@ -183,4 +186,28 @@ def run_gold_marts(spark: SparkSession, run_id: str) -> None:
         "lakehouse.gold.mart_inventory_health"
     ).overwrite(F.lit(True))
 
-    print(f"[{run_id}] [Marts] All 6 Gold Data Marts successfully built!")
+    current = build_mart_inventory_current(
+        spark.table("lakehouse.gold.fact_inventory_current"), dim_variant, dim_product, run_id
+    )
+    current.select(*spark.table("lakehouse.gold.mart_inventory_current").columns).writeTo(
+        "lakehouse.gold.mart_inventory_current"
+    ).overwrite(F.lit(True))
+    summary = build_mart_inventory_summary(
+        spark.table("lakehouse.gold.mart_inventory_current"),
+        spark.table("lakehouse.silver.silver_inbound_receipts"),
+        run_id,
+    )
+    summary.select(*spark.table("lakehouse.gold.mart_inventory_summary").columns).writeTo(
+        "lakehouse.gold.mart_inventory_summary"
+    ).overwrite(F.lit(True))
+    store = build_mart_store_overview(
+        spark.table("lakehouse.gold.dim_store"),
+        fact_order,
+        spark.table("lakehouse.silver.silver_customers"),
+        spark.table("lakehouse.gold.mart_inventory_current"),
+        run_id,
+    )
+    store.select(*spark.table("lakehouse.gold.mart_store_overview").columns).writeTo(
+        "lakehouse.gold.mart_store_overview"
+    ).overwrite(F.lit(True))
+    print(f"[{run_id}] [Marts] All 9 Gold Data Marts successfully built!")

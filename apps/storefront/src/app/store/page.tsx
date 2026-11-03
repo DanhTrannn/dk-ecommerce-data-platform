@@ -12,13 +12,14 @@ import type { AnalyticsDataStatus } from "@/lib/commerce";
 
 interface DashboardData extends AnalyticsDataStatus {
   store_name: string;
-  today_orders: number;
-  today_revenue_vnd: number;
+  today_orders: number | null;
+  today_revenue_vnd: number | null;
   total_orders: number;
   completed_orders: number;
   total_revenue_vnd: number;
-  low_stock_items: number;
+  low_stock_items: number | null;
   active_staff: number;
+  inventory_observed_at: string | null;
 }
 
 export default function StoreDashboardPage() {
@@ -108,6 +109,7 @@ export default function StoreDashboardPage() {
         </div>
       </header>
       <p className="mt-3 text-xs leading-5 text-muted">Nguồn: Lakehouse · Trino / Iceberg. Công bố: {data.data_updated_at ? new Date(data.data_updated_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false }) : "Chưa có thời điểm"} · UTC+7. Tải lại mỗi 15 giây.</p>
+      {error && <p className="mt-2 text-sm text-warning" role="alert">Không tải được dữ liệu mới: {error}. Các số bên dưới là kết quả đã tải trước đó.</p>}
       {data.is_degraded && <p className="mt-2 text-sm text-warning" role="status">{data.degraded_reason}</p>}
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
@@ -117,7 +119,7 @@ export default function StoreDashboardPage() {
             <Icon className="text-paper/65" name="receipt" />
           </div>
           <p className="mt-4 max-w-full truncate whitespace-nowrap text-[clamp(1.25rem,1.8vw,1.75rem)] font-semibold leading-tight tracking-[-0.03em] tabular-nums">
-            {data.today_orders.toLocaleString("vi-VN")}
+            {data.today_orders?.toLocaleString("vi-VN") ?? "—"}
           </p>
           <p
             aria-label={formatVnd(data.today_revenue_vnd)}
@@ -159,18 +161,18 @@ export default function StoreDashboardPage() {
             {data.active_staff.toLocaleString("vi-VN")}
           </p>
           <p className="mt-4 text-xs text-muted">
-            {data.low_stock_items > 0 ? (
+            {data.low_stock_items != null && data.low_stock_items > 0 ? (
               <span className="font-semibold text-danger">
                 {data.low_stock_items} mặt hàng tồn kho thấp
               </span>
             ) : (
-              "Tồn kho an toàn"
+              data.low_stock_items == null ? "Chưa có quan sát tồn kho" : "Không có dòng tồn ≤ 5"
             )}
           </p>
         </article>
       </div>
 
-      {data.low_stock_items > 0 && (
+      {data.low_stock_items != null && data.low_stock_items > 0 && (
         <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-danger/25 bg-danger/5 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-danger/10 text-danger">
@@ -214,7 +216,7 @@ export default function StoreDashboardPage() {
         <Link className="group min-w-0 overflow-hidden rounded-2xl border border-line bg-surface p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-accent/25 hover:shadow-admin" href="/store/inventory">
           <div className="flex items-center justify-between">
             <Icon className="text-moss" name="package" size={20} />
-            {data.low_stock_items > 0 ? (
+            {data.low_stock_items != null && data.low_stock_items > 0 ? (
               <span className="inline-flex items-center rounded-full bg-danger/10 px-2.5 py-0.5 text-xs font-semibold text-danger">
                 Cần bổ sung
               </span>
@@ -225,10 +227,10 @@ export default function StoreDashboardPage() {
           <p className="mt-4 text-sm text-muted">Tồn kho</p>
           <p
             className={`mt-1 text-2xl font-semibold tabular-nums ${
-              data.low_stock_items > 0 ? "text-danger" : ""
+              data.low_stock_items != null && data.low_stock_items > 0 ? "text-danger" : ""
             }`}
           >
-            {data.low_stock_items.toLocaleString("vi-VN")}
+            {data.low_stock_items?.toLocaleString("vi-VN") ?? "—"}
           </p>
         </Link>
 

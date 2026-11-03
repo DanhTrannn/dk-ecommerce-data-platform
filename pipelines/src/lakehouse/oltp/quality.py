@@ -196,6 +196,9 @@ def run_gold_quality_gate(
     )
 
     results.extend(financial_consistency_checks(spark))
+    from lakehouse.oltp.inventory_quality import inventory_consistency_checks
+
+    results.extend(inventory_consistency_checks(spark))
 
     for table_name, primary_key in (
         ("lakehouse.gold.fact_order", "order_id"),
@@ -250,6 +253,9 @@ def run_gold_quality_gate(
         "lakehouse.gold.mart_sales_daily",
         "lakehouse.gold.mart_order_daily",
         "lakehouse.gold.mart_product_sales_daily",
+        "lakehouse.gold.mart_inventory_current",
+        "lakehouse.gold.mart_inventory_summary",
+        "lakehouse.gold.mart_store_overview",
     ):
         current_run_rows = spark.table(table_name).filter(F.col("_source_run_id") == run_id).count()
         results.append(
