@@ -73,7 +73,7 @@ The parser now normalizes timezone-aware timestamps to UTC before SQL casts; the
 
 ## 6. Spark marts and historical files
 
-[build_logs_gold](../../pipelines/src/jobs/logs/build_logs_gold.py) reads `gold.fact_web_events` and writes `mart_hourly_route_metrics`, `mart_daily_product_demand`, and `mart_marketing_funnel_daily`. The streaming maintenance DAG rolls up the interval UTC date every two hours; the CLI can omit `--ingest-date` to process all available facts. Counts, percentiles and event-funnel limits are in [Metrics Catalog](METRICS_CATALOG.md).
+[build_logs_gold](../../pipelines/src/jobs/logs/build_logs_gold.py) pins a `gold.fact_web_events` snapshot and the published Silver product/variant catalog, then builds all three marts across dates up to its observation timestamp. The independent hourly `lakehouse_logs_marts` DAG replaces and validates the complete outputs before appending `system.logs_analytics_publications`. Empty inputs clear current mart rows and still publish an empty snapshot set; earlier Iceberg snapshots remain. Maintenance no longer runs the rollup. The CLI accepts `--run-id`; its old date-only `--ingest-date` mode has been removed. Marketing reads the funnel/product marts from the log publication, with independent source metadata and cache from OLTP coupon/review marts. Counts, mappings, windows and request-event limits are in [Metrics Catalog](METRICS_CATALOG.md).
 
 Generator output can be uploaded to this raw prefix:
 

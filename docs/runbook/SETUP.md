@@ -359,6 +359,20 @@ Store/Inventory, store overview and store selection additionally require `mart_i
 
 Operations additionally requires `mart_operations_summary` and `mart_cod_region_daily`, plus rebuilt logistics/return marts with their additive columns. Existing table data/snapshots are retained; DDL repair adds inspection status, eligibility/duration samples and return-line measures. Before deploying the updated API/frontend, rebuild Gold and publish the new snapshot set. An existing CDC consumer started with earlier code must be restarted; missing mart entries trigger its normal rebuild, or use the existing `--once --rebuild-gold` option in a controlled run while the continuous consumer is stopped. Retain offsets and restart the continuous consumer after success. Clock-based waiting measures freeze at operations_observed_at until a new build; do not interpret UI refresh as recomputation. API fields shipping_sla_violations_count, boom_orders_count, regional_boom_rates and fulfillment_bottleneck were replaced with explicit shipment/COD/fulfillment names in the Operations response; admin overview's separate fields are unchanged. No source shipment deadline exists, so on-time rates must remain unknown.
 
+
+Marketing requires the additive OLTP marts `mart_marketing_summary`, `mart_coupon_usage` and `mart_product_review_summary`. Rebuild/publish Gold before deploying the new API/frontend, retaining CDC offsets as above. Coupon/review windows freeze at marketing_observed_at. The internal Marketing response now exposes request-event fields, coupon/review/product lists, and independent `log_status`/`commerce_status`; it no longer exposes visitor/purchase proxy fields or voucher burn-rate signals.
+
+For logs, rerun `lakehouse-writer-init` to provision the sibling `logs.lock` in the existing writer volume. Enable `lakehouse_logs_marts` in Airflow for hourly rollups; DAGs start paused. The old maintenance DAG no longer refreshes marts. To build manually while no scheduled log run is active:
+
+```bash
+docker compose run --rm --no-deps lakehouse-writer-init
+docker compose exec airflow-scheduler spark-submit --master 'local[2]' /opt/project/pipelines/src/jobs/logs/build_logs_gold.py --run-id marketing-log-initialization
+```
+
+The log job pins the fact and published catalog inputs, replaces all three marts, validates results and writes its own `system.logs_analytics_publications` entry (schema 1). It retains OLTP publication/offsets and does not mutate source log events. The previous `--ingest-date` option is removed: a complete rollup handles older dates and identity mappings consistently. Log publication records observation time, source-event time and source/output snapshot IDs. On failure, the prior complete publication remains readable; retry rebuilds the outputs. API sections use independent bounded caches, or unavailable if a source has no readable publication. A Marketing 200 response can be partial/degraded; inspect both statuses. No single run ID or timestamp represents both sources.
+
+This phase keeps the existing Flink four-sink path. The later Landing-first log pipeline and realtime dashboards have not been implemented. Log maintenance remains on its existing two-hour schedule; manual-only maintenance is a later refactor step.
+
 ---
 
 ## 7.2. Kafka data directory

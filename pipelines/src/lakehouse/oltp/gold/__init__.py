@@ -19,6 +19,8 @@ from .inventory import build_mart_inventory_health
 from .inventory_marts import build_mart_inventory_current, build_mart_inventory_summary, build_mart_store_overview
 from .operations_marts import build_mart_operations_summary, build_mart_cod_region_daily
 
+from .marketing_marts import build_mart_marketing_summary, build_mart_coupon_usage, build_mart_product_review_summary
+
 __all__ = [
     "build_dim_date",
     "build_dim_product",
@@ -42,4 +44,7 @@ __all__ = [
     "build_mart_store_overview",
     "build_mart_operations_summary",
     "build_mart_cod_region_daily",
+    "build_mart_marketing_summary",
+    "build_mart_coupon_usage",
+    "build_mart_product_review_summary",
 ]

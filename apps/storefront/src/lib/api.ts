@@ -597,7 +597,9 @@ export type {
   InventoryMetricsResponse,
   MarginErosionSignal,
   MarketingMetricsResponse,
-  NegativeReviewSpikeSignal,
+  NegativeReviewMetric,
+  MarketingSourceStatus,
+  ProductDemandMetric,
   OperationsMetricsResponse,
   ReconciliationVariance,
   CODRegionMetric,
@@ -619,7 +621,7 @@ export type {
   SystemMetricsResponse,
   TopProductMetric,
   ViralProductSignal,
-  VoucherBurnRateSignal,
+  CouponUsageMetric,
 } from "./commerce";
 export {
   getDeliveryStaffList,

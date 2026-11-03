@@ -31,9 +31,9 @@ The POS API also accepts other staff assigned to a store, with admin/system-admi
 
 ## Dashboard behavior
 
-Seven views cover executive, sales, marketing, store, inventory, operations and system. Executive/sales read historical Gold through the API; marketing combines Gold events with MySQL signals; store/inventory/operations read current MySQL; system compares MySQL and Gold. Responses carry `data_source`, `is_degraded` and `degraded_reason`.
+Seven views cover executive, sales, marketing, store, inventory, operations and system. Executive/sales/store/inventory/operations read published marts through the API; system retains its source reconciliation. Marketing combines published log funnel/product-demand marts with published OLTP coupon/review marts. Its source panel shows independent observation/publication times, availability and cache age; a missing source leaves that section empty without hiding the other. KPI request events are not unique people or orders, and undefined ratios remain blank.
 
-The 7/30/90-day control changes sales trend, not every KPI. Store selection applies to the store view subject to API scope. Search, sorting and CSV export operate within individual tables. Marketing/store/inventory/operations refresh every 60 seconds while active; reloading the UI does not run a batch pipeline.
+The 7/30/90-day control changes sales trend, not every KPI. Store selection applies to the store view subject to API scope. Search, sorting and CSV export operate within individual tables. Analytics refresh every 15 seconds while visible; this does not run Spark/Airflow or advance frozen mart windows. Marketing's log marts update through the independent hourly DAG; its commerce windows use a separate publication. No OLTP proxy is shown.
 
 System reconciliation uses a separate bar chart for each metric: orders use an order-count axis, money uses a VND axis. Monetary tooltips preserve full values; variance badges use API percentages. Fallback shows missing comparison data instead of treating placeholder Gold values as measurements. Targets and change deltas without source data remain hidden. See [metric definitions](../../docs/architecture/METRICS_CATALOG.md).
 

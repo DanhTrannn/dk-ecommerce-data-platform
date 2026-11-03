@@ -395,7 +395,7 @@ services:
     image: alpine/curl:8.21.0
     profiles: ["batch", "streaming"]
     user: "0:0"
-    entrypoint: ["/bin/sh", "-c", "touch /run/lakehouse-writer/oltp.lock && chmod 666 /run/lakehouse-writer/oltp.lock"]
+    entrypoint: ["/bin/sh", "-c", "touch /run/lakehouse-writer/oltp.lock /run/lakehouse-writer/logs.lock && chmod 666 /run/lakehouse-writer/oltp.lock /run/lakehouse-writer/logs.lock"]
     volumes:
       - lakehouse-writer-lock:/run/lakehouse-writer
 

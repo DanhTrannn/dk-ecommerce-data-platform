@@ -5,7 +5,7 @@ Chuyên trách duy trì, tối ưu hóa và tổng hợp dữ liệu cho luồng
   2. Iceberg Compaction (rewrite_data_files & rewrite_manifests) gom nhỏ files Parquet.
   3. Expire Snapshots dọn dẹp metadata lịch sử, giảm dung lượng catalog.
   4. Remove Orphan Files dọn dẹp các tệp rác không được tham chiếu trên MinIO.
-  5. Rollup Gold Data Marts (mart_hourly_route_metrics, mart_daily_product_demand) từ fact_web_events real-time.
+  Gold mart rollup runs independently in lakehouse_logs_marts.
 """
 
 from datetime import timedelta
@@ -21,7 +21,6 @@ from lakehouse.orchestration.streaming import begin_run, check_flink_streaming_h
 VN_TZ = pendulum.timezone("Asia/Ho_Chi_Minh")
 
 SPARK_APP_MAINTENANCE = "/opt/project/pipelines/src/jobs/maintenance/iceberg_table_maintenance.py"
-SPARK_APP_GOLD_MARTS = "/opt/project/pipelines/src/jobs/logs/build_logs_gold.py"
 
 TABLES_LIST = "landing.access_logs,bronze.web_events,silver.silver_logs,gold.fact_web_events"
 
@@ -41,7 +40,7 @@ with DAG(
     start_date=pendulum.datetime(2026, 8, 15, tz=VN_TZ),
     description=(
         "Pure Streaming Lakehouse Maintenance DAG: "
-        "Flink Healthcheck -> Iceberg Compaction & Snapshot Expiry -> Gold Marts Rollup"
+        "Flink Healthcheck -> Iceberg Compaction & Snapshot Expiry"
     ),
     tags=["lakehouse", "streaming", "maintenance", "iceberg", "compaction"],
 ) as dag:
@@ -102,22 +101,4 @@ with DAG(
 
         compact_tables >> expire_snapshots >> remove_orphans
 
-    # 3. GOLD DATA MARTS PERIODIC ROLLUP
-    with TaskGroup(
-        group_id="gold_marts",
-        tooltip="Refresh hourly route latency & daily product demand data marts from fact_web_events",
-    ) as tg_gold_marts:
-        rollup_gold = SparkSubmitOperator(
-            task_id="rollup_logs_gold_marts",
-            application=SPARK_APP_GOLD_MARTS,
-            application_args=[
-                "--run-id",
-                "{{ ti.xcom_pull(task_ids='begin_run', key='run_id') }}",
-                "--ingest-date",
-                "{{ ti.xcom_pull(task_ids='begin_run', key='ingest_date') }}",
-            ],
-        )
-
-    # Pipeline Flow:
-    # 1. Begin -> 2. Check Flink Stream Health -> 3. Iceberg Maintenance -> 4. Gold Marts Rollup
-    begin >> tg_stream >> tg_maintenance >> tg_gold_marts
+    begin >> tg_stream >> tg_maintenance

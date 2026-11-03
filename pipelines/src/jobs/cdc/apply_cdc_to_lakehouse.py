@@ -26,6 +26,7 @@ from lakehouse.oltp.publication import SCHEMA_VERSION, ensure_publications, publ
 from lakehouse.oltp.quality import QualityCheckResult, persist_quality_results, financial_consistency_checks
 from lakehouse.oltp.inventory_quality import inventory_consistency_checks
 from lakehouse.oltp.operations_quality import operations_consistency_checks
+from lakehouse.oltp.marketing_quality import marketing_consistency_checks
 from lakehouse.oltp.silver_ddl import ensure_silver_tables
 from lakehouse.spark import spark_session
 from lakehouse.writer import oltp_writer_lock
@@ -135,6 +136,7 @@ def refresh_gold(spark, changed, run_id, initial=False):
         return spark.table(f"lakehouse.gold.{name}")
 
     today = inventory_observation_date()
+    marketing_observed = datetime.now(timezone.utc)
     definitions = [
         ("dim_date", set(), lambda: gold.build_dim_date(spark)),
         (
@@ -274,6 +276,12 @@ def refresh_gold(spark, changed, run_id, initial=False):
             lambda: gold.build_mart_cod_region_daily(fact("fact_shipment"), fact("fact_order"), run_id),
         ),
     ]
+    marketing_sources = {"coupons", "coupon_redemptions", "product_reviews", "dim_product"}
+    definitions.extend([
+        ("mart_marketing_summary", marketing_sources, lambda: gold.build_mart_marketing_summary(silver("coupons"), silver("product_reviews"), run_id, as_of=marketing_observed)),
+        ("mart_coupon_usage", marketing_sources, lambda: gold.build_mart_coupon_usage(silver("coupons"), silver("coupon_redemptions"), run_id, as_of=marketing_observed)),
+        ("mart_product_review_summary", marketing_sources, lambda: gold.build_mart_product_review_summary(silver("product_reviews"), fact("dim_product"), run_id, as_of=marketing_observed)),
+    ])
     refreshed = set()
     for name, dependencies, build in definitions:
         if not initial and not dependencies.intersection(changed | refreshed):
@@ -355,6 +363,7 @@ def validate_publication(spark, cfg, columns, changed, refreshed, run_id):
     results.extend(financial_consistency_checks(spark))
     results.extend(inventory_consistency_checks(spark))
     results.extend(operations_consistency_checks(spark))
+    results.extend(marketing_consistency_checks(spark))
     if results:
         persist_quality_results(
             spark,
@@ -408,6 +417,9 @@ def process_once(spark, cfg, types, ddl, force_rebuild=False):
             "lakehouse.gold.mart_store_overview",
             "lakehouse.gold.mart_operations_summary",
             "lakehouse.gold.mart_cod_region_daily",
+            "lakehouse.gold.mart_marketing_summary",
+            "lakehouse.gold.mart_coupon_usage",
+            "lakehouse.gold.mart_product_review_summary",
         }.issubset(json.loads(publication["snapshots_json"]))
     )
     prior_cursor = offsets.get(SOURCE_CURSOR_KEY)
