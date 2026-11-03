@@ -1,7 +1,7 @@
 """Analytical serving through Trino; MySQL is used only for source reconciliation.
 
-Business queries use one completed batch or CDC publication, including typed Silver
-snapshots for signals not yet modeled as dedicated Gold marts.
+Business queries use completed publications. Marketing reads independent log and
+OLTP mart sets; System/admin overview retain their existing reconciliation sources.
 """
 
 from datetime import UTC, datetime
@@ -15,6 +15,7 @@ from app.models.order import Order
 from app.modules.admin.schemas import AdminOverviewResponse
 from app.modules.analytics.reader import serve
 from app.modules.analytics.operations_service import get_operations_metrics
+from app.modules.analytics.marketing_service import get_marketing_metrics
 from app.modules.analytics.inventory_service import (
     get_active_stores_list as get_active_stores_list,
     get_store_overview as get_store_overview,
@@ -25,16 +26,12 @@ from app.modules.analytics.schemas import (
     CategoryShareMetric,
     DailySalesTrendPoint,
     ExecutiveMetricsResponse,
-    FunnelStep,
-    MarketingMetricsResponse,
-    NegativeReviewSpikeSignal,
     ReconciliationVariance,
     SalesMetricsResponse,
     SalesTrendResponse,
     StoreContribution,
     SystemMetricsResponse,
     TopProductMetric,
-    VoucherBurnRateSignal,
 )
 from app.modules.analytics.trino_client import TrinoClient
 
@@ -140,59 +137,6 @@ def get_sales_metrics(db: Session | None = None, trino_client: TrinoClient | Non
         )
 
     return serve(("sales",), build, trino_client)
-
-
-def get_marketing_metrics(db: Session | None = None, trino_client: TrinoClient | None = None):
-    def build(reader):
-        row = reader.one("""SELECT
-            count_if(ecommerce_action IN ('product_detail','catalog_search') OR http_route LIKE '/api/v1/products%') views,
-            count_if(ecommerce_action IN ('cart_item_set','cart_add') OR http_route LIKE '/api/v1/cart%') carts,
-            count_if(ecommerce_action IN ('checkout_quote','checkout_submit') OR http_route LIKE '/api/v1/checkout%') checkouts,
-            count_if(ecommerce_action IN ('order_complete','order_confirm_internal') OR (ecommerce_action='checkout_submit' AND is_success)) purchases
-            FROM lakehouse.gold.fact_web_events WHERE event_date >= current_date - INTERVAL '29' DAY""")
-        counts = [_n(row, k) for k in ("views", "carts", "checkouts", "purchases")]
-        labels = [
-            "Lượt xem sản phẩm (Product Views)",
-            "Thêm vào giỏ (Add to Cart)",
-            "Tiến hành thanh toán (Checkout)",
-            "Đặt hàng thành công (Purchased)",
-        ]
-        coupons = reader.query(f"""SELECT c.coupon_id,c.code_normalized,c.used_count,c.total_usage_limit,
-            count_if(r.redeemed_at >= {NOW_UTC} - INTERVAL '15' MINUTE) recent
-            FROM lakehouse.silver.silver_coupons c LEFT JOIN lakehouse.silver.silver_coupon_redemptions r ON c.coupon_id=r.coupon_id
-            WHERE c.is_active GROUP BY c.coupon_id,c.code_normalized,c.used_count,c.total_usage_limit
-            ORDER BY c.used_count DESC,c.coupon_id LIMIT 1""")
-        voucher = None
-        if coupons:
-            c = coupons[0]
-            limit = _n(c, "total_usage_limit")
-            used = _n(c, "used_count")
-            voucher = VoucherBurnRateSignal(
-                coupon_code=c["code_normalized"],
-                used_count=used,
-                usage_limit=limit,
-                burn_rate_per_minute=round(_n(c, "recent") / 15, 1),
-                budget_burn_percent=_pct(used, limit),
-                budget_warning=limit > 0 and used / limit >= 0.8,
-            )
-        reviews = reader.query(f"""SELECT r.product_id,p.product_name,count(*) negative_count
-            FROM lakehouse.silver.silver_product_reviews r JOIN lakehouse.gold.dim_product p ON r.product_id=p.product_id
-            WHERE r.rating<=2 AND r.created_at >= {NOW_UTC} - INTERVAL '45' MINUTE
-            GROUP BY r.product_id,p.product_name ORDER BY negative_count DESC LIMIT 5""")
-        return MarketingMetricsResponse(
-            funnel_steps=[
-                FunnelStep(step_name=label, count=count, conversion_rate_percent=_pct(count, counts[0]))
-                for label, count in zip(labels, counts, strict=True)
-            ],
-            total_visitors=counts[0],
-            total_purchases=counts[3],
-            conversion_rate_percent=_pct(counts[3], counts[0]),
-            funnel_window_days=30,
-            voucher_burn_rate=voucher,
-            negative_review_spikes=[NegativeReviewSpikeSignal(**r, window_minutes=45) for r in reviews],
-        )
-
-    return serve(("marketing",), build, trino_client)
 
 
 def _timestamp(value):

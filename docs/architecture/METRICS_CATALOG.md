@@ -36,7 +36,7 @@ Publication schema 3 dùng chung transformation cho batch và CDC. Tiền là s�
 
 Executive, Sales và xu hướng chỉ truy vấn mart trong cùng publication schema 3. `mart_order_daily` có grain ngày × kênh × cửa hàng; `mart_product_sales_daily` có grain ngày × sản phẩm; `mart_sales_daily` tiếp tục phục vụ danh mục. Số đơn đóng góp điểm bán đếm đơn có doanh thu thuần dương; tổng đơn Executive/xu hướng gồm mọi trạng thái. Top sản phẩm xếp theo doanh thu thuần, số lượng đã trừ hàng trả hoàn tất/kiểm định đạt. Tỷ trọng danh mục được tính lại từ tổng tiền, không cộng hoặc lấy trung bình tỷ lệ từng dòng.
 
-Mart rỗng làm KPI Executive trả `null`, danh sách Sales/xu hướng trả rỗng; giao diện hiển thị — hoặc trạng thái chưa có dữ liệu. Có dòng nguồn hợp lệ nhưng không phát sinh doanh thu thì số tiền 0 vẫn được giữ. AOV/biên lợi nhuận/tỷ trọng không có mẫu số hợp lệ trả `null`. Mart chưa nằm trong publication gây phản hồi unavailable hoặc cache có đánh dấu, không đọc fact/MySQL để thay thế. Store/Inventory được cập nhật ở đợt 3b như phần dưới; Operations cập nhật ở đợt 3c như phần dưới; Marketing/System và admin overview giữ hợp đồng hiện tại.
+Mart rỗng làm KPI Executive trả `null`, danh sách Sales/xu hướng trả rỗng; giao diện hiển thị — hoặc trạng thái chưa có dữ liệu. Có dòng nguồn hợp lệ nhưng không phát sinh doanh thu thì số tiền 0 vẫn được giữ. AOV/biên lợi nhuận/tỷ trọng không có mẫu số hợp lệ trả `null`. Mart chưa nằm trong publication gây phản hồi unavailable hoặc cache có đánh dấu, không đọc fact/MySQL để thay thế. Store/Inventory được cập nhật ở đợt 3b như phần dưới; Operations cập nhật ở đợt 3c như phần dưới; Marketing cập nhật ở đợt 3d như phần dưới; System và admin overview giữ hợp đồng hiện tại.
 
 Đơn chờ thanh toán, đã xác nhận hoặc đang giao chưa tạo doanh thu hàng hóa. Đơn đã trả vẫn giữ doanh thu ban đầu; hoàn tiền thành công được trừ riêng để xử lý trả một phần. Giá vốn được hoàn nhập theo số lượng trả hoàn tất và kiểm định đạt.
 
@@ -69,8 +69,8 @@ Kiểm tra trước publication đối chiếu tổng doanh thu trước hoàn, 
 | Tiền đề nghị hoàn | requested_refund_amount_vnd lấy từ dòng return_items, không lặp tiền header. total_refund_amount_vnd ở mart giữ làm alias tương thích cho tiền đề nghị, không phải tiền đã trả |
 | Tiền hoàn thành công | Summary chỉ lấy refunds.status=succeeded; có thể gồm vận chuyển/đơn hủy. Không phân bổ xuống SKU khi không có liên kết phù hợp; không đồng nhất với hoàn tiền hàng hóa ở Executive |
 | Tiền COD đang giao | Tổng order total gắn shipment assigned/picked_up/in_transit; chưa phải số dư tiền thực tế shipper giữ |
-| Coupon burn rate | Số redemption trong 15 phút / 15; phần trăm sử dụng = used_count / total_usage_limit, không tự đặt limit khi coupon không có cap |
-| Đánh giá xấu gần đây | Đếm rating <= 2 trong 45 phút, nhóm theo product |
+| Lượt voucher gần đây | mart_coupon_usage: redemption còn trạng thái redeemed trong 15 phút tại marketing_observed_at / 15; loại released và bản ghi tương lai. Hạn mức null và phần trăm null nếu không giới hạn |
+| Đánh giá xấu gần đây | mart_product_review_summary: approved, rating <=2, trong 45 phút tại marketing_observed_at, nhóm product; loại bản ghi tương lai |
 
 Store overview và danh sách chọn cửa hàng đọc `mart_store_overview`, vẫn lọc theo role/store ở API. Số đơn hoàn thành dùng status completed; nhân sự dùng store_manager active. Cửa hàng đã được công bố nhưng chưa có đơn/nhân sự có count 0; chưa có dòng tồn thì trạng thái tồn null. `inventory_observed_at` phản ánh thời điểm quan sát từ current fact, tách với data_updated_at của publication.
 
@@ -91,15 +91,21 @@ Một số trường API vẫn optional để tương thích giao diện. Khi th
 | Error rate | `(4xx + 5xx) / total_requests × 100` |
 | Avg / p50 / p95 / p99 | AVG duration và `percentile_approx` theo nhóm route/giờ |
 | Slow request | duration_ms >= 1000 |
-| Product demand | Đếm action product_detail/cart_add/cart_remove/wishlist_add/checkout_quote theo ngày × product |
-| Funnel views | Action product_detail/catalog_search hoặc route sản phẩm |
-| Funnel cart / checkout | Action hoặc route cart / checkout tương ứng |
-| Funnel purchase | Action order_complete/order_confirm_internal hoặc checkout_submit thành công |
-| Conversion marketing | Purchase events / view events × 100, cửa sổ 30 ngày |
+| Product demand | Request thành công theo action product_detail/cart_item_set/cart_add/cart_item_remove/cart_remove/wishlist_add/checkout_quote có khóa sản phẩm/biến thể; grain ngày UTC × sản phẩm đã ánh xạ hoặc khóa chưa ánh xạ |
+| Funnel views | Request thành công action product_detail/catalog_search; không cộng API đọc reviews hoặc mọi route sản phẩm |
+| Funnel cart / checkout | Request thành công action cart_item_set/cart_add; checkout_quote/checkout_submit. PUT giỏ là đặt lượng, chưa chứng minh tăng lượng |
+| Funnel purchase | Chỉ request checkout_submit thành công; cột vật lý orders_completed giữ tên cũ, không phải số đơn duy nhất và không cộng order_complete/order_confirm_internal |
+| Checkout / đầu phễu | SUM orders_completed / SUM product_views × 100 trong 30 ngày UTC kết thúc tại ngày observed_at của publication log; mẫu số 0 trả null |
 
-Funnel hiện đếm **sự kiện**, không phải unique visitor hoặc chuỗi session đã gắn kết. Nhiều request của cùng người có thể được tính nhiều lần; tỷ lệ không được hiểu là xác suất một người mua hàng. `total_visitors` là tên API cho lượt sự kiện đầu phễu. Cột `success_2xx_count` ở mart hiện cộng `is_success`, mà logic bao gồm cả phản hồi <400.
+Phễu đếm **request events**, không phải người duy nhất hoặc chuỗi session. Request lặp vẫn được tính; các bước có thể chồng lặp, tỷ lệ có thể vượt 100%. Không cộng distinct actor qua ngày/sản phẩm thành người trong kỳ. Các trường API total_visitors/total_purchases và nhánh proxy OLTP đã bỏ; dùng view_events_count/checkout_success_events_count. Khi có quan sát log nhưng không có action tương ứng, bộ đếm 0 hợp lệ; chưa có dòng log trong kỳ trả KPI null và danh sách bước rỗng.
 
-Marketing không fallback MySQL khi thiếu log. Số sự kiện không mặc định là số khách duy nhất hoặc số giao dịch; trường total_visitors hiện là số sự kiện đầu phễu.
+Marketing đọc hai mart log và ba mart nghiệp vụ. `logs_analytics_publications` pin snapshot ba mart log, độc lập `analytics_publications` của OLTP; nguồn log ghi observed_at, nguồn nghiệp vụ ghi marketing_observed_at. API không JOIN Fact/Silver/Dimension để thay mart. Tỷ lệ trong kỳ tính từ tổng bộ đếm, không lấy trung bình tỷ lệ ngày. API không trả một run ID/thời điểm công bố chung cho hai nguồn; log_status/commerce_status chứa metadata riêng. Một nguồn unavailable/cache không làm nguồn còn đọc được biến mất; cả hai chưa đọc được và không có cache hợp lệ thì trả 503. Cache vẫn có giới hạn tuổi.
+
+Mart nhu cầu sản phẩm ánh xạ product slug/public UUID và variant public UUID qua catalog Silver **đã pin** khi build. Khóa chưa ánh xạ giữ riêng, không ghép sản phẩm tùy ý hoặc bỏ sự kiện có variant. Tỷ lệ giỏ/xem là tỷ lệ request, không phải xác suất mua. Không hiển thị actor distinct như số khách trong kỳ. Cột success_2xx_count ở mart HTTP vẫn đếm is_success (<400); đây là tên cũ, không phải chỉ 2xx.
+
+Coupon mart giữ mỗi coupon; API chọn tối đa 10 mã active, chưa archived, đang trong thời hạn tại mốc đo, sắp theo used_count. Không giới hạn giữ null, không coi hạn mức lượt là ngân sách quảng cáo. Review mart lưu mỗi sản phẩm có review; API lấy tối đa 5 sản phẩm có approved 1–2 sao trong cửa sổ. Không có bản ghi nguồn được hiển thị là thiếu quan sát; có nguồn nhưng không có mã/đánh giá thỏa điều kiện là danh sách rỗng.
+
+Rollup log chạy bằng DAG riêng mỗi giờ, đọc fact snapshot và xây lại đủ ba mart từ tập sự kiện tới mốc quan sát, kiểm tra trước công bố. Khoảng 15/45 phút là cửa sổ tại mốc mart nghiệp vụ, không phải thời gian thực khi refresh. Các dòng mart và snapshot cũ vẫn được giữ trong lịch sử Iceberg; không xóa nguồn log. Pipeline Flink qua bốn tầng chưa được chuyển sang thiết kế Landing → batch giờ trong đợt này.
 
 ## 5. Chỉ số kỹ thuật DE
 

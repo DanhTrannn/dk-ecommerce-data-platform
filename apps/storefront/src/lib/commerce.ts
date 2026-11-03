@@ -781,23 +781,6 @@ export interface AdminOverview {
 }
 
 // --- Operational signals queried from OLTP through FastAPI ---
-export interface VoucherBurnRateSignal {
-  coupon_code: string;
-  used_count: number;
-  usage_limit: number;
-  burn_rate_per_minute: number;
-  budget_warning: boolean;
-  budget_burn_percent: number;
-}
-
-export interface NegativeReviewSpikeSignal {
-  product_id: number;
-  product_name: string;
-  negative_count: number;
-  window_minutes: number;
-  warning_alert: string;
-}
-
 export interface InventoryStockAlert {
   variant_id: number;
   sku: string;
@@ -968,18 +951,55 @@ export interface SalesMetricsResponse extends AnalyticsDataStatus {
 export interface FunnelStep {
   step_name: string;
   count: number;
-  conversion_rate_percent: number;
+  conversion_rate_percent: number | null;
+}
+
+export interface MarketingSourceStatus extends AnalyticsDataStatus {
+  available: boolean;
+  observed_at: string | null;
+}
+
+export interface CouponUsageMetric {
+  coupon_id: number;
+  coupon_code: string;
+  used_count: number;
+  usage_limit: number | null;
+  usage_percent: number | null;
+  recent_redemptions_count: number;
+  recent_redemptions_per_minute: number;
+}
+
+export interface NegativeReviewMetric {
+  product_id: number;
+  product_name: string;
+  negative_count: number;
+}
+
+export interface ProductDemandMetric {
+  product_key: string;
+  product_id: number | null;
+  product_name: string | null;
+  detail_views: number;
+  cart_sets: number;
+  wishlist_adds: number;
+  cart_to_view_rate_percent: number | null;
 }
 
 export interface MarketingMetricsResponse extends AnalyticsDataStatus {
   role: "marketing";
+  log_status: MarketingSourceStatus;
+  commerce_status: MarketingSourceStatus;
   funnel_steps: FunnelStep[];
-  conversion_rate_percent: number;
-  total_visitors: number;
-  total_purchases: number;
-  funnel_window_days: number;
-  voucher_burn_rate?: VoucherBurnRateSignal | null;
-  negative_review_spikes?: NegativeReviewSpikeSignal[];
+  view_events_count: number | null;
+  checkout_success_events_count: number | null;
+  checkout_to_view_rate_percent: number | null;
+  funnel_window_start: string | null;
+  funnel_window_end: string | null;
+  product_demand: ProductDemandMetric[];
+  coupon_source_rows: number | null;
+  review_source_rows: number | null;
+  coupons: CouponUsageMetric[];
+  negative_reviews: NegativeReviewMetric[];
 }
 
 export interface StoreMetricsResponse extends AnalyticsDataStatus {

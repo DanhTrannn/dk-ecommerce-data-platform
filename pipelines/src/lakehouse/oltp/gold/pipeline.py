@@ -1,5 +1,7 @@
 """Gold stage I/O; domain builders remain pure DataFrame transformations."""
 
+from datetime import datetime, timezone
+
 from pyspark.sql import SparkSession, functions as F
 from lakehouse.oltp.gold.inventory import inventory_observation_date
 from lakehouse.oltp.gold import (
@@ -25,6 +27,7 @@ from lakehouse.oltp.gold import (
     build_mart_store_overview,
     build_mart_operations_summary,
     build_mart_cod_region_daily,
+    build_mart_marketing_summary, build_mart_coupon_usage, build_mart_product_review_summary,
 )
 
 
@@ -226,4 +229,15 @@ def run_gold_marts(spark: SparkSession, run_id: str) -> None:
     cod.select(*spark.table("lakehouse.gold.mart_cod_region_daily").columns).writeTo(
         "lakehouse.gold.mart_cod_region_daily"
     ).overwrite(F.lit(True))
-    print(f"[{run_id}] [Marts] All 11 Gold Data Marts successfully built!")
+    observed = datetime.now(timezone.utc)
+    coupons = spark.table("lakehouse.silver.silver_coupons")
+    reviews = spark.table("lakehouse.silver.silver_product_reviews")
+    marketing = [
+        ("mart_marketing_summary", build_mart_marketing_summary(coupons, reviews, run_id, as_of=observed)),
+        ("mart_coupon_usage", build_mart_coupon_usage(coupons, spark.table("lakehouse.silver.silver_coupon_redemptions"), run_id, as_of=observed)),
+        ("mart_product_review_summary", build_mart_product_review_summary(reviews, dim_product, run_id, as_of=observed)),
+    ]
+    for name, frame in marketing:
+        target = f"lakehouse.gold.{name}"
+        frame.select(*spark.table(target).columns).writeTo(target).overwrite(F.lit(True))
+    print(f"[{run_id}] [Marts] All 14 Gold Data Marts successfully built!")

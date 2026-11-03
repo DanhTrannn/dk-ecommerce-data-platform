@@ -56,7 +56,7 @@ Mỗi file `.drawio` là XML native, chỉnh sửa được từng khối và c�
 |---|---|---|
 | `admin` | Executive, được chuyển các góc nhìn | Gold doanh thu/cost/profit/đơn; OLTP bổ sung theo KPI |
 | `sales_manager` | Sales | Gold bán hàng; sales-trend theo ngày |
-| `marketing_manager` | Marketing | Gold sự kiện 30 ngày + coupon/review OLTP; có thể fallback |
+| `marketing_manager` | Marketing | Mart phễu/nhu cầu sản phẩm log và coupon/review OLTP; publication/cache riêng, không MySQL proxy |
 | `store_manager` | Store | MySQL, bị giới hạn theo cửa hàng được gán |
 | `inventory_manager` | Inventory | MySQL tồn kho/nhập hàng hiện tại |
 | `operations_manager` | Operations | MySQL đơn/giao vận/COD/trả hàng |

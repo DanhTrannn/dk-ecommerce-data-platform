@@ -7,25 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field
 # Signal schemas (serving sources are defined by the analytical services)
 # -----------------------------------------------------------------------------
 
-class VoucherBurnRateSignal(BaseModel):
-    """Real-time signal tracking flash sale coupon usage velocity and budget consumption."""
-    coupon_code: str
-    used_count: int = 0
-    usage_limit: int = 0
-    burn_rate_per_minute: float = 0.0
-    budget_warning: bool = False
-    budget_burn_percent: float = 0.0
-
-
-class NegativeReviewSpikeSignal(BaseModel):
-    """Real-time alert detecting sudden bursts of 1-2 star product reviews."""
-    product_id: int
-    product_name: str
-    negative_count: int = 0
-    window_minutes: int = 60
-    warning_alert: str = ""
-
-
 class InventoryStockAlert(BaseModel):
     """Published warehouse SKU balance; the query selects the alert threshold."""
     variant_id: int
@@ -215,20 +196,55 @@ class SalesMetricsResponse(AnalyticsDataStatus):
 class FunnelStep(BaseModel):
     step_name: str
     count: int
-    conversion_rate_percent: float = 0.0
+    conversion_rate_percent: float | None = None
+
+
+class MarketingSourceStatus(AnalyticsDataStatus):
+    available: bool = False
+    observed_at: str | None = None
+
+
+class CouponUsageMetric(BaseModel):
+    coupon_id: int
+    coupon_code: str
+    used_count: int
+    usage_limit: int | None
+    usage_percent: float | None
+    recent_redemptions_count: int
+    recent_redemptions_per_minute: float
+
+
+class NegativeReviewMetric(BaseModel):
+    product_id: int
+    product_name: str
+    negative_count: int
+
+
+class ProductDemandMetric(BaseModel):
+    product_key: str
+    product_id: int | None
+    product_name: str | None
+    detail_views: int
+    cart_sets: int
+    wishlist_adds: int
+    cart_to_view_rate_percent: float | None
 
 
 class MarketingMetricsResponse(AnalyticsDataStatus):
-    model_config = ConfigDict(from_attributes=True)
-
     role: str = "marketing"
+    log_status: MarketingSourceStatus = Field(default_factory=MarketingSourceStatus)
+    commerce_status: MarketingSourceStatus = Field(default_factory=MarketingSourceStatus)
     funnel_steps: list[FunnelStep] = Field(default_factory=list)
-    conversion_rate_percent: float = 0.0
-    total_visitors: int = 0
-    total_purchases: int = 0
-    funnel_window_days: int = 30
-    voucher_burn_rate: VoucherBurnRateSignal | None = None
-    negative_review_spikes: list[NegativeReviewSpikeSignal] = Field(default_factory=list)
+    view_events_count: int | None = None
+    checkout_success_events_count: int | None = None
+    checkout_to_view_rate_percent: float | None = None
+    funnel_window_start: str | None = None
+    funnel_window_end: str | None = None
+    product_demand: list[ProductDemandMetric] = Field(default_factory=list)
+    coupon_source_rows: int | None = None
+    review_source_rows: int | None = None
+    coupons: list[CouponUsageMetric] = Field(default_factory=list)
+    negative_reviews: list[NegativeReviewMetric] = Field(default_factory=list)
 
 
 class StoreMetricsResponse(AnalyticsDataStatus):

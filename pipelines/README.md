@@ -52,11 +52,12 @@ The access job uses request identity/upsert configuration for Silver/Gold. Inval
 | DAG | Schedule (VN) | Current scope |
 |---|---|---|
 | `lakehouse_oltp_maintenance` | 03:00 daily | 15 Gold + 8 listed Silver tables; separate quarantine cleanup |
-| `lakehouse_streaming_maintenance` | Every 2 hours | Four log tables, then three log mart rollups for the interval UTC date |
+| `lakehouse_streaming_maintenance` | Every 2 hours | Four log tables; maintenance only |
+| `lakehouse_logs_marts` | Hourly | Build, validate and publish all three log marts, independent of maintenance |
 
 Maintenance does not yet cover all 27 Silver tables, batch Bronze or Bronze CDC. Refer to TABLE_PROFILES in the maintenance job. OLTP compaction targets 128 MiB, snapshot expiry retains at least the configured last 10 snapshots (20 for logs), orphan cleanup defaults to a 3-day cutoff. Quarantine retention deletes rows older than 30 days in quarantine.silver_oltp_violations; it is not a bucket-wide retention policy.
 
-The streaming health task checks both required job names independently. Maintenance DAGs have no cross-DAG dependency waiting for batch completion. The log rollup CLI can omit --ingest-date to process all available fact dates; the scheduled DAG supplies the interval UTC date.
+The streaming health task checks both required job names independently. Maintenance DAGs have no cross-DAG dependency waiting for batch completion. The log rollup CLI now takes `--run-id` only. It pins the fact snapshot and published Silver product/variant catalog, processes all available dates up to its observation time, replaces all three outputs, validates parity and appends `system.logs_analytics_publications`. Empty inputs clear current outputs without deleting prior snapshots. A separate local writer lock serializes log mart writers; OLTP/CDC offsets and publications are untouched. The hourly DAG is paused at creation, like other DAGs. Enable it in Airflow after verifying prerequisites.
 
 ## Run and inspect
 

@@ -75,6 +75,9 @@ Tên bảng snapshot không chứng minh đang có đầy đủ lịch sử mọ
 | `mart_store_overview` | Một dòng/cửa hàng, gồm cửa hàng chưa có đơn/tồn; số đơn/doanh thu, nhân sự và trạng thái tồn |
 | `mart_operations_summary` | Một dòng tổng quan tại mốc quan sát; số đơn chờ, shipment, yêu cầu và refund tổng hợp độc lập |
 | `mart_cod_region_daily` | Ngày tạo shipment (UTC) × nhóm vùng địa chỉ đơn COD; bộ đếm cộng được |
+| `mart_marketing_summary` | Một dòng coverage coupon/review và mốc quan sát nghiệp vụ |
+| `mart_coupon_usage` | Một dòng/coupon, lượt dùng/hạn mức, khả dụng và redeemed trong 15 phút tại mốc đo |
+| `mart_product_review_summary` | Một dòng/sản phẩm có review, số review và approved 1–2 sao trong 45 phút tại mốc đo |
 
 Order count ở mart sales không được cộng qua các danh mục để suy ra số đơn distinct. Công thức revenue order-level và item-level có khác biệt; xem Metrics Catalog.
 
@@ -89,9 +92,9 @@ Order count ở mart sales không được cộng qua các danh mục để suy 
 | Log Gold marts | `mart_hourly_route_metrics`, `mart_daily_product_demand`, `mart_marketing_funnel_daily` |
 | CDC Bronze | `bronze.oltp_cdc_events`; envelope, operation, before/after, event_id và replay coordinates |
 
-Job Flink access log sử dụng StatementSet để ghi các tầng của log. Spark `build_logs_gold` thực hiện rollup mart; DAG streaming maintenance chạy mỗi hai giờ.
+Job Flink access log sử dụng StatementSet để ghi các tầng của log. Spark `build_logs_gold` thực hiện rollup mart qua DAG `lakehouse_logs_marts` mỗi giờ, độc lập maintenance. DAG maintenance vẫn chạy mỗi hai giờ; chưa chuyển sang thủ công.
 
-Ba mart log lần lượt có grain ngày × giờ × route × method, ngày × product, và **một dòng/ngày** chứa các cột bước phễu. DAG truyền ngày UTC của interval vào rollup; không tự backfill mọi ngày log. Flink và Spark chuẩn hóa UTC; dữ liệu log cũ theo giờ Việt Nam chưa được tự động chuyển đổi; xem [Access Log Design](../architecture/ACCESS_LOG_DESIGN.md) khi đối chiếu mốc ngày/giờ.
+Ba mart log lần lượt có grain ngày × giờ × route × method, ngày × product, và **một dòng/ngày** chứa các cột bước phễu. Mỗi rollup đọc một snapshot fact và danh mục Silver pin theo publication OLTP, dựng lại toàn bộ ba mart để bao phủ các ngày có sự kiện tới mốc đo. Publication log độc lập công bố đủ ba snapshot sau kiểm tra; full overwrite cũng xóa kết quả current bị cũ khi nguồn không có dòng, giữ lịch sử snapshot. Flink và Spark chuẩn hóa UTC; dữ liệu log cũ theo giờ Việt Nam chưa được tự động chuyển đổi; xem [Access Log Design](../architecture/ACCESS_LOG_DESIGN.md) khi đối chiếu mốc ngày/giờ.
 
 CDC log có thể chứa nhiều thay đổi của cùng khóa nguồn. Đếm sự kiện không tương đương đếm bản ghi hiện tại. CDC chưa nối trực tiếp vào các Silver/Gold OLTP ở mục 3.
 

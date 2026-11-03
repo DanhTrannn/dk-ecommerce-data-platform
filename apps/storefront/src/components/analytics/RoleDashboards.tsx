@@ -203,37 +203,57 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
       </>;
     }
     case "marketing": {
-      const proxy = metrics.data_source === "oltp_fallback";
-      const voucher = metrics.voucher_burn_rate;
+      const window = metrics.funnel_window_start && metrics.funnel_window_end ? `${metrics.funnel_window_start} → ${metrics.funnel_window_end} · UTC` : "Chưa có kỳ log đã công bố";
+      const stamp = (value: string | null) => value ? new Date(value).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false }) : "—";
       return <>
+        <Panel title="Nguồn dữ liệu Marketing" subtitle="Log và nghiệp vụ có publication riêng. Tải lại giao diện không tự chạy rollup hoặc làm cửa sổ đo tiến lên.">
+          <div className="grid gap-4 sm:grid-cols-2">{[
+            { label: "Log tương tác · rollup mỗi giờ", state: metrics.log_status },
+            { label: "Voucher / đánh giá · publication OLTP", state: metrics.commerce_status },
+          ].map(({ label, state }) => <div className="min-w-0 text-xs leading-6 text-muted" key={label}>
+            <p className="text-sm font-semibold text-ink">{label}</p>
+            <p>{!state.available ? "Chưa đọc được dữ liệu đã công bố" : state.served_from_cache ? `Đang dùng bản lưu · ${number(state.cache_age_seconds)} giây` : "Đã đọc mart công bố"}</p>
+            <p>Mốc đo: {stamp(state.observed_at)} · UTC+7</p><p>Công bố: {stamp(state.data_updated_at)} · UTC+7</p>
+          </div>)}</div>
+        </Panel>
         <div className="grid gap-4 sm:grid-cols-3">
-          <MetricCard detail={proxy ? "Proxy OLTP, không đo lượt xem web." : "Lượt event đầu phễu, không phải người truy cập duy nhất."} emphasis label={proxy ? "Đầu phễu ước tính từ OLTP" : "Sự kiện đầu phễu"} scope={`${metrics.funnel_window_days} ngày`} value={number(metrics.total_visitors)} />
-          <MetricCard detail={proxy ? "Đơn không cancelled trong kỳ." : "Event mua/checkout thành công; không mặc định là đơn duy nhất."} label={proxy ? "Đơn trong proxy" : "Sự kiện bước mua"} scope={`${metrics.funnel_window_days} ngày`} value={number(metrics.total_purchases)} />
-          <MetricCard detail="Bước mua / đầu phễu × 100. Không phải xác suất chuyển đổi theo người hay session." label="Mua / đầu phễu" scope={`${metrics.funnel_window_days} ngày · ${proxy ? "proxy" : "event"}`} value={metrics.total_visitors > 0 ? percent(metrics.conversion_rate_percent) : "—"} />
+          <MetricCard detail="Yêu cầu xem/tìm sản phẩm thành công; không phải số người duy nhất." emphasis label="Sự kiện đầu phễu" scope={window} value={number(metrics.view_events_count)} />
+          <MetricCard detail="Số request checkout_submit thành công; không cộng thêm xác nhận hoặc hoàn tất đơn." label="Checkout gửi thành công" scope={window} value={number(metrics.checkout_success_events_count)} />
+          <MetricCard detail="Tổng sự kiện checkout thành công / tổng sự kiện đầu phễu. Không có mẫu số thì để trống." label="Checkout / đầu phễu" scope={window} value={percent(metrics.checkout_to_view_rate_percent)} />
         </div>
-        <Panel title={proxy ? "Proxy OLTP ghi nhận các bước như thế nào?" : "Mỗi bước tương tác ghi nhận bao nhiêu sự kiện?"} subtitle="Giữ thứ tự các bước API trả về; không sắp giảm dần hoặc ép thành phễu đơn điệu. Các bước có thể chồng lặp.">
-          {metrics.funnel_steps.length ? <Chart label="Số lượng tại từng bước tương tác theo thứ tự nghiệp vụ. Các bước không phải nhóm người loại trừ nhau." option={barOption(metrics.funnel_steps.map(row => ({ name: row.step_name, value: row.count })), proxy ? "Proxy OLTP" : "Sự kiện")} /> : <EmptyState />}
+        <Panel title="Mỗi bước tương tác ghi nhận bao nhiêu sự kiện?" subtitle="Chỉ request thành công. Đặt lượng giỏ không đồng nghĩa thêm một sản phẩm mới; các bước không tạo thành nhóm người hoặc session liên kết.">
+          {metrics.funnel_steps.length ? <Chart label="Số sự kiện tương tác theo bước nghiệp vụ." option={barOption(metrics.funnel_steps.map(row => ({ name: row.step_name, value: row.count })), "Sự kiện")} /> : <EmptyState detail="Chưa có quan sát log trong kỳ đã công bố; không suy ra các bước bằng 0." />}
           <DetailTable caption="Số lượng theo bước tương tác" filename="cac-buoc-tuong-tac" rows={metrics.funnel_steps} rowKey={row => row.step_name} columns={[
-            { key: "step", label: "Bước theo API", value: row => row.step_name }, { key: "count", label: proxy ? "Lượng proxy" : "Lượt event", value: row => row.count, numeric: true },
-            { key: "ratio", label: "So với đầu phễu (%)", value: row => ratio(row.count, metrics.total_visitors), numeric: true },
+            { key: "step", label: "Bước", value: row => row.step_name }, { key: "count", label: "Lượt request", value: row => row.count, numeric: true },
+            { key: "ratio", label: "So với đầu phễu (%)", value: row => row.conversion_rate_percent, numeric: true },
           ]} />
-          <p className="mt-4 text-xs leading-5 text-muted">Không suy ra số người rời phễu từ chênh lệch các bước. Chưa có session stitching hoặc so sánh chiến dịch trong API hiện tại.</p>
         </Panel>
-        <Panel title="Voucher nào đang được theo dõi?" subtitle="Một mã do API chọn. Đây là mức sử dụng lượt voucher, không phải chi phí quảng cáo.">
-          {voucher ? <div><p className="text-base font-semibold">{voucher.coupon_code}</p><dl className="mt-4 grid gap-5 sm:grid-cols-3">
-            <div><dt className="text-sm text-muted">Lượt dùng / hạn mức</dt><dd className="mt-1 font-semibold">{number(voucher.used_count)} / {voucher.usage_limit > 0 ? number(voucher.usage_limit) : "chưa có hạn mức"}</dd></div>
-            <div><dt className="text-sm text-muted">Mức dùng hạn mức</dt><dd className="mt-1 font-semibold">{voucher.usage_limit > 0 ? percent(ratio(voucher.used_count, voucher.usage_limit)) : "—"}</dd></div>
-            <div><dt className="text-sm text-muted">Tốc độ / 15 phút gần nhất</dt><dd className="mt-1 font-semibold">{number(voucher.burn_rate_per_minute)} lượt/phút</dd></div>
-          </dl></div> : <EmptyState detail="API chưa cung cấp mã voucher cần theo dõi; không suy ra chiến dịch đang hiệu quả hoặc không có lượt dùng." />}
-        </Panel>
-        <Panel title="Sản phẩm nào có phản hồi cần xem lại?" subtitle="Đánh giá 1–2 sao trong cửa sổ từng tín hiệu. Đây là gợi ý kiểm tra, không đủ để kết luận nguyên nhân.">
-          <DetailTable caption="Đánh giá tiêu cực theo sản phẩm" filename="danh-gia-can-kiem-tra" rows={metrics.negative_review_spikes ?? []} rowKey={row => row.product_id} columns={[
-            { key: "product", label: "Sản phẩm", value: row => row.product_name }, { key: "count", label: "Đánh giá 1–2 sao", value: row => row.negative_count, numeric: true }, { key: "window", label: "Cửa sổ (phút)", value: row => row.window_minutes, numeric: true },
+        <Panel title="Sản phẩm nào được quan tâm?" subtitle="Top 10 theo lượt xem chi tiết trong cùng kỳ log. Khóa slug/UUID được đối chiếu danh mục khi build; khóa chưa ánh xạ vẫn được giữ. Không cộng actor distinct theo ngày thành số người trong kỳ.">
+          <DetailTable caption="Tương tác theo sản phẩm" filename="nhu-cau-san-pham" rows={metrics.product_demand} rowKey={row => row.product_key} columns={[
+            { key: "product", label: "Sản phẩm / khóa chưa ánh xạ", value: row => row.product_name ?? row.product_key },
+            { key: "views", label: "Xem chi tiết", value: row => row.detail_views, numeric: true },
+            { key: "cart", label: "Đặt lượng giỏ", value: row => row.cart_sets, numeric: true },
+            { key: "wish", label: "Thêm yêu thích", value: row => row.wishlist_adds, numeric: true },
+            { key: "rate", label: "Giỏ / xem (%)", value: row => row.cart_to_view_rate_percent, numeric: true },
           ]} />
+        </Panel>
+        <Panel title="Voucher được sử dụng thế nào tại mốc đo?" subtitle="Tối đa 10 mã active, chưa lưu trữ và trong thời hạn tại mốc đo. Lượt gần đây còn trạng thái redeemed, loại lượt đã released; cửa sổ 15 phút giữ theo mart.">
+          {!metrics.commerce_status.available || metrics.coupon_source_rows === 0 ? <EmptyState detail="Chưa có quan sát voucher đã công bố." /> : <DetailTable caption="Sử dụng voucher" filename="su-dung-voucher" rows={metrics.coupons} rowKey={row => row.coupon_id} columns={[
+            { key: "code", label: "Mã", value: row => row.coupon_code }, { key: "used", label: "Lượt dùng", value: row => row.used_count, numeric: true },
+            { key: "limit", label: "Hạn mức", value: row => row.usage_limit, render: row => row.usage_limit == null ? "Không giới hạn" : number(row.usage_limit), numeric: true },
+            { key: "percent", label: "Sử dụng (%)", value: row => row.usage_percent, numeric: true },
+            { key: "recent", label: "Lượt / 15 phút", value: row => row.recent_redemptions_count, numeric: true },
+            { key: "pace", label: "Lượt / phút", value: row => row.recent_redemptions_per_minute, numeric: true },
+          ]} />}
+        </Panel>
+        <Panel title="Sản phẩm nào có đánh giá cần xem lại?" subtitle="Tối đa 5 sản phẩm có đánh giá đã duyệt 1–2 sao trong 45 phút tại mốc đo nghiệp vụ; không suy luận nguyên nhân từ số lượng.">
+          {!metrics.commerce_status.available || metrics.review_source_rows === 0 ? <EmptyState detail="Chưa có quan sát đánh giá đã công bố." /> : <DetailTable caption="Đánh giá tiêu cực đã duyệt" filename="danh-gia-can-kiem-tra" rows={metrics.negative_reviews} rowKey={row => row.product_id} columns={[
+            { key: "product", label: "Sản phẩm", value: row => row.product_name }, { key: "count", label: "Đánh giá 1–2 sao", value: row => row.negative_count, numeric: true },
+          ]} />}
         </Panel>
         <NextSteps userRole={userRole} items={[
-          { title: "Rà điều kiện sử dụng voucher", detail: "Kiểm tra hạn mức và số lượt dùng trước khi thay đổi mã. Dashboard không tự tăng ngân sách hoặc đóng mã.", href: "/admin/coupons", linkLabel: "Xem voucher" },
-          { title: "Đọc phản hồi trước khi kết luận", detail: "Đối chiếu nội dung đánh giá và đơn liên quan; không tự suy ra quảng cáo hay chất lượng lô hàng là nguyên nhân.", href: "/admin/reviews", linkLabel: "Xem đánh giá" },
+          { title: "Rà điều kiện sử dụng voucher", detail: "Đối chiếu hạn mức và mốc đo trước khi điều chỉnh mã.", href: "/admin/coupons", linkLabel: "Xem voucher" },
+          { title: "Đọc phản hồi trước khi kết luận", detail: "Xem nội dung đánh giá và giao dịch liên quan.", href: "/admin/reviews", linkLabel: "Xem đánh giá" },
         ]} />
       </>;
     }

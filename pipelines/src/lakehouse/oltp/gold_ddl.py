@@ -62,6 +62,11 @@ GOLD_TABLE_DDL["mart_operations_summary"] = load_sql("spark/gold/mart_operations
 GOLD_TABLE_DDL["mart_cod_region_daily"] = load_sql("spark/gold/mart_cod_region_daily.sql")
 
 
+GOLD_TABLE_DDL["mart_marketing_summary"] = load_sql("spark/gold/mart_marketing_summary.sql")
+GOLD_TABLE_DDL["mart_coupon_usage"] = load_sql("spark/gold/mart_coupon_usage.sql")
+GOLD_TABLE_DDL["mart_product_review_summary"] = load_sql("spark/gold/mart_product_review_summary.sql")
+
+
 def ensure_oltp_gold_tables(spark: SparkSession) -> None:
     spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.gold")
     for table_name, ddl in GOLD_TABLE_DDL.items():

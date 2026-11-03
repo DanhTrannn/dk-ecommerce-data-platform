@@ -1,8 +1,10 @@
 CREATE TABLE IF NOT EXISTS {{mart_daily_product_demand_table}} (
     metric_date             DATE                            COMMENT 'Metric observation date',
     product_key             STRING                          COMMENT 'Product master key',
+    product_id              BIGINT,
+    product_name            STRING,
     detail_view_count       BIGINT                          COMMENT 'Product detail page view count',
-    cart_add_count          BIGINT                          COMMENT 'Add to cart interaction count',
+    cart_add_count          BIGINT                          COMMENT 'Successful cart set/add request count',
     cart_remove_count       BIGINT                          COMMENT 'Remove from cart interaction count',
     wishlist_add_count      BIGINT                          COMMENT 'Add to wishlist interaction count',
     checkout_quote_count    BIGINT                          COMMENT 'Checkout quote interaction count',

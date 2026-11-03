@@ -57,7 +57,8 @@ Batch mode giữ cơ chế cursor commit sau Bronze và bảng Gold commit độ
 |---|---|
 | `lakehouse_oltp_pipeline` | Hằng ngày 02:00, Asia/Ho_Chi_Minh |
 | `lakehouse_oltp_maintenance` | Hằng ngày 03:00 |
-| `lakehouse_streaming_maintenance` | Mỗi 2 giờ |
+| `lakehouse_streaming_maintenance` | Mỗi 2 giờ, chỉ maintenance |
+| `lakehouse_logs_marts` | Mỗi giờ, độc lập maintenance |
 | Flink access logs/CDC | Liên tục, checkpoint 10 giây; Spark CDC polling mặc định 30 giây |
 | BI Hub | Các dashboard tự tải lại sau 15 giây khi trang hoạt động |
 
@@ -75,7 +76,7 @@ BI Hub `/admin/analytics` gọi FastAPI; API xác thực vai trò và cửa hàn
 |---|---|---|
 | Executive | `admin` | Published `mart_order_daily` (tài chính, số đơn, yêu cầu trả và COD đang giao) |
 | Sales | `sales_manager` | Published `mart_order_daily`, `mart_product_sales_daily`, `mart_sales_daily` |
-| Marketing | `marketing_manager` | Gold fact_web_events và published Silver coupons/redemptions/reviews |
+| Marketing | `marketing_manager` | Hai mart log phễu/nhu cầu sản phẩm qua publication log riêng; ba mart summary/coupon/review qua publication OLTP |
 | Store | `store_manager` | Published `mart_store_overview`, `mart_order_daily`, `mart_inventory_current`; lọc cửa hàng được phân công |
 | Inventory | `inventory_manager` | Published `mart_inventory_summary`, `mart_inventory_current`; lịch sử từ `mart_inventory_health` |
 | Operations | `operations_manager` | Published `mart_operations_summary`, `mart_cod_region_daily`, `mart_logistics_performance`, `mart_product_returns` |
@@ -94,7 +95,7 @@ Quyền xem dashboard không cấp quyền ghi nghiệp vụ. UI cho `operations
 | `GET /api/v1/admin/analytics/sales-trend` | Biểu đồ theo ngày, quyền admin/sales_manager |
 | `GET /api/v1/admin/analytics/overview` | Tổng quan OLAP đã công bố, quyền admin |
 
-Response chỉ số có `data_source`, `source_run_id`, `data_updated_at`, `is_degraded`, và metadata cache. Trino lỗi dùng phản hồi OLAP thành công gần nhất trong giới hạn tuổi cache, sau đó trả 503; API không chuyển KPI sang MySQL. Mọi KPI đọc cùng phiên snapshot đã công bố, ngoại trừ fact web events có lifecycle streaming riêng. [Metrics Catalog](METRICS_CATALOG.md) định nghĩa công thức, grain và giới hạn diễn giải; dữ liệu generator vẫn là dữ liệu tổng hợp sau khi xử lý qua pipeline.
+Response chỉ số có `data_source`, `source_run_id`, `data_updated_at`, `is_degraded`, và metadata cache. Trino lỗi dùng phản hồi OLAP thành công gần nhất trong giới hạn tuổi cache, sau đó trả 503; API không chuyển KPI sang MySQL. Mỗi nguồn đọc bộ snapshot đã công bố của nguồn đó; Marketing có hai bộ snapshot độc lập cho log và nghiệp vụ. [Metrics Catalog](METRICS_CATALOG.md) định nghĩa công thức, grain và giới hạn diễn giải; dữ liệu generator vẫn là dữ liệu tổng hợp sau khi xử lý qua pipeline.
 
 Store overview và danh sách chọn cửa hàng cũng đọc `mart_store_overview`; API không tổng hợp Fact/Silver cho các luồng Store/Inventory. Tồn hiện tại không cộng qua ngày; thời điểm quan sát tồn được trả riêng với thời điểm publication. Operations chỉ đọc mart, thời gian chờ giữ theo `operations_observed_at`, không tính lại bằng đồng hồ API. Không có deadline giao thì tỷ lệ đúng hạn null; hoàn tiền đề nghị ở SKU không đồng nghĩa refund thành công.
 
@@ -102,7 +103,7 @@ Executive, sales, marketing, store, inventory, operations, system, admin overvie
 
 BI Hub tổ chức từng góc nhìn theo tổng quan → xu hướng (khi có API phù hợp) → phân nhóm/bảng chi tiết → bước kiểm tra. Bộ chọn 7/30/90 ngày chỉ tác động biểu đồ và bảng xu hướng, không đổi KPI toàn nguồn. Bộ chọn cửa hàng áp dụng góc nhìn store theo quyền của API. Tìm kiếm, sắp xếp và xuất CSV giới hạn trong từng bảng.
 
-Giao diện hiển thị thời điểm công bố snapshot (UTC+7), nguồn OLAP và cảnh báo cache, và cung cấp từ điển chỉ số theo nguồn phản hồi. Không dựng target/delta khi API chưa cung cấp. Các bước marketing được trình bày như lượng sự kiện/proxy, các nhóm giao vận có thể chồng lặp không dùng làm cơ cấu đơn. Khi System dùng cache OLAP, dữ liệu không biểu thị một lần đối soát mới. Các hành động là hướng dẫn hoặc liên kết tới màn hình nghiệp vụ có quyền truy cập.
+Giao diện hiển thị thời điểm công bố snapshot (UTC+7), nguồn OLAP và cảnh báo cache, và cung cấp từ điển chỉ số theo nguồn phản hồi. Không dựng target/delta khi API chưa cung cấp. Các bước marketing được trình bày như lượng request thành công, các nhóm giao vận có thể chồng lặp không dùng làm cơ cấu đơn. Khi System dùng cache OLAP, dữ liệu không biểu thị một lần đối soát mới. Các hành động là hướng dẫn hoặc liên kết tới màn hình nghiệp vụ có quyền truy cập.
 
 Đối soát system vẽ từng metric thành biểu đồ riêng, so sánh MySQL/Gold: số đơn có đơn vị đơn, các trường tiền có đơn vị VND và trục độc lập. Tooltip tiền giữ giá trị đầy đủ, badge dùng variance_percent từ API. Chỉ hiển thị cặp so sánh khi nguồn là lakehouse và có dữ liệu; cache OLAP được đánh dấu degraded, không dùng để kết luận đối soát mới.
 
@@ -121,3 +122,5 @@ Profile chính: `core` (Web/API/MySQL), `batch` (Airflow và nền tảng phân 
 Stack local dùng HTTP. TLS, Secure cookie và secret manager production chưa được đóng gói đầy đủ trong Compose hiện tại.
 
 Nguồn: [docker-compose.yml](../../docker-compose.yml), [DAGs](../../airflow/dags), [jobs](../../pipelines/src/jobs), [Polaris RBAC](../../infrastructure/polaris/rbac.yml).
+
+Marketing giữ trạng thái, run ID, thời điểm công bố/quan sát và tuổi cache riêng cho log và nghiệp vụ; không gán một run ID chung cho hai publication. Một nguồn lỗi không xóa phần còn đọc được. Rollup log đọc fact pin snapshot và danh mục Silver pin theo publication OLTP để ánh xạ slug/UUID/variant; API chỉ đọc mart. Job thay toàn bộ ba mart, kiểm tra đầu ra rồi công bố snapshot cùng nhau, kể cả khi nguồn rỗng. Cơ chế ghi bốn tầng log của Flink chưa thay đổi trong đợt này.

@@ -18,7 +18,7 @@ Dữ liệu generator là tổng hợp. Mẫu phân phối hoặc quy mô cấu 
 |---|---|---|---|
 | Executive | `admin` | Quy mô đơn, doanh thu, giá vốn, lợi nhuận và rủi ro COD? | Gold order + mart returns; MySQL bổ sung |
 | Sales | `sales_manager` | Kênh/cửa hàng/sản phẩm/danh mục nào đóng góp doanh thu? | Gold facts và sales mart |
-| Marketing | `marketing_manager` | Lượng sự kiện chuyển đổi, sử dụng coupon và review xấu? | Gold web events 30 ngày + MySQL |
+| Marketing | `marketing_manager` | Lượng sự kiện chuyển đổi, sử dụng coupon và review xấu? | Mart log phễu/nhu cầu sản phẩm và mart OLTP coupon/review, hai publication riêng |
 | Store | `store_manager` | Hôm nay bán bao nhiêu, SKU nào thiếu tại cửa hàng? | MySQL, cửa hàng được gán |
 | Inventory | `inventory_manager` | Vốn tồn, lượng hàng và nguy cơ hết SKU? | MySQL |
 | Operations | `operations_manager` | Đơn chờ, lần giao lỗi, COD và yêu cầu trả? | MySQL |
@@ -41,11 +41,11 @@ Các giới hạn cần giữ khi viết báo cáo:
 
 ## 4. Marketing
 
-Dashboard theo dõi các bước xem sản phẩm, giỏ, checkout và mua trong cửa sổ 30 ngày. Đây là số **sự kiện**, không phải số người duy nhất, cohort hay chuỗi hành trình đã nối theo session. Một người có thể tạo nhiều sự kiện; số bước không bắt buộc giảm dần.
+Dashboard đọc mart phễu và nhu cầu sản phẩm trong 30 ngày UTC kết thúc tại ngày quan sát log. Phễu đếm request thành công theo action xem/tìm sản phẩm, đặt lượng giỏ, tương tác checkout và checkout_submit thành công. Không cộng thêm xác nhận/hoàn tất đơn vào bước checkout thành công. Đây là số sự kiện, không phải người duy nhất, cohort hoặc hành trình session; các bước không bắt buộc giảm dần. Mart sản phẩm ánh xạ slug/UUID/variant qua danh mục đã pin khi build, giữ khóa chưa ánh xạ riêng.
 
-Coupon signal sử dụng số redemption trong 15 phút, `used_count`, giới hạn sử dụng và tỷ lệ đã dùng. Giới hạn sử dụng là số lượt coupon, không mặc định là ngân sách tiền quảng cáo. Review signal đếm đánh giá rating ≤ 2 trong 45 phút theo sản phẩm.
+Mart coupon giữ used_count, hạn mức và số redemption còn redeemed trong 15 phút tại marketing_observed_at, loại released và bản ghi tương lai. Không giới hạn giữ null; hạn mức lượt không phải ngân sách tiền quảng cáo. Mart review đếm approved, rating ≤2 trong 45 phút tại mốc đó theo sản phẩm. Refresh không tự tính lại các cửa sổ trên snapshot cũ.
 
-Nếu Gold không có event trong kỳ hoặc Trino lỗi, service có thể dùng đơn/cart item/customer MySQL làm proxy và đánh dấu degraded. Proxy này không chứng minh lượng truy cập website. Chưa có tích hợp nền tảng quảng cáo, attribution doanh thu campaign, ROAS/CAC hoặc gán nhãn cảm xúc bằng NLP.
+Hai nguồn có snapshot publication, thời điểm quan sát và cache độc lập. Nguồn lỗi giữ phần còn đọc được; thiếu dữ liệu trả null/danh sách rỗng, không dùng MySQL proxy hoặc tổng hợp Fact/Silver ở API. Chưa có tích hợp quảng cáo, attribution campaign, ROAS/CAC hoặc NLP cảm xúc. Xem Metrics Catalog cho công thức và giới hạn diễn giải.
 
 ## 5. Cửa hàng và tồn kho
 

@@ -1,9 +1,10 @@
 CREATE TABLE IF NOT EXISTS {{mart_marketing_funnel_daily_table}} (
     metric_date             DATE                            COMMENT 'Metric observation date',
+    observed_event_count    BIGINT,
     product_views           BIGINT                          COMMENT 'Product detail and browsing views count',
     cart_additions          BIGINT                          COMMENT 'Cart item additions count',
     checkout_initiations    BIGINT                          COMMENT 'Checkout initiation count',
-    orders_completed        BIGINT                          COMMENT 'Orders completed count',
+    orders_completed        BIGINT                          COMMENT 'Successful checkout request event count; not distinct orders',
     view_to_cart_rate_pct   DOUBLE                          COMMENT 'Conversion percentage from view to cart',
     cart_to_checkout_rate_pct DOUBLE                        COMMENT 'Conversion percentage from cart to checkout',
     checkout_to_order_rate_pct DOUBLE                       COMMENT 'Conversion percentage from checkout to order',
