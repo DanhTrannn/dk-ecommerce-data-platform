@@ -23,6 +23,8 @@ from lakehouse.oltp.gold import (
     build_mart_inventory_current,
     build_mart_inventory_summary,
     build_mart_store_overview,
+    build_mart_operations_summary,
+    build_mart_cod_region_daily,
 )
 
 
@@ -210,4 +212,18 @@ def run_gold_marts(spark: SparkSession, run_id: str) -> None:
     store.select(*spark.table("lakehouse.gold.mart_store_overview").columns).writeTo(
         "lakehouse.gold.mart_store_overview"
     ).overwrite(F.lit(True))
-    print(f"[{run_id}] [Marts] All 9 Gold Data Marts successfully built!")
+    operations = build_mart_operations_summary(
+        fact_order,
+        fact_shipment,
+        spark.table("lakehouse.silver.silver_return_requests"),
+        spark.table("lakehouse.silver.silver_refunds"),
+        run_id,
+    )
+    operations.select(*spark.table("lakehouse.gold.mart_operations_summary").columns).writeTo(
+        "lakehouse.gold.mart_operations_summary"
+    ).overwrite(F.lit(True))
+    cod = build_mart_cod_region_daily(fact_shipment, fact_order, run_id)
+    cod.select(*spark.table("lakehouse.gold.mart_cod_region_daily").columns).writeTo(
+        "lakehouse.gold.mart_cod_region_daily"
+    ).overwrite(F.lit(True))
+    print(f"[{run_id}] [Marts] All 11 Gold Data Marts successfully built!")

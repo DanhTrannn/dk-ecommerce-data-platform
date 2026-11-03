@@ -812,19 +812,42 @@ export interface InventoryHistoryPoint {
   total_inventory_value_vnd: number;
 }
 
-export interface RegionalBoomRateSignal {
+export interface CODRegionMetric {
   region: string;
   total_cod_shipments: number;
   failed_cod_shipments: number;
-  boom_rate_percent: number;
-  alert_level: string;
+  failure_rate_percent: number | null;
 }
 
-export interface FulfillmentBottleneckSignal {
-  paid_unfulfilled_orders: number;
-  stale_unfulfilled_orders: number;
-  bottleneck_warning: boolean;
-  average_waiting_hours: number;
+export interface FulfillmentMetrics {
+  pending_orders: number;
+  over_two_hours_orders: number;
+  average_waiting_hours: number | null;
+}
+
+export interface LogisticsPerformanceMetric {
+  staff_id: number | null;
+  staff_code: string;
+  city_id: number;
+  city_name: string;
+  total_shipments: number;
+  delivered_count: number;
+  failed_count: number;
+  on_time_eligible_count: number;
+  on_time_rate_percent: number | null;
+  average_transit_minutes: number | null;
+  cod_collected_vnd: number;
+}
+
+export interface ProductReturnMetric {
+  variant_id: number;
+  sku: string;
+  product_name: string;
+  request_count: number;
+  line_count: number;
+  requested_units: number;
+  accepted_units: number;
+  requested_refund_vnd: number;
 }
 
 export interface StoreStockoutSignal {
@@ -988,12 +1011,17 @@ export interface InventoryMetricsResponse extends AnalyticsDataStatus {
 
 export interface OperationsMetricsResponse extends AnalyticsDataStatus {
   role: "operations";
-  pending_fulfillment_count: number;
-  shipping_sla_violations_count: number;
-  boom_orders_count: number;
-  return_requests_count: number;
-  regional_boom_rates?: RegionalBoomRateSignal[];
-  fulfillment_bottleneck?: FulfillmentBottleneckSignal | null;
+  pending_fulfillment_count: number | null;
+  problematic_shipments_count: number | null;
+  failed_shipments_count: number | null;
+  return_requests_count: number | null;
+  successful_refunds_count: number | null;
+  successful_refund_amount_vnd: number | null;
+  operations_observed_at: string | null;
+  fulfillment: FulfillmentMetrics | null;
+  cod_regions: CODRegionMetric[];
+  logistics: LogisticsPerformanceMetric[];
+  product_returns: ProductReturnMetric[];
 }
 
 export interface ReconciliationVariance {

@@ -78,7 +78,7 @@ BI Hub `/admin/analytics` gọi FastAPI; API xác thực vai trò và cửa hàn
 | Marketing | `marketing_manager` | Gold fact_web_events và published Silver coupons/redemptions/reviews |
 | Store | `store_manager` | Published `mart_store_overview`, `mart_order_daily`, `mart_inventory_current`; lọc cửa hàng được phân công |
 | Inventory | `inventory_manager` | Published `mart_inventory_summary`, `mart_inventory_current`; lịch sử từ `mart_inventory_health` |
-| Operations | `operations_manager` | Published Gold orders/shipments + Silver returns |
+| Operations | `operations_manager` | Published `mart_operations_summary`, `mart_cod_region_daily`, `mart_logistics_performance`, `mart_product_returns` |
 | System | `system_admin` | Publication/CDC health + Gold đối soát với MySQL |
 
 Admin có quyền truy cập các dashboard; các vai trò khác bị giới hạn bởi `validate_role_access`. Store manager bị cố định theo cửa hàng được gán bằng `resolve_effective_store_id`. Đây là lọc ở ứng dụng/API, không phải row-level security tự động trong Trino.
@@ -96,7 +96,7 @@ Quyền xem dashboard không cấp quyền ghi nghiệp vụ. UI cho `operations
 
 Response chỉ số có `data_source`, `source_run_id`, `data_updated_at`, `is_degraded`, và metadata cache. Trino lỗi dùng phản hồi OLAP thành công gần nhất trong giới hạn tuổi cache, sau đó trả 503; API không chuyển KPI sang MySQL. Mọi KPI đọc cùng phiên snapshot đã công bố, ngoại trừ fact web events có lifecycle streaming riêng. [Metrics Catalog](METRICS_CATALOG.md) định nghĩa công thức, grain và giới hạn diễn giải; dữ liệu generator vẫn là dữ liệu tổng hợp sau khi xử lý qua pipeline.
 
-Store overview và danh sách chọn cửa hàng cũng đọc `mart_store_overview`; API không tổng hợp Fact/Silver cho các luồng Store/Inventory. Tồn hiện tại không cộng qua ngày; thời điểm quan sát tồn được trả riêng với thời điểm publication.
+Store overview và danh sách chọn cửa hàng cũng đọc `mart_store_overview`; API không tổng hợp Fact/Silver cho các luồng Store/Inventory. Tồn hiện tại không cộng qua ngày; thời điểm quan sát tồn được trả riêng với thời điểm publication. Operations chỉ đọc mart, thời gian chờ giữ theo `operations_observed_at`, không tính lại bằng đồng hồ API. Không có deadline giao thì tỷ lệ đúng hạn null; hoàn tiền đề nghị ở SKU không đồng nghĩa refund thành công.
 
 Executive, sales, marketing, store, inventory, operations, system, admin overview, store overview, và sales trend đều đọc Trino. Các trang phân tích tự tải lại 15 giây khi đang hiển thị. Poll giao diện không đồng nghĩa dữ liệu nguồn mới đã được xử lý.
 

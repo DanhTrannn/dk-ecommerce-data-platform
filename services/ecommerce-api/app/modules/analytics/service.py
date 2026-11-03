@@ -14,6 +14,7 @@ from app.models.customer import Customer
 from app.models.order import Order
 from app.modules.admin.schemas import AdminOverviewResponse
 from app.modules.analytics.reader import serve
+from app.modules.analytics.operations_service import get_operations_metrics
 from app.modules.analytics.inventory_service import (
     get_active_stores_list as get_active_stores_list,
     get_store_overview as get_store_overview,
@@ -24,13 +25,10 @@ from app.modules.analytics.schemas import (
     CategoryShareMetric,
     DailySalesTrendPoint,
     ExecutiveMetricsResponse,
-    FulfillmentBottleneckSignal,
     FunnelStep,
     MarketingMetricsResponse,
     NegativeReviewSpikeSignal,
-    OperationsMetricsResponse,
     ReconciliationVariance,
-    RegionalBoomRateSignal,
     SalesMetricsResponse,
     SalesTrendResponse,
     StoreContribution,
@@ -195,42 +193,6 @@ def get_marketing_metrics(db: Session | None = None, trino_client: TrinoClient |
         )
 
     return serve(("marketing",), build, trino_client)
-
-
-def get_operations_metrics(db=None, trino_client=None):
-    def build(reader):
-        row = reader.one(f"""SELECT count(*) pending,count_if(created_at <= {NOW_UTC}-INTERVAL '2' HOUR) stale,
-            COALESCE(AVG(date_diff('second',created_at,{NOW_UTC})/3600.0),0) waiting
-            FROM lakehouse.gold.fact_order WHERE status IN ('paid','confirmed')""")
-        shipping = reader.one("""SELECT count_if(attempt_count>1 OR status='failed') problematic,
-            count_if(status='failed') failed FROM lakehouse.gold.fact_shipment""")
-        returns = reader.one(
-            "SELECT count(DISTINCT return_id) n FROM lakehouse.silver.silver_return_requests WHERE status<>'cancelled'"
-        )
-        regions = reader.query("""SELECT COALESCE(o.shipping_region,'Khu vực khác') region,count(*) total_cod_shipments,
-            count_if(s.status='failed') failed_cod_shipments FROM lakehouse.gold.fact_shipment s
-            JOIN lakehouse.gold.fact_order o ON s.order_id=o.order_id WHERE o.payment_method='cod'
-            GROUP BY 1 ORDER BY failed_cod_shipments DESC""")
-        return OperationsMetricsResponse(
-            pending_fulfillment_count=_n(row, "pending"),
-            shipping_sla_violations_count=_n(shipping, "problematic"),
-            boom_orders_count=_n(shipping, "failed"),
-            return_requests_count=_n(returns, "n"),
-            regional_boom_rates=[
-                RegionalBoomRateSignal(
-                    **r, boom_rate_percent=_pct(_n(r, "failed_cod_shipments"), _n(r, "total_cod_shipments"))
-                )
-                for r in regions
-            ],
-            fulfillment_bottleneck=FulfillmentBottleneckSignal(
-                paid_unfulfilled_orders=_n(row, "pending"),
-                stale_unfulfilled_orders=_n(row, "stale"),
-                average_waiting_hours=round(float(row.get("waiting") or 0), 2),
-                bottleneck_warning=_n(row, "stale") > 0 or _n(row, "pending") >= 20,
-            ),
-        )
-
-    return serve(("operations",), build, trino_client)
 
 
 def _timestamp(value):

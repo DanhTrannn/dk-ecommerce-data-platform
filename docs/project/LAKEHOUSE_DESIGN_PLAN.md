@@ -67,12 +67,14 @@ Tên bảng snapshot không chứng minh đang có đầy đủ lịch sử mọ
 | `mart_sales_daily` | Ngày × kênh × cửa hàng × danh mục; số đơn không cộng qua danh mục |
 | `mart_order_daily` | Ngày đặt hàng Việt Nam × kênh × cửa hàng; số đơn cộng được, tài chính, yêu cầu trả và COD đang giao |
 | `mart_product_sales_daily` | Ngày đặt hàng Việt Nam × sản phẩm; doanh thu thuần và lượng bán sau trả hàng |
-| `mart_logistics_performance` | Ngày shipment × nhân viên giao vận |
-| `mart_product_returns` | Ngày trả × variant × action × reason |
+| `mart_logistics_performance` | Ngày tạo shipment (UTC) × nhân viên giao vận × địa bàn được phân công; có số mẫu/tổng thời gian để tính trung bình trọng số, mẫu deadline riêng |
+| `mart_product_returns` | Ngày trả × variant × action × reason; số yêu cầu distinct trong nhóm SKU không cộng qua SKU, tiền là đề nghị hoàn |
 | `mart_inventory_health` | Ngày snapshot × loại địa điểm × địa điểm × danh mục |
 | `mart_inventory_current` | Một dòng SKU × địa điểm, chỉ số dư hiện tại và thời điểm quan sát gốc |
 | `mart_inventory_summary` | Một dòng tổng quan hiện tại; SKU hết hàng distinct trên mọi địa điểm, lượng/giá trị và số phiếu nhập |
 | `mart_store_overview` | Một dòng/cửa hàng, gồm cửa hàng chưa có đơn/tồn; số đơn/doanh thu, nhân sự và trạng thái tồn |
+| `mart_operations_summary` | Một dòng tổng quan tại mốc quan sát; số đơn chờ, shipment, yêu cầu và refund tổng hợp độc lập |
+| `mart_cod_region_daily` | Ngày tạo shipment (UTC) × nhóm vùng địa chỉ đơn COD; bộ đếm cộng được |
 
 Order count ở mart sales không được cộng qua các danh mục để suy ra số đơn distinct. Công thức revenue order-level và item-level có khác biệt; xem Metrics Catalog.
 

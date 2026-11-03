@@ -58,6 +58,8 @@ GOLD_TABLE_DDL["mart_inventory_health"] = load_sql("spark/gold/mart_inventory_he
 GOLD_TABLE_DDL["mart_inventory_current"] = load_sql("spark/gold/mart_inventory_current.sql")
 GOLD_TABLE_DDL["mart_inventory_summary"] = load_sql("spark/gold/mart_inventory_summary.sql")
 GOLD_TABLE_DDL["mart_store_overview"] = load_sql("spark/gold/mart_store_overview.sql")
+GOLD_TABLE_DDL["mart_operations_summary"] = load_sql("spark/gold/mart_operations_summary.sql")
+GOLD_TABLE_DDL["mart_cod_region_daily"] = load_sql("spark/gold/mart_cod_region_daily.sql")
 
 
 def ensure_oltp_gold_tables(spark: SparkSession) -> None:
