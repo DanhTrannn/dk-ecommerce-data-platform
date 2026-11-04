@@ -173,7 +173,7 @@ def get_system_metrics(db=None, trino_client=None):
                     ("order_total_vnd", revenue, _n(row, "revenue")),
                 ]
             ]
-        mode = reader.publication.get("source_mode", "cdc")
+        mode = reader.publication.get("source_mode", "batch")
         states = reader.client.execute_query(
             "SELECT * FROM lakehouse.system.cdc_pipeline_state WHERE consumer_id='oltp-cdc'"
         ) if mode == "cdc" else []
