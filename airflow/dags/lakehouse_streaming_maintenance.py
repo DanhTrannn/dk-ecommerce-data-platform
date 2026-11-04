@@ -8,6 +8,7 @@ Chuyên trách duy trì, tối ưu hóa và tổng hợp dữ liệu cho luồng
   Gold mart rollup runs independently in lakehouse_logs_marts.
 """
 
+import os
 from datetime import timedelta
 
 import pendulum
@@ -16,7 +17,6 @@ from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOpe
 from airflow.utils.task_group import TaskGroup
 
 from airflow import DAG
-from lakehouse.orchestration.streaming import begin_run, check_flink_streaming_health
 
 VN_TZ = pendulum.timezone("Asia/Ho_Chi_Minh")
 
@@ -31,6 +31,28 @@ DEFAULT_ARGS = {
 }
 
 
+def check_flink_streaming_health():
+    import requests
+
+    host = os.environ.get("FLINK_JOBMANAGER_HOST", "flink-jobmanager")
+    port = os.environ.get("FLINK_JOBMANAGER_PORT", "8081")
+    response = requests.get(f"http://{host}:{port}/jobs/overview", timeout=15)
+    response.raise_for_status()
+    required = tuple(
+        filter(
+            None,
+            os.environ.get("FLINK_REQUIRED_JOBS", "kafka_to_lakehouse_pure_streaming,oltp_cdc_to_bronze").split(","),
+        )
+    )
+    if not required:
+        raise ValueError("FLINK_REQUIRED_JOBS must not be empty")
+    running = {job.get("name"): job for job in response.json().get("jobs", []) if job.get("state") == "RUNNING"}
+    missing = set(required) - running.keys()
+    if missing:
+        raise RuntimeError(f"Required streaming jobs are not RUNNING: {sorted(missing)}")
+    return [running[name] for name in required]
+
+
 with DAG(
     dag_id="lakehouse_streaming_maintenance",
     default_args=DEFAULT_ARGS,
@@ -38,17 +60,9 @@ with DAG(
     max_active_runs=1,
     catchup=False,
     start_date=pendulum.datetime(2026, 8, 15, tz=VN_TZ),
-    description=(
-        "Pure Streaming Lakehouse Maintenance DAG: "
-        "Flink Healthcheck -> Iceberg Compaction & Snapshot Expiry"
-    ),
+    description=("Pure Streaming Lakehouse Maintenance DAG: Flink Healthcheck -> Iceberg Compaction & Snapshot Expiry"),
     tags=["lakehouse", "streaming", "maintenance", "iceberg", "compaction"],
 ) as dag:
-    begin = PythonOperator(
-        task_id="begin_run",
-        python_callable=begin_run,
-    )
-
     # 1. STREAMING HEALTH MONITORING
     with TaskGroup(
         group_id="stream_monitoring",
@@ -57,6 +71,7 @@ with DAG(
         monitor_flink = PythonOperator(
             task_id="check_flink_streaming_health",
             python_callable=check_flink_streaming_health,
+            do_xcom_push=False,
         )
 
     # 2. ICEBERG COMPACTION & MAINTENANCE
@@ -101,4 +116,4 @@ with DAG(
 
         compact_tables >> expire_snapshots >> remove_orphans
 
-    begin >> tg_stream >> tg_maintenance
+    tg_stream >> tg_maintenance

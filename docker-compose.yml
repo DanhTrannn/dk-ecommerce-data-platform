@@ -34,20 +34,16 @@ x-airflow-common: &airflow-common
     POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
     SPARK_MASTER_URL: ${SPARK_MASTER_URL:-local[2]}
     TRINO_URL: http://trino:8080
-    OLTP_WRITER_LOCK: /run/lakehouse-writer/oltp.lock
   volumes:
     - ./airflow/dags:/opt/airflow/dags:ro
     - ./pipelines:/opt/project/pipelines:ro
     - airflow-logs:/opt/airflow/logs
     - pipeline-run-data:/data/pipeline-runs
     - polaris-spark-airflow-credentials:/run/polaris:ro
-    - lakehouse-writer-lock:/run/lakehouse-writer
   networks: ["lakehouse-network"]
   depends_on:
     postgres:
       condition: service_healthy
-    lakehouse-writer-init:
-      condition: service_completed_successfully
     polaris-init:
       condition: service_completed_successfully
 
@@ -389,14 +385,6 @@ services:
       retries: 10
     networks: ["lakehouse-network"]
 
-  lakehouse-writer-init:
-    image: alpine/curl:8.21.0
-    profiles: ["batch", "streaming"]
-    user: "0:0"
-    entrypoint: ["/bin/sh", "-c", "touch /run/lakehouse-writer/oltp.lock /run/lakehouse-writer/logs.lock && chmod 666 /run/lakehouse-writer/oltp.lock /run/lakehouse-writer/logs.lock"]
-    volumes:
-      - lakehouse-writer-lock:/run/lakehouse-writer
-
   spark-client:
     <<: *spark-common
     profiles: ["lakehouse-tools"]
@@ -724,7 +712,6 @@ volumes:
   postgres-data:
   polaris-spark-client-credentials:
   polaris-spark-airflow-credentials:
-  lakehouse-writer-lock:
   polaris-flink-credentials:
   polaris-trino-reader-credentials:
   polaris-trino-admin-credentials:

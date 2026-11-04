@@ -10,7 +10,6 @@ from lakehouse.oltp.quality.gate import GoldQualityGateError, run_gold_quality_g
 from lakehouse.spark import spark_session
 from lakehouse.config import load_config
 from lakehouse.oltp.publication import publish
-from lakehouse.writer import oltp_writer_lock
 
 
 def parse_args(args: list[str]) -> argparse.Namespace:
@@ -42,5 +41,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    with oltp_writer_lock():
-        main()
+    main()

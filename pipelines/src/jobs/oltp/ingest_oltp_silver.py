@@ -5,7 +5,6 @@ import sys
 from lakehouse.config import SOURCE_TABLES, load_config
 from lakehouse.oltp.ingestion import ingest_silver_tables
 from lakehouse.spark import spark_session
-from lakehouse.writer import oltp_writer_lock
 
 
 def parse_args(args):
@@ -16,7 +15,7 @@ def parse_args(args):
     return parser.parse_args(args)
 
 
-def _run():
+def main():
     args = parse_args(sys.argv[1:])
     cfg = load_config(args.config_path)
     if args.table:
@@ -26,11 +25,6 @@ def _run():
         ingest_silver_tables(spark, cfg, args.run_id)
     finally:
         spark.stop()
-
-
-def main():
-    with oltp_writer_lock():
-        _run()
 
 
 if __name__ == "__main__":

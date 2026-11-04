@@ -13,15 +13,9 @@ from pyflink.datastream.functions import MapFunction
 from pyflink.table import Schema
 from pyflink.table.types import DataTypes
 
-from lakehouse.flink import (
-    create_stream_environment,
-    create_table_environment,
-    ensure_medallion_namespaces,
-    ensure_merge_on_read,
-    ensure_streaming_tables,
-    ensure_upsert_mode,
-    register_polaris_catalog,
-)
+from lakehouse.streaming.runtime import create_stream_environment, create_table_environment
+from lakehouse.streaming.catalog import ensure_medallion_namespaces, register_polaris_catalog
+from lakehouse.streaming.tables import ensure_merge_on_read, ensure_streaming_tables, ensure_upsert_mode
 from lakehouse.logs.parser import InvalidAccessEvent, parse_access_event
 from lakehouse.logs.stream_schema import FIELD_SPECS
 from lakehouse.sql import load_sql

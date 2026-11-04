@@ -4,7 +4,6 @@ import os
 from datetime import timedelta
 import pendulum
 from airflow import DAG
-from airflow.operators.python import PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.utils.task_group import TaskGroup
 
@@ -14,15 +13,7 @@ from lakehouse.oltp.gold.schema import GOLD_TABLE_DDL
 CONFIG_PATH = os.environ.get("PIPELINE_CONFIG_PATH", "/opt/project/pipelines/config/default.yml")
 JOBS = "/opt/project/pipelines/src/jobs/oltp/"
 RUN = "{{ run_id }}"
-DATE = "{{ ti.xcom_pull(task_ids='check_pipeline_context', key='batch_date') }}"
-
-
-def begin_run(**context):
-    ti = context["ti"]
-    ti.xcom_push(key="run_id", value=context["run_id"])
-    ti.xcom_push(
-        key="batch_date", value=context["data_interval_start"].in_timezone("Asia/Ho_Chi_Minh").strftime("%Y-%m-%d")
-    )
+DATE = "{{ data_interval_start.in_timezone('Asia/Ho_Chi_Minh').strftime('%Y-%m-%d') }}"
 
 
 with DAG(
@@ -35,7 +26,6 @@ with DAG(
     start_date=pendulum.datetime(2026, 8, 15, tz="Asia/Ho_Chi_Minh"),
     tags=["lakehouse", "oltp", "batch"],
 ) as dag:
-    context = PythonOperator(task_id="check_pipeline_context", python_callable=begin_run)
     with TaskGroup(group_id="staging") as staging:
         for table in SOURCE_TABLES:
             SparkSubmitOperator(
@@ -115,4 +105,4 @@ with DAG(
         application=JOBS + "run_gold_quality_gate.py",
         application_args=["--config-path", CONFIG_PATH, "--run-id", RUN, "--batch-date", DATE],
     )
-    context >> staging >> bronze >> silver >> gold >> mart >> publish
+    staging >> bronze >> silver >> gold >> mart >> publish

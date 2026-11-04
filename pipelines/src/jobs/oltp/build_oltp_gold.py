@@ -8,7 +8,6 @@ from lakehouse.oltp.gold.pipeline import run_gold_table
 from lakehouse.oltp.gold.schema import GOLD_TABLE_DDL, ensure_oltp_gold_tables
 from lakehouse.spark import spark_session
 
-from lakehouse.writer import oltp_writer_lock
 
 VALID_STAGES = ("all", "dimensions", "facts", "marts")
 
@@ -36,7 +35,7 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     return parsed
 
 
-def _run() -> None:
+def main() -> None:
     args = parse_args(sys.argv[1:])
     as_of = datetime.fromisoformat(args.as_of.replace("Z", "+00:00")) if args.as_of else None
     if as_of is not None and as_of.tzinfo is None:
@@ -54,11 +53,6 @@ def _run() -> None:
 
     finally:
         spark.stop()
-
-
-def main() -> None:
-    with oltp_writer_lock():
-        _run()
 
 
 if __name__ == "__main__":

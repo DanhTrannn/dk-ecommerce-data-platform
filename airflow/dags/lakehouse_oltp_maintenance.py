@@ -14,11 +14,9 @@ Data Freshness SLA và tránh lãng phí compute ngoài giờ cao điểm (chạ
 
 from __future__ import annotations
 
-import uuid
 from datetime import timedelta
 
 import pendulum
-from airflow.operators.python import PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.utils.task_group import TaskGroup
 
@@ -35,14 +33,6 @@ DEFAULT_ARGS = {
 }
 
 
-def begin_run(**context) -> None:
-    run_id = uuid.uuid4().hex
-    maintenance_date = pendulum.now(VN_TZ).strftime("%Y-%m-%d")
-    context["ti"].xcom_push(key="run_id", value=run_id)
-    context["ti"].xcom_push(key="maintenance_date", value=maintenance_date)
-    print(f"[begin_run] Initialized OLTP Iceberg maintenance run {run_id} for date {maintenance_date}")
-
-
 with DAG(
     dag_id="lakehouse_oltp_maintenance",
     default_args=DEFAULT_ARGS,
@@ -56,12 +46,6 @@ with DAG(
     ),
     tags=["lakehouse", "oltp", "maintenance", "iceberg", "compaction"],
 ) as dag:
-
-    check_context = PythonOperator(
-        task_id="check_maintenance_context",
-        python_callable=begin_run,
-    )
-
     with TaskGroup(
         group_id="iceberg_maintenance",
         tooltip="Compact small Parquet files, rewrite manifests, expire old snapshots & remove orphans for OLTP tables",
@@ -70,9 +54,12 @@ with DAG(
             task_id="transform_compact_tables",
             application=SPARK_APP_MAINTENANCE,
             application_args=[
-                "--action", "compact",
-                "--profile", "oltp",
-                "--target-file-size-bytes", "134217728",
+                "--action",
+                "compact",
+                "--profile",
+                "oltp",
+                "--target-file-size-bytes",
+                "134217728",
             ],
         )
 
@@ -80,9 +67,12 @@ with DAG(
             task_id="cleanup_expired_snapshots",
             application=SPARK_APP_MAINTENANCE,
             application_args=[
-                "--action", "expire",
-                "--profile", "oltp",
-                "--retain-snapshots", "10",
+                "--action",
+                "expire",
+                "--profile",
+                "oltp",
+                "--retain-snapshots",
+                "10",
             ],
         )
 
@@ -90,8 +80,10 @@ with DAG(
             task_id="cleanup_orphan_files",
             application=SPARK_APP_MAINTENANCE,
             application_args=[
-                "--action", "orphan",
-                "--profile", "oltp",
+                "--action",
+                "orphan",
+                "--profile",
+                "oltp",
             ],
         )
 
@@ -99,13 +91,11 @@ with DAG(
             task_id="cleanup_expired_quarantine",
             application=SPARK_APP_MAINTENANCE,
             application_args=[
-                "--action", "quarantine",
-                "--quarantine-retention-days", "30",
+                "--action",
+                "quarantine",
+                "--quarantine-retention-days",
+                "30",
             ],
         )
 
         compact_oltp >> expire_oltp >> remove_oltp_orphans >> cleanup_quarantine
-
-    # Orchestration Flow:
-    # 1. Check Context -> 2. Iceberg Maintenance (Compaction -> Expire Snapshots -> Remove Orphans)
-    check_context >> tg_maintenance
