@@ -1,4 +1,4 @@
-"""Hourly log analysis, independent of compaction and OLTP publication."""
+"""Hourly Landing-first log processing, independent of maintenance."""
 
 from datetime import timedelta
 
@@ -13,11 +13,11 @@ with DAG(
     start_date=pendulum.datetime(2026, 8, 15, tz="Asia/Ho_Chi_Minh"),
     catchup=False,
     max_active_runs=1,
-    description="Publish three log marts from a pinned fact snapshot; independent of maintenance",
+    description="Landing -> Bronze -> Silver -> fact -> three published log marts; independent of maintenance",
     tags=["lakehouse", "logs", "marts"],
 ) as dag:
     SparkSubmitOperator(
         task_id="rollup_logs_gold_marts",
         application="/opt/project/pipelines/src/jobs/logs/build_logs_gold.py",
-        application_args=["--run-id", "logs-{{ run_id }}"],
+        application_args=["--run-id", "logs-{{ run_id }}", "--as-of", "{{ dag_run.start_date.isoformat() }}"],
     )

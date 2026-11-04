@@ -71,7 +71,19 @@ Run delete synchronization while batch/init are idle; coordination between these
 
 Bronze source versions, CDC audit and historical snapshots are retained. No Kafka offsets are reset. Batch/backfill is not filtered against deleted keys and can restore rows from old staging/Bronze; run this manual DAG again when deletion must be reapplied. Existing deletion-ledger tables from earlier deployments are no longer used; this code change does not drop them. Current Gold/mart builders and dashboards do not read cart/wishlist items, so this DAG does not rebuild Gold/marts or create a new analytics publication. The next successful batch publishes the current Silver snapshots.
 
-Access-log processing is unchanged: Flink still writes its four sinks in parallel. `lakehouse_logs_marts` runs hourly, independent of maintenance, validates three marts and publishes their snapshots. The planned Landing-first realtime design is a separate change.
+### Landing-first access logs
+
+Flink appends only `landing.access_logs`, preserving every decoded Kafka payload. Invalid contracts remain raw envelopes with nullable projected fields rather than being discarded. It uses the existing consumer group, checkpoint offset commits and committed startup offsets with earliest fallback when no committed position exists. A new submission is not an automatic savepoint restore; see the [upgrade procedure](../docs/runbook/SETUP.md#landing-first-access-log-upgrade).
+
+The independent hourly `lakehouse_logs_marts` DAG uses one Spark task for the sequential path **Landing → Bronze → Silver → Gold fact → three marts → validation/publication**. Its existing task ID and CLI remain compatible. Airflow passes its fixed run start as `--as-of`, reused on retry; the CLI defaults to invocation time when run without it. Do not overlap standalone log writers with this DAG (`max_active_runs=1`).
+
+1. Pin the Landing snapshot and select landed payloads with `ingest_ts <= as_of`. Group duplicate payloads and insert raw hashes absent from Bronze; no event-time cursor drops late arrivals. This discovers missing keys by scanning stored inputs, not an incremental file checkpoint. It suits the local dataset, not a measured large-scale optimization.
+2. Bronze adds `raw_payload`, `_raw_hash` (SHA-256) and `_validation_error`. The existing parser supplies typed projections. Invalid payloads remain with a generic error marker; they are excluded from Silver, not silently counted as valid events. Existing typed Bronze rows remain unchanged, with null added fields; the first upgrade adds canonical raw rows alongside them. Bronze row count is not a unique event count.
+3. Read persisted Bronze, deduplicate immutable `event_id`, and insert missing eligible events into Silver. Conflicting valid raw payloads sharing an ID fail the job for inspection rather than selecting arbitrarily. Future event timestamps stay in Bronze until a later observation; late historical events remain eligible.
+4. Read persisted Silver independently and insert missing events into `fact_web_events`. Each layer catches up on retry even if the previous attempt failed after committing its predecessor. Existing Silver/fact rows, including their historical timestamps/lineage, are not rewritten.
+5. Build all three marts from one pinned fact snapshot and the published OLTP catalog. Validate complete outputs, then publish them together using log publication schema 1. Source snapshot metadata now includes Landing/Bronze/Silver. Dashboards continue to read the previous completed publication if processing fails; this is not a transaction across every layer/table.
+
+The hourly pipeline reads the Iceberg Landing table, not the separately uploaded JSONL object prefix. No bucket, Kafka offset, old checkpoint, source transaction or Iceberg history is deleted by this change. Realtime Landing API/dashboard refresh every 10 seconds is a later phase; existing analytical views still read hourly marts.
 
 ## Runtime and SQL
 
@@ -88,13 +100,13 @@ src/lakehouse/
 │   ├── silver/    # schema, writer, validation, PII, quarantine
 │   ├── gold/      # schema, per-table I/O, builders by domain and *_marts.py
 │   └── quality/   # gate, inventory/operations/marketing checks, manual reconciliation
-├── logs/          # parser, Flink adapter, Spark mart rollup and publication
+├── logs/          # raw Landing adapter, parser, medallion builders/ingestion, marts/publication
 ├── streaming/     # shared Flink runtime, catalog and sink setup
 └── sql_templates/ # shared SQL resources for Spark, Flink and MySQL
 ```
 
 `jobs/` retains thin executable CLIs grouped into `oltp`, `logs`, `cdc` and `maintenance`. DAGs import `gold/schema.py` without loading Spark builders. Flink jobs import the shared `streaming` modules directly; no forwarding `flink.py` or single-file `orchestration` package remains. Maintenance healthcheck lives with its DAG and no longer creates unused context/XCom tasks.
 
-The unused Spark log Bronze/Silver path, generic `ingest_bronze.py`, obsolete fact builder and format fallbacks have been removed. Current source ingestion uses `merge_source_versions`; Silver writes Iceberg only, with deduplication/region metadata inline in its writer. Sales and inventory mart builders live with their respective `*_marts.py` modules. Short operational queries remain inline. Existing large SQL/DDL resources remain under `src/lakehouse/sql_templates/`; moving these to shared repo-level SQL is outside this batch change.
+Retired parallel Flink Bronze/Silver/fact writers and their SQL resources have been removed; Spark now owns those access-log layers. The generic `ingest_bronze.py`, obsolete fact builder and format fallbacks remain removed. Current source ingestion uses `merge_source_versions`; Silver writes Iceberg only, with deduplication/region metadata inline in its writer. Sales and inventory mart builders live with their respective `*_marts.py` modules. Short operational queries remain inline. Existing large SQL/DDL resources remain under `src/lakehouse/sql_templates/`; moving these to shared repo-level SQL is outside this batch change.
 
 Local verification scripts and Spark/Iceberg fixtures are kept outside Git. Compile/lint and Compose configuration checks remain in CI. Maintenance schedules and retention are unchanged in this change; conversion to manual maintenance is still tracked in the refactor note.

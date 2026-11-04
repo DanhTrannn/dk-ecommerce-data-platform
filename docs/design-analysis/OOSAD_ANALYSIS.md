@@ -75,7 +75,7 @@ Trả hàng đi qua `pending_review → approved → goods_received → complete
 | Nạp lịch sử tổng hợp | Generator xuất SQL/JSONL; script import MySQL hoặc upload raw log |
 | Batch tăng dần | 27 bảng → Landing/manifest → Bronze → commit cursor → Silver → reconciliation → Gold → quality gate |
 | Thu CDC | MySQL binlog → Debezium → Kafka → Flink → `bronze.oltp_cdc_events` |
-| Thu access log | Middleware → Kafka → Flink StatementSet với bốn Iceberg sink |
+| Thu access log | Middleware → Kafka → Flink append Landing; Spark giờ xử lý Bronze → Silver → fact → ba mart/publication |
 | Tổng hợp log | Spark tạo ba mart log từ `gold.fact_web_events` |
 | Kiểm tra chất lượng | Ghi bằng chứng vào `system.data_quality_results`; gate lỗi làm task thất bại |
 | Bảo trì | DAG riêng cho compaction, snapshot expiration, orphan cleanup; retention quarantine |

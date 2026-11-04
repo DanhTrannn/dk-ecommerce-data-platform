@@ -29,7 +29,7 @@ Frontend không truy cập MySQL/Trino trực tiếp. FastAPI đọc Trino cho t
 |---|---|---|
 | Batch OLTP | MySQL → Spark → Landing Parquet/manifest → Bronze → Silver → Gold | DAG có cursor tăng dần và quality gate |
 | CDC OLTP | MySQL binlog → Debezium → Kafka → Flink | Append-only `bronze.oltp_cdc_events` → Spark CDC → typed Silver / dependent Gold → publication manifest |
-| Access log | FastAPI middleware → Kafka → Flink | Ghi các bảng log Landing/Bronze/Silver/Gold bằng StatementSet |
+| Access log | FastAPI middleware → Kafka → Flink | Chỉ append Landing; Spark giờ xử lý Bronze → Silver → Gold fact → ba mart và publication |
 
 `customer_credentials` bị loại khỏi batch và CDC. PII của các bảng phân tích cần được xử lý trước khi phục vụ ở Silver/Gold.
 
@@ -124,6 +124,6 @@ Stack local dùng HTTP. TLS, Secure cookie và secret manager production chưa �
 
 Nguồn: [docker-compose.yml](../../docker-compose.yml), [DAGs](../../airflow/dags), [jobs](../../pipelines/src/jobs), [Polaris RBAC](../../infrastructure/polaris/rbac.yml).
 
-Marketing giữ trạng thái, run ID, thời điểm công bố/quan sát và tuổi cache riêng cho log và nghiệp vụ; không gán một run ID chung cho hai publication. Một nguồn lỗi không xóa phần còn đọc được. Rollup log đọc fact pin snapshot và danh mục Silver pin theo publication OLTP để ánh xạ slug/UUID/variant; API chỉ đọc mart. Job thay toàn bộ ba mart, kiểm tra đầu ra rồi công bố snapshot cùng nhau, kể cả khi nguồn rỗng. Cơ chế ghi bốn tầng log của Flink chưa thay đổi trong đợt này.
+Marketing giữ trạng thái, run ID, thời điểm công bố/quan sát và tuổi cache riêng cho log và nghiệp vụ; không gán một run ID chung cho hai publication. Một nguồn lỗi không xóa phần còn đọc được. Pipeline log xử lý tuần tự Landing → Bronze → Silver → fact, sau đó rollup đọc fact pin snapshot và danh mục Silver pin theo publication OLTP để ánh xạ slug/UUID/variant; API chỉ đọc mart. Job thay toàn bộ ba mart, kiểm tra đầu ra rồi công bố snapshot cùng nhau, kể cả khi nguồn rỗng. Flink chỉ ghi Landing; Spark là writer của Bronze/Silver/fact log. Raw không hợp lệ giữ ở Landing/Bronze; realtime API/dashboard còn chờ.
 
 Admin Overview đọc mart_admin_overview và mart_order_daily cùng bộ snapshot, không tổng hợp Fact/Silver/Dimension ở API. System dùng order mart cho phía Lakehouse; MySQL chỉ cung cấp count và tổng giá trị đơn tại source_observed_at trong cùng câu SQL. Kết quả matched/mismatch/unavailable/cached không được diễn giải như sức khỏe mọi pipeline. Tuổi publication là tuổi metadata, không phải SLA. Khi cache, thời điểm đo nguồn giữ nguyên và giao diện không trình bày như đối soát mới.

@@ -92,7 +92,7 @@ Order count ở mart sales không được cộng qua các danh mục để suy 
 | Log Gold marts | `mart_hourly_route_metrics`, `mart_daily_product_demand`, `mart_marketing_funnel_daily` |
 | CDC Bronze | `bronze.oltp_cdc_events`; envelope, operation, before/after, event_id và replay coordinates |
 
-Job Flink access log sử dụng StatementSet để ghi các tầng của log. Spark `build_logs_gold` thực hiện rollup mart qua DAG `lakehouse_logs_marts` mỗi giờ, độc lập maintenance. DAG maintenance vẫn chạy mỗi hai giờ; chưa chuyển sang thủ công.
+Job Flink access log chỉ append Landing, giữ raw payload kể cả khi không hợp lệ. Spark `build_logs_gold` xử lý tuần tự Landing → Bronze → Silver → Gold fact → mart qua DAG `lakehouse_logs_marts` mỗi giờ, độc lập maintenance. Bronze bổ sung raw_payload/_raw_hash/_validation_error, giữ dòng lịch sử cũ; Silver/fact chỉ insert event_id thiếu. Các tầng bắt kịp độc lập khi retry, không dùng event-time watermark để bỏ sự kiện đến muộn. DAG maintenance vẫn chạy mỗi hai giờ; chưa chuyển sang thủ công.
 
 Ba mart log lần lượt có grain ngày × giờ × route × method, ngày × product, và **một dòng/ngày** chứa các cột bước phễu. Mỗi rollup đọc một snapshot fact và danh mục Silver pin theo publication OLTP, dựng lại toàn bộ ba mart để bao phủ các ngày có sự kiện tới mốc đo. Publication log độc lập công bố đủ ba snapshot sau kiểm tra; full overwrite cũng xóa kết quả current bị cũ khi nguồn không có dòng, giữ lịch sử snapshot. Flink và Spark chuẩn hóa UTC; dữ liệu log cũ theo giờ Việt Nam chưa được tự động chuyển đổi; xem [Access Log Design](../architecture/ACCESS_LOG_DESIGN.md) khi đối chiếu mốc ngày/giờ.
 

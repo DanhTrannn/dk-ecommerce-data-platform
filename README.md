@@ -157,8 +157,8 @@ MySQL CDC:
   Bronze CDC events -> audit/replay inspection (no automatic Silver/Gold writes)
 
 Access logs:
-  FastAPI middleware -> Kafka -> Flink -> Iceberg log tables
-                                        (Landing / Bronze / Silver / Gold)
+  FastAPI middleware -> Kafka -> Flink -> append-only Landing
+  Hourly Spark: Landing -> Bronze -> Silver -> Gold fact -> three marts -> publication
 
 Storage / catalog:
   Iceberg data and metadata files on MinIO + Polaris REST catalog
@@ -181,7 +181,7 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 | **Operational DB** | MySQL | 8.4.5 | 28 OLTP tables; 27 analytical source tables |
 | **Change Capture** | Debezium | 3.0.8 | Initial snapshot and row-binlog capture |
 | **Event Streaming** | Apache Kafka | 3.8.0 | CDC and access-log topics |
-| **Stream Processing** | Apache Flink | 1.19 | Access-log tables and Bronze CDC ingestion |
+| **Stream Processing** | Apache Flink | 1.19 | Raw access-log Landing and Bronze CDC ingestion |
 | **Object Storage** | MinIO | `latest-dev` | Landing, Iceberg files, and processing state |
 | **Table Format** | Apache Iceberg | 1.10.1 | Tables, snapshots, and commits |
 | **Catalog** | Apache Polaris | 1.6.0 | REST catalog and access control |
@@ -193,7 +193,7 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 
 The OLTP Gold model defines **6 dimensions, 6 facts (including current inventory), and 15 marts**. The log model defines **1 fact and 3 marts**. Row counts depend on the loaded dataset and completed pipeline runs.
 
-The OLTP batch DAG is scheduled daily at 02:00 Asia/Ho_Chi_Minh; OLTP maintenance runs at 03:00 and streaming maintenance every two hours. The independent `lakehouse_logs_marts` DAG rolls up and publishes all three log marts hourly; maintenance failures do not block that DAG. DAGs are paused at creation and must be enabled in Airflow. Flink runs continuously with a configured 10-second checkpoint interval. That interval is not a measured end-to-end latency guarantee.
+The OLTP batch DAG is scheduled daily at 02:00 Asia/Ho_Chi_Minh; OLTP maintenance runs at 03:00 and streaming maintenance every two hours. The independent `lakehouse_logs_marts` DAG processes Landing → Bronze → Silver → Gold fact, then validates and publishes all three log marts hourly; maintenance failures do not block that DAG. Raw payloads, including malformed events, stay in Landing/Bronze. Missing-key inserts make each layer retryable without rewriting existing Silver/fact history. DAGs are paused at creation and must be enabled in Airflow. Flink runs continuously with a configured 10-second checkpoint interval. That interval is not a measured end-to-end latency guarantee.
 
 Source–Silver reconciliation runs before Gold processing; a second gate checks Gold counts, monetary parity, keys, references, lineage, and PII tokens. Failures mark the task/DAG unsuccessful and results are recorded in `lakehouse.system.data_quality_results`. These runtime gates remain part of data processing.
 

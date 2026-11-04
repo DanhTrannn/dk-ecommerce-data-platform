@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 
 class InvalidAccessEvent(ValueError):
-    """An event cannot be safely projected into the typed streaming tables."""
+    """An event cannot be safely projected into the typed log layers."""
 
 
 def _timestamp(value: str) -> datetime:
@@ -91,7 +91,7 @@ def _project(msg: dict, raw: str) -> ParsedAccessEvent:
     now_dt = datetime.now(timezone.utc)
     now_ts_str = now_dt.strftime("%Y-%m-%d %H:%M:%S.%f")
 
-    # Parse event timestamp in Asia/Ho_Chi_Minh
+    # Normalize timezone-aware event timestamps to UTC
     ts_str: str = msg.get("timestamp") or ""
     try:
         event_dt = _timestamp(ts_str)
