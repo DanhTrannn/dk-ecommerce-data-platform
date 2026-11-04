@@ -598,6 +598,11 @@ export type {
   StoreRunRateSignal,
   StoreStockoutSignal,
   SystemMetricsResponse,
+  HttpMetricsResponse,
+  HttpMetricTotals,
+  HttpHourMetric,
+  HttpRouteMetric,
+  HttpLatencyGroup,
   TopProductMetric,
   ViralProductSignal,
   CouponUsageMetric,
@@ -625,6 +630,7 @@ export {
   createAdminInboundReceipt,
   getAdminRoleMetrics,
   getAdminSalesTrend,
+  getAdminHttpMetrics,
   getAdminAnalyticsStores,
 } from "./commerce";
 

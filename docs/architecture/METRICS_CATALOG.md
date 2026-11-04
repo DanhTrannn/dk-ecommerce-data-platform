@@ -139,3 +139,20 @@ mart_admin_overview có một dòng current tại admin_observed_at của DAG. C
 Các bộ đếm trạng thái là số đơn, gồm pending_payment/paid/confirmed/shipping/delivered/completed/cancelled/failed_delivery/returned. Failed delivery không giới hạn COD; returned không phải số yêu cầu trả. API kiểm tra tổng dòng đơn của summary khớp SUM(total_orders) từ order mart. UI dùng total_orders được công bố cho mẫu số, hiển thị đầy đủ trạng thái và không cộng các đơn vị khác nhau thành số việc cần làm. Thanh tỷ lệ bằng 0 giữ chiều rộng 0.
 
 Tài chính Admin lấy SUM gross_revenue_vnd/refunded_amount_vnd/net_revenue_vnd/cogs_vnd/gross_profit_vnd từ mart_order_daily cùng publication, theo công thức nhận diện và phân bổ đã dùng ở Executive. Biên lợi nhuận = profit/net khi net>0; không có mẫu số hoặc không có mart row trả null. Thời điểm quan sát admin khác thời điểm publication và thời điểm UI nhận response. API chỉ đọc mart; không dùng MySQL để thay thế dữ liệu tổng quan thiếu.
+
+## 9. HTTP Metrics — báo cáo theo giờ
+
+API `GET /api/v1/admin/analytics/http-metrics?days=7` dành cho admin/system_admin; chỉ đọc `mart_hourly_route_metrics` pin snapshot từ publication log schema 1. Bộ chọn 1/7/30 ngày ở System chỉ đổi phần HTTP; API nhận 1–30 ngày. Cửa sổ gồm các ngày UTC, bắt đầu 00:00 ngày cách ngày `observed_at` của publication `days - 1` ngày, kết thúc ở mốc quan sát đó. Ngày cuối có thể chưa đủ 24 giờ. Publication log độc lập publication OLTP; tải lại giao diện không kích hoạt rollup.
+
+| Chỉ số | Cách tính / grain | Giới hạn |
+|---|---|---|
+| Tổng request | SUM total_requests trên toàn kỳ | Sự kiện đã ghi nhận, không phải người/session/giao dịch duy nhất |
+| Thành công | SUM success_2xx_count | Tên cột legacy; ingestion hiện đếm is_success (<400), UI ghi 2xx/3xx |
+| Lỗi 4xx / 5xx | SUM từng bộ đếm | Là phản hồi HTTP, không tự suy ra nguyên nhân hoặc thất bại nghiệp vụ |
+| Tỷ lệ lỗi | 100 × (SUM 4xx + SUM 5xx) / SUM request | Mẫu số 0 → null; không trung bình các tỷ lệ nhóm |
+| Độ trễ trung bình | SUM(avg_duration_ms × total_requests) / SUM trọng số nhóm có mean | Mean nhóm đã làm tròn; ingestion hiện cung cấp duration cho mỗi sự kiện hợp lệ; nhóm thiếu mean bị loại khỏi trọng số, không thay bằng 0 |
+| Chuỗi theo giờ | Tổng bộ đếm theo ngày UTC × giờ UTC | Giờ không có quan sát là khoảng trống, không nội suy 0 |
+| Route cần kiểm tra | Aggregate kỳ theo route × method, top 20 theo số lỗi rồi mean latency | Chỉ là tập con; không cộng bảng top để thay tổng KPI |
+| p50/p95/p99 | Giá trị percentile_approx tại ngày × giờ × route × method | Top 20 theo p95; không phải percentile toàn kỳ, không trung bình/cộng các percentile |
+
+Phản hồi có `window_start`, `observed_at`, `source_run_id`, `data_updated_at` và metadata cache riêng. Mart rỗng giữ null tổng và danh sách rỗng; số 0 đã quan sát vẫn là 0. Lỗi đọc hoặc thiếu publication/snapshot dùng cache còn hạn theo đúng `days`, có đánh dấu degraded, hoặc 503 nếu không có cache hợp lệ. Cache giữ cửa sổ và thời điểm đo cũ. Khi một trong hai phần HTTP/đối soát đơn lỗi, phần còn đọc được vẫn hiển thị độc lập. Chưa triển khai luồng Landing realtime 10 giây trong phần này; không xác nhận SLA hoặc năng lực chịu tải từ các chỉ số trên.

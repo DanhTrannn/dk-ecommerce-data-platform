@@ -1075,6 +1075,50 @@ export type RoleMetricsResponse =
   | OperationsMetricsResponse
   | SystemMetricsResponse;
 
+export interface HttpMetricTotals {
+  total_requests: number | null;
+  success_count: number | null;
+  client_error_count: number | null;
+  server_error_count: number | null;
+  error_rate_percent: number | null;
+  avg_duration_ms: number | null;
+}
+
+export interface HttpHourMetric extends HttpMetricTotals {
+  metric_date: string;
+  metric_hour: number;
+}
+
+export interface HttpRouteMetric extends HttpMetricTotals {
+  http_route: string | null;
+  http_request_method: string | null;
+}
+
+export interface HttpLatencyGroup {
+  metric_date: string;
+  metric_hour: number;
+  http_route: string | null;
+  http_request_method: string | null;
+  total_requests: number;
+  p50_duration_ms: number | null;
+  p95_duration_ms: number | null;
+  p99_duration_ms: number | null;
+}
+
+export interface HttpMetricsResponse extends AnalyticsDataStatus {
+  days: number;
+  window_start: string;
+  observed_at: string;
+  totals: HttpMetricTotals;
+  hours: HttpHourMetric[];
+  routes: HttpRouteMetric[];
+  latency_groups: HttpLatencyGroup[];
+}
+
+export function getAdminHttpMetrics(days: number = 7): Promise<HttpMetricsResponse> {
+  return apiFetch<HttpMetricsResponse>(`/api/v1/admin/analytics/http-metrics?days=${encodeURIComponent(days)}`);
+}
+
 export interface DailySalesTrendPoint {
   date: string;
   revenue_vnd: number;
