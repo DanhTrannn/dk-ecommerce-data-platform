@@ -13,16 +13,19 @@ except ImportError:
     col = current_timestamp = input_file_name = lit = None  # type: ignore
 
 
-def _append_iceberg_with_schema_evolution(spark, df, target_table: str) -> None:
-    """Replace one run atomically; preserve other runs and additive source columns."""
+def _append_iceberg_with_schema_evolution(spark, df, target_table: str, *, version_columns=()) -> None:
+    """Keep source versions once; legacy callers replace their run as before."""
     table_exists = spark.catalog.tableExists(target_table)
-    run_ids = df.select("_run_id").distinct().collect()
-    if len(run_ids) != 1 or not run_ids[0]["_run_id"]:
-        raise ValueError("Bronze writes require exactly one non-empty run_id")
-    run_id = run_ids[0]["_run_id"]
-
+    if not version_columns:
+        run_ids = df.select("_run_id").distinct().collect()
+        if len(run_ids) != 1 or not run_ids[0]["_run_id"]:
+            raise ValueError("Bronze writes require exactly one non-empty run_id")
     if table_exists:
-        spark.sql(render_sql("spark/bronze/enable_schema_evolution.sql", target_table=identifier(target_table)))
+        if version_columns:
+            # MERGE must resolve the target schema; new columns are added below.
+            spark.sql(f"ALTER TABLE {target_table} SET TBLPROPERTIES ('write.spark.accept-any-schema'='false')")
+        else:
+            spark.sql(render_sql("spark/bronze/enable_schema_evolution.sql", target_table=identifier(target_table)))
 
         target_schema = spark.table(target_table).schema
         target_names = {field.name for field in target_schema.fields}
@@ -51,14 +54,21 @@ def _append_iceberg_with_schema_evolution(spark, df, target_table: str) -> None:
                 for field in target_schema.fields
             ]
         )
-        aligned_df.writeTo(target_table).overwrite(col("_run_id") == lit(run_id))
+        if version_columns:
+            aligned_df.createOrReplaceTempView("bronze_delta")
+            match = " AND ".join(f"t.{column} <=> s.{column}" for column in version_columns)
+            spark.sql(f"""MERGE INTO {target_table} t USING bronze_delta s ON {match}
+                WHEN MATCHED THEN UPDATE SET *
+                WHEN NOT MATCHED THEN INSERT *""")
+        else:
+            aligned_df.writeTo(target_table).overwrite(col("_run_id") == lit(run_ids[0]["_run_id"]))
         return
 
     (
         df.writeTo(target_table)
         .using("iceberg")
         .tableProperty("format-version", "2")
-        .tableProperty("write.spark.accept-any-schema", "true")
+        .tableProperty("write.spark.accept-any-schema", "false" if version_columns else "true")
         .create()
     )
 

@@ -11,8 +11,6 @@ from .quarantine import write_quarantine
 
 @dataclass
 class MergeResult:
-    inserted: int = 0
-    updated: int = 0
     quarantined: int = 0
 
 
@@ -28,7 +26,7 @@ def merge_oltp_table(
 
     deduped = _dedup_by_pk(bronze_df, table.pk, table.cursor_field)
     if table.name == "orders":
-        from lakehouse.oltp.cdc import region_column
+        from lakehouse.oltp.region import region_column
 
         deduped = deduped.withColumn("shipping_region", region_column(F.col("shipping_address_text")))
 
@@ -74,50 +72,24 @@ def merge_oltp_table(
     valid_df = _add_silver_metadata(valid_df, run_id)
 
     if _write_format == "iceberg":
-        target_exists = spark.catalog.tableExists(target_path)
-        existing_df = spark.read.format("iceberg").load(target_path) if target_exists else None
-    else:
-        from pyspark.errors import AnalysisException
+        from lakehouse.sql import identifier
 
-        try:
-            existing_df = spark.read.format(_write_format).load(target_path)
-            target_exists = True
-        except AnalysisException as exc:
-            if exc.getErrorClass() != "PATH_NOT_FOUND":
-                raise
-            existing_df, target_exists = None, False
+        target_schema = spark.table(target_path).schema
+        aligned = valid_df.select(
+            *[
+                F.col(field.name).cast(field.dataType).alias(field.name)
+                if field.name in valid_df.columns
+                else F.lit(None).cast(field.dataType).alias(field.name)
+                for field in target_schema.fields
+            ]
+        )
+        aligned.createOrReplaceTempView("silver_delta")
+        key, cursor = identifier(table.pk), identifier(table.cursor_field)
+        # A historical backfill must not overwrite a newer source version.
+        spark.sql(f"""MERGE INTO {identifier(target_path)} t USING silver_delta s
+            ON t.{key} = s.{key}
+            WHEN MATCHED AND (t.{cursor} IS NULL OR s.{cursor} >= t.{cursor}) THEN UPDATE SET *
+            WHEN NOT MATCHED THEN INSERT *""")
+        return result
 
-    if target_exists:
-        existing_deduped = _dedup_by_pk(existing_df, table.pk, table.cursor_field)
-
-        existing_pks = existing_deduped.select(table.pk).distinct()
-        batch_pks = valid_df.select(table.pk).distinct()
-        new_pks_count = batch_pks.join(existing_pks, table.pk, "left_anti").count()
-        updated_pks_count = batch_pks.join(existing_pks, table.pk, "inner").count()
-
-        result.inserted = new_pks_count
-        result.updated = updated_pks_count
-
-        combined = valid_df.unionByName(existing_deduped, allowMissingColumns=True)
-        merged = _dedup_by_pk(combined, table.pk, table.cursor_field)
-
-        # Ensure schema alignment with target table
-        target_cols = existing_df.columns
-        for c in target_cols:
-            if c not in merged.columns:
-                merged = merged.withColumn(c, F.lit(None))
-        merged = merged.select(*target_cols)
-
-        if _write_format == "iceberg":
-            merged.writeTo(target_path).overwrite(F.lit(True))
-        else:
-            merged.write.format(_write_format).mode("overwrite").save(target_path)
-    else:
-        result.inserted = valid_df.count()
-        result.updated = 0
-        if _write_format == "iceberg":
-            valid_df.writeTo(target_path).using("iceberg").create()
-        else:
-            valid_df.write.format(_write_format).mode("overwrite").save(target_path)
-
-    return result
+    raise ValueError("Silver writes require Iceberg")

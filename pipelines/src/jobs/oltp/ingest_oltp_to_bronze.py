@@ -1,32 +1,23 @@
-"""CLI entrypoint for validated, retry-safe Landing-to-Bronze ingestion."""
+"""Load reusable staging into Bronze without duplicating source versions."""
 
 import argparse
-import os
-import sys
-
-from lakehouse.config import load_config
+from dataclasses import replace
+from lakehouse.config import SOURCE_TABLES, load_config
 from lakehouse.oltp.ingestion import ingest_bronze_tables
 from lakehouse.spark import spark_session
 
 
-def parse_args(args):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config-path")
-    parser.add_argument("--run-id", required=True)
-    parser.add_argument("--extract-date", required=True)
-    parser.add_argument("--tables", nargs="*")
-    parser.add_argument("--bucket", default=os.environ.get("MINIO_LAKEHOUSE_BUCKET", "lakehouse"))
-    parser.add_argument("--error-threshold", type=float, default=0.01)
-    return parser.parse_args(args)
-
-
 def main():
-    args = parse_args(sys.argv[1:])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--table", choices=[table.name for table in SOURCE_TABLES])
+    parser.add_argument("--config-path", required=True)
+    args = parser.parse_args()
     cfg = load_config(args.config_path)
-    os.environ["MINIO_LAKEHOUSE_BUCKET"] = args.bucket
-    spark = spark_session("ingest_oltp_to_bronze")
+    if args.table:
+        cfg = replace(cfg, tables=(cfg.table(args.table),))
+    spark = spark_session("staging_to_bronze")
     try:
-        ingest_bronze_tables(spark, cfg, args.run_id, args.extract_date, args.tables, args.error_threshold)
+        ingest_bronze_tables(spark, cfg)
     finally:
         spark.stop()
 
