@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 
 from lakehouse.config import load_config
@@ -40,10 +39,7 @@ def main() -> None:
         finally:
             spark.stop()
 
-    if os.environ.get("LAKEHOUSE_OLTP_MODE", "cdc") == "cdc":
-        with oltp_writer_lock():
-            run()
-    else:
+    with oltp_writer_lock():
         run()
 
 

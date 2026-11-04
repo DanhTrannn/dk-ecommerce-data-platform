@@ -1,4 +1,4 @@
-"""Independent local writer locks for OLTP/CDC and log-mart publication."""
+"""Independent local writer locks for batch and log-mart publication."""
 
 import fcntl
 import os

@@ -1,4 +1,4 @@
-"""Publish one validated set of OLTP snapshots for batch and CDC readers."""
+"""Publish one validated set of OLTP snapshots for batch analytics readers."""
 
 import json
 
@@ -24,16 +24,6 @@ def ensure_publications(spark):
 
 def publish(spark, cfg, run_id, *, mode, source_at=None, offsets=None, changed=()):
     ensure_publications(spark)
-    # A controlled batch handoff must retain the last acknowledged CDC position.
-    # Airflow does not advance transport offsets or erase the source checkpoint.
-    if mode == "batch" and offsets is None:
-        previous = spark.sql(
-            f"SELECT offsets_json,source_event_at FROM {PUBLICATIONS} ORDER BY published_at DESC LIMIT 1"
-        ).collect()
-        if previous:
-            offsets = json.loads(previous[0].offsets_json)
-            if source_at is None:
-                source_at = previous[0].source_event_at
     targets = {f"lakehouse.silver.{table.silver_table}" for table in cfg.tables}
     targets.update(f"lakehouse.gold.{name}" for name in GOLD_TABLE_DDL)
     snapshots = {}
@@ -41,8 +31,11 @@ def publish(spark, cfg, run_id, *, mode, source_at=None, offsets=None, changed=(
         rows = spark.sql(f"SELECT snapshot_id FROM {target}.refs WHERE name='main'").collect()
         snapshots[target] = rows[0].snapshot_id if rows else None
     source = f"TIMESTAMP {literal(str(source_at))}" if source_at else "CAST(NULL AS TIMESTAMP)"
-    spark.sql(f"""INSERT INTO {PUBLICATIONS}
-        (run_id,published_at,source_event_at,snapshots_json,offsets_json,changed_tables_json,schema_version,source_mode)
-        SELECT {literal(run_id)}, current_timestamp(), {source},
-        {literal(json.dumps(snapshots))}, {literal(json.dumps(offsets or {}))},
-        {literal(json.dumps(sorted(changed)))}, {SCHEMA_VERSION}, {literal(mode)}""")
+    spark.sql(f"""MERGE INTO {PUBLICATIONS} t USING (
+        SELECT {literal(run_id)} AS run_id, current_timestamp() AS published_at, {source} AS source_event_at,
+        {literal(json.dumps(snapshots))} AS snapshots_json, {literal(json.dumps(offsets or {}))} AS offsets_json,
+        {literal(json.dumps(sorted(changed)))} AS changed_tables_json,
+        {SCHEMA_VERSION} AS schema_version, {literal(mode)} AS source_mode
+        ) s ON t.run_id = s.run_id AND t.source_mode = s.source_mode
+        WHEN MATCHED THEN UPDATE SET *
+        WHEN NOT MATCHED THEN INSERT *""")

@@ -116,10 +116,6 @@ principals:
 
 credential_outputs:
   - principal: spark_writer
-    directory: /run/polaris-output/spark-cdc
-    uid: 185
-    gid: 185
-  - principal: spark_writer
     directory: /run/polaris-output/spark-client
     uid: 185
     gid: 185
