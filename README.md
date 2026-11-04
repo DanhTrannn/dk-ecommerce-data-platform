@@ -24,7 +24,7 @@
 The **D&K E-Commerce Data Platform** is a local Data Engineering project combining an e-commerce source application, batch data processing, MySQL change capture, and access-log streaming. MySQL contains 28 OLTP tables; 27 are configured for analytical ingestion. Data is stored in Apache Iceberg on MinIO, cataloged by Polaris, and queried through Trino. A Next.js/FastAPI application provides Storefront, POS, administration, and ECharts dashboards.
 
 > [!NOTE]
-> The platform has three data paths: **OLTP batch**, **MySQL binlog CDC**, and **access-log streaming**. The CDC path continuously publishes Bronze events into typed Silver and affected Gold tables through a persistent Spark consumer; the daily Airflow DAG runs source-to-Silver reconciliation in CDC mode.
+> The platform has three data paths: **OLTP batch**, **MySQL binlog CDC**, and **access-log streaming**. Airflow batch is the only OLTP Silver/Gold writer. CDC continuously records Bronze audit events; it does not apply changes to analytical tables.
 
 ## Overview
 
@@ -35,7 +35,7 @@ All seven analytics roles, admin overview, store overview, and sales trends quer
 ## Features
 
 - **Hybrid Ingestion:** Spark batch extraction, Debezium MySQL CDC, and Kafka/Flink access-log processing.
-- **Incremental Batch:** Composite cursors `(cursor_field, pk)`, lookback windows, high watermarks, Parquet files, and manifests.
+- **Incremental Batch:** Airflow time intervals, sequential Spark JDBC extraction in 10,000-row chunks, reusable Parquet staging, retry-safe Bronze history, and incremental Silver MERGE; no lookback, cursor files or manifests. Source tables and mappings are declared in `pipelines/src/lakehouse/config.py`. Both OLTP DAGs expose one task per table in five TaskGroups: staging, Bronze, Silver, Gold and mart.
 - **Medallion Processing:** Bronze source history, Silver typing/deduplication/MERGE and PII pseudonymization, and Gold dimensions/facts/marts.
 - **Data Quality and Reconciliation:** Source-to-Silver reconciliation and post-Gold checks, with audit results in `lakehouse.system.data_quality_results`.
 - **Open Lakehouse Storage:** MinIO object storage, Iceberg tables/snapshots, Polaris catalog, and scheduled maintenance.
@@ -55,7 +55,7 @@ All seven analytics roles, admin overview, store overview, and sales trends quer
 
 ### Quick Start (One Command)
 
-The launcher creates `.env` from `.env.example` if needed, starts the `core`, `batch`, and `streaming` profiles, waits for service readiness, and initializes missing Gold schemas:
+The launcher creates `.env` from `.env.example` if needed, starts the selected profiles (`core` by default), waits for their readiness, and initializes missing Gold schemas when analytical services are selected:
 
 ```bash
 make up
@@ -149,12 +149,12 @@ Storage workloads use seven scoped MinIO identities and four Polaris principals:
                        MySQL (28 tables)
 
 OLTP batch:
-  MySQL -> Spark -> Landing Parquet -> Bronze -> Silver -> Gold
+  MySQL interval -> Spark -> reusable staging -> Bronze source versions -> Silver MERGE -> Gold/marts
+  Validated Gold -> published Iceberg snapshots -> Trino/API
 
 MySQL CDC:
   MySQL binlog -> Debezium -> Kafka -> Flink -> Bronze CDC events
-  Bronze -> Spark CDC consumer -> typed Silver -> affected Gold/Data Marts
-  Spark CDC consumer -> atomic publication manifest (Kafka offsets + Iceberg snapshots)
+  Bronze CDC events -> audit/replay inspection (no automatic Silver/Gold writes)
 
 Access logs:
   FastAPI middleware -> Kafka -> Flink -> Iceberg log tables
@@ -197,7 +197,7 @@ The OLTP batch DAG is scheduled daily at 02:00 Asia/Ho_Chi_Minh; OLTP maintenanc
 
 Source–Silver reconciliation runs before Gold processing; a second gate checks Gold counts, monetary parity, keys, references, lineage, and PII tokens. Failures mark the task/DAG unsuccessful and results are recorded in `lakehouse.system.data_quality_results`. These runtime gates remain part of data processing.
 
-CDC materialization applies transaction-complete Bronze changes to typed Silver, refreshes dependent Gold tables, and advances its Kafka checkpoint only after validation and publication. The daily batch path remains available in explicit batch mode; reconciliation runs read-only in CDC mode. The Spark and Airflow writers share a local filesystem lock. Maintenance targets an explicit subset of tables. Current transaction, permission, security and recovery limits are documented in [scope](docs/project/SCOPE.md) and [setup](docs/runbook/SETUP.md).
+OLTP batch is the only Silver/Gold writer. Airflow supplies a fixed interval, Spark overwrites staging, Bronze retains each run, and Silver MERGEs only that delta. Gold is rebuilt and validated before publication. CDC remains Bronze audit only. Maintenance targets an explicit subset of tables. Current limits and recovery commands are in [scope](docs/project/SCOPE.md), [pipelines](pipelines/README.md) and [setup](docs/runbook/SETUP.md).
 
 ---
 
@@ -276,9 +276,9 @@ The BI Hub reads a pinned Iceberg snapshot set through Trino. Responses identify
 | **Inventory** | On-hand units/value, inbound batches, stock alerts and daily history | Published current/summary/history inventory marts | Current balances are separate from daily observations |
 | **Operations** | Pending orders at observation time, shipment performance, COD regions, return requests and successful refunds | Published operations/COD/logistics/return marts | Requests, lines, units and paid refunds use separate definitions |
 | **Marketing** | 30-day event funnel, product interest, coupon usage, recent approved negative reviews | Two published log marts and three published OLTP marketing marts | Independent source timestamps/cache; request events are not unique people/orders |
-| **System** | Publication age, CDC heartbeat/pending events, order-count and monetary variance | Published Gold compared with current MySQL | Source values may be ahead while CDC is applying events |
+| **System** | Batch publication age, order-count and monetary variance | Published Gold compared with current MySQL | Source values may be ahead between batch runs |
 
-Dashboard refresh reads the latest complete publication; new OLTP data appears after CDC capture, application, dependent Gold refresh, and publication. Definitions, windows, denominators, and current limitations are detailed in the [Metrics Catalog](docs/architecture/METRICS_CATALOG.md).
+Dashboard refresh reads the latest complete publication; new OLTP data appears after a successful batch extraction, Silver MERGE, Gold refresh and publication. Definitions, windows, denominators, and current limitations are detailed in the [Metrics Catalog](docs/architecture/METRICS_CATALOG.md).
 
 Executive, Sales and sales trends read only published Data Marts. `mart_order_daily` groups by Vietnam order date, channel and store so order counts are additive; `mart_product_sales_daily` supplies product rankings, while `mart_sales_daily` retains category detail. Missing Executive data and undefined ratios return `null`; a verified zero amount remains zero. Store, Inventory, store overview and store selection also use published marts. `mart_inventory_current` stores one current SKU/location balance; `mart_inventory_summary` holds the overall counts/amounts and inbound count; `mart_store_overview` holds store totals/staff and stock coverage. The existing `mart_inventory_health` supplies daily history. Undefined stock coverage is null, and SKU stockouts are counted distinctly across locations. Depletion/runway estimates have been removed. Operations uses `mart_operations_summary`, `mart_cod_region_daily`, `mart_logistics_performance` and `mart_product_returns`. Waiting time is frozen at the declared observation timestamp. Missing shipment deadlines produce unknown on-time rates. Return counts distinguish unique requests and lines; requested refund amounts are separate from successful refund payments. Marketing uses `mart_marketing_funnel_daily` and `mart_daily_product_demand` through a separate log publication, and `mart_marketing_summary`, `mart_coupon_usage` and `mart_product_review_summary` through the OLTP publication. Its 15/45-minute commerce windows freeze at the observation time; the log window covers 30 UTC dates ending at the log observation date. Each source has independent availability/cache metadata. System and admin overview retain their current sources pending later phases.
 

@@ -76,9 +76,9 @@ COMPOSE_PROFILES=core,batch,streaming KAFKA_ENABLED=true docker compose up -d
 
 Core-only startup does not launch MinIO, Polaris, Airflow, Kafka or Trino. Transactional features remain available; BI queries require the analytical platform and a completed publication. The launcher initializes missing Gold schemas only for `batch`/`streaming`; creating tables does not populate analytical results or execute a DAG.
 
-Service profiles do not change `LAKEHOUSE_OLTP_MODE`: the existing default is still `cdc` in this deployment-only refactor. Running the OLTP batch DAG requires the controlled writer handoff described in section 7.1 (stop `spark-cdc`, then select batch mode). Starting only `core,batch` does not automatically republish existing source data.
+OLTP analytics now has one writer: the batch DAG. Starting `core,batch` does not itself extract or publish data. CDC is audit-only; there is no writer-mode environment switch.
 
-Spark runs with `SPARK_MASTER_URL=local[2]` inside the container executing each job. Airflow's `spark_default` connection uses the same value, including an environment-backed connection that overrides legacy metadata pointing at the retired cluster. Spark SQL and the current CDC materializer also run locally. There is no Spark master/worker service or persistent Spark cluster UI. Adjust the local thread count in `.env` if required.
+Spark runs with `SPARK_MASTER_URL=local[2]` inside the container executing each job. Airflow's `spark_default` connection uses the same value, including an environment-backed connection that overrides legacy metadata pointing at the retired cluster. Ad hoc Spark SQL also runs locally. There is no Spark master/worker service or persistent Spark cluster UI. Adjust the local thread count in `.env` if required.
 
 ### Updating an existing installation
 
@@ -142,7 +142,6 @@ Compose waits for health checks or successful completion of initialization jobs 
 | Web (`core`) | Healthy `mysql` → `ecommerce-api` → `storefront`; Kafka is optional and used when `streaming` is enabled |
 | CDC (`streaming`) | Healthy MySQL → `mysql-cdc-init`; healthy Kafka plus successful MySQL CDC init → `debezium-connect` → `debezium-init` |
 | Flink (`streaming`) | Kafka/catalog ready → JobManager/TaskManager → separate access-log and CDC submissions |
-| CDC materializer (`streaming`) | Initialized catalog/credentials, writer lock and CDC submission → local `spark-cdc`; no Spark cluster |
 | Management interfaces (`tools`) | Polaris Console, LibreDB Studio and Trino Admin, with their storage/query dependencies; no Airflow or streaming jobs |
 | Spark SQL utility (`lakehouse-tools`) | `spark-client` runs local Spark SQL with its own credential volume; storage/catalog dependencies are included |
 
@@ -193,14 +192,17 @@ LibreDB Studio at `http://localhost:3001` also provides a SQL interface. Airflow
 
 The [root README](../../README.md#historical-data-backfill) contains automated and manual SQL/log backfill commands; the [generator guide](../../generator/README.md) describes dataset configuration and account mapping. Uploaded historical JSONL files remain raw Landing assets because the current Flink job reads Kafka.
 
-After loading source data, unpause and trigger the OLTP DAG (DAGs start paused by default):
+After loading source data, use the separate manual init DAG. It reads the entire source without a time filter:
 
 ```bash
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_pipeline
-docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_pipeline
+docker compose exec -T airflow-scheduler airflow dags pause lakehouse_oltp_pipeline
+docker compose exec -T airflow-scheduler airflow dags unpause init_lakehouse_oltp
+docker compose exec -T airflow-scheduler airflow dags trigger init_lakehouse_oltp
 ```
 
-Inspect the run in Airflow and query its quality audit before considering Gold ready. Batch commits cursors after Bronze; a later failure does not automatically rewind them or roll back Gold tables together. The source is live during per-table extraction/reconciliation, not frozen in one global MySQL snapshot. See [Lakehouse Design](../project/LAKEHOUSE_DESIGN_PLAN.md).
+Wait for validation/publication before starting interval runs. Init and batch share staging and analytical targets; there is no cross-DAG concurrency check. Init preserves existing history; it does not truncate Bronze or Silver. The normal DAG no longer accepts a full-extract flag.
+
+Scheduled runs read only their Airflow interval, with no lookback. Staging is overwritten, Bronze merges source versions by primary key/change timestamp; Silver uses incremental MERGE by primary key. Extract retries refetch from the beginning; downstream retries reuse their existing input without checkpoints. Retry failed tasks in the same DAG run; downstream retries read existing input from the beginning, without re-extracting source. Gold uses the fixed DAG start time for time-based calculations. Recover missed intervals explicitly or run the init DAG. Source timestamps must change on updates; source hard deletes are not propagated automatically. See [pipeline details](../../pipelines/README.md).
 
 Maintenance DAGs are also initially paused. Enable them explicitly when required:
 
@@ -221,7 +223,7 @@ curl -fsS http://127.0.0.1:8086/connectors/mysql-ecommerce-cdc/status
 curl -fsS http://localhost:8085/jobs/overview
 ```
 
-CDC appends Bronze events, applies them to typed Silver/affected Gold with `spark-cdc`, then publishes offsets and pinned Iceberg snapshot IDs. In CDC mode the daily OLTP DAG checks source-to-Silver parity; manual batch processing requires a controlled handoff with CDC stopped. See the [CDC specification](../architecture/CDC_DASHBOARD_DATA_SPEC.md) for transaction gates, bootstrap, lock boundaries and recovery, and [access-log design](../architecture/ACCESS_LOG_DESIGN.md) for log contracts.
+CDC appends Bronze audit events only; batch owns Silver/Gold publication. No persistent Spark CDC consumer or transport offsets are required for analytics. See the [CDC specification](../architecture/CDC_DASHBOARD_DATA_SPEC.md).
 
 ---
 
@@ -283,7 +285,7 @@ docker compose --profile batch logs --tail=200 postgres polaris-bootstrap polari
 
 # Spark job logs (local execution)
 docker compose --profile batch logs --tail=200 airflow-scheduler
-docker compose --profile streaming logs --tail=200 spark-cdc
+docker compose --profile streaming logs --tail=200 flink-cdc-submit
 
 # Trino query engine logs
 docker compose logs --tail=200 trino
@@ -299,7 +301,7 @@ docker compose logs --tail=200 trino
 - **Branch stock changes return 204 but do not persist:** branch-inventory PATCH and inventory/refill POST currently only flush; get_db closes the session without committing. This is an application transaction limitation, not a CDC lag symptom. See [API limits](../../services/ecommerce-api/README.md#current-limits).
 - **COD payment changes missing in Silver:** payments uses updated_at. Existing databases require the explicit timestamp upgrade and one-time Silver refresh described below. A created_at-only legacy schema cannot capture later COD updates.
 - **Flink recovery/replay:** submission does not pass a checkpoint/savepoint restore path. A new access-log submission starts at earliest; CDC uses group offsets with earliest fallback. Inspect restore state and offsets explicitly. The access producer has a local DLQ without automatic replay.
-- **Dashboard data is behind OLTP:** check Debezium, Flink Bronze, `spark-cdc` heartbeat/pending transaction state, and the latest `system.analytics_publications` row. Browser refresh polls every 15 seconds and never starts a pipeline.
+- **Dashboard data is behind OLTP:** check the OLTP batch DAG, its `validate_and_publish` task and the latest `system.analytics_publications` row. Browser refresh polls every 15 seconds and never starts a pipeline.
 
 ### Rebuild a changed frontend
 
@@ -314,66 +316,13 @@ HTTP success only verifies that the page is served. Sign in with an appropriate 
 
 ---
 
-## 7.1. Upgrade payment timestamps and analytical publication schema
+## 7.1. Move an existing CDC-written installation to batch
 
-For an existing environment, keep MySQL/MinIO/Polaris/Spark/Flink/Trino available. Pause source writes (API, POS and import/generator tasks) and scheduled OLTP batch tasks. Let CDC drain completed transactions before stopping `spark-cdc`; check that `system.cdc_pipeline_state` reports `idle` with zero pending events. The payment refresh assumes this maintenance window; it is not a concurrent source snapshot protocol.
+Pause the old OLTP DAG and finish/cancel any unfinished runs before deploying the changed task graph. Stop the retired `spark-cdc` container before the first batch so it cannot write concurrently. If it is still present after updating Compose, stop the stack with `docker compose --profile '*' down --remove-orphans` (without `-v`), then start `core,batch` and optionally `streaming`. This preserves data volumes; no bootstrap state, source data, Bronze or old publications should be deleted.
 
-Build images containing the new Python modules and packaged SQL, then stop the source API and CDC writer:
+Rebuild affected API/Airflow images as needed. Check that the source schema includes `payments.updated_at` (older databases need the explicit migration `python -m app.db.upgrade_payment_timestamp` in the API container; starting the API does not run it automatically). Unpause and trigger `init_lakehouse_oltp`, wait for validation/publication, then enable the interval DAG as needed. The reader contract remains publication schema 3 and dashboard cache/RBAC are preserved. Historical source deletes cannot be inferred by the full extract.
 
-```bash
-docker compose build ecommerce-api spark-cdc airflow-scheduler
-docker compose stop ecommerce-api
-# Wait for CDC to report idle / pending_events=0, then:
-docker compose stop spark-cdc
-```
-
-Upgrade MySQL in place using the application database connection:
-
-```bash
-docker compose run --rm --no-deps ecommerce-api python -m app.db.upgrade_payment_timestamp
-```
-
-This adds or normalizes `payments.updated_at` with `ON UPDATE CURRENT_TIMESTAMP(6)` and its delta index. Repeating the command preserves existing rows and timestamps. It does not recreate the database or add a migration framework.
-
-In the default CDC mode, refresh existing Silver payments and rebuild all Gold outputs while retaining transport/source offsets:
-
-```bash
-docker compose run --rm --no-deps -e SPARK_MASTER_URL=local[2] spark-cdc /opt/spark/bin/spark-submit --master local[2] --conf spark.driver.host=127.0.0.1 --conf spark.driver.bindAddress=0.0.0.0 /opt/project/pipelines/src/jobs/cdc/apply_cdc_to_lakehouse.py --once --refresh-payments --rebuild-gold
-```
-
-The job adds missing Iceberg columns without dropping tables, refreshes canonical facts/marts, validates financial parity, and publishes schema version 3. Do not manually delete publication rows or CDC checkpoints. If it reports incomplete transactions or a quality failure, resolve the issue before resuming writes. Missing historical item cost blocks publication; today's variant cost is not a replacement.
-
-Restart the updated services after a successful publication:
-
-```bash
-docker compose up -d --no-deps ecommerce-api spark-cdc
-```
-
-For batch mode, keep CDC stopped, set `LAKEHOUSE_OLTP_MODE=batch` in the relevant services and recreate the Airflow services with that setting. Upgrade MySQL first, then run the OLTP DAG. The new timestamp on existing payments makes them eligible for the next incremental extraction. The post-Gold quality task creates a batch publication only after validation. Batch is rejected at DAG startup while `LAKEHOUSE_OLTP_MODE=cdc`.
-
-Verify `system.analytics_publications.schema_version=3`, its `source_mode` and snapshot entry for `lakehouse.gold.fact_inventory_current`. API reads require schema 3; older publications produce a clear unavailable response until rebuilt. The inventory alert threshold is `on_hand_quantity <= 5`. Current inventory is replaced fully; daily inventory history is retained separately.
-
-Executive/Sales and sales trends additionally require published snapshots for `mart_order_daily` and `mart_product_sales_daily`; category shares continue to use `mart_sales_daily`. These are additive schema-3 tables, not a reset of existing data. `ensure_oltp_gold_tables` creates them, batch mart processing fills them, and publication includes their snapshot IDs. CDC startup detects a publication missing either new mart and rebuilds Gold using the retained CDC offsets before publishing. Restart the updated consumer with `docker compose restart spark-cdc`, wait for a new complete publication containing both marts, then deploy the updated API/frontend. Monitor CDC errors; do not remove offsets or data to force this upgrade. API queries never substitute fact/Silver/MySQL for these marts. If a mart has no rows, Executive values are null and list endpoints return empty lists; valid zero activity remains zero.
-
-Store/Inventory, store overview and store selection additionally require `mart_inventory_current`, `mart_inventory_summary` and `mart_store_overview`. The same additive schema-3 startup detection creates/builds them and publishes their snapshots without resetting offsets. Deploy the updated API/frontend after that publication is available. Inventory current/summary tables must use current balances, not a sum over historical snapshots; daily history remains in `mart_inventory_health`. Missing stock coverage returns null; warehouse alert lists distinguish zero from positive low stock (1–5 units). Store metrics enforce the assigned store at the API boundary. The `depletion_velocity` and `overselling_prevented` fields were removed; internal frontend types/rendering were updated together.
-
-Operations additionally requires `mart_operations_summary` and `mart_cod_region_daily`, plus rebuilt logistics/return marts with their additive columns. Existing table data/snapshots are retained; DDL repair adds inspection status, eligibility/duration samples and return-line measures. Before deploying the updated API/frontend, rebuild Gold and publish the new snapshot set. An existing CDC consumer started with earlier code must be restarted; missing mart entries trigger its normal rebuild, or use the existing `--once --rebuild-gold` option in a controlled run while the continuous consumer is stopped. Retain offsets and restart the continuous consumer after success. Clock-based waiting measures freeze at operations_observed_at until a new build; do not interpret UI refresh as recomputation. API fields shipping_sla_violations_count, boom_orders_count, regional_boom_rates and fulfillment_bottleneck were replaced with explicit shipment/COD/fulfillment names in the Operations response; admin overview's separate fields are unchanged. No source shipment deadline exists, so on-time rates must remain unknown.
-
-
-Marketing requires the additive OLTP marts `mart_marketing_summary`, `mart_coupon_usage` and `mart_product_review_summary`. Rebuild/publish Gold before deploying the new API/frontend, retaining CDC offsets as above. Coupon/review windows freeze at marketing_observed_at. The internal Marketing response now exposes request-event fields, coupon/review/product lists, and independent `log_status`/`commerce_status`; it no longer exposes visitor/purchase proxy fields or voucher burn-rate signals.
-
-For logs, rerun `lakehouse-writer-init` to provision the sibling `logs.lock` in the existing writer volume. Enable `lakehouse_logs_marts` in Airflow for hourly rollups; DAGs start paused. The old maintenance DAG no longer refreshes marts. To build manually while no scheduled log run is active:
-
-```bash
-docker compose run --rm --no-deps lakehouse-writer-init
-docker compose exec airflow-scheduler spark-submit --master 'local[2]' /opt/project/pipelines/src/jobs/logs/build_logs_gold.py --run-id marketing-log-initialization
-```
-
-The log job pins the fact and published catalog inputs, replaces all three marts, validates results and writes its own `system.logs_analytics_publications` entry (schema 1). It retains OLTP publication/offsets and does not mutate source log events. The previous `--ingest-date` option is removed: a complete rollup handles older dates and identity mappings consistently. Log publication records observation time, source-event time and source/output snapshot IDs. On failure, the prior complete publication remains readable; retry rebuilds the outputs. API sections use independent bounded caches, or unavailable if a source has no readable publication. A Marketing 200 response can be partial/degraded; inspect both statuses. No single run ID or timestamp represents both sources.
-
-This phase keeps the existing Flink four-sink path. The later Landing-first log pipeline and realtime dashboards have not been implemented. Log maintenance remains on its existing two-hour schedule; manual-only maintenance is a later refactor step.
-
----
+Do not delete CDC offsets, audit tables or historical inventory snapshots to force an upgrade. Source-to-Silver reconciliation is an optional diagnostic while source writes are paused, not a required stage of every batch.
 
 ## 7.2. Kafka data directory
 

@@ -1,224 +1,82 @@
-from __future__ import annotations
+"""Extract a fixed Airflow interval into reusable Parquet staging."""
 
-from lakehouse.sql import identifier, render_sql
-
-import concurrent.futures
-import hashlib
-import json
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark import StorageLevel
 
-try:
-    from pyspark.sql.functions import col, count, lit, max, min
-except ImportError:
-    col = count = lit = max = min = None  # type: ignore
-
-from lakehouse.config import Config, TableSpec
-from lakehouse.landing import MANIFEST_VERSION, RunPaths
-from lakehouse.oltp.cursor import CursorState
-from lakehouse.oltp.query import build_range_predicate
+CHUNK_ROWS = 10_000
 
 
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _hadoop_fs(spark, path: str):
-    return spark._jvm.org.apache.hadoop.fs.FileSystem.get(
-        spark._jvm.org.apache.hadoop.fs.Path(path).toUri(),
-        spark._jsc.hadoopConfiguration(),
-    )
-
-
-def read_committed_cursor(spark, bucket: str, table: str) -> CursorState | None:
-    path = f"s3a://{bucket}/state/cursor/{table}.json"
-    fs = _hadoop_fs(spark, path)
-    hadoop_path = spark._jvm.org.apache.hadoop.fs.Path(path)
-    if not fs.exists(hadoop_path):
-        return None
-    stream = fs.open(hadoop_path)
-    content = spark._jvm.org.apache.commons.io.IOUtils.toString(stream, "UTF-8")
-    stream.close()
-    return CursorState.from_json(content)
-
-
-def _write_manifest(spark, bucket: str, manifest_key: str, manifest: dict) -> None:
-    fs = _hadoop_fs(spark, f"s3a://{bucket}/{manifest_key}")
-    path = spark._jvm.org.apache.hadoop.fs.Path(f"s3a://{bucket}/{manifest_key}")
-    fs.mkdirs(path.getParent())
-    out = fs.create(path, True)
-    out.write(json.dumps(manifest).encode("utf-8"))
-    out.close()
-
-
-def _file_stats(spark, paths: RunPaths) -> list[dict]:
-    fs = _hadoop_fs(spark, f"s3a://{paths.bucket}/{paths.data_prefix()}/*.parquet")
-    glob = f"s3a://{paths.bucket}/{paths.data_prefix()}/*.parquet"
-    statuses = sorted(
-        fs.globStatus(spark._jvm.org.apache.hadoop.fs.Path(glob)),
-        key=lambda s: str(s.getPath()),
-    )
-    files = []
-    for status in statuses:
-        key = str(status.getPath()).replace(f"s3a://{paths.bucket}/", "")
-        content = spark.read.format("binaryFile").load(f"s3a://{paths.bucket}/{key}").first()["content"]
-        md5 = hashlib.md5(bytes(content)).hexdigest()
-        rows = int(spark.read.parquet(f"s3a://{paths.bucket}/{key}").count())
-        files.append({"path": key, "rows": rows, "md5": md5})
-    return files
-
-
-def extract_one_table(
-    spark: SparkSession,
-    cfg: Config,
-    table: TableSpec,
-    run_id: str,
-    extract_date: str,
-    high_watermark_at: str,
-    high_watermark_pk: int | None,
-    committed: CursorState | None,
-) -> dict:
-    paths = RunPaths(bucket=cfg.bucket, table=table.name, extract_date=extract_date, run_id=run_id)
-    now_utc = _utc_now()
-
-    lookback_minutes = getattr(cfg.run, "lookback_minutes", 10)
-    range_pred = build_range_predicate(
-        table.cursor_field,
-        table.pk,
-        committed,
-        high_watermark_at,
-        high_watermark_pk,
-        lookback_minutes=lookback_minutes,
-    )
-
-    bounds = (
-        spark.read.format("jdbc")
-        .option("driver", "com.mysql.cj.jdbc.Driver")
-        .options(
-            url=cfg.jdbc_url,
-            query=(
-                render_sql(
-                    "mysql/extract_bounds.sql",
-                    table_pk=identifier(table.pk),
-                    table_pk_2=identifier(table.pk),
-                    table_name=identifier(table.name),
-                    range_pred=range_pred,
-                )
-            ),
+def _write_staging(spark, cfg, table, query):
+    last_pk = None
+    first_chunk = True
+    while True:
+        after = f" WHERE {table.pk} > {last_pk}" if last_pk is not None else ""
+        page_query = f"SELECT * FROM ({query}) source_rows{after} ORDER BY {table.pk} LIMIT {CHUNK_ROWS}"
+        df = (
+            spark.read.format("jdbc")
+            .option("driver", "com.mysql.cj.jdbc.Driver")
+            .option("url", cfg.jdbc_url)
+            .option("query", page_query)
+            .option("fetchsize", CHUNK_ROWS)
+            .load()
         )
-        .load()
-        .first()
-    )
+        missing = {table.pk, table.cursor_field} - set(df.columns)
+        if missing:
+            raise ValueError(
+                f"Source table {table.name} is missing configured columns {sorted(missing)}; "
+                "apply the source schema migration before extraction"
+            )
+        # Materialize only this page. Counting and writing must not re-query a
+        # changing source; never collect source rows into the Python driver.
+        df.persist(StorageLevel.MEMORY_AND_DISK)
+        try:
+            stats = df.agg(F.count("*").alias("rows"), F.max(table.pk).alias("last_pk")).first()
+            count = stats["rows"]
+            if not count and not first_chunk:
+                break
+            page = (
+                df.withColumn("_source_system", F.lit("mysql_ecommerce"))
+                .withColumn("_source_schema", F.lit("ecommerce"))
+                .withColumn("_source_table", F.lit(table.name))
+                .withColumn("_source_primary_key", F.col(table.pk).cast("string"))
+                .withColumn("_source_cursor_at", F.col(table.cursor_field))
+                .withColumn("_ingested_at_utc", F.current_timestamp())
+            )
+            # One Parquet per page. The first page also clears stale staging,
+            # including when the new run is empty.
+            page.coalesce(1).write.mode("overwrite" if first_chunk else "append").parquet(
+                f"s3a://{cfg.bucket}/{cfg.landing.oltp_prefix}/staging/{table.name}"
+            )
+            print(f"STAGING table={table.name} rows={count}", flush=True)
+            if count < CHUNK_ROWS:
+                break
+            last_pk = int(stats["last_pk"])
+            first_chunk = False
+        finally:
+            df.unpersist()
 
-    cursor_brief = {
-        "field": table.cursor_field,
-        "committed_at": committed.cursor_at if committed else None,
-        "committed_pk": committed.cursor_pk if committed else None,
-        "high_watermark_at": high_watermark_at,
-        "high_watermark_pk": high_watermark_pk,
-        "lookback_minutes": lookback_minutes,
-        "min_at": None,
-        "max_at": None,
-    }
-    if bounds["lo"] is None:
-        manifest = {
-            "manifest_version": MANIFEST_VERSION,
-            "run_id": run_id,
-            "table": table.name,
-            "source": {"system": "mysql_ecommerce", "schema": "ecommerce"},
-            "cursor": cursor_brief,
-            "rows": 0,
-            "empty": True,
-            "files": [],
-            "generated_at_utc": now_utc,
-        }
-        _write_manifest(spark, paths.bucket, paths.manifest_key(), manifest)
-        return manifest
 
-    df = (
-        spark.read.format("jdbc")
-        .option("driver", "com.mysql.cj.jdbc.Driver")
-        .option("url", cfg.jdbc_url)
-        .option(
-            "dbtable", render_sql("mysql/extract_rows.sql", table_name=identifier(table.name), range_pred=range_pred)
+def run_extract(spark, cfg, interval_start, interval_end):
+    lower = datetime.fromisoformat(interval_start.replace("Z", "+00:00"))
+    upper = datetime.fromisoformat(interval_end.replace("Z", "+00:00"))
+    if lower.tzinfo is None or upper.tzinfo is None:
+        raise ValueError("Batch interval must include a timezone")
+    lower = lower.astimezone(timezone.utc).replace(tzinfo=None)
+    upper = upper.astimezone(timezone.utc).replace(tzinfo=None)
+    if lower >= upper:
+        raise ValueError("interval_start must precede interval_end")
+    for table in cfg.tables:
+        query = (
+            f"SELECT * FROM {table.name} "
+            f"WHERE {table.cursor_field} >= '{lower.isoformat(sep=' ')}' "
+            f"AND {table.cursor_field} < '{upper.isoformat(sep=' ')}'"
         )
-        .option("partitionColumn", table.pk)
-        .option("lowerBound", str(bounds["lo"]))
-        .option("upperBound", str(bounds["hi"] + 1))
-        .option("numPartitions", 4)
-        .load()
-        .orderBy(table.cursor_field, table.pk)
-        .withColumn("_run_id", lit(run_id))
-        .withColumn("_source_system", lit("mysql_ecommerce"))
-        .withColumn("_source_schema", lit("ecommerce"))
-        .withColumn("_source_table", lit(table.name))
-        .withColumn("_source_primary_key", col(table.pk).cast("string"))
-        .withColumn("_source_cursor_at", col(table.cursor_field))
-        .withColumn("_source_high_watermark", lit(high_watermark_at))
-        .withColumn("_ingested_at_utc", lit(now_utc))
-    )
-
-    df.write.mode("overwrite").parquet(f"s3a://{paths.bucket}/{paths.data_prefix()}")
-    files = _file_stats(spark, paths)
-
-    cursor_df = df.agg(
-        min(col(table.cursor_field)).alias("min_at"),
-        max(col(table.cursor_field)).alias("max_at"),
-        count("*").alias("row_count"),
-    ).first()
-    cursor_brief["min_at"] = str(cursor_df["min_at"])
-    cursor_brief["max_at"] = str(cursor_df["max_at"])
-
-    manifest = {
-        "manifest_version": MANIFEST_VERSION,
-        "run_id": run_id,
-        "table": table.name,
-        "source": {"system": "mysql_ecommerce", "schema": "ecommerce"},
-        "cursor": cursor_brief,
-        "rows": int(cursor_df["row_count"]),
-        "empty": False,
-        "files": files,
-        "generated_at_utc": now_utc,
-    }
-    _write_manifest(spark, paths.bucket, paths.manifest_key(), manifest)
-    return manifest
+        _write_staging(spark, cfg, table, query)
 
 
-def run_extract(
-    spark: SparkSession,
-    cfg: Config,
-    high_watermarks: dict[str, dict],
-    run_id: str,
-    extract_date: str,
-    max_workers: int,
-) -> list[dict]:
-    def worker(table: TableSpec) -> dict:
-        hw = high_watermarks.get(table.name)
-        if hw is None:
-            raise RuntimeError(f"no high watermark captured for {table.name}")
-        committed = read_committed_cursor(spark, cfg.bucket, table.name)
-        return extract_one_table(
-            spark,
-            cfg,
-            table,
-            run_id,
-            extract_date,
-            high_watermark_at=hw["at"],
-            high_watermark_pk=hw.get("pk"),
-            committed=committed,
-        )
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(worker, table): table.name for table in cfg.tables}
-        manifests = []
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                manifests.append(future.result())
-            except Exception:
-                for other in futures:
-                    other.cancel()
-                raise
-    return manifests
+def run_initial_extract(spark, cfg):
+    """Read every source row, with no timestamp or interval predicate."""
+    for table in cfg.tables:
+        _write_staging(spark, cfg, table, f"SELECT * FROM {table.name}")

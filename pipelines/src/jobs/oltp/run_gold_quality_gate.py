@@ -33,8 +33,7 @@ def main() -> None:
             batch_date=args.batch_date,
         )
         print(f"GOLD QUALITY GATE OK: passed {summary['passed_checks']}/{summary['total_checks']} checks.")
-        if os.environ.get("LAKEHOUSE_OLTP_MODE", "cdc") == "batch":
-            publish(spark, load_config(args.config_path), args.run_id, mode="batch")
+        publish(spark, load_config(args.config_path), args.run_id, mode="batch")
     except GoldQualityGateError as exc:
         print(f"GOLD QUALITY GATE FAILURE: {exc}", file=sys.stderr)
         sys.exit(1)

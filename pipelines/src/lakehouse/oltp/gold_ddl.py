@@ -31,9 +31,9 @@ GOLD_TABLE_DDL["dim_customer"] = load_sql("spark/gold/dim_customer.sql")
 # 2. CORE FACTS
 # ==========================================
 
-GOLD_TABLE_DDL["fact_order"] = load_sql("spark/gold/fact_order.sql")
-
 GOLD_TABLE_DDL["fact_order_item"] = load_sql("spark/gold/fact_order_item.sql")
+
+GOLD_TABLE_DDL["fact_order"] = load_sql("spark/gold/fact_order.sql")
 
 GOLD_TABLE_DDL["fact_shipment"] = load_sql("spark/gold/fact_shipment.sql")
 
@@ -67,9 +67,10 @@ GOLD_TABLE_DDL["mart_coupon_usage"] = load_sql("spark/gold/mart_coupon_usage.sql
 GOLD_TABLE_DDL["mart_product_review_summary"] = load_sql("spark/gold/mart_product_review_summary.sql")
 
 
-def ensure_oltp_gold_tables(spark: SparkSession) -> None:
+def ensure_oltp_gold_tables(spark: SparkSession, tables=None) -> None:
     spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.gold")
-    for table_name, ddl in GOLD_TABLE_DDL.items():
+    for table_name in tables if tables is not None else GOLD_TABLE_DDL:
+        ddl = GOLD_TABLE_DDL[table_name]
         spark.sql(ddl)
         # Additive repair for environments created before the module refactor.
         # Existing rows/snapshots are preserved; the next Gold build fills fields.

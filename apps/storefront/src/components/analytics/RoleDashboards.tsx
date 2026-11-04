@@ -294,7 +294,7 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
           ]} />
         </Panel>
         <NextSteps userRole={userRole} items={[
-          { title: "Kiểm tra publication OLAP gần nhất", detail: "Kiểm tra spark-cdc, heartbeat, số sự kiện đang chờ và run_id của publication. DAG hằng ngày đối soát dữ liệu; làm mới trang chỉ tải lại kết quả truy vấn." },
+          { title: "Kiểm tra publication OLAP gần nhất", detail: "Kiểm tra DAG batch, task validate_and_publish và run_id của publication. Dashboard đọc kết quả batch đã công bố; làm mới trang không chạy pipeline." },
           { title: "Đọc kết quả quality gate", detail: "Tra lakehouse.system.data_quality_results theo run_id. Ngưỡng đối soát pipeline mặc định 0,05% khác ngưỡng cảnh báo UI; kiểm tra bảng và snapshot liên quan." },
           { title: "Đọc độ trễ áp dụng CDC", detail: "Đối chiếu event tại Bronze với publication và snapshot Gold. Checkpoint Flink 10 giây cùng poll 30 giây không tạo cam kết latency đầu-cuối." },
         ]} />

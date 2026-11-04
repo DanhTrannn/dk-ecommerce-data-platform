@@ -16,6 +16,7 @@ def parse_args(args):
     parser.add_argument("--error-threshold", type=float, default=0.01, help="Fraction of allowed corrupt records")
     return parser.parse_args(args)
 
+
 def main():
     args = parse_args(sys.argv[1:])
     spark = spark_session(args.job_name)
@@ -27,10 +28,11 @@ def main():
             source_format=args.source_format,
             target_table=args.target_table,
             quarantine_table=args.quarantine_table,
-            error_threshold=args.error_threshold
+            error_threshold=args.error_threshold,
         )
     finally:
         spark.stop()
+
 
 if __name__ == "__main__":
     main()

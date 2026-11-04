@@ -18,7 +18,7 @@ Dữ liệu tổng hợp cần được ghi nhận là dữ liệu tổng hợp 
 ## 3. Phần đã có trong mã nguồn
 
 - Batch MySQL → Landing → Bronze → Silver → Gold bằng Spark/Airflow.
-- Incremental cursor `(cursor_field, pk)`, lookback và manifest.
+- Delta theo time interval Airflow, staging ghi mới, Bronze MERGE theo PK/thời gian thay đổi để giữ lịch sử không trùng và Silver MERGE theo PK.
 - Chuẩn hóa, khử trùng, MERGE, pseudonymization và quarantine.
 - Đối soát MySQL/Silver và kiểm tra Gold; lưu quality results.
 - Binlog → Debezium → Kafka → Flink → Bronze CDC.
@@ -29,7 +29,7 @@ Dữ liệu tổng hợp cần được ghi nhận là dữ liệu tổng hợp 
 
 ## 4. Đầu ra phân tích
 
-Gold OLTP gồm 6 dimension, 5 fact, 4 mart. Nhóm log gồm 1 fact, 3 mart. Bronze CDC là log sự kiện riêng, không phải bảng trạng thái hiện tại.
+Gold OLTP gồm 6 dimension, 6 fact, 14 mart. Nhóm log gồm 1 fact, 3 mart. Bronze CDC là log sự kiện riêng, không phải bảng trạng thái hiện tại.
 
 Chi tiết grain ở [Lakehouse Design](LAKEHOUSE_DESIGN_PLAN.md). Công thức và khác biệt Gold/OLTP ở [Metrics Catalog](../architecture/METRICS_CATALOG.md).
 
@@ -37,7 +37,7 @@ Chi tiết grain ở [Lakehouse Design](LAKEHOUSE_DESIGN_PLAN.md). Công thức 
 
 - CDC chưa tự cập nhật Silver/Gold OLTP theo sự kiện.
 - Cursor batch chưa thay thế toàn bộ bài toán đồng bộ hard delete.
-- Payments dùng cursor created_at trong khi COD completion đổi status; cập nhật cũ ngoài lookback có thể bị bỏ qua. Cursor được commit sau Bronze, không chờ toàn DAG thành công.
+- Batch không có lookback; timestamp nguồn phải phản ánh update. Late commits/missed intervals cần rerun/backfill chủ động, không tự lùi cursor. Payments dùng updated_at.
 - Quality gate sau Gold không tạo transaction/rollback chung cho mọi bảng; maintenance chỉ áp dụng danh sách bảng cấu hình.
 - Upload JSONL vào MinIO chưa có job tự động đọc file thô sang Gold.
 - Tài liệu A–D đã tách chức năng hiện có và phần chưa triển khai; không dùng chúng thay bằng chứng runtime.
