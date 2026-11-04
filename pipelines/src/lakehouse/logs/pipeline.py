@@ -1,4 +1,4 @@
-"""Build a complete, validated log-mart snapshot set from pinned inputs."""
+"""Process Landing through persisted layers, validate marts and publish snapshots."""
 
 import json
 from datetime import datetime, timezone
@@ -15,13 +15,18 @@ from lakehouse.logs.gold import (
     build_mart_marketing_funnel_daily,
     ensure_logs_gold_tables,
 )
+from lakehouse.logs.ingestion import ingest_log_layers
 from lakehouse.logs.product_identity import resolve_product_events
 from lakehouse.logs.publication import publish_logs
 
 
-def run_logs_marts(spark, run_id):
+def run_logs_marts(spark, run_id, *, as_of=None):
     ensure_logs_gold_tables(spark)
-    observed = datetime.now(timezone.utc).replace(tzinfo=None)
+    observed = datetime.fromisoformat(as_of.replace("Z", "+00:00")) if isinstance(as_of, str) else as_of
+    observed = observed or datetime.now(timezone.utc)
+    if observed.tzinfo is not None:
+        observed = observed.astimezone(timezone.utc).replace(tzinfo=None)
+    layer_inputs = ingest_log_layers(spark, run_id, as_of=observed)
     refs = spark.sql(f"SELECT snapshot_id FROM {FACT_WEB_EVENTS_TABLE}.refs WHERE name='main'").collect()
     if refs:
         events = spark.read.option("snapshot-id", str(refs[0].snapshot_id)).table(FACT_WEB_EVENTS_TABLE)
@@ -70,7 +75,7 @@ def run_logs_marts(spark, run_id):
         if resolved.count() != shape.n:
             raise ValueError("Catalog identity mapping multiplied log events")
         summary = events.agg(F.max("event_ts").alias("latest")).first()
-        inputs = {FACT_WEB_EVENTS_TABLE: refs[0].snapshot_id if refs else None}
+        inputs = {**layer_inputs, FACT_WEB_EVENTS_TABLE: refs[0].snapshot_id if refs else None}
         inputs.update(
             {
                 k: source_snapshots[k]
