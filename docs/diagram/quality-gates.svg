@@ -20,19 +20,22 @@
 <rect x="1039.55" y="337.6" width="102.094" height="23" fill="#ffffff"/>
 <text x="1090.6" y="354.6" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#222222" text-anchor="middle" font-weight="400">Kết quả gate</text>
 <rect x="983.623" y="541" width="102.094" height="23" fill="#ffffff"/>
-<text x="1034.67" y="558" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#222222" text-anchor="middle" font-weight="400">Kết quả gate</text>
+<text x="1034.67" y="558" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#222222" text-anchor="middle" font-weight="400">Bảo vệ serving</text>
 <rect x="40" y="40" width="368" height="136" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="224" y="114.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Kiểm tra Landing</text>
+<text x="224" y="114.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Landing (Parquet Staging)</text>
 <rect x="560" y="40" width="368" height="136" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="744" y="114.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Bronze → Silver</text>
+<text x="744" y="114.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Bronze → Silver (Làm sạch &amp; PII)</text>
 <rect x="1080" y="40" width="368" height="136" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="1264" y="114.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Đối soát MySQL–Silver</text>
+<text x="1264" y="114.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Xây dựng Gold &amp; Data Marts</text>
 <rect x="1080" y="376" width="368" height="136" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="1264" y="450.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Xây Gold</text>
+<text x="1264" y="438" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Post-Gold Quality Gate</text>
+<text x="1264" y="472" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#222222" text-anchor="middle" font-weight="400">18 phép kiểm tra ISO/IEC 25012</text>
 <rect x="560" y="376" width="368" height="136" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="744" y="450.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Kiểm tra Gold</text>
+<text x="744" y="438" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Công bố Snapshot</text>
+<text x="744" y="472" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#222222" text-anchor="middle" font-weight="400">publication_snapshots (v3)</text>
 <rect x="40" y="376" width="368" height="136" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="224" y="450.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Truy vấn BI</text>
+<text x="224" y="438" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Truy vấn BI</text>
+<text x="224" y="472" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#222222" text-anchor="middle" font-weight="400">Snapshot Pinning qua Trino</text>
 <rect x="560" y="728" width="368" height="136" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
 <text x="744" y="802.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Quarantine</text>
 <rect x="1080" y="728" width="368" height="136" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
