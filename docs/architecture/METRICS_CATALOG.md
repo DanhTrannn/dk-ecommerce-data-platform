@@ -16,7 +16,7 @@ Vai trò dashboard, API và phạm vi truy cập được mô tả trong [kiến
 
 ## 2. Doanh thu, giá vốn và lợi nhuận
 
-Publication schema 3 dùng chung transformation cho batch và CDC. Tiền là số nguyên VND. Ngày báo cáo là ngày đặt hàng theo Asia/Ho_Chi_Minh; giao hàng hoặc hoàn tiền về sau có thể làm thay đổi kết quả của ngày đặt hàng cũ.
+Publication schema 3 công bố kết quả batch; CDC hiện chỉ ghi audit Bronze. Tiền là số nguyên VND. Ngày báo cáo là ngày đặt hàng theo Asia/Ho_Chi_Minh; giao hàng hoặc hoàn tiền về sau có thể làm thay đổi kết quả của ngày đặt hàng cũ.
 
 | Chỉ số | Công thức hiện tại | Nguồn / grain |
 |---|---|---|
@@ -36,7 +36,7 @@ Publication schema 3 dùng chung transformation cho batch và CDC. Tiền là s�
 
 Executive, Sales và xu hướng chỉ truy vấn mart trong cùng publication schema 3. `mart_order_daily` có grain ngày × kênh × cửa hàng; `mart_product_sales_daily` có grain ngày × sản phẩm; `mart_sales_daily` tiếp tục phục vụ danh mục. Số đơn đóng góp điểm bán đếm đơn có doanh thu thuần dương; tổng đơn Executive/xu hướng gồm mọi trạng thái. Top sản phẩm xếp theo doanh thu thuần, số lượng đã trừ hàng trả hoàn tất/kiểm định đạt. Tỷ trọng danh mục được tính lại từ tổng tiền, không cộng hoặc lấy trung bình tỷ lệ từng dòng.
 
-Mart rỗng làm KPI Executive trả `null`, danh sách Sales/xu hướng trả rỗng; giao diện hiển thị — hoặc trạng thái chưa có dữ liệu. Có dòng nguồn hợp lệ nhưng không phát sinh doanh thu thì số tiền 0 vẫn được giữ. AOV/biên lợi nhuận/tỷ trọng không có mẫu số hợp lệ trả `null`. Mart chưa nằm trong publication gây phản hồi unavailable hoặc cache có đánh dấu, không đọc fact/MySQL để thay thế. Store/Inventory được cập nhật ở đợt 3b như phần dưới; Operations cập nhật ở đợt 3c như phần dưới; Marketing cập nhật ở đợt 3d như phần dưới; System và admin overview giữ hợp đồng hiện tại.
+Mart rỗng làm KPI Executive trả `null`, danh sách Sales/xu hướng trả rỗng; giao diện hiển thị — hoặc trạng thái chưa có dữ liệu. Có dòng nguồn hợp lệ nhưng không phát sinh doanh thu thì số tiền 0 vẫn được giữ. AOV/biên lợi nhuận/tỷ trọng không có mẫu số hợp lệ trả `null`. Mart chưa nằm trong publication gây phản hồi unavailable hoặc cache có đánh dấu, không đọc fact/MySQL để thay thế. Store/Inventory được cập nhật ở đợt 3b như phần dưới; Operations cập nhật ở đợt 3c như phần dưới; Marketing cập nhật ở đợt 3d như phần dưới; System và admin overview cập nhật ở đợt 3e như phần dưới.
 
 Đơn chờ thanh toán, đã xác nhận hoặc đang giao chưa tạo doanh thu hàng hóa. Đơn đã trả vẫn giữ doanh thu ban đầu; hoàn tiền thành công được trừ riêng để xử lý trả một phần. Giá vốn được hoàn nhập theo số lượng trả hoàn tất và kiểm định đạt.
 
@@ -119,11 +119,9 @@ Rollup log chạy bằng DAG riêng mỗi giờ, đọc fact snapshot và xây l
 | CDC traceability | event_id, before/after, binlog và Kafka offset; kiểm tra replay/truy vết từ Bronze |
 | Processing duration / throughput | Lấy từ log thời gian và khối lượng lần chạy; repo không ấn định con số benchmark |
 
-Ở CDC mode, API đánh giá heartbeat, trạng thái xử lý, độ trễ sự kiện và variance; ngưỡng hiển thị tuổi publication là 5 phút. Ở batch mode, API không đòi heartbeat CDC và dùng ngưỡng publication 1.500 phút cho lịch hằng ngày. Đây là ngưỡng cảnh báo, chưa phải SLA đã đo.
+System hiện đọc SUM(total_orders) và SUM(order_total_vnd) từ mart_order_daily đã pin. MySQL cung cấp COUNT(order_id) và SUM(total_vnd) trong cùng một câu SQL; source_observed_at ghi thời điểm hoàn tất lần đọc. Đây là tổng giá trị đơn mọi trạng thái, không phải doanh thu thuần. Hai phía có mốc thời gian khác nhau, nguồn có thể tiến trước batch. Không dùng CDC heartbeat/pending để suy ra sức khỏe Silver/Gold.
 
-Đối soát dashboard dùng hai metric: `total_orders` so COUNT đơn MySQL với COUNT DISTINCT order_id Gold; `order_total_vnd` so SUM orders.total_vnd với SUM fact_order.order_total_vnd, đều gồm mọi trạng thái. Chênh lệch = abs(OLTP−Gold)/OLTP × 100, làm tròn hai chữ số; OLTP=0 thì 0% nếu Gold=0, ngược lại 100%.
-
-UI vẽ từng metric riêng để số đơn không dùng chung thang với doanh thu. Số đơn có đơn vị đơn; tiền có trục VND, nhãn rút gọn và tooltip giá trị đầy đủ; badge dùng variance_percent từ API. Khi không có nguồn đối soát mới, không tự tạo variance để thay thế.
+Chênh tuyệt đối = ABS(MySQL − mart), giữ số nguyên cho đơn/VND. Chênh tương đối = chênh tuyệt đối / MySQL × 100 khi mẫu số >0; nguồn 0 trả null cho phần trăm, vẫn xác định mismatch theo chênh tuyệt đối. Thiếu quan sát phía nào giữ null phía đó và trạng thái unavailable. Khi đọc được cả hai phía, matched nếu cả hai chênh tuyệt đối bằng 0, mismatch nếu có chênh. Kết quả cache mang trạng thái cached, giữ thời điểm đo nguồn cũ và không được hiển thị như lần đối soát mới. Publication age chỉ đo tuổi metadata; không có SLA/khẳng định pipeline healthy trong hợp đồng này.
 
 ## 6. Cách trình bày kết quả
 
@@ -132,3 +130,12 @@ Ghi rõ dataset, dữ liệu tổng hợp hay phát sinh thật, thời gian ch�
 ## 7. Ngày quan sát tồn kho
 
 `fact_inventory_current` và snapshot tồn kho mới dùng ngày quan sát thực tế theo Asia/Ho_Chi_Minh, đối chiếu với `_gold_ingested_at`. Ngày logical của Airflow dùng để truy vết kỳ xử lý, không được dùng để ghi tồn hiện tại đè lên ngày quá khứ. Lịch sử snapshot của các ngày khác được giữ nguyên.
+
+
+## 8. Admin Overview từ mart
+
+mart_admin_overview có một dòng current tại admin_observed_at của DAG. Các nguồn được aggregate độc lập trước khi cross join để tránh nhân số sản phẩm, review, khách và đơn. Active variant yêu cầu cả product/variant active; tồn thấp chỉ lấy kho trung tâm và catalog active, ngưỡng ≤5 gồm cả 0. Khách hàng đếm role=customer, không suy ra đã kích hoạt. Review là tổng bản ghi nguồn; active coupon yêu cầu active, chưa archived, starts_at<=mốc đo<ends_at. Có coverage nhưng không thỏa điều kiện giữ 0; chưa có quan sát domain trả null. Không có coverage kho thì không kết luận tồn thấp bằng 0.
+
+Các bộ đếm trạng thái là số đơn, gồm pending_payment/paid/confirmed/shipping/delivered/completed/cancelled/failed_delivery/returned. Failed delivery không giới hạn COD; returned không phải số yêu cầu trả. API kiểm tra tổng dòng đơn của summary khớp SUM(total_orders) từ order mart. UI dùng total_orders được công bố cho mẫu số, hiển thị đầy đủ trạng thái và không cộng các đơn vị khác nhau thành số việc cần làm. Thanh tỷ lệ bằng 0 giữ chiều rộng 0.
+
+Tài chính Admin lấy SUM gross_revenue_vnd/refunded_amount_vnd/net_revenue_vnd/cogs_vnd/gross_profit_vnd từ mart_order_daily cùng publication, theo công thức nhận diện và phân bổ đã dùng ở Executive. Biên lợi nhuận = profit/net khi net>0; không có mẫu số hoặc không có mart row trả null. Thời điểm quan sát admin khác thời điểm publication và thời điểm UI nhận response. API chỉ đọc mart; không dùng MySQL để thay thế dữ liệu tổng quan thiếu.

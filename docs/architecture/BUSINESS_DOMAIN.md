@@ -22,7 +22,7 @@ Dữ liệu generator là tổng hợp. Mẫu phân phối hoặc quy mô cấu 
 | Store | `store_manager` | Hôm nay bán bao nhiêu, SKU nào thiếu tại cửa hàng? | MySQL, cửa hàng được gán |
 | Inventory | `inventory_manager` | Vốn tồn, lượng hàng và nguy cơ hết SKU? | MySQL |
 | Operations | `operations_manager` | Đơn chờ, lần giao lỗi, COD và yêu cầu trả? | MySQL |
-| System | `system_admin` | Gold mới tới đâu và chênh với nguồn ở chỉ số nào? | Trino Gold so với MySQL |
+| System | `system_admin` | Gold mới tới đâu và chênh với nguồn ở chỉ số nào? | Mart đơn hàng pin snapshot so với MySQL tại lần đo |
 
 `admin` được chọn mọi góc nhìn; role khác chỉ được góc nhìn tương ứng. Phạm vi cửa hàng được xử lý ở API, không phải Trino RLS. Quyền xem KPI khác quyền ghi nghiệp vụ: API đơn/giao vận/trả hàng hiện vẫn yêu cầu `admin` dù UI mở menu cho `operations_manager`.
 
@@ -65,13 +65,13 @@ Shipper được lưu ở `delivery_staff`; thao tác cập nhật do API quản
 
 ## 7. Chất lượng và đối soát
 
-System view hiển thị tuổi phiên công bố, trạng thái từ heartbeat CDC, pending lag và variance và các cặp giá trị MySQL–Gold. UI vẽ riêng từng chỉ số: total orders dùng đơn vị đơn; tiền dùng VND và trục riêng. Tooltip tiền hiển thị giá trị đầy đủ; badge chênh lệch dùng `variance_percent` từ API. Khi dùng phản hồi cache do Trino lỗi, UI đánh dấu degraded và không xem đó là kết quả đối soát mới.
+System view đọc tổng số đơn và tổng giá trị đơn mọi trạng thái từ mart_order_daily đã pin, đối chiếu COUNT và SUM từ một câu SQL MySQL. source_observed_at ghi thời điểm đọc nguồn; publication_age_minutes là tuổi bộ snapshot được đọc. Trạng thái matched/mismatch/unavailable/cached phản ánh phép đối soát, không suy ra sức khỏe pipeline từ heartbeat CDC hoặc ngưỡng SLA. Nguồn có thể tiến trước batch nên chênh lệch cần được đối chiếu với kỳ chạy.
 
-Heartbeat quá 180 giây hoặc variance trên 20% khiến trạng thái unhealthy; pending CDC quá 120 giây hoặc variance trên 5% khiến trạng thái degraded. Đây là tín hiệu vận hành, không thay thế kiểm tra từng task/job hoặc audit quality gate. Browser polling mỗi 15 giây chỉ tải API; thay đổi OLTP cần CDC capture, apply, refresh dependent Gold và publish.
+UI vẽ riêng từng chỉ số với trục đơn/VND và hiển thị cả chênh tuyệt đối lẫn tương đối. Mẫu số nguồn 0 để phần trăm null; chênh tuyệt đối vẫn xác định mismatch. Thiếu một phía giữ giá trị phía còn đọc được; cache giữ mốc đo cũ và không được trình bày như lần đối soát mới. Admin Overview dùng mart_admin_overview cho các bộ đếm và mart_order_daily cho tài chính; các bộ đếm có coverage riêng, coupon tính tại as_of, trạng thái returned là số đơn thay vì yêu cầu trả.
 
 ## 8. Cách đọc nguồn và kết quả
 
-Response KPI có `data_source`, publication ID/time và metadata cache. Thời điểm trình duyệt nhận phản hồi khác thời điểm CDC công bố. Các dashboard tự refresh 15 giây khi tab hiển thị; polling không khởi chạy pipeline.
+Response KPI có `data_source`, publication ID/time và metadata cache. Thời điểm trình duyệt nhận phản hồi khác thời điểm pipeline công bố. Các dashboard tự refresh 15 giây khi tab hiển thị; polling không khởi chạy pipeline.
 
 Khi trình bày kết quả, ghi rõ dataset, kỳ dữ liệu, grain, công thức, bộ lọc, đơn vị và nguồn. Các câu hỏi mở rộng như dự báo, CLV, retention cohort, recommendation và đánh giá hiệu quả quảng cáo cần dữ liệu/mô hình bổ sung; chưa phải chức năng hiện có.
 

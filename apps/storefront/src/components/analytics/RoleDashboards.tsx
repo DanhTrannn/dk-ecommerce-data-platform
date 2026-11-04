@@ -258,45 +258,45 @@ export function RoleDashboards({ metrics, userRole, trend }: { metrics: RoleMetr
       </>;
     }
     case "system": {
-      const comparable = metrics.data_source === "lakehouse" && !metrics.served_from_cache && metrics.reconciliation_variance.length > 0;
+      const comparable = !metrics.served_from_cache && ["matched", "mismatch"].includes(metrics.reconciliation_status);
       const variances = metrics.reconciliation_variance;
-      const maximum = comparable ? Math.max(...variances.map(row => row.variance_percent)) : null;
-      const status = { healthy: "Trong ngưỡng UI", degraded: "Cần kiểm tra", unhealthy: "Bất thường" }[metrics.pipeline_status] ?? "Chưa xác định";
-      const label = (row: ReconciliationVariance) => row.metric_name === "total_orders" ? "Tổng đơn" : (row.metric_name === "gross_revenue_vnd" || row.metric_name === "order_total_vnd") ? "Tổng giá trị đơn (VND)" : row.metric_name;
+      const ratios = variances.map(row => row.variance_percent).filter((value): value is number => value != null);
+      const maximum = comparable && ratios.length ? Math.max(...ratios) : null;
+      const status = { matched: "Khớp tại lần đo", mismatch: "Có chênh lệch", cached: "Đối soát từ bản lưu", unavailable: "Chưa đủ hai phía" }[metrics.reconciliation_status] ?? "Chưa xác định";
+      const label = (row: ReconciliationVariance) => row.metric_name === "total_orders" ? "Tổng đơn" : row.metric_name === "order_total_vnd" ? "Tổng giá trị đơn (VND)" : row.metric_name;
       return <>
         <div className="grid gap-4 sm:grid-cols-3">
-          <MetricCard detail="Theo heartbeat CDC, độ trễ áp dụng và variance của API; không phải kiểm tra trực tiếp từng job." emphasis label="Tình trạng dữ liệu phân tích" scope="Phản hồi hiện tại" value={status} warning={metrics.pipeline_status !== "healthy"} />
-          <MetricCard detail={`CDC: ${metrics.cdc_apply_status ?? "chưa có heartbeat"}; ${metrics.cdc_pending_events} sự kiện đang chờ. Không có thay đổi mới thì không tạo lần công bố mới.`} label="Tuổi lần công bố" scope="Từ lần công bố OLAP gần nhất" value={metrics.data_freshness_minutes == null ? "Chưa xác định" : `${number(metrics.data_freshness_minutes)} phút`} warning={metrics.cdc_apply_status === "failed" || (metrics.cdc_apply_status !== "not_applicable" && !metrics.cdc_heartbeat_at)} />
-          <MetricCard detail={comparable ? "Trong các chỉ số đối soát API trả về. Không so đơn và VND trên cùng trục giá trị." : "Không có kết quả đối soát mới. Phản hồi đang lấy từ cache OLAP hoặc thiếu nguồn."} label="Sai lệch lớn nhất" scope="MySQL hiện tại ↔ Gold" value={percent(maximum)} warning={maximum != null && maximum > 0} />
+          <MetricCard detail="Kết quả so sánh MySQL tại lần đo với mart đã công bố; không xác nhận sức khỏe toàn bộ pipeline." emphasis label="Kết quả đối soát" scope="Hai chỉ số đơn hàng" value={status} warning={metrics.reconciliation_status !== "matched"} />
+          <MetricCard detail={`Nguồn công bố: ${metrics.source_mode ?? "chưa xác định"}. Batch định kỳ cập nhật dữ liệu phân tích; CDC đang phục vụ audit.`} label="Tuổi publication" scope="Từ lần công bố OLAP được đọc" value={metrics.publication_age_minutes == null ? "—" : `${number(metrics.publication_age_minutes)} phút`} />
+          <MetricCard detail="Chỉ tính khi có hai phía và mẫu số MySQL dương. Nguồn 0 vẫn đối chiếu được chênh lệch tuyệt đối." label="Sai lệch tương đối lớn nhất" scope="Tại lần đo nguồn" value={percent(maximum)} warning={maximum != null && maximum > 0} />
         </div>
-        <Panel title="Đối soát dữ liệu OLTP và Lakehouse" subtitle="Tổng đơn và giá trị tiền có thang đo riêng; mỗi biểu đồ so sánh cùng một chỉ số giữa MySQL và Gold.">
+        <Panel title="Đối soát dữ liệu OLTP và Lakehouse" subtitle="Tổng đơn và tổng giá trị đơn dùng thang đo riêng. MySQL hiện tại có thể tiến trước batch; chênh lệch cần được đối chiếu với kỳ chạy.">
+          <p className="mb-4 text-xs leading-6 text-muted">Đọc MySQL: {metrics.source_observed_at ? new Date(metrics.source_observed_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false }) : "Chưa đọc được"} · UTC+7. Mart dùng thời điểm publication phía trên.</p>
           {comparable ? <>
-            <p className={`mb-4 rounded-xl border p-3 text-sm leading-6 ${maximum === 0 ? "border-success/25 bg-success/5 text-success" : "border-warning/25 bg-warning/5 text-warning"}`}>{maximum === 0 ? "Các chỉ số được trả về đang có sai lệch 0%. Kết quả này không chứng minh toàn bộ bảng hoặc pipeline đều chính xác." : "Có chênh lệch trong các chỉ số được trả về. Kiểm tra kỳ dữ liệu, lần chạy batch và bản ghi gốc trước khi xác định nguyên nhân."}</p>
+            <p className={`mb-4 rounded-xl border p-3 text-sm leading-6 ${metrics.reconciliation_status === "matched" ? "border-success/25 bg-success/5 text-success" : "border-warning/25 bg-warning/5 text-warning"}`}>{metrics.reconciliation_status === "matched" ? "Hai chỉ số khớp tại lần đo. Kết quả này không xác nhận mọi bảng đều chính xác." : "Có chênh lệch. Kiểm tra kỳ batch và thay đổi nguồn trước khi xác định nguyên nhân."}</p>
             <div className="mb-5 grid gap-4 xl:grid-cols-2">
-              {variances.map(row => {
+              {variances.filter(row => row.oltp_value != null && row.lakehouse_value != null).map(row => {
                 const monetary = row.metric_name.endsWith("_vnd");
-                const unit = monetary ? "VND" : row.metric_name === "total_orders" ? "Đơn" : "Giá trị";
+                const unit = monetary ? "VND" : "Đơn";
                 return <section className="min-w-0 rounded-xl border border-line p-3 sm:p-4" key={row.metric_name}>
-                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 className="text-sm font-semibold text-ink">{label(row)}</h3>
-                    <p className={`text-xs tabular-nums ${row.variance_percent === 0 ? "text-success" : "text-warning"}`}>Sai lệch: {percent(row.variance_percent)}</p>
-                  </div>
-                  <Chart height={240} label={`${label(row)}: so sánh MySQL và Gold, đơn vị ${unit}.`} option={reconciliationOption(row, unit, monetary ? formatMetricVnd : number, monetary ? formatVnd : number)} />
+                  <h3 className="text-sm font-semibold text-ink">{label(row)}</h3>
+                  <p className="mt-1 text-xs text-muted">Chênh tuyệt đối: {number(row.absolute_difference)} {unit} · Tương đối: {percent(row.variance_percent)}</p>
+                  <Chart height={240} label={`${label(row)}: MySQL và mart, đơn vị ${unit}.`} option={reconciliationOption(row, unit, monetary ? formatMetricVnd : number, monetary ? formatVnd : number)} />
                 </section>;
               })}
             </div>
-          </> : <EmptyState title="Chưa đủ dữ liệu để đối soát" detail="Chưa có cặp số liệu OLAP mới để so sánh. Khi API phục vụ cache, phản hồi không đại diện cho lần đối soát hiện tại." />}
-          <DetailTable caption="Đối soát MySQL và Gold" filename="doi-soat-nguon-gold" rows={variances} rowKey={row => row.metric_name} columns={[
+          </> : <EmptyState title="Chưa có kết quả đối soát mới" detail="Một phía chưa có quan sát hoặc phản hồi đang dùng bản lưu. Các giá trị phía mart đọc được vẫn có trong bảng." />}
+          <DetailTable caption="Đối soát MySQL và mart" filename="doi-soat-nguon-mart" rows={variances} rowKey={row => row.metric_name} columns={[
             { key: "metric", label: "Chỉ số / đơn vị", value: label },
-            { key: "oltp", label: "MySQL", value: row => row.oltp_value, numeric: true },
-            { key: "gold", label: "Gold", value: row => comparable ? row.lakehouse_value : null, numeric: true },
-            { key: "variance", label: "Sai lệch (%)", value: row => comparable ? row.variance_percent : null, numeric: true },
+            { key: "oltp", label: "MySQL tại lần đo", value: row => metrics.served_from_cache ? null : row.oltp_value, numeric: true },
+            { key: "mart", label: "Mart đã công bố", value: row => metrics.served_from_cache ? null : row.lakehouse_value, numeric: true },
+            { key: "difference", label: "Chênh tuyệt đối", value: row => comparable ? row.absolute_difference : null, numeric: true },
+            { key: "variance", label: "Chênh (%)", value: row => comparable ? row.variance_percent : null, numeric: true },
           ]} />
         </Panel>
         <NextSteps userRole={userRole} items={[
-          { title: "Kiểm tra publication OLAP gần nhất", detail: "Kiểm tra DAG batch, task validate_and_publish và run_id của publication. Dashboard đọc kết quả batch đã công bố; làm mới trang không chạy pipeline." },
-          { title: "Đọc kết quả quality gate", detail: "Tra lakehouse.system.data_quality_results theo run_id. Ngưỡng đối soát pipeline mặc định 0,05% khác ngưỡng cảnh báo UI; kiểm tra bảng và snapshot liên quan." },
-          { title: "Đọc độ trễ áp dụng CDC", detail: "Đối chiếu event tại Bronze với publication và snapshot Gold. Checkpoint Flink 10 giây cùng poll 30 giây không tạo cam kết latency đầu-cuối." },
+          { title: "Đối chiếu publication và kỳ batch", detail: "Kiểm tra run_id, thời điểm công bố và interval của lakehouse_oltp_pipeline. Làm mới trang chỉ tải kết quả truy vấn." },
+          { title: "Đọc quality gate", detail: "Tra lakehouse.system.data_quality_results theo run_id. Kết quả đối soát hai tổng không thay thế kiểm tra grain, quan hệ hoặc dữ liệu cá nhân." },
         ]} />
       </>;
     }

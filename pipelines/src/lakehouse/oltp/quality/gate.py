@@ -205,6 +205,9 @@ def run_gold_quality_gate(
     from lakehouse.oltp.quality.marketing import marketing_consistency_checks
 
     results.extend(marketing_consistency_checks(spark))
+    from lakehouse.oltp.quality.admin import admin_consistency_checks
+
+    results.extend(admin_consistency_checks(spark))
 
     for table_name, primary_key in (
         ("lakehouse.gold.fact_order", "order_id"),
@@ -267,6 +270,7 @@ def run_gold_quality_gate(
         "lakehouse.gold.mart_marketing_summary",
         "lakehouse.gold.mart_coupon_usage",
         "lakehouse.gold.mart_product_review_summary",
+        "lakehouse.gold.mart_admin_overview",
     ):
         current_run_rows = spark.table(table_name).filter(F.col("_source_run_id") == run_id).count()
         results.append(

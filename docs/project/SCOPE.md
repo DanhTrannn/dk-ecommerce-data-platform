@@ -29,7 +29,7 @@ Dữ liệu tổng hợp cần được ghi nhận là dữ liệu tổng hợp 
 
 ## 4. Đầu ra phân tích
 
-Gold OLTP gồm 6 dimension, 6 fact, 14 mart. Nhóm log gồm 1 fact, 3 mart. Bronze CDC là log sự kiện riêng, không phải bảng trạng thái hiện tại.
+Gold OLTP gồm 6 dimension, 6 fact, 15 mart. Nhóm log gồm 1 fact, 3 mart. Bronze CDC là log sự kiện riêng, không phải bảng trạng thái hiện tại.
 
 Chi tiết grain ở [Lakehouse Design](LAKEHOUSE_DESIGN_PLAN.md). Công thức và khác biệt Gold/OLTP ở [Metrics Catalog](../architecture/METRICS_CATALOG.md).
 

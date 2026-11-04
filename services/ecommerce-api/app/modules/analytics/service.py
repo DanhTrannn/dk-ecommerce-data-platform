@@ -1,19 +1,17 @@
 """Analytical serving through Trino; MySQL is used only for source reconciliation.
 
 Business queries use completed publications. Marketing reads independent log and
-OLTP mart sets; System/admin overview retain their existing reconciliation sources.
+OLTP mart sets; System reads order marts and observes MySQL only for reconciliation.
 """
 
-from datetime import UTC, datetime
 
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import FORBIDDEN, VALIDATION_ERROR, AppError
 from app.models.customer import Customer
-from app.models.order import Order
-from app.modules.admin.schemas import AdminOverviewResponse
 from app.modules.analytics.reader import serve
+from app.modules.analytics.admin_service import get_admin_overview as get_admin_overview
+from app.modules.analytics.system_service import get_system_metrics
 from app.modules.analytics.operations_service import get_operations_metrics
 from app.modules.analytics.marketing_service import get_marketing_metrics
 from app.modules.analytics.inventory_service import (
@@ -26,11 +24,9 @@ from app.modules.analytics.schemas import (
     CategoryShareMetric,
     DailySalesTrendPoint,
     ExecutiveMetricsResponse,
-    ReconciliationVariance,
     SalesMetricsResponse,
     SalesTrendResponse,
     StoreContribution,
-    SystemMetricsResponse,
     TopProductMetric,
 )
 from app.modules.analytics.trino_client import TrinoClient
@@ -75,14 +71,6 @@ def resolve_effective_store_id(actor: Customer, target_role: str, store_id: int 
             raise AppError(FORBIDDEN, "Tài khoản chưa được gán cửa hàng.", status_code=403)
         return actor.store_id
     return store_id
-
-
-def _n(row, key):
-    return int(row.get(key) or 0)
-
-
-def _pct(part, total):
-    return round(part / total * 100, 2) if total > 0 else 0.0
 
 
 def _mart_ratio(part, total):
@@ -139,75 +127,6 @@ def get_sales_metrics(db: Session | None = None, trino_client: TrinoClient | Non
     return serve(("sales",), build, trino_client)
 
 
-def _timestamp(value):
-    if isinstance(value, datetime):
-        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-    if value is None:
-        return None
-    text = str(value).replace(" UTC", "+00:00").replace("Z", "+00:00")
-    return (
-        datetime.fromisoformat(text).replace(tzinfo=UTC)
-        if "+" not in text
-        else datetime.fromisoformat(text).astimezone(UTC)
-    )
-
-
-def get_system_metrics(db=None, trino_client=None):
-    def build(reader):
-        row = reader.one(
-            "SELECT count(DISTINCT order_id) orders,COALESCE(SUM(order_total_vnd),0) revenue FROM lakehouse.gold.fact_order"
-        )
-        comparisons = []
-        if db is not None:
-            count = db.scalar(select(func.count(Order.order_id))) or 0
-            revenue = db.scalar(select(func.coalesce(func.sum(Order.total_vnd), 0))) or 0
-            comparisons = [
-                ReconciliationVariance(
-                    metric_name=name,
-                    oltp_value=float(a),
-                    lakehouse_value=float(b),
-                    variance_percent=round(abs(a - b) / a * 100, 2) if a else (100 if b else 0),
-                )
-                for name, a, b in [
-                    ("total_orders", count, _n(row, "orders")),
-                    ("order_total_vnd", revenue, _n(row, "revenue")),
-                ]
-            ]
-        mode = reader.publication.get("source_mode", "batch")
-        states = reader.client.execute_query(
-            "SELECT * FROM lakehouse.system.cdc_pipeline_state WHERE consumer_id='oltp-cdc'"
-        ) if mode == "cdc" else []
-        state = states[0] if states else {}
-        now = datetime.now(UTC)
-        checked = _timestamp(state.get("checked_at"))
-        pending_since = _timestamp(state.get("pending_since"))
-        age = (now - checked).total_seconds() if checked else float("inf")
-        lag = max(0, int((now - pending_since).total_seconds())) if pending_since else 0
-        variance = max((r.variance_percent for r in comparisons), default=0)
-        status = (
-            "unhealthy"
-            if age > 180 or state.get("status") == "failed" or variance > 20
-            else ("degraded" if lag > 120 or variance > 5 else "healthy")
-        )
-        published = _timestamp(reader.publication["published_at"])
-        freshness = max(0, int((now - published).total_seconds() / 60))
-        freshness_limit = 5 if mode == "cdc" else 1500
-        if mode == "batch":
-            status = "healthy" if freshness <= freshness_limit else "degraded"
-        return SystemMetricsResponse(
-            pipeline_status=status,
-            data_freshness_minutes=freshness,
-            data_freshness_sla_minutes=freshness_limit,
-            reconciliation_variance=comparisons,
-            cdc_apply_status=state.get("status", "unknown") if mode == "cdc" else "not_applicable",
-            cdc_heartbeat_at=str(state.get("checked_at")) if checked else None,
-            cdc_pending_events=_n(state, "pending_events"),
-            cdc_apply_lag_seconds=lag,
-        )
-
-    return serve(("system",), build, trino_client)
-
-
 def get_role_metrics_data(target_role, store_id=None, db=None, trino_client=None):
     role = ROLE_CANONICAL_MAP[target_role.strip().lower()]
     functions = {
@@ -240,49 +159,3 @@ def get_sales_trend(days=30, db=None, trino_client=None):
         return SalesTrendResponse(days=days, points=[DailySalesTrendPoint(**r) for r in rows])
 
     return serve(("sales-trend", days), build, trino_client)
-
-
-def get_admin_overview():
-    def build(reader):
-        row = reader.one(f"""SELECT
-            (SELECT count(*) FROM lakehouse.silver.silver_products WHERE is_active) products,
-            (SELECT count(*) FROM lakehouse.silver.silver_product_variants v JOIN lakehouse.silver.silver_products p ON v.product_id=p.product_id WHERE v.is_active AND p.is_active) variants,
-            (SELECT count(*) FROM lakehouse.gold.fact_inventory_current i JOIN lakehouse.gold.dim_variant v ON i.variant_key=v.variant_key JOIN lakehouse.gold.dim_product p ON i.product_key=p.product_key WHERE i.location_type='warehouse' AND i.is_low_stock AND v.is_active AND p.is_active) low,
-            (SELECT count(*) FROM lakehouse.silver.silver_customers WHERE role='customer') customers,
-            (SELECT count(*) FROM lakehouse.silver.silver_product_reviews) reviews,
-            (SELECT count(*) FROM lakehouse.silver.silver_coupons WHERE is_active AND starts_at<={NOW_UTC} AND ends_at>{NOW_UTC}) coupons,
-            (SELECT COALESCE(SUM(gross_revenue_vnd),0) FROM lakehouse.gold.fact_order) revenue,
-            (SELECT COALESCE(SUM(refunded_amount_vnd),0) FROM lakehouse.gold.fact_order) refunds,
-            (SELECT COALESCE(SUM(total_cost_vnd),0) FROM lakehouse.gold.fact_order) cogs""")
-        counts = {
-            r["status"]: _n(r, "n")
-            for r in reader.query("SELECT status,count(*) n FROM lakehouse.gold.fact_order GROUP BY status")
-        }
-        revenue = _n(row, "revenue")
-        refunds = _n(row, "refunds")
-        net = revenue - refunds
-        profit = net - _n(row, "cogs")
-        return AdminOverviewResponse(
-            active_products=_n(row, "products"),
-            active_variants=_n(row, "variants"),
-            low_stock_variants=_n(row, "low"),
-            customers=_n(row, "customers"),
-            total_reviews=_n(row, "reviews"),
-            active_coupons=_n(row, "coupons"),
-            gross_revenue_vnd=revenue,
-            refunded_amount_vnd=refunds,
-            net_revenue_vnd=net,
-            cogs_vnd=_n(row, "cogs"),
-            gross_profit_vnd=profit,
-            gross_margin_percent=_pct(profit, net),
-            paid_orders=counts.get("paid", 0),
-            confirmed_orders=counts.get("confirmed", 0),
-            completed_orders=counts.get("completed", 0),
-            cancelled_orders=counts.get("cancelled", 0),
-            boom_orders_count=counts.get("failed_delivery", 0),
-            return_orders_count=counts.get("returned", 0),
-            shipping_orders=counts.get("shipping", 0),
-            delivered_orders=counts.get("delivered", 0),
-        )
-
-    return serve(("admin-overview",), build)

@@ -12,7 +12,7 @@ export function barOption(rows: { name: string; value: number }[], seriesName: s
 }
 
 export function reconciliationOption(
-  row: { oltp_value: number; lakehouse_value: number },
+  row: { oltp_value: number | null; lakehouse_value: number | null },
   unit: string,
   format: (value: number) => string = number,
   formatTooltip: (value: number) => string = format,
