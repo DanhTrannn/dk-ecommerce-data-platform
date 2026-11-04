@@ -149,7 +149,7 @@ Kiến trúc Data Lakehouse đại diện cho thế hệ nền tảng dữ liệ
 
 Dữ liệu trong Lakehouse được tổ chức khoa học theo mô hình kiến trúc phân tầng Medallion gồm bốn cấp độ chính:
 
-```
+```text
 [Nguồn dữ liệu] ---> [Landing/Staging] ---> [Bronze] ---> [Silver] ---> [Gold & Marts]
    (MySQL, Log)      (Parquet thô)        (Raw Iceberg) (Cleaned)   (Star Schema/KPI)
                                                              |
@@ -268,7 +268,7 @@ Hệ thống phục vụ 5 nhóm tác nhân chính:
 
 ### **3.1.4. Yêu cầu phi chức năng**
 
-* **Tính toàn vẹn và nhất quán**: Dữ liệu giao dịch trên MySQL bảo đảm chuẩn ACID 100%. Dữ liệu phân tích trên Lakehouse duy trì tính nhất quán đọc thông qua cơ chế snapshot isolation; doanh thu báo cáo phải khớp chính xác với dữ liệu giao dịch gốc (sai số đối soát cho phép $\le 0.05\%$).
+* **Tính toàn vẹn và nhất quán**: Dữ liệu giao dịch trên MySQL bảo đảm chuẩn ACID 100%. Dữ liệu phân tích trên Lakehouse duy trì tính nhất quán đọc thông qua cơ chế snapshot isolation; doanh thu báo cáo phải khớp chính xác với dữ liệu giao dịch gốc (sai số đối soát cho phép ≤ 0,05%).
 * **Khả năng mở rộng (Scalability)**: Kiến trúc phân tách hoàn toàn giữa tính toán (Spark, Flink, Trino) và lưu trữ (MinIO S3), cho phép mở rộng độc lập dung lượng lưu trữ và năng lực tính toán.
 * **Hiệu năng truy vấn**: Thời gian phản hồi các truy vấn Dashboard BI trên Trino đạt dưới 2 giây đối với các bảng Data Mart được tối ưu hóa.
 * **Bảo mật và an toàn thông tin**: Thông tin nhạy cảm của khách hàng (họ tên, email, số điện thoại, địa chỉ nhận hàng) phải được băm định danh (pseudonymization) trước khi lưu trữ vào tầng Silver và Gold; hệ thống API có cơ chế xác thực JWT, chống CSRF và phân quyền RBAC đa cấp.
@@ -290,22 +290,22 @@ Hệ thống phân rã các trường hợp sử dụng thành ba phân hệ ch�
 
 ### **3.2.2. Sơ đồ hoạt động (Activity Diagram) các nghiệp vụ cốt lõi**
 
-* **Quy trình Đặt hàng và Thanh toán (Checkout Workflow)**: Khách hàng tiến hành checkout $ightarrow$ Backend kiểm tra tính hợp lệ của giỏ hàng, áp dụng mã coupon và kiểm tra tồn kho bằng khóa bi quan $ightarrow$ Khởi tạo đơn hàng ở trạng thái `pending` $ightarrow$ Tạm giữ tồn kho $ightarrow$ Tạo bản ghi thanh toán tương ứng (chờ chuyển khoản VietQR hoặc ghi nhận COD) $ightarrow$ Hoàn tất đơn hàng.
+* **Quy trình Đặt hàng và Thanh toán (Checkout Workflow)**: Khách hàng tiến hành checkout → Backend kiểm tra tính hợp lệ của giỏ hàng, áp dụng mã coupon và kiểm tra tồn kho bằng khóa bi quan → Khởi tạo đơn hàng ở trạng thái `pending` → Tạm giữ tồn kho → Tạo bản ghi thanh toán tương ứng (chờ chuyển khoản VietQR hoặc ghi nhận COD) → Hoàn tất đơn hàng.
 
 ![Sơ đồ hoạt động Checkout](diagram/activity-checkout-commit.svg)
 
-* **Quy trình Bán hàng tại quầy (POS Workflow)**: Thu ngân chọn chi nhánh $ightarrow$ Quét mã vạch sản phẩm $ightarrow$ Hệ thống tự động kiểm tra tồn kho thực tế tại cửa hàng $ightarrow$ Áp dụng chiết khấu $ightarrow$ Xác nhận thanh toán $ightarrow$ Trừ tồn kho chi nhánh tức thời và sinh hóa đơn bán lẻ.
+* **Quy trình Bán hàng tại quầy (POS Workflow)**: Thu ngân chọn chi nhánh → Quét mã vạch sản phẩm → Hệ thống tự động kiểm tra tồn kho thực tế tại cửa hàng → Áp dụng chiết khấu → Xác nhận thanh toán → Trừ tồn kho chi nhánh tức thời và sinh hóa đơn bán lẻ.
 
 ![Sơ đồ hoạt động POS](diagram/activity-pos.svg)
 
-* **Quy trình Đổi trả và Hoàn tiền (Returns Workflow)**: Khách hàng tạo yêu cầu đổi trả kèm lý do $ightarrow$ Quản trị viên duyệt yêu cầu $ightarrow$ Nhân viên kho tiếp nhận và kiểm định chất lượng hàng hoàn $ightarrow$ Nếu đạt chuẩn, hệ thống thực hiện hoàn kho và khởi tạo lệnh hoàn tiền (Refund) hoặc đổi sản phẩm mới.
+* **Quy trình Đổi trả và Hoàn tiền (Returns Workflow)**: Khách hàng tạo yêu cầu đổi trả kèm lý do → Quản trị viên duyệt yêu cầu → Nhân viên kho tiếp nhận và kiểm định chất lượng hàng hoàn → Nếu đạt chuẩn, hệ thống thực hiện hoàn kho và khởi tạo lệnh hoàn tiền (Refund) hoặc đổi sản phẩm mới.
 
 ![Sơ đồ hoạt động Đổi trả](diagram/activity-returns.svg)
 
 ### **3.2.3. Sơ đồ tuần tự (Sequence Diagram) các luồng xử lý**
 
 * **Luồng giao dịch Checkout**: Minh họa sự tương tác đồng bộ giữa Trình duyệt người dùng, FastAPI Backend, MySQL Database và Message Broker Kafka (phát sinh Access Log).
-* **Luồng truy vấn báo cáo BI**: Minh họa quy trình an toàn khi Dashboard gửi yêu cầu lấy số liệu: API kiểm tra quyền người dùng $ightarrow$ Đọc snapshot ID mới nhất từ bảng công bố $ightarrow$ Gửi câu lệnh truy vấn tới Trino $ightarrow$ Trino đọc metadata Iceberg trên Polaris và quét dữ liệu Parquet trên MinIO $ightarrow$ Trả kết quả JSON về giao diện để vẽ biểu đồ ECharts.
+* **Luồng truy vấn báo cáo BI**: Minh họa quy trình an toàn khi Dashboard gửi yêu cầu lấy số liệu: API kiểm tra quyền người dùng → Đọc snapshot ID mới nhất từ bảng công bố → Gửi câu lệnh truy vấn tới Trino → Trino đọc metadata Iceberg trên Polaris và quét dữ liệu Parquet trên MinIO → Trả kết quả JSON về giao diện để vẽ biểu đồ ECharts.
 
 ![Sơ đồ tuần tự Checkout](diagram/seq-checkout.svg)
 
@@ -317,70 +317,7 @@ Hệ thống phân rã các trường hợp sử dụng thành ba phân hệ ch�
 
 Hệ thống được thiết kế theo mô hình kiến trúc phân lớp hiện đại, tách bạch rõ ràng giữa tầng thu nhận giao dịch trực tuyến (Online Transaction Processing) và tầng phân tích xử lý dữ liệu lớn (Online Analytical Processing).
 
-```mermaid
-flowchart TD
-    subgraph ClientLayer["1. TẦNG GIAO DIỆN (CLIENT LAYER)"]
-        UI_Store["Next.js Storefront\n(Mua sắm trực tuyến)"]
-        UI_Admin["Next.js Admin & POS\n(Quản trị & Thu ngân)"]
-        UI_BI["Next.js BI Hub\n(7 Bảng điều khiển ECharts)"]
-    end
-
-    subgraph ServiceLayer["2. TẦNG DỊCH VỤ ỨNG DỤNG (SERVICE LAYER)"]
-        API_App["FastAPI Backend Service\n(Xác thực, Giỏ hàng, Đơn hàng, Kho vận, Logging)"]
-        API_Analytics["FastAPI Analytics Module\n(Ghim Snapshot Trino, Cache bộ nhớ, Bounded Fallback)"]
-    end
-
-    subgraph StorageOLTP["3. CƠ SỞ DỮ LIỆU GIAO DỊCH (OLTP)"]
-        DB_MySQL[("MySQL 8.4 LTS\n(28 Bảng chuẩn hóa, InnoDB ACID)")]
-    end
-
-    subgraph MessagingLayer["4. HỆ THỐNG TRUYỀN DẪN VÀ THU THẬP (MESSAGING & CDC)"]
-        Debezium["Debezium Connector\n(Bắt sự kiện MySQL binlog)"]
-        Kafka["Apache Kafka KRaft Cluster\n(Topics: cdc.ecommerce.*, ecommerce.access_logs)"]
-    end
-
-    subgraph ProcessingLayer["5. TẦNG XỬ LÝ VÀ ĐIỀU PHỐI (PROCESSING & ORCHESTRATION)"]
-        Spark_Batch["Apache Spark 3.5 Batch Engine\n(Keyset JDBC Extract, Medallion Transforms, Quality Gate)"]
-        Flink_Stream["Apache Flink 1.19 Streaming\n(CDC Ingestion & Access Log 4-Sink Writer)"]
-        Airflow["Apache Airflow 2.10 Orchestrator\n(Lập lịch, Quản lý DAGs, Retry, Maintenance)"]
-    end
-
-    subgraph LakehouseStorage["6. NỀN TẢNG DATA LAKEHOUSE (STORAGE & METADATA)"]
-        Polaris["Apache Polaris REST Catalog\n(Quản lý 6 Namespaces, RBAC-as-Code)"]
-        MinIO[("MinIO Object Storage S3\n(Landing, Bronze, Silver, Gold, Quarantine, System)")]
-    end
-
-    subgraph QueryServing["7. TẦNG TRUY VẤN VÀ PHỤC VỤ (QUERY SERVING)"]
-        Trino["Apache Trino 483 Engine\n(Truy vấn SQL phân tán qua Iceberg Connector)"]
-    end
-
-    UI_Store -->|HTTP REST| API_App
-    UI_Admin -->|HTTP REST| API_App
-    UI_BI -->|HTTP REST| API_Analytics
-
-    API_App -->|SQLAlchemy ACID| DB_MySQL
-    API_App -->|Async Produce Log| Kafka
-
-    DB_MySQL -.->|Binlog Stream| Debezium
-    Debezium -->|CDC Events| Kafka
-
-    DB_MySQL -->|Keyset Pagination JDBC| Spark_Batch
-    Kafka -->|Consume Logs & CDC| Flink_Stream
-
-    Spark_Batch -->|Write Parquet & Iceberg| MinIO
-    Flink_Stream -->|Concurrent Write Iceberg| MinIO
-
-    Airflow -->|Trigger & Monitor| Spark_Batch
-    Airflow -->|Check Health| Flink_Stream
-
-    Polaris <-->|Metadata Management| MinIO
-    Polaris <-->|Catalog REST| Spark_Batch
-    Polaris <-->|Catalog REST| Flink_Stream
-    Polaris <-->|Catalog REST| Trino
-
-    Trino -->|Read Iceberg Data Files| MinIO
-    API_Analytics -->|Snapshot Pinning Query| Trino
-```
+![Sơ đồ kiến trúc tổng thể toàn hệ thống](diagram/architecture-system.svg)
 
 ### **3.3.2. Kiến trúc thành phần ứng dụng thương mại điện tử**
 
@@ -417,12 +354,12 @@ Hệ thống điều phối 6 luồng dữ liệu chính hoạt động nhịp n
 
 | Luồng dữ liệu | Cơ chế thực thi | Tần suất | Đầu vào | Đầu ra |
 |---|---|---|---|---|
-| **1. OLTP Batch** | Spark JDBC Keyset Pagination $ightarrow$ Parquet Staging $ightarrow$ Bronze MERGE $ightarrow$ Silver MERGE $ightarrow$ Gold/Marts $ightarrow$ Quality Gate | 03:00 hàng ngày (Asia/Ho_Chi_Minh) | 27 bảng MySQL (theo khoảng thời gian `updated_at`/`created_at`) | Dữ liệu phân tích tầng Gold đã công bố snapshot |
-| **2. Full Init** | Spark Full Extract (`SELECT *`) $ightarrow$ Nạp toàn diện các tầng Medallion | Kích hoạt thủ công khi khởi tạo | Toàn bộ 27 bảng MySQL | Dữ liệu khởi tạo toàn diện ban đầu trong Lakehouse |
-| **3. CDC Streaming** | Debezium bắt binlog $ightarrow$ Kafka topic `cdc.ecommerce.*` $ightarrow$ Flink streaming job | Thời gian thực (Checkpoint 10s) | Các thao tác INSERT, UPDATE, DELETE trên MySQL | Bảng Iceberg `bronze.oltp_cdc_events` phục vụ kiểm toán |
-| **4. Hard Delete Sync** | Spark lọc sự kiện CDC delete thỏa điều kiện $ightarrow$ MERGE xóa dữ liệu tương ứng tại Silver | Kích hoạt thủ công khi cần | Sự kiện delete của `cart_items` và `wishlist_items` cũ hơn 30 ngày | Làm sạch dữ liệu rác tại Silver mà không làm mất lịch sử Bronze |
-| **5. Access Log Stream**| FastAPI Middleware $ightarrow$ Kafka topic `ecommerce.access_logs` $ightarrow$ Flink StatementSet | Thời gian thực (Checkpoint 10s) | Sự kiện truy cập mạng HTTP của người dùng | Ghi đồng thời vào 4 bảng Iceberg (Landing, Bronze, Silver, Gold Fact) |
-| **6. Log Mart Rollup** | Spark đọc `fact_web_events` và snapshot danh mục Silver $ightarrow$ Tính toán và công bố | Chạy mỗi giờ | Fact log và dữ liệu sản phẩm | 3 Data Marts nhật ký truy cập đã công bố |
+| **1. OLTP Batch** | Spark JDBC Keyset Pagination → Parquet Staging → Bronze MERGE → Silver MERGE → Gold/Marts → Quality Gate | 03:00 hàng ngày (Asia/Ho_Chi_Minh) | 27 bảng MySQL (theo khoảng thời gian `updated_at`/`created_at`) | Dữ liệu phân tích tầng Gold đã công bố snapshot |
+| **2. Full Init** | Spark Full Extract (`SELECT *`) → Nạp toàn diện các tầng Medallion | Kích hoạt thủ công khi khởi tạo | Toàn bộ 27 bảng MySQL | Dữ liệu khởi tạo toàn diện ban đầu trong Lakehouse |
+| **3. CDC Streaming** | Debezium bắt binlog → Kafka topic `cdc.ecommerce.*` → Flink streaming job | Thời gian thực (Checkpoint 10s) | Các thao tác INSERT, UPDATE, DELETE trên MySQL | Bảng Iceberg `bronze.oltp_cdc_events` phục vụ kiểm toán |
+| **4. Hard Delete Sync** | Spark lọc sự kiện CDC delete thỏa điều kiện → MERGE xóa dữ liệu tương ứng tại Silver | Kích hoạt thủ công khi cần | Sự kiện delete của `cart_items` và `wishlist_items` cũ hơn 30 ngày | Làm sạch dữ liệu rác tại Silver mà không làm mất lịch sử Bronze |
+| **5. Access Log Stream**| FastAPI Middleware → Kafka topic `ecommerce.access_logs` → Flink StatementSet | Thời gian thực (Checkpoint 10s) | Sự kiện truy cập mạng HTTP của người dùng | Ghi đồng thời vào 4 bảng Iceberg (Landing, Bronze, Silver, Gold Fact) |
+| **6. Log Mart Rollup** | Spark đọc `fact_web_events` và snapshot danh mục Silver → Tính toán và công bố | Chạy mỗi giờ | Fact log và dữ liệu sản phẩm | 3 Data Marts nhật ký truy cập đã công bố |
 
 ![Sơ đồ luồng Batch](diagram/flow-batch.svg)
 
@@ -486,7 +423,7 @@ Lược đồ vật lý được cài đặt trong tệp `database/schema.sql` g
 | 27 | `return_items` | `return_item_id` | `updated_at` | Mutable | Danh sách các món hàng đề nghị đổi trả và lý do chi tiết. |
 | 28 | `refunds` | `refund_id` | `updated_at` | Mutable | Lệnh hoàn tiền cho khách hàng sau khi kiểm định hàng hoàn đạt chuẩn. |
 
-*\*Ghi chú:* Bảng `store_inventory` có khóa chính vật lý tổ hợp `(store_id, variant_id)` và một cột định danh duy nhất `store_inventory_id`; pipeline sử dụng cột này làm khóa định danh phân trang trích xuất an toàn.
+> **Ghi chú**: Bảng `store_inventory` có khóa chính vật lý tổ hợp `(store_id, variant_id)` và một cột định danh duy nhất `store_inventory_id`; pipeline sử dụng cột này làm khóa định danh phân trang trích xuất an toàn.
 
 ### **3.4.4. Ràng buộc toàn vẹn và bảo đảm tính nhất quán giao dịch**
 
@@ -539,8 +476,8 @@ Mô hình tầng Gold được chuẩn hóa gồm:
   * `fact_order`: Grain là một đơn hàng tổng thể, đo lường tổng giá trị đơn, phụ phí vận chuyển và số lượng sản phẩm.
   * `fact_shipment`: Grain là một vận đơn giao hàng, theo dõi thời gian giao, số lần thử và số tiền thu hộ COD.
   * `fact_return_exchange`: Grain là từng mặt hàng đề nghị đổi trả, ghi nhận lý do và số tiền hoàn trả.
-  * `fact_inventory_daily_snapshot`: Grain là Ngày quan sát $	imes$ SKU $	imes$ Cửa hàng/Kho, lưu mức tồn cuối ngày.
-  * `fact_inventory_current`: Grain là SKU $	imes$ Cửa hàng/Kho, phản ánh tồn kho khả dụng và tồn kho thực tế tức thời.
+  * `fact_inventory_daily_snapshot`: Grain là Ngày quan sát × SKU × Cửa hàng/Kho, lưu mức tồn cuối ngày.
+  * `fact_inventory_current`: Grain là SKU × Cửa hàng/Kho, phản ánh tồn kho khả dụng và tồn kho thực tế tức thời.
   * *(Bổ sung)* `fact_web_events`: Grain là từng sự kiện truy cập HTTP của người dùng do Flink streaming ghi nhận.
 
 ![Sơ đồ Star Schema Vận hành](diagram/gold-operations.svg)
@@ -572,7 +509,7 @@ Mô hình tầng Gold được chuẩn hóa gồm:
 Giao diện Storefront được thiết kế theo xu hướng hiện đại, chuẩn Responsive trên cả thiết bị di động và máy tính:
 * Trang chủ và Trang danh mục (`/products`): Hỗ trợ bộ lọc đa năng theo danh mục, khoảng giá, màu sắc và kích cỡ; tích hợp thanh tìm kiếm thông minh với cơ chế debounce giảm tải cho máy chủ.
 * Trang chi tiết sản phẩm (`/products/[slug]`): Hiển thị hình ảnh chất lượng cao, bộ chọn biến thể hai chiều (chọn màu tự lọc size khả dụng và ngược lại), bảng hướng dẫn chọn kích cỡ (Size Guide) và khu vực đánh giá nhận xét của khách hàng.
-* Giỏ hàng và Thanh toán (`/checkout`): Thiết kế giao diện 2 cột tinh gọn, hỗ trợ chọn địa chỉ phân cấp hành chính Việt Nam (Tỉnh/Thành $ightarrow$ Quận/Huyện $ightarrow$ Phường/Xã) và phương thức thanh toán linh hoạt (VietQR động NAPAS 247 hoặc COD).
+* Giỏ hàng và Thanh toán (`/checkout`): Thiết kế giao diện 2 cột tinh gọn, hỗ trợ chọn địa chỉ phân cấp hành chính Việt Nam (Tỉnh/Thành → Quận/Huyện → Phường/Xã) và phương thức thanh toán linh hoạt (VietQR động NAPAS 247 hoặc COD).
 
 ![Sơ đồ giao diện Storefront](diagram/ui-products.svg)
 
@@ -591,7 +528,7 @@ Hệ thống BI Hub phân tách thành 7 góc nhìn bảng điều khiển độ
 3. **Store Dashboard**: Dành cho Quản lý cửa hàng, hiển thị doanh số tại chi nhánh được phân quyền, cảnh báo các mặt hàng sắp hết hàng tại chỗ và hiệu suất thu ngân.
 4. **Inventory Dashboard**: Dành cho Quản lý kho vận, hiển thị giá trị tồn kho tổng thể, ma trận cảnh báo sức khỏe tồn kho (hết hàng, tồn đọng, cận date) và lịch sử biến động kho.
 5. **Operations Dashboard**: Dành cho Trưởng bộ phận vận hành, theo dõi tỷ lệ giao hàng thành công, hiệu suất giao nhận của từng shipper và tỷ lệ thu hồi công nợ COD.
-6. **Marketing Dashboard**: Dành cho Bộ phận tiếp thị, phân tích phễu chuyển đổi từ lượt truy cập $ightarrow$ xem sản phẩm $ightarrow$ thêm giỏ hàng $ightarrow$ mua hàng, cùng hiệu quả của các chiến dịch mã giảm giá coupon.
+6. **Marketing Dashboard**: Dành cho Bộ phận tiếp thị, phân tích phễu chuyển đổi từ lượt truy cập → xem sản phẩm → thêm giỏ hàng → mua hàng, cùng hiệu quả của các chiến dịch mã giảm giá coupon.
 7. **System Dashboard**: Dành cho Kỹ sư dữ liệu, giám sát độ tươi mới của dữ liệu (Data Freshness), kết quả kiểm tra chất lượng Quality Gate và tình trạng đồng bộ giữa MySQL và Lakehouse.
 
 ---
@@ -682,7 +619,7 @@ Module bán hàng hiện thực hóa đầy đủ các nghiệp vụ TMĐT:
 
 * Thanh toán hỗ trợ tạo mã VietQR động theo chuẩn NAPAS 247 chứa đầy đủ số tiền và nội dung chuyển khoản mã hóa đơn, kèm phương thức thanh toán tiền mặt khi nhận hàng (COD).
 * Vận chuyển theo dõi chi tiết từng lần đi giao của shipper (`shipment_attempts`) và trạng thái thu hộ tiền COD.
-* Quy trình đổi trả kiểm soát chặt chẽ các bước: tiếp nhận yêu cầu $ightarrow$ kiểm định hàng hoàn $ightarrow$ hoàn kho và khởi tạo giao dịch hoàn tiền (`refunds`).
+* Quy trình đổi trả kiểm soát chặt chẽ các bước: tiếp nhận yêu cầu → kiểm định hàng hoàn → hoàn kho và khởi tạo giao dịch hoàn tiền (`refunds`).
 
 ### **4.2.6. Triển khai Middleware ghi nhận Access Log phi cấu trúc**
 
