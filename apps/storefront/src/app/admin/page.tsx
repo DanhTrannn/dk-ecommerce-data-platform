@@ -12,13 +12,18 @@ import {
 } from "@/lib/api";
 
 const orderStages = [
+  { key: "pending_payment_orders", label: "Chờ thanh toán", tone: "bg-slate-400" },
   { key: "paid_orders", label: "Chờ xác nhận", tone: "bg-amber-500" },
   { key: "confirmed_orders", label: "Đã xác nhận", tone: "bg-sky-600" },
-  { key: "shipping_orders", label: "Đang giao hàng", tone: "bg-indigo-600" },
+  { key: "shipping_orders", label: "Đang giao", tone: "bg-indigo-600" },
+  { key: "delivered_orders", label: "Đã giao", tone: "bg-teal-600" },
   { key: "completed_orders", label: "Hoàn tất", tone: "bg-emerald-600" },
-  { key: "boom_orders_count", label: "Giao thất bại (COD)", tone: "bg-rose-600" },
+  { key: "boom_orders_count", label: "Giao thất bại", tone: "bg-rose-600" },
+  { key: "return_orders_count", label: "Đã trả hàng", tone: "bg-orange-600" },
   { key: "cancelled_orders", label: "Đã hủy", tone: "bg-slate-400" },
 ] as const;
+
+const countLabel = (value: number | null | undefined) => value == null ? "—" : value.toLocaleString("vi-VN");
 
 export default function AdminOverviewPage() {
   const [data, setData] = useState<AdminOverview | null>(null);
@@ -91,20 +96,11 @@ export default function AdminOverviewPage() {
 
   if (!data) return null;
 
-  const shippingCount = (data.shipping_orders ?? 0) + (data.delivered_orders ?? 0);
-  const boomCount = data.boom_orders_count ?? 0;
-  const returnCount = data.return_orders_count ?? 0;
-  const totalOrders =
-    data.paid_orders +
-    data.confirmed_orders +
-    shippingCount +
-    data.completed_orders +
-    boomCount +
-    data.cancelled_orders +
-    returnCount;
-
-  const completionRate = totalOrders > 0 ? Math.round((data.completed_orders / totalOrders) * 100) : 0;
-  const urgentCount = data.paid_orders + boomCount + returnCount + (data.low_stock_variants > 0 ? 1 : 0);
+  const boomCount = data.boom_orders_count;
+  const returnCount = data.return_orders_count;
+  const totalOrders = data.total_orders;
+  const completionRate = totalOrders != null && totalOrders > 0 && data.completed_orders != null
+    ? Math.round(data.completed_orders / totalOrders * 100) : null;
 
   const quickLinks = [
     { label: "Sản phẩm", value: data.active_products, href: "/admin/products" },
@@ -140,6 +136,7 @@ export default function AdminOverviewPage() {
         </Link>
       </header>
       <p className="mt-3 text-xs leading-5 text-muted">Nguồn: Lakehouse · Trino / Iceberg. Công bố: {data.data_updated_at ? new Date(data.data_updated_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false }) : "Chưa có thời điểm"} · UTC+7. Tải lại mỗi 15 giây.</p>
+      <p className="text-xs leading-5 text-muted">Mốc đo tổng quan: {data.admin_observed_at ? new Date(data.admin_observed_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false }) : "—"} · UTC+7. Dữ liệu thay đổi sau batch công bố; dấu — là chưa có quan sát. {data.served_from_cache && `Đang dùng bản lưu ${countLabel(data.cache_age_seconds)} giây.`}</p>
       {data.is_degraded && <p className="mt-2 text-sm text-warning" role="status">{data.degraded_reason}</p>}
 
       {/* BANNER SANG TRUNG TÂM BI LAKEHOUSE */}
@@ -170,7 +167,7 @@ export default function AdminOverviewPage() {
             Chờ xác nhận
           </p>
           <p className="mt-2 text-2xl font-extrabold text-ink tabular-nums">
-            {data.paid_orders} <span className="text-xs font-normal text-muted">đơn</span>
+            {countLabel(data.paid_orders)} <span className="text-xs font-normal text-muted">đơn</span>
           </p>
         </Link>
 
@@ -179,10 +176,10 @@ export default function AdminOverviewPage() {
           href="/admin/orders?status=failed_delivery"
         >
           <p className="text-xs font-semibold uppercase tracking-wider text-rose-700 dark:text-rose-400">
-            Rủi ro COD (Thất bại)
+            Đơn giao thất bại
           </p>
           <p className="mt-2 text-2xl font-extrabold text-rose-700 dark:text-rose-400 tabular-nums">
-            {boomCount} <span className="text-xs font-normal text-muted">đơn</span>
+            {countLabel(boomCount)} <span className="text-xs font-normal text-muted">đơn</span>
           </p>
         </Link>
 
@@ -191,10 +188,10 @@ export default function AdminOverviewPage() {
           href="/admin/returns"
         >
           <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-            Khiếu nại &amp; Đổi trả
+            Đơn đã trả hàng
           </p>
           <p className="mt-2 text-2xl font-extrabold text-ink tabular-nums">
-            {returnCount} <span className="text-xs font-normal text-muted">yêu cầu</span>
+            {countLabel(returnCount)} <span className="text-xs font-normal text-muted">đơn</span>
           </p>
         </Link>
 
@@ -206,7 +203,7 @@ export default function AdminOverviewPage() {
             Cảnh báo tồn kho
           </p>
           <p className="mt-2 text-2xl font-extrabold text-ink tabular-nums">
-            {data.low_stock_variants} <span className="text-xs font-normal text-muted">biến thể</span>
+            {countLabel(data.low_stock_variants)} <span className="text-xs font-normal text-muted">biến thể</span>
           </p>
         </Link>
       </div>
@@ -216,10 +213,8 @@ export default function AdminOverviewPage() {
         {/* CỘT TRÁI: HÀNG ĐỢI XỬ LÝ */}
         <article className="admin-panel p-5">
           <div className="flex items-center justify-between border-b border-line pb-3">
-            <h2 className="text-base font-bold text-ink">Công việc cần xử lý ngay</h2>
-            <span className="rounded-full bg-sand px-2.5 py-0.5 text-xs font-bold text-ink tabular-nums">
-              {urgentCount} việc
-            </span>
+            <h2 className="text-base font-bold text-ink">Các nhóm cần kiểm tra</h2>
+
           </div>
 
           <div className="divide-y divide-line/60">
@@ -229,7 +224,7 @@ export default function AdminOverviewPage() {
                   Đơn hàng chờ duyệt xuất kho
                 </p>
                 <span className="text-xs font-bold text-amber-700 tabular-nums">
-                  {data.paid_orders} đơn
+                  {countLabel(data.paid_orders)} đơn
                 </span>
               </div>
               <Link
@@ -243,10 +238,10 @@ export default function AdminOverviewPage() {
             <div className="flex items-center justify-between gap-4 py-3">
               <div>
                 <p className="text-sm font-semibold text-rose-700">
-                  Đơn giao thất bại (Rủi ro COD)
+                  Đơn giao thất bại
                 </p>
                 <span className="text-xs font-bold text-rose-700 tabular-nums">
-                  {boomCount} đơn
+                  {countLabel(boomCount)} đơn
                 </span>
               </div>
               <Link
@@ -260,10 +255,10 @@ export default function AdminOverviewPage() {
             <div className="flex items-center justify-between gap-4 py-3">
               <div>
                 <p className="text-sm font-semibold text-ink">
-                  Yêu cầu khiếu nại &amp; Đổi trả
+                  Đơn có trạng thái trả hàng
                 </p>
                 <span className="text-xs font-bold text-muted tabular-nums">
-                  {returnCount} yêu cầu
+                  {countLabel(returnCount)} đơn
                 </span>
               </div>
               <Link
@@ -277,10 +272,10 @@ export default function AdminOverviewPage() {
             <div className="flex items-center justify-between gap-4 py-3">
               <div>
                 <p className="text-sm font-semibold text-ink">
-                  Biến thể chạm ngưỡng hết hàng
+                  Biến thể tồn thấp (≤5)
                 </p>
                 <span className="text-xs font-bold text-muted tabular-nums">
-                  {data.low_stock_variants} biến thể
+                  {countLabel(data.low_stock_variants)} biến thể
                 </span>
               </div>
               <Link
@@ -299,28 +294,24 @@ export default function AdminOverviewPage() {
             <div className="flex items-center justify-between border-b border-line pb-3">
               <h2 className="text-base font-bold text-ink">Luồng luân chuyển đơn</h2>
               <span className="text-xs font-bold text-emerald-700 tabular-nums">
-                {completionRate}% hoàn tất
+                {completionRate == null ? "—" : `${completionRate}%`} hoàn tất
               </span>
             </div>
 
             <div className="mt-4 space-y-3.5">
               {orderStages.map((stage) => {
-                const count =
-                  stage.key === "shipping_orders"
-                    ? shippingCount
-                    : stage.key === "boom_orders_count"
-                    ? boomCount
-                    : (data[stage.key as keyof AdminOverview] as number) ?? 0;
-                const percent = totalOrders > 0 ? Math.round((count / totalOrders) * 100) : 0;
-                const barWidth = totalOrders > 0 ? Math.max(3, percent) : 0;
+                const count = data[stage.key];
+                const percent = count != null && totalOrders != null && totalOrders > 0
+                  ? Math.round(count / totalOrders * 100) : null;
+                const barWidth = percent ?? 0;
 
                 return (
                   <div key={stage.key}>
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-semibold text-ink">{stage.label}</span>
                       <div className="flex items-center gap-1.5 tabular-nums">
-                        <strong className="font-bold text-ink">{count.toLocaleString("vi-VN")}</strong>
-                        <span className="text-muted text-[11px]">({percent}%)</span>
+                        <strong className="font-bold text-ink">{countLabel(count)}</strong>
+                        <span className="text-muted text-[11px]">({percent == null ? "—" : `${percent}%`})</span>
                       </div>
                     </div>
                     <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-sand/70">
@@ -335,7 +326,7 @@ export default function AdminOverviewPage() {
             </div>
 
             <div className="mt-5 pt-3 border-t border-line flex items-center justify-between text-xs">
-              <span className="text-muted tabular-nums">Tổng {totalOrders.toLocaleString("vi-VN")} đơn</span>
+              <span className="text-muted tabular-nums">Tổng {countLabel(totalOrders)} đơn</span>
               <Link className="font-semibold text-accent hover:underline" href="/admin/logistics">
                 Cổng Logistics →
               </Link>
@@ -345,9 +336,9 @@ export default function AdminOverviewPage() {
           {/* Khách hàng */}
           <article className="admin-panel p-4 flex items-center justify-between">
             <div>
-              <p className="text-xs text-muted">Khách hàng kích hoạt</p>
+              <p className="text-xs text-muted">Tài khoản khách hàng</p>
               <p className="text-xl font-bold text-ink tabular-nums">
-                {data.customers.toLocaleString("vi-VN")}
+                {countLabel(data.customers)}
               </p>
             </div>
             <Link className="text-xs font-semibold text-accent hover:underline" href="/admin/customers">
@@ -366,7 +357,7 @@ export default function AdminOverviewPage() {
             key={item.label}
           >
             <p className="text-xs text-muted">{item.label}</p>
-            <p className="mt-1 text-xl font-bold text-ink tabular-nums">{item.value.toLocaleString("vi-VN")}</p>
+            <p className="mt-1 text-xl font-bold text-ink tabular-nums">{countLabel(item.value)}</p>
           </Link>
         ))}
       </div>

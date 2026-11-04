@@ -5,26 +5,29 @@ from app.modules.analytics.schemas import AnalyticsDataStatus
 
 
 class AdminOverviewResponse(AnalyticsDataStatus):
-    active_products: int
-    active_variants: int
-    low_stock_variants: int
-    customers: int
-    paid_orders: int
-    confirmed_orders: int
-    completed_orders: int
-    cancelled_orders: int
-    total_reviews: int
-    active_coupons: int
-    gross_revenue_vnd: int
-    refunded_amount_vnd: int
-    net_revenue_vnd: int
-    cogs_vnd: int = 0
-    gross_profit_vnd: int = 0
-    gross_margin_percent: float = 0.0
-    boom_orders_count: int = 0
-    return_orders_count: int = 0
-    shipping_orders: int = 0
-    delivered_orders: int = 0
+    active_products: int | None = None
+    active_variants: int | None = None
+    low_stock_variants: int | None = None
+    customers: int | None = None
+    total_orders: int | None = None
+    pending_payment_orders: int | None = None
+    paid_orders: int | None = None
+    confirmed_orders: int | None = None
+    completed_orders: int | None = None
+    cancelled_orders: int | None = None
+    total_reviews: int | None = None
+    active_coupons: int | None = None
+    gross_revenue_vnd: int | None = None
+    refunded_amount_vnd: int | None = None
+    net_revenue_vnd: int | None = None
+    cogs_vnd: int | None = None
+    gross_profit_vnd: int | None = None
+    boom_orders_count: int | None = None
+    return_orders_count: int | None = None
+    shipping_orders: int | None = None
+    delivered_orders: int | None = None
+    gross_margin_percent: float | None = None
+    admin_observed_at: str | None = None
 
 
 class AdminVariantResponse(BaseModel):

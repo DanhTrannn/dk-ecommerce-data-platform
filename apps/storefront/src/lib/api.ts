@@ -1,5 +1,5 @@
 import { ApiError, apiFetch } from "./api-client";
-import type { AnalyticsDataStatus, DeliveryStaff, ReturnRequestSummary, ShipmentDetail } from "./commerce";
+import type { AdminOverview, DeliveryStaff, ReturnRequestSummary, ShipmentDetail } from "./commerce";
 import { publicConfig } from "./config";
 
 export { ApiError };
@@ -207,28 +207,7 @@ export interface OrderDetail {
   shipment?: ShipmentDetail | null;
 }
 
-export interface AdminOverview extends AnalyticsDataStatus {
-  active_products: number;
-  active_variants: number;
-  low_stock_variants: number;
-  customers: number;
-  paid_orders: number;
-  confirmed_orders: number;
-  completed_orders: number;
-  cancelled_orders: number;
-  total_reviews: number;
-  active_coupons: number;
-  gross_revenue_vnd: number;
-  refunded_amount_vnd: number;
-  net_revenue_vnd: number;
-  cogs_vnd?: number;
-  gross_profit_vnd?: number;
-  gross_margin_percent?: number;
-  boom_orders_count?: number;
-  return_orders_count?: number;
-  shipping_orders?: number;
-  delivered_orders?: number;
-}
+export type { AdminOverview } from "./commerce";
 
 export interface AdminVariant {
   variant_id?: number;

@@ -8,7 +8,7 @@
 2. Each table task uses Spark JDBC without a thread pool. Read that table in primary-key order, at most 10,000 rows per query (`pk > last_pk ORDER BY pk LIMIT 10000`). Write one Parquet file per chunk at `landing/oltp/staging/<table>`; the first chunk overwrites previous staging. An empty interval writes an empty dataset with schema. Extraction must finish before Bronze starts.
 3. Merge the raw delta into Iceberg Bronze one file at a time. A source version is identified by primary key and change timestamp, so replaying staging does not append duplicates and older versions remain available. Staging has no `_run_id`/`_chunk_id`; no checkpoints or completed-chunk tracking are used. Missing/unreadable staging fails.
 4. Silver selects Bronze versions matching the keys/change timestamps in each staging file, validates, deduplicates by PK/change time, pseudonymizes configured PII and applies Iceberg `MERGE` by primary key. Older backfills cannot overwrite newer source versions.
-5. Build Gold dimensions, facts and 14 marts from Silver. Validate Gold and publish its snapshot IDs for the existing dashboard reader. A failed publication leaves the last completed publication available. Airflow passes the fixed DAG start time as `--as-of` so inventory observation dates and time-based mart measures remain stable during retries.
+5. Build Gold dimensions, facts and 15 marts from Silver. Validate Gold and publish its snapshot IDs for the existing dashboard reader. A failed publication leaves the last completed publication available. Airflow passes the fixed DAG start time as `--as-of` so inventory observation dates and time-based mart measures remain stable during retries.
 
 There are no Landing manifests, MD5 scans, high-watermark tasks, cursor files, completion markers or live-source reconciliation gate in the scheduled path. `run_reconciliation_gate.py` remains an explicit diagnostic for a quiescent source.
 
@@ -22,11 +22,11 @@ Both OLTP DAGs contain five TaskGroups, with one task per target table:
 | `bronze` | 27 raw source tables | `bronze.orders` |
 | `silver` | 27 transformed tables | `silver.silver_orders` |
 | `gold` | 6 dimensions + 6 facts | `gold.fact_order` |
-| `mart` | 14 marts | `mart.mart_sales_daily` |
+| `mart` | 15 marts | `mart.mart_sales_daily` |
 
-Including validate/publish, each DAG has 108 tasks and allows up to three active tasks. The batch date comes directly from the Airflow interval template; no context task or XCom is needed. No shared writer lock serializes independent table tasks. Stages finish in order: staging → Bronze → Silver → Gold → mart → validate/publish. Within a stage, `fact_order` waits for `fact_order_item`, `fact_inventory_current` waits for its daily snapshot, and inventory summary/store marts wait for `mart_inventory_current`.
+Including validate/publish, each DAG has 109 tasks and allows up to three active tasks. The batch date comes directly from the Airflow interval template; no context task or XCom is needed. No shared writer lock serializes independent table tasks. Stages finish in order: staging → Bronze → Silver → Gold → mart → validate/publish. Within a stage, `fact_order` waits for `fact_order_item`, `fact_inventory_current` waits for its daily snapshot, and inventory summary/store marts wait for `mart_inventory_current`.
 
-Each Spark CLI accepts `--table` to process one configured table and prepare only its target schema. Without `--table`, the existing all-table CLI behavior remains available. Retry/clear a table task to reread its input from the beginning; extract task retries fetch only that source table again. Silver reads Bronze data matching that table's staging keys. Final quality/publication waits for every mart. TaskGroup `mart` writes the existing `lakehouse.gold.mart_*` tables.
+Each Spark CLI accepts `--table` to process one configured table and prepare only its target schema. Without `--table`, the existing all-table CLI behavior remains available. Retry/clear a table task to reread its input from the beginning; extract task retries fetch only that source table again. Silver reads Bronze data matching that table's staging keys. Final quality/publication waits for every mart. Admin overview is a singleton mart built from independent catalog, inventory, customer, review, coupon and order aggregates; its counts/windows use the same fixed DAG as_of. System reconciliation reuses the additive order mart. TaskGroup `mart` writes the existing `lakehouse.gold.mart_*` tables.
 
 
 ## Initial load and recovery

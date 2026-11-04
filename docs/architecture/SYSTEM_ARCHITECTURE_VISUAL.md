@@ -80,7 +80,7 @@ BI Hub `/admin/analytics` gọi FastAPI; API xác thực vai trò và cửa hàn
 | Store | `store_manager` | Published `mart_store_overview`, `mart_order_daily`, `mart_inventory_current`; lọc cửa hàng được phân công |
 | Inventory | `inventory_manager` | Published `mart_inventory_summary`, `mart_inventory_current`; lịch sử từ `mart_inventory_health` |
 | Operations | `operations_manager` | Published `mart_operations_summary`, `mart_cod_region_daily`, `mart_logistics_performance`, `mart_product_returns` |
-| System | `system_admin` | Publication/CDC health + Gold đối soát với MySQL |
+| System | `system_admin` | Published mart_order_daily đối soát một lần đọc MySQL hiện tại; metadata publication batch |
 
 Admin có quyền truy cập các dashboard; các vai trò khác bị giới hạn bởi `validate_role_access`. Store manager bị cố định theo cửa hàng được gán bằng `resolve_effective_store_id`. Đây là lọc ở ứng dụng/API, không phải row-level security tự động trong Trino.
 
@@ -124,3 +124,5 @@ Stack local dùng HTTP. TLS, Secure cookie và secret manager production chưa �
 Nguồn: [docker-compose.yml](../../docker-compose.yml), [DAGs](../../airflow/dags), [jobs](../../pipelines/src/jobs), [Polaris RBAC](../../infrastructure/polaris/rbac.yml).
 
 Marketing giữ trạng thái, run ID, thời điểm công bố/quan sát và tuổi cache riêng cho log và nghiệp vụ; không gán một run ID chung cho hai publication. Một nguồn lỗi không xóa phần còn đọc được. Rollup log đọc fact pin snapshot và danh mục Silver pin theo publication OLTP để ánh xạ slug/UUID/variant; API chỉ đọc mart. Job thay toàn bộ ba mart, kiểm tra đầu ra rồi công bố snapshot cùng nhau, kể cả khi nguồn rỗng. Cơ chế ghi bốn tầng log của Flink chưa thay đổi trong đợt này.
+
+Admin Overview đọc mart_admin_overview và mart_order_daily cùng bộ snapshot, không tổng hợp Fact/Silver/Dimension ở API. System dùng order mart cho phía Lakehouse; MySQL chỉ cung cấp count và tổng giá trị đơn tại source_observed_at trong cùng câu SQL. Kết quả matched/mismatch/unavailable/cached không được diễn giải như sức khỏe mọi pipeline. Tuổi publication là tuổi metadata, không phải SLA. Khi cache, thời điểm đo nguồn giữ nguyên và giao diện không trình bày như đối soát mới.

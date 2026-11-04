@@ -759,25 +759,30 @@ export function createAdminInboundReceipt(
   });
 }
 
-export interface AdminOverview {
-  active_products: number;
-  active_variants: number;
-  low_stock_variants: number;
-  customers: number;
-  paid_orders: number;
-  confirmed_orders: number;
-  completed_orders: number;
-  cancelled_orders: number;
-  total_reviews: number;
-  active_coupons: number;
-  gross_revenue_vnd: number;
-  refunded_amount_vnd: number;
-  net_revenue_vnd: number;
-  cogs_vnd?: number;
-  gross_profit_vnd?: number;
-  gross_margin_percent?: number;
-  boom_orders_count?: number;
-  return_orders_count?: number;
+export interface AdminOverview extends AnalyticsDataStatus {
+  active_products: number | null;
+  active_variants: number | null;
+  low_stock_variants: number | null;
+  customers: number | null;
+  total_orders: number | null;
+  pending_payment_orders: number | null;
+  paid_orders: number | null;
+  confirmed_orders: number | null;
+  completed_orders: number | null;
+  cancelled_orders: number | null;
+  total_reviews: number | null;
+  active_coupons: number | null;
+  gross_revenue_vnd: number | null;
+  refunded_amount_vnd: number | null;
+  net_revenue_vnd: number | null;
+  cogs_vnd: number | null;
+  gross_profit_vnd: number | null;
+  boom_orders_count: number | null;
+  return_orders_count: number | null;
+  shipping_orders: number | null;
+  delivered_orders: number | null;
+  gross_margin_percent: number | null;
+  admin_observed_at: string | null;
 }
 
 // --- Operational signals queried from OLTP through FastAPI ---
@@ -1046,20 +1051,18 @@ export interface OperationsMetricsResponse extends AnalyticsDataStatus {
 
 export interface ReconciliationVariance {
   metric_name: string;
-  oltp_value: number;
-  lakehouse_value: number;
-  variance_percent: number;
+  oltp_value: number | null;
+  lakehouse_value: number | null;
+  absolute_difference: number | null;
+  variance_percent: number | null;
 }
 
 export interface SystemMetricsResponse extends AnalyticsDataStatus {
   role: "system";
-  pipeline_status: string;
-  cdc_apply_status: string | null;
-  cdc_heartbeat_at: string | null;
-  cdc_pending_events: number;
-  cdc_apply_lag_seconds: number | null;
-  data_freshness_minutes: number | null;
-  data_freshness_sla_minutes: number;
+  source_mode: string | null;
+  publication_age_minutes: number | null;
+  reconciliation_status: string;
+  source_observed_at: string | null;
   reconciliation_variance: ReconciliationVariance[];
 }
 

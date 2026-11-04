@@ -10,7 +10,7 @@ export const ANALYTICS_ROLES: { id: AnalyticsRole; label: string; icon: IconName
   { id: "inventory", label: "Tồn kho", icon: "box", purpose: "Kiểm tra lượng tồn, giá trị tồn và rủi ro thiếu hàng.", questions: ["Hàng đang nằm tại kho hay cửa hàng?", "SKU nào đã hết?", "SKU nào tại kho còn dưới ngưỡng tồn thấp?"], scope: "Tồn kho: quan sát đã công bố. Lịch sử: từng ngày trong 30 ngày gần nhất." },
   { id: "operations", label: "Vận hành", icon: "truck", purpose: "Ưu tiên đơn chờ xử lý, giao vận có vấn đề và đổi trả.", questions: ["Có bao nhiêu đơn chờ xuất?", "Đơn nào chờ từ 2 giờ tại mốc đo?", "Khu vực COD nào cần kiểm tra với số mẫu cụ thể?"], scope: "Đơn chờ tại mốc đo mart; giao vận/đổi trả: toàn bộ lần công bố." },
   { id: "marketing", label: "Marketing", icon: "ticket", purpose: "Đọc lượng tương tác theo bước và rà soát voucher, phản hồi.", questions: ["Các bước tương tác ghi nhận bao nhiêu sự kiện?", "Tỷ lệ mua/xem theo sự kiện là bao nhiêu?", "Voucher hay sản phẩm nào cần kiểm tra?"], scope: "Log: 30 ngày UTC theo mốc rollup. Voucher/đánh giá: 15/45 phút theo mốc mart nghiệp vụ riêng." },
-  { id: "system", label: "Chất lượng dữ liệu", icon: "shield", purpose: "Đánh giá độ mới của Gold và sai lệch giữa nguồn với Lakehouse.", questions: ["Gold đã được nạp cách đây bao lâu?", "Chỉ số đối soát nào đang lệch?", "Có đủ dữ liệu Lakehouse để kết luận hay chưa?"], scope: "Gold mới nhất so với MySQL hiện tại. Đây không phải trạng thái trực tiếp của tất cả job." },
+  { id: "system", label: "Chất lượng dữ liệu", icon: "shield", purpose: "Đánh giá độ mới của Gold và sai lệch giữa nguồn với Lakehouse.", questions: ["Gold đã được nạp cách đây bao lâu?", "Chỉ số đối soát nào đang lệch?", "Có đủ dữ liệu Lakehouse để kết luận hay chưa?"], scope: "Mart đơn hàng đã công bố so với MySQL tại lần đo; dữ liệu phân tích cập nhật theo batch." },
 ];
 
 export const CANONICAL_ROLES: Record<string, AnalyticsRole> = {
@@ -84,9 +84,10 @@ export function metricDefinitions(metrics: RoleMetricsResponse): MetricDefinitio
       definition("Đánh giá cần xem lại", "mart_product_review_summary.recent_negative_count", "Đánh giá", "Sản phẩm", "45 phút tại mốc mart nghiệp vụ", "Chỉ approved, rating 1–2; không bao gồm tương lai. Hai nguồn có publication và cache riêng."),
     ];
     case "system": return [
-      definition("Tuổi lần công bố", "NOW − analytics_publications.published_at", "Phút", "Phiên dữ liệu OLAP đã công bố", "Snapshot hiện tại", "Không tăng phiên công bố khi nguồn không có thay đổi; đọc kèm heartbeat CDC."),
-      definition("Sai lệch đối soát", "ABS(MySQL − Lakehouse) / ABS(MySQL) × 100", "%", "Một chỉ số đối soát", "Toàn bộ nguồn và Gold hiện tại", "Nguồn 0/đích khác 0 → 100%. Bản lưu khi mất kết nối không được dùng làm kết quả đối soát mới."),
-      definition("Trạng thái dữ liệu", "Heartbeat CDC, độ trễ áp dụng và variance", "Trạng thái", "Phản hồi API", "Hiện tại", "Degraded nếu variance >5% hoặc chờ áp dụng >120 giây; unhealthy nếu variance >20%, heartbeat >180 giây hoặc consumer báo lỗi."),
+      definition("Tuổi publication", "Thời điểm API − analytics_publications.published_at", "Phút", "Snapshot đã công bố", "Hiện tại", "Tuổi publication không chứng minh pipeline lỗi; batch có lịch riêng, CDC phục vụ audit."),
+      definition("Chênh lệch tuyệt đối", "ABS(MySQL hiện tại − SUM mart_order_daily)", "Đơn hoặc VND", "Hai tổng độc lập", "Nguồn tại lần đo / mart publication", "MySQL count và tổng tiền đọc trong cùng một câu SQL. Dữ liệu nguồn có thể tiến trước batch."),
+      definition("Chênh lệch tương đối", "Chênh tuyệt đối / MySQL × 100", "%", "Một chỉ số", "Tại lần đo", "Mẫu số MySQL bằng 0 trả null; chênh tuyệt đối vẫn xác định mismatch. Cache không phải lần đối soát mới."),
+      definition("Kết quả đối soát", "matched/mismatch khi đủ hai phía; unavailable hoặc cached khi chưa có lần đo mới", "Trạng thái", "Phản hồi API", "Tại lần đo", "Không suy ra toàn bộ hệ thống healthy từ một publication hoặc hai tổng khớp."),
     ];
   }
 }

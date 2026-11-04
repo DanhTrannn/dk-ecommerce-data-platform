@@ -303,23 +303,19 @@ class OperationsMetricsResponse(AnalyticsDataStatus):
 
 class ReconciliationVariance(BaseModel):
     metric_name: str
-    oltp_value: float
-    lakehouse_value: float
-    variance_percent: float
+    oltp_value: int | None
+    lakehouse_value: int | None
+    absolute_difference: int | None
+    variance_percent: float | None
 
 
 class SystemMetricsResponse(AnalyticsDataStatus):
-    model_config = ConfigDict(from_attributes=True)
-
     role: str = "system"
-    pipeline_status: str = "healthy"
-    data_freshness_minutes: int | None = None
-    data_freshness_sla_minutes: int = 15
+    source_mode: str | None = None
+    publication_age_minutes: int | None = None
+    reconciliation_status: str = "unavailable"
+    source_observed_at: str | None = None
     reconciliation_variance: list[ReconciliationVariance] = Field(default_factory=list)
-    cdc_apply_status: str = "unknown"
-    cdc_heartbeat_at: str | None = None
-    cdc_pending_events: int = 0
-    cdc_apply_lag_seconds: int = 0
 
 
 class DailySalesTrendPoint(BaseModel):

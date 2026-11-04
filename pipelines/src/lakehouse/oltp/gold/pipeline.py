@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from pyspark.sql import SparkSession, functions as F
+from .admin_marts import build_mart_admin_overview
 from .dimensions import build_dim_date
 from .dimensions import build_dim_product
 from .dimensions import build_dim_variant
@@ -192,6 +193,16 @@ def run_gold_table(spark: SparkSession, table: str, run_id: str, snapshot_date: 
             spark.table("lakehouse.gold.dim_product"),
             run_id,
             as_of=observed,
+        )
+    elif table == "mart_admin_overview":
+        frame = build_mart_admin_overview(
+            spark.table("lakehouse.silver.silver_products"),
+            spark.table("lakehouse.silver.silver_product_variants"),
+            spark.table("lakehouse.gold.fact_inventory_current"),
+            spark.table("lakehouse.silver.silver_customers"),
+            spark.table("lakehouse.silver.silver_product_reviews"),
+            spark.table("lakehouse.silver.silver_coupons"),
+            spark.table("lakehouse.gold.fact_order"), run_id, as_of=observed,
         )
     else:
         raise ValueError(f"Unknown Gold table: {table}")
