@@ -8,6 +8,8 @@ MUTABLE_CURSOR = "updated_at"
 APPEND_ONLY_CURSOR = "created_at"
 SILVER_PREFIX = "silver_"
 
+HARD_DELETE_TABLES = ("cart_items", "wishlist_items")
+
 MUTABLE_TABLES = frozenset(
     {
         "customers",
@@ -56,7 +58,6 @@ class ConfigError(Exception):
 @dataclass(frozen=True)
 class LandingSpec:
     oltp_prefix: str
-    log_prefix: str
 
 
 @dataclass(frozen=True)
@@ -133,7 +134,7 @@ class Config:
 
     @property
     def jdbc_url(self) -> str:
-        from lakehouse.spark import jdbc_url
+        from lakehouse.utils.spark import jdbc_url
 
         return jdbc_url()
 
@@ -142,7 +143,7 @@ def config_path() -> Path:
     env_path = os.environ.get("PIPELINE_CONFIG_PATH")
     if env_path:
         return Path(env_path)
-    return Path(__file__).resolve().parents[2] / "config" / "default.yml"
+    return Path(__file__).resolve().parents[3] / "config" / "default.yml"
 
 
 def _validate(config: Config) -> None:

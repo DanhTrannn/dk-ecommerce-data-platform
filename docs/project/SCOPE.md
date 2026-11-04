@@ -36,7 +36,7 @@ Chi tiết grain ở [Lakehouse Design](LAKEHOUSE_DESIGN_PLAN.md). Công thức 
 ## 5. Giới hạn
 
 - CDC chưa tự cập nhật Silver/Gold OLTP theo sự kiện.
-- Cursor batch chưa thay thế toàn bộ bài toán đồng bộ hard delete.
+- DAG manual hard delete chỉ đồng bộ CDC delete của cart_items/wishlist_items đã bỏ, có dấu soft delete và đã bị xóa thật ở MySQL ít nhất 30 ngày, tính theo source_ts của CDC; trigger là thực hiện đồng bộ Silver bằng tập khóa đầy đủ, không chia chunk; giữ Bronze/CDC lịch sử; không kiểm tra lại source/phiên bản Silver, không lưu ledger hoặc chặn backfill. Dữ liệu cũ có thể được nạp lại; khi cần phải chạy DAG xóa lại. Không rebuild Gold/mart hoặc tạo publication vì không có phụ thuộc vào hai bảng này. Purge MySQL vẫn là quyết định/thao tác chủ động riêng.
 - Batch không có lookback; timestamp nguồn phải phản ánh update. Late commits/missed intervals cần rerun/backfill chủ động, không tự lùi cursor. Payments dùng updated_at.
 - Quality gate sau Gold không tạo transaction/rollback chung cho mọi bảng; maintenance chỉ áp dụng danh sách bảng cấu hình.
 - Upload JSONL vào MinIO chưa có job tự động đọc file thô sang Gold.

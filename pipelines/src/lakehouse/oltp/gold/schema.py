@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from lakehouse.sql import load_sql
+from lakehouse.utils.sql import load_sql
 import re
 
 

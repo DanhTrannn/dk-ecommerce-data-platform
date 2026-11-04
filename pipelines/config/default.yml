@@ -1,3 +1,2 @@
 landing:
   oltp_prefix: landing/oltp
-  log_prefix: landing/logs

@@ -1,6 +1,6 @@
 """Marketing serving checks at the stored observation timestamp."""
 
-from lakehouse.oltp.quality import QualityCheckResult
+from lakehouse.oltp.quality.gate import QualityCheckResult
 
 
 def marketing_consistency_checks(spark):

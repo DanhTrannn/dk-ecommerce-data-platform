@@ -2,8 +2,8 @@
 
 import json
 
-from lakehouse.oltp.gold_ddl import GOLD_TABLE_DDL
-from lakehouse.sql import literal
+from lakehouse.oltp.gold.schema import GOLD_TABLE_DDL
+from lakehouse.utils.sql import literal
 
 SCHEMA_VERSION = 3
 PUBLICATIONS = "lakehouse.system.analytics_publications"

@@ -19,7 +19,7 @@ Prefix raw Landing là vị trí file. Namespace `lakehouse.landing` còn chứa
 
 ## 2. Batch OLTP
 
-Nguồn là 27 bảng khai báo trong [config.py](../../pipelines/src/lakehouse/config.py), loại `customer_credentials` khỏi 28 bảng OLTP.
+Nguồn là 27 bảng khai báo trong [config.py](../../pipelines/src/lakehouse/utils/config.py), loại `customer_credentials` khỏi 28 bảng OLTP.
 
 - **Extract:** Spark reads the fixed Airflow interval `[start,end)` using each table's change timestamp. No lookback, per-table cursor or manifest. A separate manual `init_lakehouse_oltp` DAG reads the full source with no timestamp predicate.
 - **Staging:** Reusable Parquet under `landing/oltp/staging/<table>`, overwritten each run including empty intervals.
@@ -31,7 +31,7 @@ Airflow allows one active batch. There is no source-wide transaction or cross-ta
 
 ## 3. Gold OLTP: 26 bảng (6 dimension, 6 fact, 14 mart)
 
-Nguồn DDL: [gold_ddl.py](../../pipelines/src/lakehouse/oltp/gold_ddl.py). Nguồn biến đổi: [gold.py](../../pipelines/src/lakehouse/oltp/gold/).
+Nguồn DDL: [gold/schema.py](../../pipelines/src/lakehouse/oltp/gold/schema.py). Nguồn biến đổi: [gold.py](../../pipelines/src/lakehouse/oltp/gold/).
 
 ### Sáu dimension
 
@@ -76,7 +76,7 @@ Tên bảng snapshot không chứng minh đang có đầy đủ lịch sử mọ
 | `mart_coupon_usage` | Một dòng/coupon, lượt dùng/hạn mức, khả dụng và redeemed trong 15 phút tại mốc đo |
 | `mart_product_review_summary` | Một dòng/sản phẩm có review, số review và approved 1–2 sao trong 45 phút tại mốc đo |
 
-Các mart bổ sung: `mart_order_daily`, `mart_product_sales_daily`, `mart_inventory_current`, `mart_inventory_summary`, `mart_store_overview`, `mart_operations_summary`, `mart_cod_region_daily`, `mart_marketing_summary`, `mart_coupon_usage`, `mart_product_review_summary`. Nguồn DDL đầy đủ là `gold_ddl.py`.
+Các mart bổ sung: `mart_order_daily`, `mart_product_sales_daily`, `mart_inventory_current`, `mart_inventory_summary`, `mart_store_overview`, `mart_operations_summary`, `mart_cod_region_daily`, `mart_marketing_summary`, `mart_coupon_usage`, `mart_product_review_summary`. Nguồn DDL đầy đủ là `gold/schema.py`.
 
 Order count ở mart sales không được cộng qua các danh mục để suy ra số đơn distinct. Công thức revenue order-level và item-level có khác biệt; xem Metrics Catalog.
 

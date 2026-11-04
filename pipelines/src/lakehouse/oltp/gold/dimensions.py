@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pyspark.sql import DataFrame, SparkSession, functions as F
-from lakehouse.sql import literal, render_sql
+from lakehouse.utils.sql import literal, render_sql
 
 
 def build_dim_date(

@@ -12,7 +12,7 @@
 
 There are no Landing manifests, MD5 scans, high-watermark tasks, cursor files, completion markers or live-source reconciliation gate in the scheduled path. `run_reconciliation_gate.py` remains an explicit diagnostic for a quiescent source.
 
-The 27 source tables, primary keys, change-time columns and Silver/PII mappings are declared once in `SOURCE_TABLES` in `src/lakehouse/config.py`. Extraction uses those fixed names directly; YAML keeps Landing paths only.
+The 27 source tables, primary keys, change-time columns and Silver/PII mappings are declared once in `SOURCE_TABLES` in `src/lakehouse/utils/config.py`. Extraction uses those fixed names directly; YAML keeps Landing paths only.
 
 Both OLTP DAGs contain five TaskGroups, with one task per target table:
 
@@ -24,7 +24,7 @@ Both OLTP DAGs contain five TaskGroups, with one task per target table:
 | `gold` | 6 dimensions + 6 facts | `gold.fact_order` |
 | `mart` | 14 marts | `mart.mart_sales_daily` |
 
-Including context and validate/publish, each DAG has 109 tasks and allows up to three active tasks. Stages finish in order: staging → Bronze → Silver → Gold → mart → validate/publish. Within a stage, `fact_order` waits for `fact_order_item`, `fact_inventory_current` waits for its daily snapshot, and inventory summary/store marts wait for `mart_inventory_current`.
+Including validate/publish, each DAG has 108 tasks and allows up to three active tasks. The batch date comes directly from the Airflow interval template; no context task or XCom is needed. No shared writer lock serializes independent table tasks. Stages finish in order: staging → Bronze → Silver → Gold → mart → validate/publish. Within a stage, `fact_order` waits for `fact_order_item`, `fact_inventory_current` waits for its daily snapshot, and inventory summary/store marts wait for `mart_inventory_current`.
 
 Each Spark CLI accepts `--table` to process one configured table and prepare only its target schema. Without `--table`, the existing all-table CLI behavior remains available. Retry/clear a table task to reread its input from the beginning; extract task retries fetch only that source table again. Silver reads Bronze data matching that table's staging keys. Final quality/publication waits for every mart. TaskGroup `mart` writes the existing `lakehouse.gold.mart_*` tables.
 
@@ -51,7 +51,25 @@ Staging is shared and overwritten, so run jobs through the DAG's single-active-r
 
 `streaming` starts Debezium/Kafka/Flink. `mysql_cdc_to_bronze.py` writes immutable audit events to `bronze.oltp_cdc_events`, including before/after, operation and transport coordinates. It never writes Silver/Gold. The former `spark-cdc` service and transport-checkpoint materializer are removed; existing audit/publication/history tables are preserved.
 
-Hard-delete propagation is not automated by this refactor. Keep normal source operations as soft deletes. A separately approved manual purge/delete-sync workflow must preserve historical facts, Bronze and audit history.
+`manual_lakehouse_hard_delete` (`schedule=None`) synchronizes source hard deletes from CDC. It never deletes MySQL rows. Source purge remains an explicit, separately approved operation, performed while CDC is capturing changes. Normal source operations remain soft deletes.
+
+The DAG takes no user parameters and always processes both `cart_items` and `wishlist_items`. Triggering the DAG executes delete synchronization directly; there is no preview mode or apply flag. Hard-delete synchronization supports only removed cart and wishlist items:
+
+| Source table | Soft-delete evidence in the CDC `before` image |
+|---|---|
+| `cart_items`, `wishlist_items` | `is_present = 0` and `removed_at IS NOT NULL` |
+
+Only actual delete events (`operation='d'`) whose source deletion time `source_ts <= DAG start time - 30 days` qualify. `source_ts` comes from the CDC event’s `source.ts_ms`, not the row’s `updated_at`, the soft-delete `removed_at` or the capture/ingestion time. Events without a source deletion timestamp, tombstones, active records, recent deletions and unsupported tables are excluded. `is_active=false` alone is not a deletion marker; all other tables, including `products` and `coupons`, are excluded. Products and coupons retain their archive lifecycle.
+
+Trigger delete synchronization:
+
+```bash
+docker compose exec -T airflow-scheduler airflow dags trigger manual_lakehouse_hard_delete
+```
+
+Run delete synchronization while batch/init are idle; coordination between these separate DAGs is manual. The single task reads eligible CDC delete keys and deletes matching Silver rows with one Spark MERGE per supported table. It does not recheck MySQL or Silver update timestamps, maintain a deletion ledger, track processed events or split keys into chunks. Repeating the delete is safe for rows that are already absent; every run reads the eligible CDC events again. After each successful MERGE, an INFO log reports the Silver table, deleted row count and cutoff; repeated runs with no matching rows report zero.
+
+Bronze source versions, CDC audit and historical snapshots are retained. No Kafka offsets are reset. Batch/backfill is not filtered against deleted keys and can restore rows from old staging/Bronze; run this manual DAG again when deletion must be reapplied. Existing deletion-ledger tables from earlier deployments are no longer used; this code change does not drop them. Current Gold/mart builders and dashboards do not read cart/wishlist items, so this DAG does not rebuild Gold/marts or create a new analytics publication. The next successful batch publishes the current Silver snapshots.
 
 Access-log processing is unchanged: Flink still writes its four sinks in parallel. `lakehouse_logs_marts` runs hourly, independent of maintenance, validates three marts and publishes their snapshots. The planned Landing-first realtime design is a separate change.
 
@@ -59,6 +77,24 @@ Access-log processing is unchanged: Flink still writes its four sinks in paralle
 
 Spark runs with `SPARK_MASTER_URL=local[2]` inside the Airflow task container; ad hoc SQL uses `spark-client`. `core` starts the web source, `batch` starts Airflow and analytical infrastructure, `streaming` adds audit/access capture, and `tools` adds management interfaces.
 
-OLTP extraction lives in `src/lakehouse/oltp/extract.py`; staging/Bronze/Silver coordination in `ingestion.py`; transforms in `silver/` and `gold/`. Short operational queries remain inline. Existing large SQL/DDL resources remain under `src/lakehouse/sql_templates/`; moving these to shared repo-level SQL is outside this batch change.
+OLTP extraction lives in `src/lakehouse/oltp/extract.py`; staging/Bronze/Silver coordination in `ingestion.py`.
+
+```text
+src/lakehouse/
+├── utils/         # shared config, Spark session, SQL loader and maintenance
+├── oltp/
+│   ├── extract.py, ingestion.py, hard_delete.py, publication.py
+│   ├── bronze/    # writer.py: source version MERGE and schema evolution
+│   ├── silver/    # schema, writer, validation, PII, quarantine
+│   ├── gold/      # schema, per-table I/O, builders by domain and *_marts.py
+│   └── quality/   # gate, inventory/operations/marketing checks, manual reconciliation
+├── logs/          # parser, Flink adapter, Spark mart rollup and publication
+├── streaming/     # shared Flink runtime, catalog and sink setup
+└── sql_templates/ # shared SQL resources for Spark, Flink and MySQL
+```
+
+`jobs/` retains thin executable CLIs grouped into `oltp`, `logs`, `cdc` and `maintenance`. DAGs import `gold/schema.py` without loading Spark builders. Flink jobs import the shared `streaming` modules directly; no forwarding `flink.py` or single-file `orchestration` package remains. Maintenance healthcheck lives with its DAG and no longer creates unused context/XCom tasks.
+
+The unused Spark log Bronze/Silver path, generic `ingest_bronze.py`, obsolete fact builder and format fallbacks have been removed. Current source ingestion uses `merge_source_versions`; Silver writes Iceberg only, with deduplication/region metadata inline in its writer. Sales and inventory mart builders live with their respective `*_marts.py` modules. Short operational queries remain inline. Existing large SQL/DDL resources remain under `src/lakehouse/sql_templates/`; moving these to shared repo-level SQL is outside this batch change.
 
 Local verification scripts and Spark/Iceberg fixtures are kept outside Git. Compile/lint and Compose configuration checks remain in CI. Maintenance schedules and retention are unchanged in this change; conversion to manual maintenance is still tracked in the refactor note.

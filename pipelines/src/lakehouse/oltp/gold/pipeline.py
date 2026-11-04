@@ -4,33 +4,31 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from pyspark.sql import SparkSession, functions as F
-from lakehouse.oltp.gold import (
-    build_dim_customer,
-    build_dim_date,
-    build_dim_delivery_staff,
-    build_dim_product,
-    build_dim_store,
-    build_dim_variant,
-    build_fact_inventory_daily_snapshot,
-    build_fact_order,
-    build_fact_order_item,
-    build_fact_return_exchange,
-    build_fact_shipment,
-    build_mart_inventory_health,
-    build_mart_logistics_performance,
-    build_mart_product_returns,
-    build_mart_sales_daily,
-    build_mart_order_daily,
-    build_mart_product_sales_daily,
-    build_mart_inventory_current,
-    build_mart_inventory_summary,
-    build_mart_store_overview,
-    build_mart_operations_summary,
-    build_mart_cod_region_daily,
-    build_mart_marketing_summary,
-    build_mart_coupon_usage,
-    build_mart_product_review_summary,
-)
+from .dimensions import build_dim_date
+from .dimensions import build_dim_product
+from .dimensions import build_dim_variant
+from .dimensions import build_dim_store
+from .dimensions import build_dim_delivery_staff
+from .dimensions import build_dim_customer
+from .sales import build_fact_order
+from .sales import build_fact_order_item
+from .sales_marts import build_mart_sales_daily
+from .sales_marts import build_mart_order_daily
+from .sales_marts import build_mart_product_sales_daily
+from .logistics import build_fact_shipment
+from .logistics import build_mart_logistics_performance
+from .returns import build_fact_return_exchange
+from .returns import build_mart_product_returns
+from .inventory import build_fact_inventory_daily_snapshot
+from .inventory_marts import build_mart_inventory_health
+from .inventory_marts import build_mart_inventory_current
+from .inventory_marts import build_mart_inventory_summary
+from .inventory_marts import build_mart_store_overview
+from .operations_marts import build_mart_operations_summary
+from .operations_marts import build_mart_cod_region_daily
+from .marketing_marts import build_mart_marketing_summary
+from .marketing_marts import build_mart_coupon_usage
+from .marketing_marts import build_mart_product_review_summary
 
 
 def run_gold_table(spark: SparkSession, table: str, run_id: str, snapshot_date: str, *, as_of=None) -> None:

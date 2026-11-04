@@ -12,7 +12,7 @@ Acceptance criteria:
 
 from __future__ import annotations
 
-from lakehouse.sql import identifier, load_sql, render_sql
+from lakehouse.utils.sql import identifier, load_sql, render_sql
 
 import logging
 from dataclasses import dataclass
@@ -21,8 +21,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
-from lakehouse.config import Config
-from lakehouse.oltp.quality import persist_quality_results
+from lakehouse.utils.config import Config
+from lakehouse.oltp.quality.gate import persist_quality_results
 
 logger = logging.getLogger("lakehouse.reconcile")
 
@@ -143,7 +143,7 @@ def check_financial_metrics(
             load_sql("mysql/order_revenue.sql"),
             "lakehouse.silver.silver_orders",
             "total_vnd",
-            load_sql("mysql/order_revenue_predicate.sql"),
+            "status != 'cancelled'",
         ),
         (
             "successful_payments_vnd",
@@ -151,7 +151,7 @@ def check_financial_metrics(
             load_sql("mysql/successful_payments.sql"),
             "lakehouse.silver.silver_payments",
             "amount_vnd",
-            load_sql("mysql/succeeded_predicate.sql"),
+            "status = 'succeeded'",
         ),
         (
             "successful_refunds_vnd",
@@ -159,7 +159,7 @@ def check_financial_metrics(
             load_sql("mysql/successful_refunds.sql"),
             "lakehouse.silver.silver_refunds",
             "amount_vnd",
-            load_sql("mysql/succeeded_predicate.sql"),
+            "status = 'succeeded'",
         ),
     )
 

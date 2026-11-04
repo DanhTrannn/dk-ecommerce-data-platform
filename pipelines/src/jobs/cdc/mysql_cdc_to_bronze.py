@@ -6,19 +6,15 @@ The existing Spark batch path remains the authoritative backfill/reconciliation
 path; downstream consumers can deterministically order and replay this table.
 """
 
-from lakehouse.sql import literal, load_sql, render_sql
+from lakehouse.utils.sql import literal, load_sql, render_sql
 
 import logging
 import os
 import re
 
-from lakehouse.flink import (
-    create_stream_environment,
-    create_table_environment,
-    ensure_cdc_tables,
-    ensure_medallion_namespaces,
-    register_polaris_catalog,
-)
+from lakehouse.streaming.runtime import create_stream_environment, create_table_environment
+from lakehouse.streaming.catalog import ensure_medallion_namespaces, register_polaris_catalog
+from lakehouse.streaming.tables import ensure_cdc_tables
 
 logging.basicConfig(
     level=logging.INFO,

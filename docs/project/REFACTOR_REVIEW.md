@@ -1,6 +1,18 @@
 # Ghi chú refactor repo
 
-**Các quyết định bên dưới là phạm vi refactor đã chốt. Tiến độ triển khai được ghi riêng theo từng đợt.**
+**Các quyết định là phạm vi đã chốt, không đồng nghĩa tất cả đã triển khai. Trạng thái hiện tại được tóm tắt bên dưới; các đợt cũ chỉ lưu lịch sử.**
+
+## Trạng thái hiện tại — 2026-11-04
+
+- **Hạ tầng:** Compose có `core`, `batch`, `streaming`, `tools` và `lakehouse-tools`; Spark chạy local, không còn master/worker hoặc Spark CDC materializer. Polaris bootstrap YAML lần đầu; MinIO đồng bộ cấu hình mỗi lần init.
+- **Batch:** `lakehouse_oltp_pipeline` chạy 03:00 hằng ngày theo Asia/Ho_Chi_Minh; `init_lakehouse_oltp` chạy thủ công, full extract. Mỗi DAG có 108 task trong 5 TaskGroup và validate/publish, tối đa 3 task đồng thời. Staging dùng chung, người vận hành tự điều phối các DAG.
+- **Xử lý:** extract tuần tự theo chunk 10.000 dòng; staging overwrite → Bronze MERGE phiên bản nguồn → Silver incremental MERGE → Gold/mart → quality/publication. Không lookback, manifest, cursor/checkpoint extract, begin_run hoặc khóa writer chung. Payments dùng updated_at; reconciliation với source chỉ là CLI diagnostic, không phải gate trong DAG batch.
+- **CDC và hard delete:** CDC ghi Bronze audit, không upsert thường ngày vào Silver/Gold. DAG manual có một task, không nhận param; tự xử lý cart_items/wishlist_items đã bị hard delete ở MySQL ít nhất 30 ngày theo source_ts, ảnh before có is_present=0 và removed_at. Chỉ xóa Silver; không chunk, preview, ledger, kiểm tra lại source/phiên bản Silver hoặc chặn backfill. Không xóa Bronze/CDC/MySQL, không rebuild Gold/mart hoặc tạo publication. INFO log ghi bảng và số dòng khớp được xóa; chạy lại không còn dòng khớp thì ghi 0.
+- **Cấu trúc:** công cụ dùng chung ở `lakehouse/utils/`; Bronze ở `oltp/bronze/writer.py`; schema nằm trong Silver/Gold, quality ở `oltp/quality/`. Extract/ingestion/hard_delete/publication nằm trực tiếp dưới `oltp/`; không còn `oltp/utils/`. Hiện có **65 file Python trong pipelines/src và 89 SQL template**.
+- **Log và maintenance:** Flink vẫn ghi song song Landing/Bronze/Silver/Gold; mart log rollup mỗi giờ độc lập maintenance. Maintenance OLTP vẫn chạy 03:00 hằng ngày, streaming mỗi 2 giờ; chưa chuyển sang thủ công.
+- **Còn chờ:** Landing-first/realtime refresh 10 giây (mục 22–23), maintenance thủ công và hoàn thiện phạm vi/retention (12, 14–15), SQL dùng chung cấp repo (21), các phần dashboard/bảng giữ-bỏ chưa chốt và đồng bộ toàn bộ docs (26). SQL hiện vẫn ở `pipelines/src/lakehouse/sql_templates/`.
+
+Kiểm thử gần nhất dùng fixture cục bộ: DAG không param tự xử lý hai bảng; điều kiện tuổi sự kiện xóa đủ 30 ngày, INFO row count và chạy lại đạt. Đây không phải xác nhận trạng thái dữ liệu/dịch vụ đang chạy hoặc full E2E mới. Test/log không đưa vào Git.
 
 ## Đã chốt hướng thay đổi
 
@@ -20,10 +32,10 @@
 14. **Đồng bộ phạm vi maintenance:** sau khi chốt bảng giữ/bỏ, cập nhật danh sách bảo trì, bao gồm các bảng Bronze batch/CDC và mart log được giữ; không tiếp tục dùng danh sách thiếu hiện tại.
 15. **Retention khi chạy maintenance thủ công:** giữ snapshot 7 ngày và tối thiểu 10 snapshot/bảng; chỉ dọn orphan cũ hơn 3 ngày; giữ bản ghi quarantine 30 ngày. Không dọn orphan trên staging/raw Landing hoặc checkpoint. Đồng bộ tham số maintenance và thuộc tính retention của bảng theo quy tắc này.
 16. **Batch tối giản là luồng cập nhật chính:** Airflow xác định khoảng lấy dữ liệu theo lịch → staging ghi mới delta từ source theo created_at/updated_at phù hợp, không lookback → Bronze append delta gốc → Silver chỉ đọc delta mới, transform/dedup và upsert theo khóa chính → Gold build fact/dim/mart. Staging dùng lại và overwrite/truncate mỗi lượt; không truncate Bronze/Silver. Không đọc lại toàn bộ lịch sử Bronze để rebuild Silver. Run ID chỉ còn dùng cho audit/quality/publication; không dùng để điều khiển fetch/retry. Bronze nhận diện phiên bản theo PK/thời gian thay đổi, Silver upsert theo PK.
-17. **CDC phục vụ audit và đồng bộ hard delete riêng:** lưu insert/update/delete, before/after và tọa độ binlog/Kafka vào Bronze CDC; không dùng CDC để upsert thường ngày. DAG chạy thủ công chỉ đọc sự kiện delete chưa xử lý để đồng bộ việc xóa khỏi dữ liệu hiện hành trong Lakehouse; chạy lại không gây sai lệch.
+17. **CDC phục vụ audit và đồng bộ hard delete riêng:** lưu insert/update/delete, before/after và tọa độ binlog/Kafka vào Bronze CDC; không dùng CDC để upsert thường ngày. DAG thủ công đọc lại các sự kiện delete đủ điều kiện mỗi lượt rồi xóa theo khóa ở Silver; không lưu trạng thái đã xử lý. Xóa lại bản ghi đã vắng mặt không tạo thêm thay đổi dữ liệu.
 18. **Bỏ cơ chế batch phức tạp:** manifest/MD5, high watermark và cursor lưu riêng từng bảng, completion marker, đọc/hash/đếm lặp. Dùng khoảng thời gian và dependency/retry sẵn có của Airflow; giữ kiểm tra dữ liệu cơ bản, PII và RBAC. Rà soát các quality/reconciliation gate để giảm phần trùng lặp, không biến pipeline thành chuỗi kiểm tra nhiều tầng.
 19. **Query delta nhận interval từ Airflow:** truyền data_interval_start/end thành interval_start/end; lọc đúng `change_time >= interval_start AND change_time < interval_end`, không lookback. Dùng updated_at cho bảng có update, created_at cho bảng chỉ insert. Retry/backfill dùng đúng interval của run, không lấy thời gian hiện tại làm mốc. Module truyền tham số đã xử lý an toàn; query ngắn/nội bộ có thể để inline theo quy tắc SQL bên dưới. Silver dedup và upsert theo PK; source phải cập nhật change_time khi dữ liệu đổi. Hard delete xử lý riêng.
-20. **Soft delete mặc định, hard delete thủ công:** thiết kế source dùng soft delete cho thao tác xóa nghiệp vụ; batch truyền trạng thái này xuống Lakehouse. Chỉ purge source chủ động khi có quyết định xóa, không tự purge theo tuổi dữ liệu. Luồng: purge source → CDC ghi nhận delete → DAG được gọi thủ công đồng bộ xóa dữ liệu hiện hành và cập nhật Gold/mart liên quan. Không xóa source lần nữa khi đọc CDC. Luôn giữ lịch sử giao dịch, Bronze lịch sử và CDC audit; không cascade xóa lịch sử hoặc làm mất doanh thu quá khứ. Retry/backfill không được hồi sinh bản ghi đã purge. Danh sách bảng được phép purge phải được duyệt trước triển khai.
+20. **Soft delete mặc định, hard delete thủ công:** thiết kế source dùng soft delete cho thao tác xóa nghiệp vụ; batch truyền trạng thái này xuống Lakehouse. Chỉ purge source chủ động khi có quyết định xóa; bản ghi đã soft delete trước khi purge; chỉ đồng bộ xóa Silver khi sự kiện xóa thật ở MySQL đã đủ 30 ngày (`source_ts <= thời điểm chạy - 30 ngày`), không tính theo updated_at/removed_at. DAG không có lịch tự động và không tự purge theo tuổi dữ liệu. Luồng: purge source → CDC ghi nhận delete → DAG được gọi thủ công đồng bộ xóa dữ liệu hiện hành ở Silver; hai bảng cart/wishlist không có Gold/mart phụ thuộc nên không rebuild hoặc tạo publication. Không xóa source lần nữa khi đọc CDC. Luôn giữ lịch sử giao dịch, Bronze lịch sử và CDC audit; không cascade xóa lịch sử hoặc làm mất doanh thu quá khứ. Không lưu ledger hoặc chặn backfill; dữ liệu cũ có thể được nạp lại và cần chạy DAG xóa lại. Phạm vi chốt: chỉ cart_items/wishlist_items đã được người dùng bỏ (`is_present=0`, có removed_at); products/coupons và các bảng khác không hard delete trong luồng này.
 21. **SQL dùng chung:** đặt DDL/schema và query lớn có mục đích sử dụng riêng trong thư mục `sql/` cấp repo để bootstrap/infrastructure và pipeline cùng gọi, không nhân bản. SQL ngắn hoặc chỉ phục vụ xử lý nội bộ pipeline không bắt buộc tách file; bỏ việc tách từng fragment vụn. Phạm vi trước mắt là SQL lakehouse; không tự chuyển DDL MySQL đang có ở `database/schema.sql`.
 22. **Access log có hai luồng phục vụ:** Flink ghi nối tiếp Landing liên tục, không truncate như staging OLTP; dashboard realtime đọc từ Landing để giảm độ trễ, số liệu chưa qua đầy đủ bước làm sạch. Airflow chạy mỗi giờ: Landing mới → Bronze → Silver → Gold fact → datamart; dashboard phân tích sâu đọc mart. Đầu ra tầng trước là đầu vào tầng sau, không ghi song song bốn tầng từ cùng parsed stream. Landing nhận raw, Bronze giữ dữ liệu gốc kèm lineage, Silver chuẩn hóa/làm sạch, Gold xây fact/mart. Giữ đủ tầng; không cần Flink xử lý liên tục tới Gold. Pipeline giờ này độc lập maintenance.
 23. **Dashboard access log:** cả HTTP metrics (request, lỗi, độ trễ) và sự kiện nghiệp vụ (xem sản phẩm, giỏ, checkout...) đều phục vụ góc nhìn vận hành realtime và báo cáo phân tích. Realtime đọc Landing, refresh mỗi 10 giây; báo cáo phân tích sâu đọc mart được cập nhật mỗi giờ. Không diễn giải số sự kiện log như số giao dịch/người dùng duy nhất khi chưa có căn cứ.
@@ -31,12 +43,14 @@
 25. **Dọn code và test cục bộ:** loại code/config không dùng, logic trùng và fallback không cần thiết. Có thể thêm test để kiểm tra từng phần, nhưng chỉ lưu/chạy cục bộ; không đưa test vào Git, commit hoặc push lên remote.
 26. **Đồng bộ docs cuối đợt refactor:** sau khi sửa và kiểm tra xong toàn bộ phạm vi đã chốt, cập nhật README, hướng dẫn chạy, kiến trúc, mô hình dữ liệu và báo cáo liên quan theo code mới; bỏ mô tả cũ không còn đúng.
 
-## Tiến độ triển khai
+## Lịch sử triển khai
+
+**Các kết quả dưới đây phản ánh phiên bản tại thời điểm từng đợt, không phải trạng thái hiện tại hoặc số liệu vận hành mới nhất. CDC materializer, checkpoint nguồn và khóa writer được nhắc trong các đợt cũ đã bị loại bỏ ở đợt 4. Số task, quality checks, row count và thời gian đo cũ chỉ là bằng chứng lịch sử.**
 
 **Đợt 1 — hoàn thành mục 1–2 (2026-11-02):**
 
 - `core` chỉ chạy MySQL/API/Storefront; `batch` không kéo Kafka/Flink; `streaming` không kéo Airflow; các giao diện quản trị nằm trong `tools`.
-- Bỏ Spark master/worker; SparkSubmit của Airflow, Spark SQL và CDC materializer hiện tại chạy `local[2]` trong container thực thi. `SPARK_MASTER_URL` cho phép chỉnh số thread local; connection Airflow không dùng địa chỉ cluster cũ.
+- Bỏ Spark master/worker; SparkSubmit của Airflow, Spark SQL và CDC materializer ở thời điểm đợt 1 chạy `local[2]` trong container thực thi. `SPARK_MASTER_URL` cho phép chỉnh số thread local; connection Airflow không dùng địa chỉ cluster cũ.
 - Cập nhật launcher, Makefile, `.env.example`, CI và tài liệu vận hành. Kafka tắt chủ động thì API không ghi DLQ.
 - Kiểm tra cả 15 tổ hợp nhóm chính; chạy riêng core đạt đúng 3 dịch vụ healthy; Spark SQL và toàn bộ DAG batch chạy local đạt 13/13 task, 26/26 quality checks.
 - CDC local đồng bộ được thay đổi và hoàn nguyên tới API; 10 endpoint analytics đạt; 328 dòng tồn kho lịch sử và tổng tài chính giữ nguyên. Test/log/dữ liệu kiểm tra chỉ lưu cục bộ ngoài Git.
@@ -109,23 +123,38 @@ Các quyết định 3–26 không thuộc phạm vi đợt 1; tiến độ các
 **Đợt 4 — Batch tối giản (2026-11-03):**
 
 - Bỏ service Spark CDC materializer; CDC chỉ ghi Bronze audit. Không xóa data volume, publication, lịch sử Bronze hoặc snapshot đang lưu.
-- Airflow chia 5 TaskGroup: staging (27 bảng) → Bronze (27) → Silver (27) → Gold (12 dim/fact) → mart (14), mỗi bảng một task; thêm context và validate/publish thành 109 task/DAG, tối đa 3 task đồng thời. Run ID dùng từ Airflow, staging dùng lại; không manifest/MD5/watermark/cursor/lookback. DAG `init_lakehouse_oltp` riêng chạy thủ công để lấy toàn bộ source, không lọc interval; đã bỏ tùy chọn full_extract trong DAG batch. Theo yêu cầu, không chặn chạy đồng thời giữa hai DAG; người vận hành tự điều phối staging dùng chung.
+- Airflow chia 5 TaskGroup: staging (27 bảng) → Bronze (27) → Silver (27) → Gold (12 dim/fact) → mart (14), mỗi bảng một task; thêm validate/publish thành 108 task/DAG; bỏ begin_run/context và truyền ngày trực tiếp bằng template Airflow, tối đa 3 task đồng thời. Run ID dùng từ Airflow, staging dùng lại; không manifest/MD5/watermark/cursor/lookback. DAG `init_lakehouse_oltp` riêng chạy thủ công để lấy toàn bộ source, không lọc interval; đã bỏ tùy chọn full_extract trong DAG batch. Theo yêu cầu, không chặn chạy đồng thời giữa hai DAG; người vận hành tự điều phối staging dùng chung.
 - Extract dùng Spark JDBC tuần tự từng bảng, mỗi chunk tối đa 10.000 dòng theo khóa chính; bỏ ThreadPool và cấu hình chạy song song. Mỗi chunk một file staging; Bronze/Silver đọc lại từ đầu khi retry, không checkpoint hoặc đánh dấu chunk. Bỏ `_run_id`/`_chunk_id` trong staging; MERGE theo khóa dữ liệu để không trùng và giữ lịch sử Bronze. Gold dùng mốc bắt đầu DAG cố định cho các chỉ số theo thời gian; quarantine và publish không append trùng khi retry. Không reset hoặc xóa lịch sử hiện có.
+- Bỏ file lock writer dùng chung và service/volume cấu hình đi kèm; task các bảng độc lập chạy theo concurrency của Airflow. Người vận hành điều phối các DAG cùng ghi dữ liệu, không thêm khóa thay thế.
 - Danh sách 27 bảng source và mapping khai báo trực tiếp trong `config.py`, dùng chung extract/Bronze/Silver; bỏ khai báo bảng trong YAML và bỏ `identifier()` khỏi extract.
 - Silver chỉ đọc các phiên bản Bronze khớp khóa/thời gian thay đổi trong staging, upsert theo PK; bản cũ không ghi đè timestamp mới. Giữ PII, quality sau Gold và publication schema 3 cho dashboard hiện có. Bỏ gate đối soát live-source khỏi đường scheduled; CLI diagnostic còn dùng khi cần.
 - Kiểm chứng cục bộ ngoài Git: Spark/Iceberg retry, delta insert/update, backfill cũ, interval rỗng, run identity và query interval/bootstrap; ở phiên bản trước TaskGroup, render DAG kiểm tra 6 task và tham số ổn định; build Gold trên 27 Silver rỗng đạt 51 quality checks và công bố batch thành công. Không chạy full E2E MySQL/MinIO/Polaris/Airflow trong đợt này.
-- Đã cập nhật hướng dẫn batch và chuyển môi trường cũ. Chưa triển khai manual purge/delete-sync, Landing-first, maintenance thủ công hay di chuyển SQL dùng chung; giữ phạm vi riêng cho các đợt sau.
+- Đã cập nhật hướng dẫn batch và chuyển môi trường cũ. Đợt này chưa triển khai Landing-first, maintenance thủ công hay di chuyển SQL dùng chung; phần delete-sync thủ công được ghi riêng bên dưới; giữ phạm vi riêng cho các đợt sau.
 
 **Kiểm chứng init trên cụm batch (2026-11-03):**
 
 - Sửa schema nguồn cũ thiếu payments.updated_at bằng migration sẵn có, giữ dữ liệu/index cũ; thêm lỗi preflight rõ ràng nếu source thiếu PK/change timestamp. Cập nhật runbook: migration nguồn là thao tác explicit, không tự chạy khi API khởi động.
 - Trước khi chuyển TaskGroup, retry cùng run init: 6/6 task success, Gold quality 51/51; MySQL/Silver/Gold đều 3.003 đơn. Publication cuối là đúng run init, source_mode=batch. Regression test lỗi thiếu cột chỉ lưu cục bộ ngoài Git.
 
-**Tiếp theo:** các mục còn lại về dashboard/maintenance/log/SQL và đồng bộ báo cáo toàn bộ ở mục 26. Danh sách bảng giữ/bỏ và bảng được purge vẫn cần duyệt trước khi xóa.
+**Hard delete thủ công (2026-11-04):**
+
+- DAG `manual_lakehouse_hard_delete` có một task sync, chỉ chạy chủ động; không nhận param, trigger là đồng bộ cả cart_items và wishlist_items, không có preview hoặc cờ apply. Không purge source trong DAG.
+- Chỉ đọc CDC delete có soft-delete marker trong ảnh before và `source_ts <= thời điểm bắt đầu DAG - 30 ngày` (thời điểm xóa ở MySQL, không phải updated_at/removed_at). Chỉ hỗ trợ cart_items/wishlist_items (`is_present=0`, có removed_at); loại products/coupons khỏi luồng này; không suy diễn is_active=false hay carts checked_out là đã xóa.
+- Chỉ đọc CDC đủ điều kiện rồi MERGE DELETE ở Silver; không kiểm tra lại source hoặc phiên bản Silver mới hơn. Xóa Silver bằng Spark join/MERGE trên toàn bộ tập khóa đủ điều kiện, không chia chunk hoặc collect khóa về Python. Thiếu bảng Silver thì Spark báo lỗi; giữ Bronze/CDC và lịch sử. Không rebuild Gold/mart hoặc tạo publication vì không có phụ thuộc vào cart/wishlist; batch tiếp theo cập nhật snapshot Silver được công bố.
+- Bỏ ledger/lịch sử xử lý xóa và bộ lọc chống nạp lại ở Silver; mỗi lần đọc lại CDC và xóa theo khóa. Batch/backfill có thể nạp lại dữ liệu cũ, khi cần chạy DAG xóa lại. Không chạy xóa trên dữ liệu thật trong lúc triển khai.
+
+**Tinh gọn cấu trúc pipeline (2026-11-04):**
+
+- Bỏ Spark log Bronze/Silver cũ, CLI ingest tổng quát và SQL/hàm không còn caller; chỉ giữ luồng log Flink và Spark rollup mart hiện hành.
+- Gom schema vào Silver/Gold, quality và reconciliation vào `oltp/quality/`; bỏ lớp forwarding Flink, helper region/dedup riêng và context maintenance không dùng.
+- Giữ CLI theo nhóm nghiệp vụ, PII/validation/quarantine và shared Flink runtime/catalog/tables; chuyển mart sales/inventory về các file mart đã có. Không thêm dependency hoặc đổi lịch/retention maintenance trong đợt này.
+- Kiểm thử fixture offline: 26 bảng Gold khớp baseline trước refactor, quality 51/51; extract/retry/upsert 20.003 dòng, hard delete 10.001 khóa (bộ kiểm tra chống hồi sinh thuộc phiên bản cũ, đã bỏ theo quyết định mới), PII/quarantine, reconciliation và healthcheck đạt. Thống kê hiện tại sau các thay đổi cấu trúc và bỏ SQL ledger là 65 file Python/89 SQL; kiểm tra graph không thấy module/SQL mồ côi ở phiên bản đã kiểm thử trước đó. Không chạy xóa dữ liệu thật hoặc E2E Kafka/Flink trong đợt này.
+
+**Tiếp theo:** triển khai các mục còn chờ trong phần trạng thái hiện tại. Danh sách loại bảng analytics vẫn cần duyệt; phạm vi hard-delete sync đã chốt chỉ cart_items/wishlist_items. Việc purge dữ liệu thật ở source là thao tác chủ động riêng.
 
 ## Chi tiết để chốt khi triển khai
 
-- Danh sách bảng giữ/bỏ và bảng được phép purge do người dùng chỉ rõ, duyệt trước khi xóa.
+- Danh sách bảng analytics giữ/bỏ do người dùng chỉ rõ, duyệt trước khi xóa; không thay đổi phạm vi hard-delete sync đã chốt cho cart_items/wishlist_items.
 - Tên/default Compose profile đã chốt ở đợt 1; tài khoản MinIO bị bỏ khỏi cấu hình được giữ/cảnh báo theo đợt 2b.
 
 ## Quy tắc thực hiện

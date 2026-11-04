@@ -1,3 +1,5 @@
+> Ghi chú đồng bộ: một số mục bên dưới còn mô tả kiến trúc trước refactor (lookback/manifest/CDC materializer). Cấu trúc mã và cách chạy hiện hành xem [pipeline guide](../pipelines/README.md) và [project structure](architecture/PROJECT_STRUCTURE.md).
+
 # **CHƯƠNG 2. CƠ SỞ LÝ THUYẾT VÀ CÔNG NGHỆ SỬ DỤNG**
 
 ## **2.1. Tổng quan về thương mại điện tử và bán hàng đa kênh**
@@ -1609,7 +1611,7 @@ Nền tảng Data Lakehouse của D&K được thiết lập trên sự kết h�
      * Cấp vai trò `trino_reader` chỉ với các đặc quyền đọc dữ liệu (`TABLE_READ_DATA`, `NAMESPACE_LIST`, `VIEW_READ_PROPERTIES`), ngăn chặn hoàn toàn việc sửa đổi dữ liệu từ tầng BI.
 
 3. **Tích hợp các công cụ tính toán (Spark, Flink, Trino) với Iceberg REST Catalog**:
-   * **Cấu hình Apache Spark (`pipelines/src/lakehouse/spark.py`)**:
+   * **Cấu hình Apache Spark (`pipelines/src/lakehouse/utils/spark.py`)**:
      * Khai báo lớp Catalog: `org.apache.iceberg.spark.SparkCatalog`.
      * Kiểu Catalog: `org.apache.iceberg.rest.RESTCatalog` kết nối tới `http://polaris:8181/api/catalog`.
      * Lớp FileIO: `org.apache.iceberg.aws.s3.S3FileIO` trỏ về endpoint MinIO `http://minio:9000`.
@@ -1635,18 +1637,14 @@ Nền tảng Data Lakehouse của D&K được thiết lập trên sự kết h�
 
 ### **4.5.2. Xử lý và chuyển đổi dữ liệu tại Bronze và Silver**
 
-1. **Nạp dữ liệu từ Landing vào tầng Bronze (`pipelines/src/jobs/oltp/ingest_bronze.py`)**:
-   * Kịch bản đọc tệp Parquet và xác thực tính hợp lệ của `manifest.json` từ Landing.
-   * Toàn bộ dữ liệu được nạp vào các bảng Iceberg tương ứng trong namespace `lakehouse.bronze` theo phương thức **chỉ ghi thêm (Append-only)**.
-   * **Bổ sung siêu dữ liệu truy vết nguồn gốc (Lineage Enrichment)**: Mỗi dòng bản ghi được tự động gắn thêm 3 cột kỹ thuật hệ thống:
-     * `_ingested_at`: Thời điểm chính xác dòng dữ liệu được nạp vào Bronze.
-     * `_source_file`: Tên tệp Parquet nguồn tại Landing mà dòng dữ liệu được trích xuất.
-     * `_source_run_id`: Mã phiên chạy Airflow (`run_id`) chịu trách nhiệm nạp dữ liệu.
-   * **Tiến hóa lược đồ tự động (Schema Evolution)**: Bảng Bronze kích hoạt thuộc tính `write.spark.accept-any-schema = true`. Khi bảng MySQL nguồn bổ sung cột mới, hàm `_append_iceberg_with_schema_evolution` tự động thực thi lệnh `ALTER TABLE ... ADD COLUMN` trên bảng Iceberg mà không làm sập tiến trình.
-   * **Cam kết con trỏ Watermark (Atomic Cursor Commit)**: Chỉ sau khi toàn bộ dữ liệu của mẻ được ghi nhận thành công vào Bronze, hệ thống mới cập nhật con trỏ mới vào `s3a://lakehouse/state/cursor/<table>.json`, bảo đảm dữ liệu không bao giờ bị nhảy cóc nếu xảy ra lỗi giữa chừng.
+1. **Nạp staging vào Bronze (`pipelines/src/jobs/oltp/ingest_oltp_to_bronze.py`)**:
+   * Đọc lần lượt các file Parquet staging của bảng được chọn; mỗi file chứa tối đa 10.000 dòng từ source.
+   * `merge_source_versions` trong `oltp/bronze/writer.py` dùng MERGE theo khóa chính và thời gian thay đổi. Chạy lại không nhân bản cùng phiên bản và vẫn giữ các phiên bản cũ.
+   * Metadata nguồn gồm `_source_system`, `_source_schema`, `_source_table`, `_source_primary_key`, `_source_cursor_at` và `_ingested_at_utc`; staging không dùng run/chunk checkpoint.
+   * Cột mới được bổ sung bằng ALTER TABLE ADD COLUMN, sau đó căn thứ tự schema trước khi ghi. Không dùng manifest hoặc file watermark/cursor.
 
 2. **Chuyển đổi, làm sạch và khử trùng lặp tại tầng Silver (`pipelines/src/jobs/oltp/ingest_oltp_silver.py`)**:
-   * Đọc dữ liệu biến động mới nạp từ Bronze dựa trên điều kiện `_source_run_id = :run_id`.
+   * Đọc các phiên bản Bronze khớp khóa chính/thời gian thay đổi trong staging; không lọc theo run ID.
    * **Chuẩn hóa kiểu dữ liệu và bóc tách cấu trúc**: Chuyển đổi các cột chuỗi thô thành các kiểu dữ liệu mạnh (`TIMESTAMP`, `DECIMAL(12,2)`, `INTEGER`, `BOOLEAN`). Các trường JSON linh hoạt như `attributes_json`, `metadata_json` được bóc tách thành các cột có kiểu dữ liệu rõ ràng.
    * **Khử trùng lặp bản ghi (Deduplication via Window Ranking)**: Do luồng trích xuất có áp dụng cửa sổ lùi $\Delta t_{\text{lookback}}$, nhiều bản ghi sẽ bị trích xuất lặp lại. Spark áp dụng hàm cửa sổ để lấy bản ghi có thời điểm cập nhật mới nhất:
      ```sql
@@ -1675,7 +1673,7 @@ Nền tảng Data Lakehouse của D&K được thiết lập trên sự kết h�
 Tầng Gold được triển khai thông qua kịch bản `pipelines/src/jobs/oltp/build_oltp_gold.py` và `pipelines/src/jobs/logs/build_logs_gold.py`, cấu trúc theo mô hình hình sao (Star Schema) chuẩn hóa của Kimball [11] nhằm tối ưu hóa tối đa cho các truy vấn phân tích đa chiều trên BI Hub:
 
 1. **Hiện thực hóa 6 Bảng Chiều chuẩn hóa (Conformed Dimensions)**:
-   * Được khởi tạo thông qua DDL tập trung tại `pipelines/src/lakehouse/oltp/gold_ddl.py`:
+   * Được khởi tạo thông qua DDL tập trung tại `pipelines/src/lakehouse/oltp/gold/schema.py`:
      * `dim_date`: Khởi tạo lịch 10 năm với đầy đủ các thuộc tính phân tích thời gian (ngày, tháng, quý, năm, ngày trong tuần, cờ cuối tuần `is_weekend`).
      * `dim_customer`: Lưu giữ hồ sơ khách hàng, mã nhóm phân khúc, ngày đăng ký và các thông tin định danh đã mã hóa bảo mật SHA-256 (`email_hash`, `phone_hash`, `full_name_hash`).
      * `dim_product` và `dim_variant`: Phân tách mạch lạc giữa thông tin sản phẩm cha (tên, danh mục, thương hiệu) và chi tiết biến thể SKU (kích cỡ, màu sắc, đơn giá niêm yết, giá vốn gốc).
@@ -1747,7 +1745,7 @@ Toàn bộ quy trình trích xuất và biến đổi dữ liệu theo lô đư�
 Để đảm bảo tính toàn vẹn và độ tin cậy tuyệt đối của số liệu phục vụ báo cáo điều hành, hệ thống triển khai kiến trúc Cổng kiểm soát chất lượng dữ liệu hai giai đoạn (Dual-Stage Quality Gate Framework) [17]:
 
 #### **1. Cổng đối soát tiền xuất bản (Pre-Gold Reconciliation Gate)**
-* Được hiện thực hóa trong module `pipelines/src/lakehouse/oltp/reconcile.py` và chạy tự động thông qua job `run_reconciliation_gate.py`.
+* Được hiện thực hóa trong module `pipelines/src/lakehouse/oltp/quality/reconcile.py`; job `run_reconciliation_gate.py` là công cụ đối soát chạy thủ công khi source ổn định.
 * **Đối soát số lượng dòng bản ghi (`check_table_counts`)**:
   * Spark đọc số lượng dòng thực tế từ MySQL qua truy vấn JDBC và so sánh trực tiếp với tổng số dòng hiện có trên bảng Silver Iceberg tương ứng cho toàn bộ 27 bảng nghiệp vụ.
   * Tỷ lệ sai lệch dòng cho phép được giới hạn nghiêm ngặt ở ngưỡng dung sai:
@@ -1761,7 +1759,7 @@ Toàn bộ quy trình trích xuất và biến đổi dữ liệu theo lô đư�
 * **Cơ chế ngắt mạch an toàn (Circuit Breaker)**: Nếu tỷ lệ sai lệch vượt ngưỡng $0.05\%$, hệ thống ném ngoại lệ `ReconciliationGateError`, ngắt toàn bộ pipeline và **tuyệt đối không xuất bản dữ liệu sang Gold**, ngăn chặn việc đưa dữ liệu sai lệch vào hệ thống báo cáo tài chính của doanh nghiệp.
 
 #### **2. Cổng kiểm tra chất lượng hậu xuất bản (Post-Gold Quality Gate)**
-* Được thực thi bởi module `pipelines/src/lakehouse/oltp/quality.py` ngay sau khi các bảng Gold hoàn tất cập nhật.
+* Được thực thi bởi module `pipelines/src/lakehouse/oltp/quality/gate.py` ngay sau khi các bảng Gold hoàn tất cập nhật.
 * Thực hiện tự động bộ **18 chỉ tiêu kiểm tra** tuân thủ 5 khía cạnh chất lượng theo tiêu chuẩn quốc tế ISO/IEC 25012:2008 [17]:
   1. *Tính đầy đủ (Completeness)*: Khớp tuyệt đối số lượng dòng giữa `silver_orders` $\leftrightarrow$ `fact_order` và `silver_order_items` $\leftrightarrow$ `fact_order_item` (2 chỉ tiêu).
   2. *Tính chính xác tài chính (Accuracy)*: Đối soát chính xác $100\%$ doanh thu gộp giữa `silver_orders.total_vnd` và `fact_order.gross_revenue_vnd` (1 chỉ tiêu).

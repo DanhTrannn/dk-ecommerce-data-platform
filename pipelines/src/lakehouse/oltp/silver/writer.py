@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 from pyspark.sql import DataFrame, SparkSession, functions as F
+from pyspark.sql.window import Window
 from dataclasses import dataclass
-from .dedup import _dedup_by_pk, _add_silver_metadata
 from .pii import _pseudonymize, _pseudonymized_column_name
 from .validation import _validate_rows
 from .quarantine import write_quarantine
@@ -20,15 +20,24 @@ def merge_oltp_table(
     bronze_df: DataFrame,
     run_id: str,
     target_path: str,
-    _write_format: str = "iceberg",
 ) -> MergeResult:
     result = MergeResult()
 
-    deduped = _dedup_by_pk(bronze_df, table.pk, table.cursor_field)
+    order_columns = [
+        F.col(name).desc()
+        for name in (table.cursor_field, "_silver_ingested_at", "_ingested_at_utc")
+        if name in bronze_df.columns
+    ]
+    window = Window.partitionBy(table.pk).orderBy(*(order_columns or [F.lit(1)]))
+    deduped = bronze_df.withColumn("_rn", F.row_number().over(window)).filter(F.col("_rn") == 1).drop("_rn")
     if table.name == "orders":
-        from lakehouse.oltp.region import region_column
-
-        deduped = deduped.withColumn("shipping_region", region_column(F.col("shipping_address_text")))
+        regions = ("Bình Tân", "Quận 1", "Quận 7", "Thủ Đức", "Gò Vấp", "Tân Bình", "Cầu Giấy", "Đống Đa", "Hoàn Kiếm")
+        region = F.lit("Khu vực khác")
+        for name in reversed(regions):
+            region = F.when(F.lower(F.col("shipping_address_text")).contains(name.lower()), F.lit(name)).otherwise(
+                region
+            )
+        deduped = deduped.withColumn("shipping_region", region)
 
     # Treat a missing primary key as a quarantinable row-level violation.
     if table.pk in deduped.columns:
@@ -47,8 +56,6 @@ def merge_oltp_table(
             violations_df,
             table.name,
             run_id,
-            target_path=f"{target_path}_quarantine",
-            _write_format=_write_format,
         )
         result.quarantined = quarantine_count
 
@@ -69,27 +76,26 @@ def merge_oltp_table(
     else:
         valid_df = valid_df.withColumn("_pii_pseudonymized_at", F.lit(None).cast("timestamp"))
 
-    valid_df = _add_silver_metadata(valid_df, run_id)
+    valid_df = valid_df.withColumn("_silver_ingested_at", F.current_timestamp()).withColumn(
+        "_source_bronze_run_id", F.lit(run_id)
+    )
 
-    if _write_format == "iceberg":
-        from lakehouse.sql import identifier
+    from lakehouse.utils.sql import identifier
 
-        target_schema = spark.table(target_path).schema
-        aligned = valid_df.select(
-            *[
-                F.col(field.name).cast(field.dataType).alias(field.name)
-                if field.name in valid_df.columns
-                else F.lit(None).cast(field.dataType).alias(field.name)
-                for field in target_schema.fields
-            ]
-        )
-        aligned.createOrReplaceTempView("silver_delta")
-        key, cursor = identifier(table.pk), identifier(table.cursor_field)
-        # A historical backfill must not overwrite a newer source version.
-        spark.sql(f"""MERGE INTO {identifier(target_path)} t USING silver_delta s
-            ON t.{key} = s.{key}
-            WHEN MATCHED AND (t.{cursor} IS NULL OR s.{cursor} >= t.{cursor}) THEN UPDATE SET *
-            WHEN NOT MATCHED THEN INSERT *""")
-        return result
-
-    raise ValueError("Silver writes require Iceberg")
+    target_schema = spark.table(target_path).schema
+    aligned = valid_df.select(
+        *[
+            F.col(field.name).cast(field.dataType).alias(field.name)
+            if field.name in valid_df.columns
+            else F.lit(None).cast(field.dataType).alias(field.name)
+            for field in target_schema.fields
+        ]
+    )
+    aligned.createOrReplaceTempView("silver_delta")
+    key, cursor = identifier(table.pk), identifier(table.cursor_field)
+    # A historical backfill must not overwrite a newer source version.
+    spark.sql(f"""MERGE INTO {identifier(target_path)} t USING silver_delta s
+        ON t.{key} = s.{key}
+        WHEN MATCHED AND (t.{cursor} IS NULL OR s.{cursor} >= t.{cursor}) THEN UPDATE SET *
+        WHEN NOT MATCHED THEN INSERT *""")
+    return result
