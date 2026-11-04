@@ -13,7 +13,7 @@
 | `generator/src/generator/` | Sinh dữ liệu SQL và access log theo cấu hình |
 | `generator/configs/` | Quy mô và phân phối dataset |
 | `pipelines/config/default.yml` | Prefix staging OLTP |
-| `pipelines/src/lakehouse/config.py` | Danh sách 27 bảng nguồn, PK/change timestamp và mapping PII |
+| `pipelines/src/lakehouse/utils/config.py` | Danh sách 27 bảng nguồn, PK/change timestamp và mapping PII |
 | `pipelines/src/jobs/oltp/` | Extract, Bronze, Silver, Gold và quality gate |
 | `pipelines/src/jobs/logs/` | Flink streaming log và Spark rollup Gold |
 | `pipelines/src/jobs/cdc/` | Flink lưu CDC vào Bronze |
@@ -31,7 +31,9 @@
 |---|---|
 | Launcher | [start_all.sh](../../scripts/start_all.sh) |
 | Batch DAG | [lakehouse_oltp_pipeline.py](../../airflow/dags/lakehouse_oltp_pipeline.py) |
-| OLTP Gold | [gold.py](../../pipelines/src/lakehouse/oltp/gold/), [gold/schema.py](../../pipelines/src/lakehouse/oltp/gold/schema.py) |
+| OLTP Bronze | [writer.py](../../pipelines/src/lakehouse/oltp/bronze/writer.py) |
+| Shared utilities | [utils/](../../pipelines/src/lakehouse/utils/) — config, Spark, SQL loader và maintenance |
+| OLTP Gold | [gold/](../../pipelines/src/lakehouse/oltp/gold/), [gold/schema.py](../../pipelines/src/lakehouse/oltp/gold/schema.py) |
 | OLTP Silver | [writer.py](../../pipelines/src/lakehouse/oltp/silver/writer.py), [schema.py](../../pipelines/src/lakehouse/oltp/silver/schema.py) |
 | OLTP quality | [gate.py](../../pipelines/src/lakehouse/oltp/quality/gate.py), kiểm tra theo domain và [reconcile.py](../../pipelines/src/lakehouse/oltp/quality/reconcile.py) |
 | Access log stream | [kafka_to_lakehouse.py](../../pipelines/src/jobs/logs/kafka_to_lakehouse.py) |

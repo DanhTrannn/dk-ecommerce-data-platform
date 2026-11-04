@@ -12,7 +12,7 @@
 
 There are no Landing manifests, MD5 scans, high-watermark tasks, cursor files, completion markers or live-source reconciliation gate in the scheduled path. `run_reconciliation_gate.py` remains an explicit diagnostic for a quiescent source.
 
-The 27 source tables, primary keys, change-time columns and Silver/PII mappings are declared once in `SOURCE_TABLES` in `src/lakehouse/config.py`. Extraction uses those fixed names directly; YAML keeps Landing paths only.
+The 27 source tables, primary keys, change-time columns and Silver/PII mappings are declared once in `SOURCE_TABLES` in `src/lakehouse/utils/config.py`. Extraction uses those fixed names directly; YAML keeps Landing paths only.
 
 Both OLTP DAGs contain five TaskGroups, with one task per target table:
 
@@ -53,25 +53,23 @@ Staging is shared and overwritten, so run jobs through the DAG's single-active-r
 
 `manual_lakehouse_hard_delete` (`schedule=None`) synchronizes source hard deletes from CDC. It never deletes MySQL rows. Source purge remains an explicit, separately approved operation, performed while CDC is capturing changes. Normal source operations remain soft deletes.
 
-Select source tables explicitly when triggering this DAG. Its default is preview only (`apply=false`); no Silver, Gold, ledger or publication is written. The current schema supports:
+The DAG takes no user parameters and always processes both `cart_items` and `wishlist_items`. Triggering the DAG executes delete synchronization directly; there is no preview mode or apply flag. Hard-delete synchronization supports only removed cart and wishlist items:
 
 | Source table | Soft-delete evidence in the CDC `before` image |
 |---|---|
 | `cart_items`, `wishlist_items` | `is_present = 0` and `removed_at IS NOT NULL` |
-| `products`, `coupons` | `archived_at IS NOT NULL` |
 
-Only actual delete events (`operation='d'`) whose source `updated_at <= DAG start time - 30 days` qualify. Tombstones, active records, recent updates and unsupported tables are excluded. Debezium microsecond timestamps and ISO timestamp strings are accepted. `is_active=false` alone is not a deletion marker; `carts` and `categories` are not eligible in the current schema.
+Only actual delete events (`operation='d'`) whose source deletion time `source_ts <= DAG start time - 30 days` qualify. `source_ts` comes from the CDC event’s `source.ts_ms`, not the row’s `updated_at`, the soft-delete `removed_at` or the capture/ingestion time. Events without a source deletion timestamp, tombstones, active records, recent deletions and unsupported tables are excluded. `is_active=false` alone is not a deletion marker; all other tables, including `products` and `coupons`, are excluded. Products and coupons retain their archive lifecycle.
 
-Preview an explicitly selected table:
+Trigger delete synchronization:
 
 ```bash
-docker compose exec -T airflow-scheduler airflow dags trigger manual_lakehouse_hard_delete \
-  --conf '{"tables":["cart_items"],"apply":false}'
+docker compose exec -T airflow-scheduler airflow dags trigger manual_lakehouse_hard_delete
 ```
 
-After reviewing the table/count output, the operator can trigger the same DAG with `apply=true`. Run delete synchronization while batch/init are idle; coordination between these separate DAGs is manual. The job checks that keys are already absent from MySQL, rejects newer Silver rows and refuses products/coupons still referenced by current data or historical transactions. Each page contains at most 10,000 keys. A failure stops the job; an apply run may have completed earlier pages, which remain safe to replay.
+Run delete synchronization while batch/init are idle; coordination between these separate DAGs is manual. The single task reads eligible CDC delete keys and deletes matching Silver rows with one Spark MERGE per supported table. It does not recheck MySQL or Silver update timestamps, maintain a deletion ledger, track processed events or split keys into chunks. Repeating the delete is safe for rows that are already absent; every run reads the eligible CDC events again. After each successful MERGE, an INFO log reports the Silver table, deleted row count and cutoff; repeated runs with no matching rows report zero.
 
-The sync task records approved keys in `lakehouse.system.oltp_hard_deletes`, deletes only matching Silver rows, then the DAG rebuilds Gold/marts in per-table TaskGroups, runs the quality gate and publishes. Bronze source versions, CDC audit, historical inventory dates and previously published snapshots are retained. This table records deletion decisions, not an extraction checkpoint; Silver batch/backfill excludes its keys so old Bronze or staging cannot resurrect a hard-deleted record. No Kafka offsets are reset. The `apply_confirmed` gate skips Gold/marts/publication in preview mode. Apply runs continue to Gold even when all deletes already completed; failed downstream tasks can be retried without repeating source checks. Initial load and ordinary batch reads remain independent from CDC updates.
+Bronze source versions, CDC audit and historical snapshots are retained. No Kafka offsets are reset. Batch/backfill is not filtered against deleted keys and can restore rows from old staging/Bronze; run this manual DAG again when deletion must be reapplied. Existing deletion-ledger tables from earlier deployments are no longer used; this code change does not drop them. Current Gold/mart builders and dashboards do not read cart/wishlist items, so this DAG does not rebuild Gold/marts or create a new analytics publication. The next successful batch publishes the current Silver snapshots.
 
 Access-log processing is unchanged: Flink still writes its four sinks in parallel. `lakehouse_logs_marts` runs hourly, independent of maintenance, validates three marts and publishes their snapshots. The planned Landing-first realtime design is a separate change.
 
@@ -83,15 +81,16 @@ OLTP extraction lives in `src/lakehouse/oltp/extract.py`; staging/Bronze/Silver 
 
 ```text
 src/lakehouse/
-├── config.py, spark.py, sql.py
+├── utils/         # shared config, Spark session, SQL loader and maintenance
 ├── oltp/
-│   ├── extract.py, bronze.py, ingestion.py, hard_delete.py, publication.py
+│   ├── extract.py, ingestion.py, hard_delete.py, publication.py
+│   ├── bronze/    # writer.py: source version MERGE and schema evolution
 │   ├── silver/    # schema, writer, validation, PII, quarantine
 │   ├── gold/      # schema, per-table I/O, builders by domain and *_marts.py
 │   └── quality/   # gate, inventory/operations/marketing checks, manual reconciliation
 ├── logs/          # parser, Flink adapter, Spark mart rollup and publication
 ├── streaming/     # shared Flink runtime, catalog and sink setup
-└── maintenance.py
+└── sql_templates/ # shared SQL resources for Spark, Flink and MySQL
 ```
 
 `jobs/` retains thin executable CLIs grouped into `oltp`, `logs`, `cdc` and `maintenance`. DAGs import `gold/schema.py` without loading Spark builders. Flink jobs import the shared `streaming` modules directly; no forwarding `flink.py` or single-file `orchestration` package remains. Maintenance healthcheck lives with its DAG and no longer creates unused context/XCom tasks.

@@ -1611,7 +1611,7 @@ Nền tảng Data Lakehouse của D&K được thiết lập trên sự kết h�
      * Cấp vai trò `trino_reader` chỉ với các đặc quyền đọc dữ liệu (`TABLE_READ_DATA`, `NAMESPACE_LIST`, `VIEW_READ_PROPERTIES`), ngăn chặn hoàn toàn việc sửa đổi dữ liệu từ tầng BI.
 
 3. **Tích hợp các công cụ tính toán (Spark, Flink, Trino) với Iceberg REST Catalog**:
-   * **Cấu hình Apache Spark (`pipelines/src/lakehouse/spark.py`)**:
+   * **Cấu hình Apache Spark (`pipelines/src/lakehouse/utils/spark.py`)**:
      * Khai báo lớp Catalog: `org.apache.iceberg.spark.SparkCatalog`.
      * Kiểu Catalog: `org.apache.iceberg.rest.RESTCatalog` kết nối tới `http://polaris:8181/api/catalog`.
      * Lớp FileIO: `org.apache.iceberg.aws.s3.S3FileIO` trỏ về endpoint MinIO `http://minio:9000`.
@@ -1639,7 +1639,7 @@ Nền tảng Data Lakehouse của D&K được thiết lập trên sự kết h�
 
 1. **Nạp staging vào Bronze (`pipelines/src/jobs/oltp/ingest_oltp_to_bronze.py`)**:
    * Đọc lần lượt các file Parquet staging của bảng được chọn; mỗi file chứa tối đa 10.000 dòng từ source.
-   * `merge_source_versions` trong `oltp/bronze.py` dùng MERGE theo khóa chính và thời gian thay đổi. Chạy lại không nhân bản cùng phiên bản và vẫn giữ các phiên bản cũ.
+   * `merge_source_versions` trong `oltp/bronze/writer.py` dùng MERGE theo khóa chính và thời gian thay đổi. Chạy lại không nhân bản cùng phiên bản và vẫn giữ các phiên bản cũ.
    * Metadata nguồn gồm `_source_system`, `_source_schema`, `_source_table`, `_source_primary_key`, `_source_cursor_at` và `_ingested_at_utc`; staging không dùng run/chunk checkpoint.
    * Cột mới được bổ sung bằng ALTER TABLE ADD COLUMN, sau đó căn thứ tự schema trước khi ghi. Không dùng manifest hoặc file watermark/cursor.
 

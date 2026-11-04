@@ -19,7 +19,7 @@ Prefix raw Landing là vị trí file. Namespace `lakehouse.landing` còn chứa
 
 ## 2. Batch OLTP
 
-Nguồn là 27 bảng khai báo trong [config.py](../../pipelines/src/lakehouse/config.py), loại `customer_credentials` khỏi 28 bảng OLTP.
+Nguồn là 27 bảng khai báo trong [config.py](../../pipelines/src/lakehouse/utils/config.py), loại `customer_credentials` khỏi 28 bảng OLTP.
 
 - **Extract:** Spark reads the fixed Airflow interval `[start,end)` using each table's change timestamp. No lookback, per-table cursor or manifest. A separate manual `init_lakehouse_oltp` DAG reads the full source with no timestamp predicate.
 - **Staging:** Reusable Parquet under `landing/oltp/staging/<table>`, overwritten each run including empty intervals.
