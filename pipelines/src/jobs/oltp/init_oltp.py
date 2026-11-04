@@ -2,9 +2,9 @@
 
 import argparse
 from dataclasses import replace
-from lakehouse.config import SOURCE_TABLES, load_config
+from lakehouse.utils.config import SOURCE_TABLES, load_config
 from lakehouse.oltp.extract import run_initial_extract
-from lakehouse.spark import spark_session
+from lakehouse.utils.spark import spark_session
 
 
 def main():

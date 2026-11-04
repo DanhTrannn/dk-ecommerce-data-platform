@@ -13,8 +13,8 @@ from __future__ import annotations
 import argparse
 from typing import Sequence
 
-from lakehouse.spark import spark_session
-from lakehouse.maintenance import maintain_tables
+from lakehouse.utils.spark import spark_session
+from lakehouse.utils.maintenance import maintain_tables
 
 # Standard table profiles across Lakehouse layers
 

@@ -4,7 +4,7 @@ import argparse
 import sys
 
 from lakehouse.logs.pipeline import run_logs_marts
-from lakehouse.spark import spark_session
+from lakehouse.utils.spark import spark_session
 
 
 def parse_args(args):

@@ -2,9 +2,9 @@ import argparse
 from dataclasses import replace
 import sys
 
-from lakehouse.config import SOURCE_TABLES, load_config
+from lakehouse.utils.config import SOURCE_TABLES, load_config
 from lakehouse.oltp.ingestion import ingest_silver_tables
-from lakehouse.spark import spark_session
+from lakehouse.utils.spark import spark_session
 
 
 def parse_args(args):

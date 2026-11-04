@@ -3,7 +3,7 @@
 from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta, timezone
-from lakehouse.sql import identifier, literal, render_sql
+from lakehouse.utils.sql import identifier, literal, render_sql
 
 TABLE_PROFILES: dict[str, list[str]] = {
     "streaming": [

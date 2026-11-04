@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import sys
 
-from lakehouse.config import load_config
+from lakehouse.utils.config import load_config
 from lakehouse.oltp.quality.reconcile import ReconciliationGateError, run_reconciliation_gate
-from lakehouse.spark import spark_session
+from lakehouse.utils.spark import spark_session
 
 
 def main() -> None:

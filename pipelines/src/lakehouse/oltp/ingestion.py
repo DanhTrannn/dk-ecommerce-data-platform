@@ -3,7 +3,7 @@
 import logging
 from pyspark.sql import functions as F
 
-from lakehouse.oltp.bronze import merge_source_versions
+from lakehouse.oltp.bronze.writer import merge_source_versions
 from lakehouse.oltp.silver import merge_oltp_table
 from lakehouse.oltp.silver.schema import ensure_silver_tables
 

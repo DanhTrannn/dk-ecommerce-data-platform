@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from lakehouse.oltp.gold.pipeline import run_gold_table
 from lakehouse.oltp.gold.schema import GOLD_TABLE_DDL, ensure_oltp_gold_tables
-from lakehouse.spark import spark_session
+from lakehouse.utils.spark import spark_session
 
 
 VALID_STAGES = ("all", "dimensions", "facts", "marts")

@@ -18,7 +18,7 @@ from lakehouse.streaming.catalog import ensure_medallion_namespaces, register_po
 from lakehouse.streaming.tables import ensure_merge_on_read, ensure_streaming_tables, ensure_upsert_mode
 from lakehouse.logs.parser import InvalidAccessEvent, parse_access_event
 from lakehouse.logs.stream_schema import FIELD_SPECS
-from lakehouse.sql import load_sql
+from lakehouse.utils.sql import load_sql
 
 log = logging.getLogger(__name__)
 CHECKPOINT_INTERVAL_MS = 10_000

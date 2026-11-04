@@ -6,7 +6,7 @@ The existing Spark batch path remains the authoritative backfill/reconciliation
 path; downstream consumers can deterministically order and replay this table.
 """
 
-from lakehouse.sql import literal, load_sql, render_sql
+from lakehouse.utils.sql import literal, load_sql, render_sql
 
 import logging
 import os

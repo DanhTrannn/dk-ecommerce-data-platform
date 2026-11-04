@@ -3,7 +3,7 @@
 import re
 from pathlib import Path, PurePosixPath
 
-_ROOT = Path(__file__).with_name("sql_templates")
+_ROOT = Path(__file__).resolve().parent.parent / "sql_templates"
 _PARAMETER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
-from lakehouse.sql import identifier, literal, render_sql
+from lakehouse.utils.sql import identifier, literal, render_sql
 
 log = logging.getLogger(__name__)
 

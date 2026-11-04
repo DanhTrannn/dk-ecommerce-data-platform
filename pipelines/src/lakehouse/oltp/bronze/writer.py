@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from lakehouse.sql import identifier, render_sql, sql_type
+from lakehouse.utils.sql import identifier, render_sql, sql_type
 
 from pyspark.sql.functions import col, lit
 

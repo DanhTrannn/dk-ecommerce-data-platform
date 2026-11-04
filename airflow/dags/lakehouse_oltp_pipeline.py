@@ -7,7 +7,7 @@ from airflow import DAG
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.utils.task_group import TaskGroup
 
-from lakehouse.config import SOURCE_TABLES
+from lakehouse.utils.config import SOURCE_TABLES
 from lakehouse.oltp.gold.schema import GOLD_TABLE_DDL
 
 CONFIG_PATH = os.environ.get("PIPELINE_CONFIG_PATH", "/opt/project/pipelines/config/default.yml")

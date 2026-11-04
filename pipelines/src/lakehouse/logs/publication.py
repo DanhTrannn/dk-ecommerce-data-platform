@@ -2,7 +2,7 @@
 
 import json
 
-from lakehouse.sql import literal
+from lakehouse.utils.sql import literal
 
 PUBLICATIONS = "lakehouse.system.logs_analytics_publications"
 SCHEMA_VERSION = 1

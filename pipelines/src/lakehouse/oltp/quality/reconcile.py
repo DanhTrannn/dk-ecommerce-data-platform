@@ -12,7 +12,7 @@ Acceptance criteria:
 
 from __future__ import annotations
 
-from lakehouse.sql import identifier, load_sql, render_sql
+from lakehouse.utils.sql import identifier, load_sql, render_sql
 
 import logging
 from dataclasses import dataclass
@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
-from lakehouse.config import Config
+from lakehouse.utils.config import Config
 from lakehouse.oltp.quality.gate import persist_quality_results
 
 logger = logging.getLogger("lakehouse.reconcile")

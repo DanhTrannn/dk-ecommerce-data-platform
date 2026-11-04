@@ -7,8 +7,8 @@ import sys
 import os
 
 from lakehouse.oltp.quality.gate import GoldQualityGateError, run_gold_quality_gate
-from lakehouse.spark import spark_session
-from lakehouse.config import load_config
+from lakehouse.utils.spark import spark_session
+from lakehouse.utils.config import load_config
 from lakehouse.oltp.publication import publish
 
 

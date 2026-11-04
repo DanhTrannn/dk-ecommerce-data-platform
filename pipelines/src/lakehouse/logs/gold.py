@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from lakehouse.sql import identifier, render_sql
+from lakehouse.utils.sql import identifier, render_sql
 
 from typing import TYPE_CHECKING
 
