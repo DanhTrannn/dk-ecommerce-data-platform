@@ -1,14 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from pyspark.sql import DataFrame, functions as F
-
-
-def inventory_observation_date() -> str:
-    """Current stock is observed now; an Airflow interval is not stock history."""
-    return datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date().isoformat()
 
 
 def build_fact_inventory_daily_snapshot(
@@ -70,48 +63,4 @@ def build_fact_inventory_daily_snapshot(
         (F.col("c.on_hand_quantity") == 0).alias("is_out_of_stock"),
         F.current_timestamp().alias("_gold_ingested_at"),
         F.lit(run_id).alias("_source_run_id"),
-    )
-
-
-def build_mart_inventory_health(
-    fact_inventory_daily_snapshot: DataFrame,
-    dim_product: DataFrame,
-    run_id: str,
-) -> DataFrame:
-    fi = fact_inventory_daily_snapshot.alias("fi")
-    dp = dim_product.alias("dp")
-
-    joined = fi.join(dp, F.col("fi.product_key") == F.col("dp.product_key"), "left")
-
-    return (
-        joined.groupBy(
-            F.col("fi.snapshot_date"),
-            F.col("fi.location_type"),
-            F.col("fi.location_id"),
-            F.coalesce(F.col("dp.category_id"), F.lit(0)).alias("category_id"),
-            F.coalesce(F.col("dp.category_name"), F.lit("Unknown")).alias("category_name"),
-        )
-        .agg(
-            F.countDistinct("fi.variant_key").alias("total_variants"),
-            F.sum(F.when(F.col("fi.is_out_of_stock"), 1).otherwise(0)).alias("out_of_stock_count"),
-            F.sum(F.when(F.col("fi.is_low_stock"), 1).otherwise(0)).alias("low_stock_count"),
-            F.sum("fi.on_hand_quantity").alias("total_on_hand_units"),
-            F.sum("fi.inventory_value_cost_vnd").alias("total_inventory_value_vnd"),
-        )
-        .withColumn("_gold_ingested_at", F.current_timestamp())
-        .withColumn("_source_run_id", F.lit(run_id))
-        .select(
-            "snapshot_date",
-            "location_type",
-            "location_id",
-            "category_id",
-            "category_name",
-            "total_variants",
-            "out_of_stock_count",
-            "low_stock_count",
-            "total_on_hand_units",
-            "total_inventory_value_vnd",
-            "_gold_ingested_at",
-            "_source_run_id",
-        )
     )

@@ -9,8 +9,6 @@ def write_quarantine(
     violations_df: DataFrame,
     source_table: str,
     run_id: str,
-    target_path: str | None = None,
-    _write_format: str = "iceberg",
 ) -> int:
     safe_violations_df = _redact_quarantine_pii(violations_df)
     quarantined = safe_violations_df.select(
@@ -29,13 +27,10 @@ def write_quarantine(
     if count == 0:
         return 0
 
-    if _write_format == "iceberg":
-        quarantined.createOrReplaceTempView("quarantine_delta")
-        spark.sql("""MERGE INTO lakehouse.quarantine.silver_oltp_violations t USING quarantine_delta s
-            ON t.source_table = s.source_table AND t.record_data = s.record_data
-                AND t.violation_type <=> s.violation_type
-            WHEN NOT MATCHED THEN INSERT *""")
-    else:
-        quarantined.write.format(_write_format).mode("append").save(target_path)
+    quarantined.createOrReplaceTempView("quarantine_delta")
+    spark.sql("""MERGE INTO lakehouse.quarantine.silver_oltp_violations t USING quarantine_delta s
+        ON t.source_table = s.source_table AND t.record_data = s.record_data
+            AND t.violation_type <=> s.violation_type
+        WHEN NOT MATCHED THEN INSERT *""")
 
     return count
