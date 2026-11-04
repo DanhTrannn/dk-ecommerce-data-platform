@@ -138,7 +138,7 @@ Compose waits for health checks or successful completion of initialization jobs 
 |---|---|
 | Shared storage/catalog (`batch`, `streaming`, `tools`, `lakehouse-tools`) | Healthy `postgres` → `polaris-bootstrap`; healthy `minio` → `minio-init`; successful initialization → `polaris` → `polaris-init` |
 | Query serving (`batch`, `streaming`, `tools`) | Successful `polaris-init` → read-only `trino` |
-| Airflow (`batch`) | Healthy `postgres`, initialized catalog/credentials and writer lock → `airflow-init` → webserver/scheduler with `LocalExecutor`; Spark jobs execute locally |
+| Airflow (`batch`) | Healthy `postgres`, initialized catalog/credentials → `airflow-init` → webserver/scheduler with `LocalExecutor`; Spark jobs execute locally |
 | Web (`core`) | Healthy `mysql` → `ecommerce-api` → `storefront`; Kafka is optional and used when `streaming` is enabled |
 | CDC (`streaming`) | Healthy MySQL → `mysql-cdc-init`; healthy Kafka plus successful MySQL CDC init → `debezium-connect` → `debezium-init` |
 | Flink (`streaming`) | Kafka/catalog ready → JobManager/TaskManager → separate access-log and CDC submissions |

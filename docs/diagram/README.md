@@ -68,7 +68,7 @@ Response KPI có `data_source`, `is_degraded`, `degraded_reason`. Thời điểm
 
 - [Phạm vi](../project/SCOPE.md), [kiến trúc hiện tại](../architecture/SYSTEM_ARCHITECTURE_VISUAL.md), [Lakehouse](../project/LAKEHOUSE_DESIGN_PLAN.md), [OLTP](../architecture/OLTP_SCHEMA.md).
 - [MySQL DDL](../../database/schema.sql), [backend](../../services/ecommerce-api/app/modules), [frontend](../../apps/storefront/src/app).
-- [DAG batch](../../airflow/dags/lakehouse_oltp_pipeline.py), [cấu hình extract](../../pipelines/config/default.yml), [Gold DDL](../../pipelines/src/lakehouse/oltp/gold_ddl.py), [Gold transforms](../../pipelines/src/lakehouse/oltp/gold/), [log marts](../../pipelines/src/lakehouse/logs/gold.py).
+- [DAG batch](../../airflow/dags/lakehouse_oltp_pipeline.py), [cấu hình extract](../../pipelines/config/default.yml), [Gold DDL](../../pipelines/src/lakehouse/oltp/gold/schema.py), [Gold transforms](../../pipelines/src/lakehouse/oltp/gold/), [log marts](../../pipelines/src/lakehouse/logs/gold.py).
 - [Polaris RBAC](../../infrastructure/polaris/rbac.yml), [Compose](../../docker-compose.yml), [CDC](../architecture/CDC_DASHBOARD_DATA_SPEC.md).
 
 Các sơ đồ là tài liệu thiết kế được đối chiếu tĩnh với mã nguồn; không phải bằng chứng chạy thành công pipeline, kiểm thử tải hoặc hiệu năng production. Phần ML không nằm trong bộ sơ đồ này.
