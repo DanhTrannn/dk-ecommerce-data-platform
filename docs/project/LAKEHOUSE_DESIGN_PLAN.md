@@ -19,21 +19,17 @@ Prefix raw Landing là vị trí file. Namespace `lakehouse.landing` còn chứa
 
 ## 2. Batch OLTP
 
-Nguồn là 27 bảng trong [default.yml](../../pipelines/config/default.yml), loại `customer_credentials` khỏi 28 bảng OLTP.
+Nguồn là 27 bảng khai báo trong [config.py](../../pipelines/src/lakehouse/config.py), loại `customer_credentials` khỏi 28 bảng OLTP.
 
-- **Extract:** Spark dùng cursor `(cursor_field, pk)`, lookback mặc định 10 phút, giới hạn high watermark và ghi manifest.
-- **Bronze:** Đọc Landing, giữ lịch sử/lineage, kiểm tra bản ghi hỏng và đưa dữ liệu lỗi vào quarantine.
-- **Silver:** Chuẩn hóa kiểu, khử trùng và ghi đè trạng thái hợp nhất, xử lý PII và kiểm tra ràng buộc.
-- **Gold:** Xây dimension/fact/mart từ Silver và gắn `_gold_ingested_at`, `_source_run_id`.
-- **Gates:** Đối soát MySQL–Silver trước Gold và parity/khóa/lineage sau Gold. Vi phạm làm tác vụ thất bại và được ghi vào bảng audit.
+- **Extract:** Spark reads the fixed Airflow interval `[start,end)` using each table's change timestamp. No lookback, per-table cursor or manifest. A separate manual `init_lakehouse_oltp` DAG reads the full source with no timestamp predicate.
+- **Staging:** Reusable Parquet under `landing/oltp/staging/<table>`, overwritten each run including empty intervals.
+- **Bronze:** Raw source versions merged by primary key/change timestamp. Replaying staging does not append duplicate versions; prior versions remain. No run/chunk checkpoint.
+- **Silver:** Read Bronze versions matching each staging file's keys/change timestamps, validate/dedup, pseudonymize PII and MERGE by PK/change timestamp. Historical reruns cannot overwrite newer rows.
+- **Gold:** Build dimensions/facts/marts from Silver, validate and publish snapshot IDs for serving. Reader pinning is retained; publication does not carry forward CDC progress.
 
-Cursor được commit **sau Bronze thành công, trước Silver/Gold**. Khi tầng sau lỗi, phải xét run_id/dữ liệu Bronze đã lưu để chạy lại; cursor không tự lùi vì Gold thất bại. High watermark được lấy từng bảng, không phải snapshot giao dịch chung cho toàn bộ MySQL. Source có thể tiếp tục thay đổi trong lúc đối soát.
+Airflow allows one active batch. There is no source-wide transaction or cross-table rollback. Late commits outside the interval are intentionally not covered by lookback; recovery is an explicit interval rerun/full extract. Source updates must update the configured change timestamp (`payments` now uses updated_at). Hard deletes are audit events only until the separately approved manual delete-sync workflow is implemented. History and existing publications are not dropped.
 
-Gold ghi theo từng bảng: phần lớn dimension overwrite toàn bảng, fact/mart overwrite partition. Gate sau Gold không rollback nguyên tử các bảng đã ghi. Cần kiểm tra lineage/run và audit trước khi công bố một lần chạy là hoàn tất.
-
-Cursor không tự phát hiện mọi hard delete ở nguồn. `payments` dùng created_at dù COD completion cập nhật status; thay đổi cũ ngoài lookback có thể không được nạp lại. Bronze CDC có lưu update/delete/tombstone riêng; việc áp dụng chúng vào Silver/Gold chưa tự động hóa.
-
-## 3. Gold OLTP: 15 bảng
+## 3. Gold OLTP: 26 bảng (6 dimension, 6 fact, 14 mart)
 
 Nguồn DDL: [gold_ddl.py](../../pipelines/src/lakehouse/oltp/gold_ddl.py). Nguồn biến đổi: [gold.py](../../pipelines/src/lakehouse/oltp/gold/).
 
@@ -48,7 +44,7 @@ Nguồn DDL: [gold_ddl.py](../../pipelines/src/lakehouse/oltp/gold_ddl.py). Ngu�
 | `dim_store` | Một cửa hàng, kèm city |
 | `dim_delivery_staff` | Một nhân viên giao vận |
 
-### Năm fact
+### Sáu fact
 
 | Bảng | Grain / nội dung |
 |---|---|
@@ -56,11 +52,12 @@ Nguồn DDL: [gold_ddl.py](../../pipelines/src/lakehouse/oltp/gold_ddl.py). Ngu�
 | `fact_order_item` | Một chi tiết đơn; số lượng, giá bán và cost snapshot |
 | `fact_shipment` | Một shipment; trạng thái, mốc giao hàng và COD |
 | `fact_return_exchange` | Một return item; request cha, variant, action và refund |
+| `fact_inventory_current` | Một variant × địa điểm; tồn hiện tại |
 | `fact_inventory_daily_snapshot` | Ngày snapshot × variant × địa điểm kho/cửa hàng |
 
 Tên bảng snapshot không chứng minh đang có đầy đủ lịch sử mọi ngày. Cần kiểm tra dữ liệu thực tế và cách ghi của lần chạy trước khi diễn giải chuỗi thời gian.
 
-### Bốn mart
+### Mười bốn mart
 
 | Bảng | Grain chính |
 |---|---|
@@ -78,6 +75,8 @@ Tên bảng snapshot không chứng minh đang có đầy đủ lịch sử mọ
 | `mart_marketing_summary` | Một dòng coverage coupon/review và mốc quan sát nghiệp vụ |
 | `mart_coupon_usage` | Một dòng/coupon, lượt dùng/hạn mức, khả dụng và redeemed trong 15 phút tại mốc đo |
 | `mart_product_review_summary` | Một dòng/sản phẩm có review, số review và approved 1–2 sao trong 45 phút tại mốc đo |
+
+Các mart bổ sung: `mart_order_daily`, `mart_product_sales_daily`, `mart_inventory_current`, `mart_inventory_summary`, `mart_store_overview`, `mart_operations_summary`, `mart_cod_region_daily`, `mart_marketing_summary`, `mart_coupon_usage`, `mart_product_review_summary`. Nguồn DDL đầy đủ là `gold_ddl.py`.
 
 Order count ở mart sales không được cộng qua các danh mục để suy ra số đơn distinct. Công thức revenue order-level và item-level có khác biệt; xem Metrics Catalog.
 

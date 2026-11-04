@@ -1,112 +1,64 @@
 # Lakehouse Pipelines
 
-The `batch-pipeline` workspace package contains Spark OLTP extraction/transformation/quality jobs, PyFlink access-log and CDC jobs, and Iceberg maintenance helpers. Spark/Flink execution runs in the corresponding Docker images; the Python workspace alone is not their complete runtime.
+## OLTP batch
 
-Spark jobs use `SPARK_MASTER_URL=local[2]` inside their execution container. Airflow SparkSubmit jobs run in the scheduler/task container, the current CDC materializer runs in `spark-cdc`, and ad hoc SQL runs in `spark-client`. There is no standalone Spark master/worker. Start Airflow with the `batch` profile; the `streaming` profile does not start Airflow. See [SETUP](../docs/runbook/SETUP.md) for service groups.
+`lakehouse_oltp_pipeline` is the interval-only DAG, catchup disabled, one active run. Its schedule is configured in the DAG file; it is independent of the manual init DAG. Airflow supplies its own run ID and fixed `data_interval_start`/`data_interval_end` to Spark local jobs.
 
-## Source map
+1. Extract source rows where `change_time >= interval_start AND change_time < interval_end`. Timestamps are normalized to UTC. Mutable tables use `updated_at`, append-only tables use `created_at`; there is no lookback or persistent cursor.
+2. Each table task uses Spark JDBC without a thread pool. Read that table in primary-key order, at most 10,000 rows per query (`pk > last_pk ORDER BY pk LIMIT 10000`). Write one Parquet file per chunk at `landing/oltp/staging/<table>`; the first chunk overwrites previous staging. An empty interval writes an empty dataset with schema. Extraction must finish before Bronze starts.
+3. Merge the raw delta into Iceberg Bronze one file at a time. A source version is identified by primary key and change timestamp, so replaying staging does not append duplicates and older versions remain available. Staging has no `_run_id`/`_chunk_id`; no checkpoints or completed-chunk tracking are used. Missing/unreadable staging fails.
+4. Silver selects Bronze versions matching the keys/change timestamps in each staging file, validates, deduplicates by PK/change time, pseudonymizes configured PII and applies Iceberg `MERGE` by primary key. Older backfills cannot overwrite newer source versions.
+5. Build Gold dimensions, facts and 14 marts from Silver. Validate Gold and publish its snapshot IDs for the existing dashboard reader. A failed publication leaves the last completed publication available. Airflow passes the fixed DAG start time as `--as-of` so inventory observation dates and time-based mart measures remain stable during retries.
 
-| Path | Responsibility |
-|---|---|
-| [config/default.yml](config/default.yml) | 27 source tables, PK/cursor, mutability, PII fields and lookback |
-| [src/jobs/oltp](src/jobs/oltp) | Extract, Landing-to-Bronze, Silver, Gold and gates |
-| [src/jobs/logs/kafka_to_lakehouse.py](src/jobs/logs/kafka_to_lakehouse.py) | Kafka access stream to four Iceberg sinks |
-| [src/jobs/logs/build_logs_gold.py](src/jobs/logs/build_logs_gold.py) | Three log marts from fact_web_events |
-| [src/jobs/cdc/mysql_cdc_to_bronze.py](src/jobs/cdc/mysql_cdc_to_bronze.py) | Debezium table topics to append-only Bronze events |
-| [src/jobs/maintenance](src/jobs/maintenance) | Compaction, manifest rewrite, expiry, orphan and quarantine cleanup |
-| [src/lakehouse/oltp](src/lakehouse/oltp) | SQL predicates, extract, cursor, Bronze/Silver/Gold DDL/transform, reconciliation/quality |
-| [src/lakehouse/logs](src/lakehouse/logs) | Log schemas and Spark rollup transformations |
-| [src/lakehouse/flink.py](src/lakehouse/flink.py) | Active Flink table DDL, upsert/checkpoint/catalog configuration |
-| [src/lakehouse/spark.py](src/lakehouse/spark.py) | Spark session, UTC timezone, S3 and REST catalog configuration |
-| [Airflow DAGs](../airflow/dags) | Batch and separate maintenance orchestration |
+There are no Landing manifests, MD5 scans, high-watermark tasks, cursor files, completion markers or live-source reconciliation gate in the scheduled path. `run_reconciliation_gate.py` remains an explicit diagnostic for a quiescent source.
 
-## Batch OLTP
+The 27 source tables, primary keys, change-time columns and Silver/PII mappings are declared once in `SOURCE_TABLES` in `src/lakehouse/config.py`. Extraction uses those fixed names directly; YAML keeps Landing paths only.
 
-The `lakehouse_oltp_pipeline` DAG runs daily at 02:00 Asia/Ho_Chi_Minh, with catchup disabled and one active run. Compose creates DAGs paused.
+Both OLTP DAGs contain five TaskGroups, with one task per target table:
 
-1. Capture per-table high watermarks; Spark reads composite cursor windows with a default 10-minute lookback.
-2. Write Landing Parquet/manifests; validate listed objects and MD5 integrity metadata. MD5 here is an integrity check, not authentication of an untrusted source.
-3. Append source data/lineage to Bronze; **commit cursors after Bronze succeeds**.
-4. Type, deduplicate, pseudonymize configured PII and rebuild Silver current state; quarantine violations.
-5. Reconcile MySQL against Silver at a 0.05% tolerance before Gold.
-6. Build Gold dimensions and facts in parallel, then marts.
-7. Run post-Gold quality checks and write evidence to `lakehouse.system.data_quality_results`.
+| TaskGroup | Tables | Task example |
+|---|---:|---|
+| `staging` | 27 source tables | `staging.orders` |
+| `bronze` | 27 raw source tables | `bronze.orders` |
+| `silver` | 27 transformed tables | `silver.silver_orders` |
+| `gold` | 6 dimensions + 6 facts | `gold.fact_order` |
+| `mart` | 14 marts | `mart.mart_sales_daily` |
 
-Gold OLTP defines 6 dimensions, 5 facts and 4 marts. Counts/keys/financial checks are separate from the dashboard's display thresholds. Each table commits independently; a post-Gold failure does not roll back every previously written table. Watermarks are not a single consistent snapshot across all source tables.
+Including context and validate/publish, each DAG has 109 tasks and allows up to three active tasks. Stages finish in order: staging → Bronze → Silver → Gold → mart → validate/publish. Within a stage, `fact_order` waits for `fact_order_item`, `fact_inventory_current` waits for its daily snapshot, and inventory summary/store marts wait for `mart_inventory_current`.
 
-Batch does not propagate all hard deletes. Payments use created_at even though COD completion updates status, so old updates outside lookback can be missed. CDC retains updates/deletes separately but does not automatically apply them to Silver/Gold. Inspect run lineage and audit results when recovering after a Silver/Gold failure with already-advanced cursors.
+Each Spark CLI accepts `--table` to process one configured table and prepare only its target schema. Without `--table`, the existing all-table CLI behavior remains available. Retry/clear a table task to reread its input from the beginning; extract task retries fetch only that source table again. Silver reads Bronze data matching that table's staging keys. Final quality/publication waits for every mart. TaskGroup `mart` writes the existing `lakehouse.gold.mart_*` tables.
 
-## Access-log streaming and CDC
 
-| Job | Source | Sinks / boundary |
-|---|---|---|
-| `kafka_to_lakehouse_pure_streaming` | Kafka ecommerce.access_logs | One StatementSet inserts Landing access_logs, Bronze web_events, Silver silver_logs and Gold fact_web_events |
-| `oltp_cdc_to_bronze` | Debezium per-table Kafka topics | Bronze oltp_cdc_events, including raw payload/key, operation, images, binlog and Kafka coordinates |
+## Initial load and recovery
 
-Both jobs configure 10-second checkpoints on the mounted Flink checkpoint directory. This is not a measured latency SLA or an end-to-end exactly-once guarantee. The submit script does not automatically specify a prior checkpoint/savepoint for a new submission. CDC event_id is deterministic, but the append-only sink does not enforce physical uniqueness.
-
-The access job uses request identity/upsert configuration for Silver/Gold. Invalid JSON is logged and dropped; a full schema/quarantine path is not enforced for every message. New log events and Spark use UTC; older VN-local partitions require explicit replay/migration. Historical JSONL uploaded under landing/logs is not read by this Kafka job. See [access logs](../docs/architecture/ACCESS_LOG_DESIGN.md) and [CDC](../docs/architecture/CDC_DASHBOARD_DATA_SPEC.md).
-
-## Maintenance and mart rollups
-
-| DAG | Schedule (VN) | Current scope |
-|---|---|---|
-| `lakehouse_oltp_maintenance` | 03:00 daily | 15 Gold + 8 listed Silver tables; separate quarantine cleanup |
-| `lakehouse_streaming_maintenance` | Every 2 hours | Four log tables; maintenance only |
-| `lakehouse_logs_marts` | Hourly | Build, validate and publish all three log marts, independent of maintenance |
-
-Maintenance does not yet cover all 27 Silver tables, batch Bronze or Bronze CDC. Refer to TABLE_PROFILES in the maintenance job. OLTP compaction targets 128 MiB, snapshot expiry retains at least the configured last 10 snapshots (20 for logs), orphan cleanup defaults to a 3-day cutoff. Quarantine retention deletes rows older than 30 days in quarantine.silver_oltp_violations; it is not a bucket-wide retention policy.
-
-The streaming health task checks both required job names independently. Maintenance DAGs have no cross-DAG dependency waiting for batch completion. The log rollup CLI now takes `--run-id` only. It pins the fact snapshot and published Silver product/variant catalog, processes all available dates up to its observation time, replaces all three outputs, validates parity and appends `system.logs_analytics_publications`. Empty inputs clear current outputs without deleting prior snapshots. A separate local writer lock serializes log mart writers; OLTP/CDC offsets and publications are untouched. The hourly DAG is paused at creation, like other DAGs. Enable it in Airflow after verifying prerequisites.
-
-## Run and inspect
-
-After configuring and starting the stack, load the source history and use:
+Start `core,batch` and load source data. Initial full loading uses a separate manual DAG, `init_lakehouse_oltp` (`schedule=None`). Its extraction is `SELECT *` without any interval or timestamp filter:
 
 ```bash
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_pipeline
-docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_pipeline
-docker compose exec trino trino --execute "SHOW TABLES FROM lakehouse.gold;"
-docker compose exec trino trino --execute "SELECT * FROM lakehouse.system.data_quality_results LIMIT 20;"
+docker compose exec -T airflow-scheduler airflow dags pause lakehouse_oltp_pipeline
+docker compose exec -T airflow-scheduler airflow dags unpause init_lakehouse_oltp
+docker compose exec -T airflow-scheduler airflow dags trigger init_lakehouse_oltp
 ```
 
-A successful schema bootstrap only creates tables; it does not populate analytical results. Full startup, other DAGs and recovery checks are in [SETUP](../docs/runbook/SETUP.md). Model grains and KPI formulas are in [Lakehouse Design](../docs/project/LAKEHOUSE_DESIGN_PLAN.md) and [Metrics Catalog](../docs/architecture/METRICS_CATALOG.md).
+Wait for init to finish before running the interval DAG. Both DAGs share staging/Silver/Gold; there is no cross-DAG concurrency check. Init upserts existing analytical data and retains Bronze/history; it is not a database reset.
 
-## Module boundaries and SQL resources
+There is no `full_extract` option on the interval DAG or extraction CLI. The init DAG uses `jobs/oltp/init_oltp.py`, then the existing Bronze, Silver, Gold and validate/publish jobs.
 
-Job entrypoints retain their paths and DAG IDs. `oltp/ingestion.py` coordinates batch
-work; `oltp/silver/` separates validation, PII, deduplication, quarantine and writes;
-`oltp/gold/` groups transformations by business domain and keeps I/O in `pipeline.py`.
-`orchestration/` contains scheduler callbacks, `streaming/` contains Flink runtime,
-catalog and table setup, and `logs/parser.py` parses events without an engine.
+Ordinary scheduled or manual runs use their Airflow interval. An extract retry starts again at the first source key and replaces staging. Downstream task retries read their existing inputs from the beginning; they do not fetch source again or resume from a checkpoint. Business rows are merged without duplicates; quarantine records and same-run publication retries are also deduplicated. Airflow run IDs remain for quality/publication audit only. If historical intervals were missed while the local stack was off, run those intervals deliberately or run the init DAG again; catchup is not automatic. Init does not propagate source hard deletes.
 
-All pipeline/DAG SQL statements live under `src/lakehouse/sql_templates/`, included
-as package data in the wheel. Use `load_sql()` or `render_sql()` from `lakehouse.sql`;
-quote identifiers/values explicitly with `identifier()`/`literal()`. Short, simple statements may stay inline (for example health checks and namespace creation).
-Keep DDL and substantial queries in resources; avoid a separate file for each trivial statement.
-DataFrame transformations remain Python.
+Staging is shared and overwritten, so run jobs through the DAG's single-active-run boundary. Do not run standalone extraction concurrently. There is no global transaction across MySQL tables or Gold tables. Fixed intervals intentionally do not cover late commits with older timestamps; the project has opted out of lookback.
 
-Landing validates MD5, run identity and file scope. Bronze uses the manifest's exact
-files and replaces only the same `_run_id` on retry. A `bronze_complete.json` marker
-is written after each successful table; cursor publication verifies every marker
-against captured watermarks before writing any cursor. Missing data/storage failures
-fail the task. Bootstrap of genuinely empty sources is handled separately.
+## CDC and access logs
 
-Gold bootstrap never drops tables to repair schema. Older incompatible schemas need
-an explicit migration. Silver still rebuilds its current state from Bronze history;
-it does not yet perform an incremental SQL MERGE. Log parsing now preserves UTC
-instants and derives UTC event dates; malformed records are rejected and logged.
-Existing log partitions written with VN-local timestamp strings are not migrated
-by this refactor. Rebuild/replay them deliberately before comparing date/hour series.
-Health checks require both named streaming jobs; deployments with a subset can set
-`FLINK_REQUIRED_JOBS` to the comma-separated names actually required.
+`streaming` starts Debezium/Kafka/Flink. `mysql_cdc_to_bronze.py` writes immutable audit events to `bronze.oltp_cdc_events`, including before/after, operation and transport coordinates. It never writes Silver/Gold. The former `spark-cdc` service and transport-checkpoint materializer are removed; existing audit/publication/history tables are preserved.
 
-Run regression tests with Python 3.11, Java 17, package dependencies and PySpark 3.5.9:
+Hard-delete propagation is not automated by this refactor. Keep normal source operations as soft deletes. A separately approved manual purge/delete-sync workflow must preserve historical facts, Bronze and audit history.
 
-```bash
-PYTHONPATH=pipelines/src:pipelines python -m unittest discover -s pipelines/tests -t pipelines -v
-```
+Access-log processing is unchanged: Flink still writes its four sinks in parallel. `lakehouse_logs_marts` runs hourly, independent of maintenance, validates three marts and publishes their snapshots. The planned Landing-first realtime design is a separate change.
 
-Set `ICEBERG_TEST_JAR` to the local Iceberg Spark 3.5 runtime JAR to enable the
-Bronze retry integration test. Tests use a temporary local warehouse and synthetic
-fixtures; they do not connect to MySQL, Kafka, MinIO or Polaris.
+## Runtime and SQL
+
+Spark runs with `SPARK_MASTER_URL=local[2]` inside the Airflow task container; ad hoc SQL uses `spark-client`. `core` starts the web source, `batch` starts Airflow and analytical infrastructure, `streaming` adds audit/access capture, and `tools` adds management interfaces.
+
+OLTP extraction lives in `src/lakehouse/oltp/extract.py`; staging/Bronze/Silver coordination in `ingestion.py`; transforms in `silver/` and `gold/`. Short operational queries remain inline. Existing large SQL/DDL resources remain under `src/lakehouse/sql_templates/`; moving these to shared repo-level SQL is outside this batch change.
+
+Local verification scripts and Spark/Iceberg fixtures are kept outside Git. Compile/lint and Compose configuration checks remain in CI. Maintenance schedules and retention are unchanged in this change; conversion to manual maintenance is still tracked in the refactor note.

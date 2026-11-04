@@ -1499,8 +1499,8 @@ Các cơ chế kỹ thuật cốt lõi của luồng trích xuất theo lô:
    * Tham số cửa sổ lùi được cấu hình linh hoạt theo đặc thù vòng đời dữ liệu của từng nhóm bảng:
      * $\Delta t_{\text{lookback}} = 10\text{ phút}$: Áp dụng cho các bảng danh mục ít biến động (như `products`, `categories`, `stores`).
      * $\Delta t_{\text{lookback}} = 3\text{ ngày}$: Áp dụng cho các bảng giao dịch có chu kỳ cập nhật trạng thái kéo dài (như `orders`, `order_status_history`, `shipments`, `refunds`).
-3. **Thực thi trích xuất song song có kiểm soát (Parallel JDBC Extraction)**:
-   * Spark sử dụng kết nối JDBC qua lớp điều khiển `com.mysql.cj.jdbc.Driver`. Nhằm tối ưu hóa thời gian trích xuất mà không làm quá tải tài nguyên CPU/Connection Pool của MySQL, hàm `run_extract` sử dụng `concurrent.futures.ThreadPoolExecutor` với tham số `max_parallel_tables` (mặc định cấu hình 4–8 luồng song song).
+3. **Trích xuất tuần tự theo chunk bằng Spark JDBC**:
+   * Spark dùng `com.mysql.cj.jdbc.Driver`, đọc lần lượt từng bảng, mỗi query tối đa 10.000 dòng theo khóa chính (`pk > last_pk ORDER BY pk LIMIT 10000`). Mỗi chunk ghi một file Parquet staging trước khi đọc chunk tiếp theo; không dùng ThreadPool hoặc cấu hình số bảng chạy song song. DAG init đọc toàn bộ source, DAG batch lọc thêm theo khoảng thời gian Airflow.
 4. **Đóng gói dữ liệu Parquet và tạo tệp Kê khai nguyên tử (`manifest.json`)**:
    * Dữ liệu đọc từ MySQL được Spark ghi vào vùng lưu trữ đệm Landing theo cấu trúc phân cấp:
      `s3a://lakehouse/landing/oltp/<table>/<batch_id>/part-*.parquet`
