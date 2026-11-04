@@ -196,13 +196,13 @@ def run_gold_quality_gate(
     )
 
     results.extend(financial_consistency_checks(spark))
-    from lakehouse.oltp.inventory_quality import inventory_consistency_checks
+    from lakehouse.oltp.quality.inventory import inventory_consistency_checks
 
     results.extend(inventory_consistency_checks(spark))
-    from lakehouse.oltp.operations_quality import operations_consistency_checks
+    from lakehouse.oltp.quality.operations import operations_consistency_checks
 
     results.extend(operations_consistency_checks(spark))
-    from lakehouse.oltp.marketing_quality import marketing_consistency_checks
+    from lakehouse.oltp.quality.marketing import marketing_consistency_checks
 
     results.extend(marketing_consistency_checks(spark))
 

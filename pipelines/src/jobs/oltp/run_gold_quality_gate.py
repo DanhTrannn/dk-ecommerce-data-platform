@@ -6,7 +6,7 @@ import argparse
 import sys
 import os
 
-from lakehouse.oltp.quality import GoldQualityGateError, run_gold_quality_gate
+from lakehouse.oltp.quality.gate import GoldQualityGateError, run_gold_quality_gate
 from lakehouse.spark import spark_session
 from lakehouse.config import load_config
 from lakehouse.oltp.publication import publish

@@ -2,7 +2,7 @@
 
 import json
 
-from lakehouse.oltp.gold_ddl import GOLD_TABLE_DDL
+from lakehouse.oltp.gold.schema import GOLD_TABLE_DDL
 from lakehouse.sql import literal
 
 SCHEMA_VERSION = 3

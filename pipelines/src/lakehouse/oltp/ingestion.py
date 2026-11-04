@@ -5,7 +5,7 @@ from pyspark.sql import functions as F
 
 from lakehouse.oltp.bronze import _append_iceberg_with_schema_evolution
 from lakehouse.oltp.silver import merge_oltp_table
-from lakehouse.oltp.silver_ddl import ensure_silver_tables
+from lakehouse.oltp.silver.schema import ensure_silver_tables
 
 log = logging.getLogger(__name__)
 

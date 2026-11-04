@@ -1,7 +1,6 @@
 """Operations parity at each mart's declared observation time."""
 
-
-from lakehouse.oltp.quality import QualityCheckResult
+from lakehouse.oltp.quality.gate import QualityCheckResult
 
 
 def operations_consistency_checks(spark):

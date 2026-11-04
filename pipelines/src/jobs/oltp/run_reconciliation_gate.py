@@ -6,7 +6,7 @@ import argparse
 import sys
 
 from lakehouse.config import load_config
-from lakehouse.oltp.reconcile import ReconciliationGateError, run_reconciliation_gate
+from lakehouse.oltp.quality.reconcile import ReconciliationGateError, run_reconciliation_gate
 from lakehouse.spark import spark_session
 from lakehouse.writer import oltp_writer_lock
 

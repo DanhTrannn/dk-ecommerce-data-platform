@@ -2,7 +2,7 @@
 
 from pyspark.sql import functions as F
 
-from lakehouse.oltp.quality import QualityCheckResult
+from lakehouse.oltp.quality.gate import QualityCheckResult
 
 
 def inventory_consistency_checks(spark):
