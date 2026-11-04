@@ -1,0 +1,8 @@
+digraph Test {
+	graph [fontcolor="#2D3436" fontname="Sans-Serif" fontsize=15 label=Test nodesep=0.60 pad=2.0 rankdir=LR ranksep=0.75 splines=ortho]
+	node [fixedsize=true fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13 height=1.4 imagescale=true labelloc=b shape=box style=rounded width=1.4]
+	edge [color="#7B8894"]
+	"3d9ebea222d84235b241d96cc3de0a19" [label=MySQL height=1.9 image="/home/leekhoa/Code/dk-ecommerce-data-platform/.venv/lib/python3.11/site-packages/resources/onprem/database/mysql.png" shape=none]
+	"42e409bba4db4043b8fc2a1aa314e98e" [label=S3 height=1.9 image="/home/leekhoa/Code/dk-ecommerce-data-platform/.venv/lib/python3.11/site-packages/resources/aws/storage/simple-storage-service-s3.png" shape=none]
+	"3d9ebea222d84235b241d96cc3de0a19" -> "42e409bba4db4043b8fc2a1aa314e98e" [dir=forward fontcolor="#2D3436" fontname="Sans-Serif" fontsize=13]
+}

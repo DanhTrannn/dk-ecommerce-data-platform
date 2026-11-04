@@ -317,7 +317,7 @@ Hệ thống phân rã các trường hợp sử dụng thành ba phân hệ ch�
 
 Hệ thống được thiết kế theo mô hình kiến trúc phân lớp hiện đại, tách bạch rõ ràng giữa tầng thu nhận giao dịch trực tuyến (Online Transaction Processing) và tầng phân tích xử lý dữ liệu lớn (Online Analytical Processing).
 
-![Sơ đồ kiến trúc tổng thể toàn hệ thống](diagram/architecture-system.svg)
+![Sơ đồ kiến trúc tổng thể toàn hệ thống](diagram/architecture-overview.png)
 
 ### **3.3.2. Kiến trúc thành phần ứng dụng thương mại điện tử**
 
@@ -346,7 +346,7 @@ Nền tảng Data Lakehouse được tổ chức trên MinIO S3 với bucket duy
 
 Tầng phục vụ phân tích sử dụng Trino kết nối qua Polaris. Dịch vụ API phân tích (`analytics module`) duy trì một bộ nhớ đệm (In-memory Cache) kết hợp cơ chế dự phòng an toàn (Bounded Fallback): trong trường hợp Trino gặp sự cố kết nối, API sẽ trả về dữ liệu phân tích gần nhất còn trong thời hạn hợp lệ kèm cờ cảnh báo `degraded: true`, bảo đảm trải nghiệm người dùng trên Dashboard không bị gián đoạn hoàn toàn.
 
-![Sơ đồ kiến trúc Lakehouse](diagram/architecture-lakehouse.svg)
+![Sơ đồ kiến trúc Lakehouse](diagram/lakehouse.png)
 
 ### **3.3.4. Mô hình tương tác giữa các luồng dữ liệu**
 
