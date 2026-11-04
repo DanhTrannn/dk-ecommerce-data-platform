@@ -80,7 +80,7 @@ BI Hub `/admin/analytics` gọi FastAPI; API xác thực vai trò và cửa hàn
 | Store | `store_manager` | Published `mart_store_overview`, `mart_order_daily`, `mart_inventory_current`; lọc cửa hàng được phân công |
 | Inventory | `inventory_manager` | Published `mart_inventory_summary`, `mart_inventory_current`; lịch sử từ `mart_inventory_health` |
 | Operations | `operations_manager` | Published `mart_operations_summary`, `mart_cod_region_daily`, `mart_logistics_performance`, `mart_product_returns` |
-| System | `system_admin` | Published mart_order_daily đối soát một lần đọc MySQL hiện tại; metadata publication batch |
+| System | `system_admin` | Published mart_order_daily đối soát MySQL; mart_hourly_route_metrics từ publication log độc lập |
 
 Admin có quyền truy cập các dashboard; các vai trò khác bị giới hạn bởi `validate_role_access`. Store manager bị cố định theo cửa hàng được gán bằng `resolve_effective_store_id`. Đây là lọc ở ứng dụng/API, không phải row-level security tự động trong Trino.
 
@@ -93,6 +93,7 @@ Quyền xem dashboard không cấp quyền ghi nghiệp vụ. UI cho `operations
 | `GET /api/v1/admin/analytics/role-metrics` | Chỉ số theo vai trò và store hợp lệ |
 | `GET /api/v1/admin/analytics/stores` | Danh sách cửa hàng theo quyền |
 | `GET /api/v1/admin/analytics/sales-trend` | Biểu đồ theo ngày, quyền admin/sales_manager |
+| `GET /api/v1/admin/analytics/http-metrics` | Báo cáo HTTP từ mart log pin snapshot, quyền admin/system_admin; publication/cache độc lập đối soát OLTP |
 | `GET /api/v1/admin/analytics/overview` | Tổng quan OLAP đã công bố, quyền admin |
 
 Response chỉ số có `data_source`, `source_run_id`, `data_updated_at`, `is_degraded`, và metadata cache. Trino lỗi dùng phản hồi OLAP thành công gần nhất trong giới hạn tuổi cache, sau đó trả 503; API không chuyển KPI sang MySQL. Mỗi nguồn đọc bộ snapshot đã công bố của nguồn đó; Marketing có hai bộ snapshot độc lập cho log và nghiệp vụ. [Metrics Catalog](METRICS_CATALOG.md) định nghĩa công thức, grain và giới hạn diễn giải; dữ liệu generator vẫn là dữ liệu tổng hợp sau khi xử lý qua pipeline.

@@ -37,6 +37,8 @@ The 7/30/90-day control changes sales trend, not every KPI. Store selection appl
 
 Admin overview retains null as a dash, includes all order states and displays its observation/publication timestamps; low-stock counts mean ≤5 units, and returned orders are not return requests. System uses matched/mismatch/unavailable/cached states with a source observation time rather than CDC heartbeat or inferred pipeline health. Source zero leaves relative variance blank while absolute variance remains meaningful. System reconciliation uses a separate bar chart for each metric: orders use an order-count axis, money uses a VND axis. Monetary tooltips preserve full values; variance badges use API percentages. Fallback shows missing comparison data instead of treating placeholder Gold values as measurements. Targets and change deltas without source data remain hidden. See [metric definitions](../../docs/architecture/METRICS_CATALOG.md).
 
+The System view includes a separately loaded HTTP Metrics panel (admin/system_admin). Its 1/7/30 UTC-date selector changes only HTTP reporting. The panel shows request counts, 4xx/5xx errors, error rates, weighted average latency, hourly charts, top 20 route/method groups, and top 20 hourly groups by approximate p95 with p50/p99. It displays its own log observation/publication times and cache age. Missing hours remain gaps; no data produces dashes, and unavailable HTTP does not hide order reconciliation (or vice versa). Table search/sorting/CSV is local to the returned subset. This is the hourly mart report; a Landing-based realtime view is still pending.
+
 ## Run with Docker
 
 Configure the repository `.env` first, then from the repository root:

@@ -10,7 +10,7 @@ export const ANALYTICS_ROLES: { id: AnalyticsRole; label: string; icon: IconName
   { id: "inventory", label: "Tồn kho", icon: "box", purpose: "Kiểm tra lượng tồn, giá trị tồn và rủi ro thiếu hàng.", questions: ["Hàng đang nằm tại kho hay cửa hàng?", "SKU nào đã hết?", "SKU nào tại kho còn dưới ngưỡng tồn thấp?"], scope: "Tồn kho: quan sát đã công bố. Lịch sử: từng ngày trong 30 ngày gần nhất." },
   { id: "operations", label: "Vận hành", icon: "truck", purpose: "Ưu tiên đơn chờ xử lý, giao vận có vấn đề và đổi trả.", questions: ["Có bao nhiêu đơn chờ xuất?", "Đơn nào chờ từ 2 giờ tại mốc đo?", "Khu vực COD nào cần kiểm tra với số mẫu cụ thể?"], scope: "Đơn chờ tại mốc đo mart; giao vận/đổi trả: toàn bộ lần công bố." },
   { id: "marketing", label: "Marketing", icon: "ticket", purpose: "Đọc lượng tương tác theo bước và rà soát voucher, phản hồi.", questions: ["Các bước tương tác ghi nhận bao nhiêu sự kiện?", "Tỷ lệ mua/xem theo sự kiện là bao nhiêu?", "Voucher hay sản phẩm nào cần kiểm tra?"], scope: "Log: 30 ngày UTC theo mốc rollup. Voucher/đánh giá: 15/45 phút theo mốc mart nghiệp vụ riêng." },
-  { id: "system", label: "Chất lượng dữ liệu", icon: "shield", purpose: "Đánh giá độ mới của Gold và sai lệch giữa nguồn với Lakehouse.", questions: ["Gold đã được nạp cách đây bao lâu?", "Chỉ số đối soát nào đang lệch?", "Có đủ dữ liệu Lakehouse để kết luận hay chưa?"], scope: "Mart đơn hàng đã công bố so với MySQL tại lần đo; dữ liệu phân tích cập nhật theo batch." },
+  { id: "system", label: "Chất lượng dữ liệu", icon: "shield", purpose: "Đối soát nguồn với Lakehouse và theo dõi request, lỗi, độ trễ HTTP.", questions: ["Gold đã được nạp cách đây bao lâu?", "Chỉ số đối soát nào đang lệch?", "Route nào ghi nhận nhiều lỗi hoặc độ trễ cao?"], scope: "Đối soát: mart đơn hàng so với MySQL. HTTP: kỳ UTC riêng từ publication log theo giờ." },
 ];
 
 export const CANONICAL_ROLES: Record<string, AnalyticsRole> = {
@@ -88,6 +88,9 @@ export function metricDefinitions(metrics: RoleMetricsResponse): MetricDefinitio
       definition("Chênh lệch tuyệt đối", "ABS(MySQL hiện tại − SUM mart_order_daily)", "Đơn hoặc VND", "Hai tổng độc lập", "Nguồn tại lần đo / mart publication", "MySQL count và tổng tiền đọc trong cùng một câu SQL. Dữ liệu nguồn có thể tiến trước batch."),
       definition("Chênh lệch tương đối", "Chênh tuyệt đối / MySQL × 100", "%", "Một chỉ số", "Tại lần đo", "Mẫu số MySQL bằng 0 trả null; chênh tuyệt đối vẫn xác định mismatch. Cache không phải lần đối soát mới."),
       definition("Kết quả đối soát", "matched/mismatch khi đủ hai phía; unavailable hoặc cached khi chưa có lần đo mới", "Trạng thái", "Phản hồi API", "Tại lần đo", "Không suy ra toàn bộ hệ thống healthy từ một publication hoặc hai tổng khớp."),
+      definition("Request / lỗi HTTP", "SUM total_requests, client_error_4xx_count, server_error_5xx_count từ mart_hourly_route_metrics", "Request", "Giờ UTC × route × method", "Kỳ HTTP riêng, 1/7/30 ngày UTC", "Publication log độc lập đối soát đơn. Thiếu giờ để trống; request không phải người hay giao dịch duy nhất."),
+      definition("Tỷ lệ lỗi HTTP", "100 × (SUM 4xx + SUM 5xx) / SUM request", "%", "Toàn kỳ HTTP", "Cùng kỳ HTTP", "Tính từ tổng bộ đếm, không trung bình tỷ lệ nhóm; mẫu số 0 trả null."),
+      definition("Độ trễ HTTP", "Mean nhóm có trọng số request; p50/p95/p99 giữ từng nhóm gốc", "ms", "Mean kỳ / percentile từng giờ × route × method", "Cùng kỳ HTTP", "Mean nhóm đã làm tròn; không gộp percentile thành toàn kỳ. Bảng route/percentile chỉ trả top 20, tổng KPI không bị giới hạn này."),
     ];
   }
 }

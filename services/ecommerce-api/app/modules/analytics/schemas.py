@@ -318,6 +318,46 @@ class SystemMetricsResponse(AnalyticsDataStatus):
     reconciliation_variance: list[ReconciliationVariance] = Field(default_factory=list)
 
 
+class HttpMetricTotals(BaseModel):
+    total_requests: int | None = None
+    success_count: int | None = None
+    client_error_count: int | None = None
+    server_error_count: int | None = None
+    error_rate_percent: float | None = None
+    avg_duration_ms: float | None = None
+
+
+class HttpHourMetric(HttpMetricTotals):
+    metric_date: str
+    metric_hour: int
+
+
+class HttpRouteMetric(HttpMetricTotals):
+    http_route: str | None
+    http_request_method: str | None
+
+
+class HttpLatencyGroup(BaseModel):
+    metric_date: str
+    metric_hour: int
+    http_route: str | None
+    http_request_method: str | None
+    total_requests: int
+    p50_duration_ms: float | None
+    p95_duration_ms: float | None
+    p99_duration_ms: float | None
+
+
+class HttpMetricsResponse(AnalyticsDataStatus):
+    days: int
+    window_start: str
+    observed_at: str
+    totals: HttpMetricTotals = Field(default_factory=HttpMetricTotals)
+    hours: list[HttpHourMetric] = Field(default_factory=list)
+    routes: list[HttpRouteMetric] = Field(default_factory=list)
+    latency_groups: list[HttpLatencyGroup] = Field(default_factory=list)
+
+
 class DailySalesTrendPoint(BaseModel):
     date: str
     revenue_vnd: int = 0
