@@ -3,7 +3,7 @@
 import logging
 from pyspark.sql import functions as F
 
-from lakehouse.oltp.bronze import _append_iceberg_with_schema_evolution
+from lakehouse.oltp.bronze import merge_source_versions
 from lakehouse.oltp.silver import merge_oltp_table
 from lakehouse.oltp.silver.schema import ensure_silver_tables
 
@@ -18,7 +18,7 @@ def ingest_bronze_tables(spark, cfg):
         for path in sorted(spark.read.parquet(staging).inputFiles()):
             df = spark.read.parquet(path)
             if df.head(1) or not spark.catalog.tableExists(target):
-                _append_iceberg_with_schema_evolution(spark, df, target, version_columns=(table.pk, table.cursor_field))
+                merge_source_versions(spark, df, target, version_columns=(table.pk, table.cursor_field))
         log.info("Bronze complete: table=%s", table.name)
 
 

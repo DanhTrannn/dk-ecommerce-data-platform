@@ -2,30 +2,14 @@ from __future__ import annotations
 
 from lakehouse.sql import identifier, render_sql, sql_type
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from pyspark.sql import SparkSession
-
-try:
-    from pyspark.sql.functions import col, current_timestamp, input_file_name, lit
-except ImportError:
-    col = current_timestamp = input_file_name = lit = None  # type: ignore
+from pyspark.sql.functions import col, lit
 
 
-def _append_iceberg_with_schema_evolution(spark, df, target_table: str, *, version_columns=()) -> None:
-    """Keep source versions once; legacy callers replace their run as before."""
-    table_exists = spark.catalog.tableExists(target_table)
-    if not version_columns:
-        run_ids = df.select("_run_id").distinct().collect()
-        if len(run_ids) != 1 or not run_ids[0]["_run_id"]:
-            raise ValueError("Bronze writes require exactly one non-empty run_id")
-    if table_exists:
-        if version_columns:
-            # MERGE must resolve the target schema; new columns are added below.
-            spark.sql(f"ALTER TABLE {target_table} SET TBLPROPERTIES ('write.spark.accept-any-schema'='false')")
-        else:
-            spark.sql(render_sql("spark/bronze/enable_schema_evolution.sql", target_table=identifier(target_table)))
+def merge_source_versions(spark, df, target_table: str, *, version_columns) -> None:
+    """Upsert one source chunk while preserving earlier source versions."""
+    if spark.catalog.tableExists(target_table):
+        # MERGE resolves an explicit target schema; new columns are added below.
+        spark.sql(f"ALTER TABLE {target_table} SET TBLPROPERTIES ('write.spark.accept-any-schema'='false')")
 
         target_schema = spark.table(target_table).schema
         target_names = {field.name for field in target_schema.fields}
@@ -54,80 +38,17 @@ def _append_iceberg_with_schema_evolution(spark, df, target_table: str, *, versi
                 for field in target_schema.fields
             ]
         )
-        if version_columns:
-            aligned_df.createOrReplaceTempView("bronze_delta")
-            match = " AND ".join(f"t.{column} <=> s.{column}" for column in version_columns)
-            spark.sql(f"""MERGE INTO {target_table} t USING bronze_delta s ON {match}
-                WHEN MATCHED THEN UPDATE SET *
-                WHEN NOT MATCHED THEN INSERT *""")
-        else:
-            aligned_df.writeTo(target_table).overwrite(col("_run_id") == lit(run_ids[0]["_run_id"]))
+        aligned_df.createOrReplaceTempView("bronze_delta")
+        match = " AND ".join(f"t.{column} <=> s.{column}" for column in version_columns)
+        spark.sql(f"""MERGE INTO {target_table} t USING bronze_delta s ON {match}
+            WHEN MATCHED THEN UPDATE SET *
+            WHEN NOT MATCHED THEN INSERT *""")
         return
 
     (
         df.writeTo(target_table)
         .using("iceberg")
         .tableProperty("format-version", "2")
-        .tableProperty("write.spark.accept-any-schema", "false" if version_columns else "true")
+        .tableProperty("write.spark.accept-any-schema", "false")
         .create()
     )
-
-
-def ingest_to_bronze(
-    spark: SparkSession,
-    run_id: str,
-    source_path: str,
-    source_format: str,
-    target_table: str,
-    quarantine_table: str,
-    error_threshold: float = 0.01,
-    _write_format: str = "iceberg",
-) -> None:
-    if not 0 < error_threshold <= 1:
-        raise ValueError("error_threshold must be in (0, 1]")
-    # Read permissive mode
-    df = (
-        spark.read.option("mode", "PERMISSIVE")
-        .option("columnNameOfCorruptRecord", "_corrupt_record")
-        .format(source_format)
-        .load(source_path)
-    )
-
-    # Add lineage columns
-    df = (
-        df.withColumn("_run_id", lit(run_id))
-        .withColumn("_source_file", input_file_name())
-        .withColumn("_ingested_at_utc", current_timestamp())
-    )
-
-    df.cache()
-    try:
-        total_count = df.count()
-        if total_count == 0:
-            return
-
-        # Check for errors
-        if "_corrupt_record" in df.columns:
-            error_df = df.filter(col("_corrupt_record").isNotNull())
-            error_count = error_df.count()
-
-            if error_count / total_count >= error_threshold:
-                raise RuntimeError(f"Error threshold exceeded: {error_count} errors out of {total_count} records.")
-
-            if error_count > 0:
-                if _write_format == "iceberg":
-                    _append_iceberg_with_schema_evolution(spark, error_df, quarantine_table)
-                else:
-                    error_df.write.format(_write_format).mode("append").save(quarantine_table)
-
-            valid_df = df.filter(col("_corrupt_record").isNull()).drop("_corrupt_record")
-        else:
-            valid_df = df
-
-        # Write valid to target
-        if _write_format == "iceberg":
-            _append_iceberg_with_schema_evolution(spark, valid_df, target_table)
-        else:
-            valid_df.write.format(_write_format).mode("append").save(target_table)
-    finally:
-        df.unpersist()

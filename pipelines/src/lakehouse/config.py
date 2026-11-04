@@ -56,7 +56,6 @@ class ConfigError(Exception):
 @dataclass(frozen=True)
 class LandingSpec:
     oltp_prefix: str
-    log_prefix: str
 
 
 @dataclass(frozen=True)

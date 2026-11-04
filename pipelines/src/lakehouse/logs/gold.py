@@ -55,42 +55,6 @@ def ensure_logs_gold_tables(spark: SparkSession) -> None:
                 spark.sql(f"ALTER TABLE {target} ADD COLUMN {name} {kind}")
 
 
-def build_fact_web_events(silver_df: DataFrame, run_id: str) -> DataFrame:
-    duration_ms_col = F.round(F.col("event_duration_ns") / 1000000.0, 3)
-    return (
-        silver_df.withColumn("event_date", F.to_date(F.col("event_ts")))
-        .withColumn("product_key", F.col("ecommerce_product_key"))
-        .withColumn("variant_key", F.col("ecommerce_variant_key"))
-        .withColumn("duration_ms", duration_ms_col)
-        .withColumn("is_success", F.col("http_status_code") < 400)
-        .withColumn("is_client_error", (F.col("http_status_code") >= 400) & (F.col("http_status_code") < 500))
-        .withColumn("is_server_error", F.col("http_status_code") >= 500)
-        .withColumn("is_slow_request", duration_ms_col >= 1000.0)
-        .withColumn("_gold_ingested_at", F.current_timestamp())
-        .withColumn("_source_run_id", F.lit(run_id))
-        .select(
-            "event_id",
-            "event_ts",
-            "event_date",
-            "actor_key",
-            "actor_type",
-            "http_request_method",
-            "http_route",
-            "http_status_code",
-            "ecommerce_action",
-            "product_key",
-            "variant_key",
-            "duration_ms",
-            "is_success",
-            "is_client_error",
-            "is_server_error",
-            "is_slow_request",
-            "_gold_ingested_at",
-            "_source_run_id",
-        )
-    )
-
-
 def build_mart_hourly_route_metrics(fact_df: DataFrame, run_id: str) -> DataFrame:
     percentiles = F.percentile_approx(F.col("duration_ms"), [0.5, 0.95, 0.99])
 
