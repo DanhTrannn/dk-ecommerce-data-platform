@@ -8,6 +8,8 @@ MUTABLE_CURSOR = "updated_at"
 APPEND_ONLY_CURSOR = "created_at"
 SILVER_PREFIX = "silver_"
 
+HARD_DELETE_TABLES = ("cart_items", "wishlist_items", "coupons", "products")
+
 MUTABLE_TABLES = frozenset(
     {
         "customers",

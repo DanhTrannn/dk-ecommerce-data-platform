@@ -4,6 +4,7 @@ from typing import Any
 from pyspark.sql import DataFrame, SparkSession, functions as F
 from pyspark.sql.window import Window
 from dataclasses import dataclass
+from lakehouse.config import HARD_DELETE_TABLES
 from .pii import _pseudonymize, _pseudonymized_column_name
 from .validation import _validate_rows
 from .quarantine import write_quarantine
@@ -30,6 +31,10 @@ def merge_oltp_table(
     ]
     window = Window.partitionBy(table.pk).orderBy(*(order_columns or [F.lit(1)]))
     deduped = bronze_df.withColumn("_rn", F.row_number().over(window)).filter(F.col("_rn") == 1).drop("_rn")
+    deletions = "lakehouse.system.oltp_hard_deletes"
+    if table.name in HARD_DELETE_TABLES and spark.catalog.tableExists(deletions):
+        deleted = spark.table(deletions).filter(F.col("table_name") == table.name).select("primary_key").distinct()
+        deduped = deduped.join(deleted, deduped[table.pk].cast("string") == deleted["primary_key"], "left_anti")
     if table.name == "orders":
         regions = ("Bình Tân", "Quận 1", "Quận 7", "Thủ Đức", "Gò Vấp", "Tân Bình", "Cầu Giấy", "Đống Đa", "Hoàn Kiếm")
         region = F.lit("Khu vực khác")
