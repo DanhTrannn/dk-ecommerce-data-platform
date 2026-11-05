@@ -2,7 +2,7 @@
 
 **Các quyết định là phạm vi đã chốt, không đồng nghĩa tất cả đã triển khai. Trạng thái hiện tại được tóm tắt bên dưới; các đợt cũ chỉ lưu lịch sử.**
 
-## Trạng thái hiện tại — 2026-11-04
+## Trạng thái hiện tại — 2026-11-05
 
 - **Hạ tầng:** Compose có `core`, `batch`, `streaming`, `tools` và `lakehouse-tools`; Spark chạy local, không còn master/worker hoặc Spark CDC materializer. Polaris bootstrap YAML lần đầu; MinIO đồng bộ cấu hình mỗi lần init.
 - **Batch:** `lakehouse_oltp_pipeline` chạy 03:00 hằng ngày theo Asia/Ho_Chi_Minh; `init_lakehouse_oltp` chạy thủ công, full extract. Mỗi DAG có 109 task trong 5 TaskGroup và validate/publish, tối đa 3 task đồng thời. Staging dùng chung, người vận hành tự điều phối các DAG.
@@ -11,6 +11,7 @@
 - **Cấu trúc:** công cụ dùng chung ở `lakehouse/utils/`; Bronze ở `oltp/bronze/writer.py`; schema nằm trong Silver/Gold, quality ở `oltp/quality/`. Extract/ingestion/hard_delete/publication nằm trực tiếp dưới `oltp/`; không còn `oltp/utils/`. Hiện có **70 file Python trong pipelines/src và 85 SQL template**.
 - **Dashboard System/Admin:** phía Lakehouse chỉ đọc mart đã pin. Admin dùng singleton mart_admin_overview và mart_order_daily; System đối soát order mart với một câu SQL đọc MySQL hiện tại. Trạng thái matched/mismatch/unavailable/cached thay cho suy luận health từ CDC/SLA; thiếu quan sát giữ null, nguồn 0 vẫn tính chênh tuyệt đối.
 - **HTTP Metrics:** góc nhìn System có báo cáo mart_hourly_route_metrics, endpoint admin/system_admin riêng; kỳ 1–30 ngày UTC đóng băng theo publication log, cache/khả dụng độc lập đối soát OLTP. UI chọn 1/7/30 ngày. Realtime Landing vẫn chưa triển khai.
+- **Giao diện dashboard:** đã tối giản bảy góc nhìn BI, HTTP, Admin và Store home; KPI/biểu đồ là chính, bảng thu gọn, metadata kỳ/cache giữ ngắn. Đủ 15 mart OLTP + 3 mart log có ánh xạ và kiểm tra render. Nguyên tắc/nguồn chính thức ở docs/design-analysis/DASHBOARD_DESIGN.md.
 - **Log và maintenance:** Flink chỉ append Landing; Spark giờ xử lý tuần tự Bronze → Silver → Gold fact → ba mart và publication. Raw lỗi giữ ở Landing/Bronze, legacy Silver/fact giữ nguyên; các tầng bắt kịp độc lập khi retry. Pipeline log độc lập maintenance. Maintenance OLTP vẫn chạy 03:00 hằng ngày, streaming mỗi 2 giờ; chưa chuyển sang thủ công.
 - **Còn chờ:** API/dashboard Landing realtime refresh 10 giây (phần còn lại mục 22–23), maintenance thủ công và hoàn thiện phạm vi/retention (12, 14–15), SQL dùng chung cấp repo (21), bảng giữ-bỏ chưa chốt và đồng bộ toàn bộ docs (26). SQL hiện vẫn ở `pipelines/src/lakehouse/sql_templates/`.
 
@@ -183,6 +184,15 @@ Các quyết định 3–26 không thuộc phạm vi đợt 1; tiến độ các
 - Chuyển job thật bằng stop-with-savepoint access cũ, giữ savepoint; submit graph mới từ committed broker offsets, không restore mù state graph cũ. CDC giữ nguyên job ID. Một GET thử tới Landing sau 7,98 giây trong lượt đo và chưa có downstream trước batch. DAG landing-first-verify thành công từ 15:36:31 tới 15:39:45 UTC; sự kiện thử có đúng một dòng ở từng tầng Bronze/Silver/fact và đi vào publication logs-landing-first-verify.
 - Sau chạy: Silver/fact có 2.806 event ID duy nhất; toàn bộ 2.796 dòng cũ mỗi bảng khớp baseline gồm metadata. Bronze giữ 8.187 dòng legacy và thêm 2.806 raw hash duy nhất. Giữ 34 đơn, doanh thu thuần 19.405.100 VND, lợi nhuận gộp 11.228.115 VND, 41 số dư tồn và publication OLTP. Các duration của 10 fact mới khớp parser độc lập. 14 endpoint không degraded; HTTP/Marketing dùng publication mới. 12 kiểm tra Chromium đạt sau publication, không có page error; kiểm tra lỗi giao diện dùng interception. Access job có checkpoint hoàn tất, CDC vẫn RUNNING. Đây là kiểm tra local, không chứng minh SLA, production throughput hoặc exactly-once end-to-end.
 - Ruff, compile 10 file Python mới/sửa, DAG graph/import/as_of template, Compose config và diff check đạt. Tài liệu pipeline/kiến trúc/runbook liên quan đã cập nhật; không vẽ lại hình tĩnh trong đợt này. FINAL_REPORT.md giữ nguyên qua SHA-256; test/log/ảnh/savepoint metadata chỉ lưu ngoài Git. API/dashboard Landing realtime 10 giây, maintenance/retention, SQL dùng chung cấp repo và đồng bộ toàn bộ hình/tài liệu vẫn thuộc đợt sau.
+
+**Đợt 3h — Dashboard tập trung KPI/biểu đồ (2026-11-05):**
+
+- Nghiên cứu hướng dẫn chính thức Microsoft Power BI, Tableau và W3C; ghi quyết định theo người xem, phạm vi, biểu đồ và màu trong DASHBOARD_DESIGN.md. Đối chiếu đầy đủ 18 mart với registry, truy vấn thật qua Trino và các góc nhìn đã render; không thay công thức, query/API, nguồn dữ liệu hay phân quyền.
+- Bỏ banner BI, lời hướng dẫn chung, khối bước tiếp theo và bảng định nghĩa thường trực; chuyển chi tiết KPI sang tooltip/metadata ngắn, giữ định nghĩa đầy đủ ở docs. Bảng tra cứu mặc định thu gọn, giữ search/sort/CSV. Admin/Store home dùng cùng card/chart tối giản, Store layout tránh tràn ngang và không có footer mua sắm trong khu vực back office.
+- Sales tách điểm bán/xu hướng với sản phẩm/danh mục; Operations tách giao vận/đổi trả; Marketing tách log với voucher/review; System tách đối soát/HTTP. KPI toàn kỳ không giả vờ đổi theo bộ chọn ngày của xu hướng; HTTP/Marketing có metadata nguồn/kỳ riêng. Không tải HTTP trước khi mở góc nhìn. Các request cùng kỳ đang chạy được dùng lại, refresh giữ dữ liệu và trạng thái bảng hiện có.
+- Giữ null/0/âm, gap ngày/giờ thiếu và dấu hiệu cache; nguồn lỗi không che phần còn đọc được. Bar chứa mốc 0, số 0 không có thanh giả dương; đối soát đơn/tiền dùng trục riêng. Percentile giữ grain giờ/route/method. Tiền card có giá trị đầy đủ trong tooltip; chuỗi line dùng nét phân biệt ngoài màu.
+- Kiểm tra: trace thật phủ đủ 18 mart, chỉ metadata + mart pin snapshot; 17 kiểm tra duyệt trang đạt với 22 ảnh desktop/mobile, 12 tình huống dữ liệu/race/authorization UI giả lập đạt, kiểm tra numeric sort/CSV/formula escaping đạt. 21 assertion chart/contrast đạt, gồm bảy cặp màu chữ tối thiểu 4,5:1; không tuyên bố audit WCAG đầy đủ hoặc benchmark production. TypeScript, lint, production build và diff check đạt; giữ cảnh báo img có sẵn ngoài phạm vi.
+- Backend, pipeline và dữ liệu nguồn không sửa trong đợt giao diện. FINAL_REPORT.md giữ nguyên qua SHA-256; test/log/ảnh chỉ lưu ngoài Git. API/dashboard Landing realtime 10 giây và các việc maintenance/retention/SQL dùng chung vẫn là phạm vi tiếp theo.
 
 **Tiếp theo:** triển khai các mục còn chờ trong phần trạng thái hiện tại. Danh sách loại bảng analytics vẫn cần duyệt; phạm vi hard-delete sync đã chốt chỉ cart_items/wishlist_items. Việc purge dữ liệu thật ở source là thao tác chủ động riêng.
 

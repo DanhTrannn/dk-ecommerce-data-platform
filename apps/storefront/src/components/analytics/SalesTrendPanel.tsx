@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getAdminSalesTrend, formatMetricVnd, formatVnd, type SalesTrendResponse } from "@/lib/api";
-import { sourceName } from "@/lib/analytics-dashboard";
-import { Chart, DetailTable, EmptyState, Panel, type Column } from "./AnalyticsUI";
+import { Chart, DetailTable, EmptyState, Panel, PublicationStatus, type Column } from "./AnalyticsUI";
 import type { DailySalesTrendPoint } from "@/lib/api";
 
 const columns: Column<DailySalesTrendPoint>[] = [
@@ -20,13 +19,21 @@ export function SalesTrendPanel({ refreshVersion }: { refreshVersion: number }) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const requests = useRef(new Map<number, Promise<SalesTrendResponse>>());
 
   useEffect(() => {
     let current = true;
     setLoading(true);
     setError(null);
     // Scope the result to the requested window so older responses cannot replace it.
-    getAdminSalesTrend(days).then(response => {
+    let promise = requests.current.get(days);
+    if (!promise) {
+      promise = getAdminSalesTrend(days);
+      requests.current.set(days, promise);
+      const pending = promise;
+      void pending.finally(() => { if (requests.current.get(days) === pending) requests.current.delete(days); }).catch(() => {});
+    }
+    promise.then(response => {
       if (current) setData({ days, response, loadedAt: new Date() });
     }).catch((cause: unknown) => {
       if (current) setError(cause instanceof Error ? cause.message : "Không tải được xu hướng.");
@@ -34,9 +41,8 @@ export function SalesTrendPanel({ refreshVersion }: { refreshVersion: number }) 
     return () => { current = false; };
   }, [days, refreshVersion, retry]);
 
-  const response = !loading && !error && data?.days === days ? data.response : null;
+  const response = data?.days === days ? data.response : null;
   const points = response ? [...response.points].sort((a, b) => a.date.localeCompare(b.date)) : [];
-  const cached = response?.served_from_cache ?? false;
   const pointsByDate = new Map(points.map(point => [point.date, point]));
   const dates: string[] = [];
   if (points.length) {
@@ -46,35 +52,28 @@ export function SalesTrendPanel({ refreshVersion }: { refreshVersion: number }) 
     }
   }
 
-  return <Panel id="analytics-trend" title="Doanh thu, giá vốn và lợi nhuận thay đổi thế nào?" subtitle="Bộ chọn kỳ chỉ áp dụng cho biểu đồ và bảng xu hướng này. KPI tổng quan và các phân nhóm vẫn giữ phạm vi riêng."
+  return <div data-mart="mart_order_daily"><Panel id="analytics-trend" title="Doanh thu, giá vốn và lợi nhuận" subtitle={`VND · ${days} ngày gần nhất · Ngày đặt hàng UTC+7`}
     action={<fieldset className="flex rounded-xl border border-line bg-paper p-1"><legend className="sr-only">Kỳ của xu hướng</legend>{[7, 30, 90].map(value => <button aria-pressed={days === value} className={`min-h-9 rounded-lg px-3 text-xs font-semibold ${days === value ? "bg-ink text-paper" : "text-muted hover:bg-sand"}`} key={value} onClick={() => setDays(value)} type="button">{value} ngày</button>)}</fieldset>}>
-    {loading && <div aria-label="Đang tải xu hướng" className="h-72 animate-pulse rounded-xl bg-sand/50" role="status" />}
-    {error && <div className="feedback-error" role="alert"><p>{error}</p><button className="mt-2 underline" onClick={() => setRetry(value => value + 1)} type="button">Thử tải lại xu hướng</button></div>}
+    {loading && !response && <div aria-label="Đang tải xu hướng" className="h-72 animate-pulse rounded-xl bg-sand/50" role="status" />}
+    {error && <div className="feedback-error" role="alert"><p>{error}{response ? " · Đang giữ kết quả trước đó." : ""}</p><button className="mt-2 underline" onClick={() => setRetry(value => value + 1)} type="button">Thử tải lại xu hướng</button></div>}
     {response && <>
-      <div className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-        <span className="font-medium text-ink">{sourceName(response.data_source)}</span>
-        <span>{points.length ? `${points[0].date} → ${points[points.length - 1].date}` : `${days} ngày được yêu cầu`}</span>
-        {response.data_updated_at && <span>Công bố: {new Date(response.data_updated_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false })} · UTC+7</span>}
-        <span>Nhận lúc {data?.loadedAt.toLocaleTimeString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false })} · UTC+7</span>
-      </div>
-      {response.is_degraded && <p className="mb-4 rounded-xl border border-warning/25 bg-warning/5 p-3 text-sm leading-6 text-warning" role="status">Dữ liệu OLAP: {response.degraded_reason ?? "Đang hiển thị bản lưu gần nhất."}</p>}
+      <PublicationStatus data={response} />
       {!points.length ? <EmptyState detail="Chưa có điểm dữ liệu trong kỳ được chọn. Không nội suy thành doanh thu bằng 0." /> : <>
-        <Chart label="Xu hướng theo ngày, cùng đơn vị VND. Giá trị chi tiết nằm trong bảng bên dưới." height={320} option={{
-          color: ["#315b4f", "#8b5b16", "#a94728"],
+        <Chart label="Xu hướng theo ngày, cùng đơn vị VND. Giá trị chi tiết nằm trong bảng bên dưới." height={280} option={{
+          color: ["#315b4f", "#8b5b16", "#152722"],
           tooltip: { trigger: "axis", renderMode: "richText", confine: true, valueFormatter: value => value == null || value === "-" ? "Chưa có giá trị" : formatVnd(Number(value)) },
-          legend: { top: 0, textStyle: { color: "#5d6965", fontSize: 11 }, itemWidth: 16 },
+          legend: { top: 0, textStyle: { color: "#5d6965", fontSize: 12 }, itemWidth: 16 },
           grid: { left: 4, right: 16, top: 48, bottom: 38, containLabel: true },
           xAxis: { type: "category", boundaryGap: false, data: dates, axisLabel: { color: "#5d6965", formatter: (value: string) => value.slice(5) }, axisLine: { lineStyle: { color: "#dcd8cf" } } },
           yAxis: { type: "value", name: "VND", axisLabel: { color: "#5d6965", formatter: formatMetricVnd }, splitLine: { lineStyle: { color: "#ece6da", type: "dashed" } } },
           series: [
             { name: "Doanh thu", type: "line", showSymbol: points.length < 15, data: dates.map(date => pointsByDate.get(date)?.revenue_vnd ?? null), lineStyle: { width: 2.5 } },
             { name: "Giá vốn", type: "line", showSymbol: false, data: dates.map(date => pointsByDate.get(date)?.cogs_vnd ?? null), lineStyle: { width: 2, type: "dashed" } },
-            { name: "Lợi nhuận gộp", type: "line", showSymbol: false, data: dates.map(date => pointsByDate.get(date)?.profit_vnd ?? null), lineStyle: { width: 2 } },
+            { name: "Lợi nhuận gộp", type: "line", showSymbol: false, data: dates.map(date => pointsByDate.get(date)?.profit_vnd ?? null), lineStyle: { width: 2, type: "dotted" } },
           ],
         }} />
-        <p className="mb-5 text-xs leading-5 text-muted">{cached ? "Đang hiển thị bản OLAP đã tải thành công trước đó; thời điểm công bố nằm trong phản hồi." : "Doanh thu hàng hóa sau giảm giá và hoàn tiền, không gồm phí vận chuyển. Nhóm theo ngày đặt hàng (giờ Việt Nam); số đơn cộng từ mart theo ngày × kênh × cửa hàng, không cộng qua danh mục."} Các ngày không có điểm không được tự điền 0. Biểu đồ và KPI dùng cùng định nghĩa doanh thu thuần, với phạm vi thời gian riêng.</p>
-        <details className="border-t border-line pt-4"><summary className="cursor-pointer text-sm font-semibold text-ink">Xem số liệu và xuất CSV · {points.length} ngày có dữ liệu</summary><div className="mt-4"><DetailTable caption="Xu hướng doanh thu theo ngày" columns={columns} filename={`xu-huong-${days}-ngay-${response.data_source}`} rowKey={row => row.date} rows={points} /></div></details>
+        <DetailTable caption="Xu hướng theo ngày" columns={columns} filename={`xu-huong-${days}-ngay`} rowKey={row => row.date} rows={points} />
       </>}
     </>}
-  </Panel>;
+  </Panel></div>;
 }

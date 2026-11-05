@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getAdminHttpMetrics, type HttpMetricsResponse, type HttpRouteMetric, type HttpLatencyGroup } from "@/lib/api";
-import { Chart, DetailTable, EmptyState, MetricCard, Panel, number, percent, type Column } from "./AnalyticsUI";
+import { Chart, DetailTable, EmptyState, MetricCard, Panel, PublicationStatus, number, percent, type Column } from "./AnalyticsUI";
 
 const stamp = (value: string) => new Date(value).toLocaleString("vi-VN", { timeZone: "UTC", hour12: false });
 const hour = (row: { metric_date: string; metric_hour: number }) => `${row.metric_date}T${String(row.metric_hour).padStart(2, "0")}:00:00Z`;
@@ -32,12 +32,20 @@ export function HttpMetricsPanel({ refreshVersion }: { refreshVersion: number })
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const requests = useRef(new Map<number, Promise<HttpMetricsResponse>>());
 
   useEffect(() => {
     let current = true;
     setLoading(true);
     setError(null);
-    getAdminHttpMetrics(days).then(response => {
+    let promise = requests.current.get(days);
+    if (!promise) {
+      promise = getAdminHttpMetrics(days);
+      requests.current.set(days, promise);
+      const pending = promise;
+      void pending.finally(() => { if (requests.current.get(days) === pending) requests.current.delete(days); }).catch(() => {});
+    }
+    promise.then(response => {
       if (current) setData({ days, response });
     }).catch((cause: unknown) => {
       if (current) setError(cause instanceof Error ? cause.message : "Không tải được báo cáo HTTP.");
@@ -45,7 +53,7 @@ export function HttpMetricsPanel({ refreshVersion }: { refreshVersion: number })
     return () => { current = false; };
   }, [days, refreshVersion, retry]);
 
-  const response = !loading && !error && data?.days === days ? data.response : null;
+  const response = data?.days === days ? data.response : null;
   const points = response ? [...response.hours].sort((a, b) => hour(a).localeCompare(hour(b))) : [];
   const byHour = new Map(points.map(point => [hour(point), point]));
   const hours: string[] = [];
@@ -55,23 +63,18 @@ export function HttpMetricsPanel({ refreshVersion }: { refreshVersion: number })
   }
   const key = (row: { http_route: string | null; http_request_method: string | null }) => JSON.stringify([row.http_route, row.http_request_method]);
 
-  return <Panel id="analytics-http" title="HTTP Metrics" subtitle="Báo cáo access log từ mart công bố mỗi giờ, độc lập đối soát đơn hàng. Bộ chọn kỳ chỉ áp dụng phần HTTP."
+  return <div data-mart="mart_hourly_route_metrics"><Panel id="analytics-http" title="HTTP Metrics" subtitle={`${days} ngày UTC · Request đã ghi nhận`}
     action={<fieldset className="flex rounded-xl border border-line bg-paper p-1"><legend className="sr-only">Kỳ báo cáo HTTP</legend>{[1, 7, 30].map(value => <button aria-pressed={days === value} className={`min-h-9 rounded-lg px-3 text-xs font-semibold ${days === value ? "bg-ink text-paper" : "text-muted hover:bg-sand"}`} key={value} onClick={() => setDays(value)} type="button">{value} ngày UTC</button>)}</fieldset>}>
-    {loading && <div aria-label="Đang tải HTTP Metrics" className="h-64 animate-pulse rounded-xl bg-sand/50" role="status" />}
-    {error && <div className="feedback-error" role="alert"><p>Không tải được HTTP Metrics: {error}</p><button className="mt-2 min-h-8 underline" onClick={() => setRetry(value => value + 1)} type="button">Thử lại HTTP Metrics</button></div>}
+    {loading && !response && <div aria-label="Đang tải HTTP Metrics" className="h-64 animate-pulse rounded-xl bg-sand/50" role="status" />}
+    {error && <div className="feedback-error" role="alert"><p>Không tải được HTTP Metrics: {error}{response ? " · Đang giữ kết quả trước đó." : ""}</p><button className="mt-2 min-h-8 underline" onClick={() => setRetry(value => value + 1)} type="button">Thử lại HTTP Metrics</button></div>}
     {response && <div className="space-y-5">
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs leading-5 text-muted">
-        <span>Lakehouse · mart HTTP theo giờ</span>
-        <span>Kỳ: {stamp(response.window_start)} → {stamp(response.observed_at)} · UTC</span>
-        {response.data_updated_at && <span>Công bố: {stamp(response.data_updated_at)} · UTC</span>}
-        {response.source_run_id && <span className="break-all">Run: {response.source_run_id}</span>}
-      </div>
-      {response.is_degraded && <p className="rounded-xl border border-warning/25 bg-warning/5 p-3 text-sm leading-6 text-warning" role="status">{response.served_from_cache ? `Bản lưu HTTP · ${number(response.cache_age_seconds)} giây. ` : ""}{response.degraded_reason ?? "Nguồn HTTP cần kiểm tra."}</p>}
+      <PublicationStatus data={response} observedAt={response.observed_at} label="HTTP" />
+      <p className="text-xs text-muted">{stamp(response.window_start)} → {stamp(response.observed_at)} · UTC</p>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Tổng request HTTP" value={number(response.totals.total_requests)} detail="Sự kiện request đã ghi nhận; không phải người dùng duy nhất hay giao dịch." scope="Kỳ HTTP được chọn · UTC" />
-        <MetricCard label="Lỗi phía client · 4xx" value={number(response.totals.client_error_count)} detail="Số phản hồi 4xx trong log." scope="Kỳ HTTP được chọn" />
-        <MetricCard label="Tỷ lệ lỗi HTTP" value={percent(response.totals.error_rate_percent)} detail={`(4xx + 5xx) / request. Lỗi 5xx: ${number(response.totals.server_error_count)}.`} scope="Tính lại từ tổng bộ đếm" />
-        <MetricCard label="Độ trễ trung bình" value={response.totals.avg_duration_ms == null ? "—" : `${number(response.totals.avg_duration_ms)} ms`} detail="Trung bình nhóm mart có trọng số request; giá trị nhóm đã làm tròn." scope="Kỳ HTTP được chọn" />
+        <MetricCard label="Tổng request HTTP" value={number(response.totals.total_requests)} detail="Sự kiện request đã ghi nhận; không phải người dùng duy nhất hay giao dịch." scope="Request · Kỳ đã chọn" />
+        <MetricCard label="Lỗi phía client · 4xx" value={number(response.totals.client_error_count)} detail="Số phản hồi 4xx trong log." scope="Kỳ đã chọn" />
+        <MetricCard label="Tỷ lệ lỗi HTTP" value={percent(response.totals.error_rate_percent)} detail={`(4xx + 5xx) / request. Lỗi 5xx: ${number(response.totals.server_error_count)}.`} scope={`5xx: ${number(response.totals.server_error_count)}`} />
+        <MetricCard label="Độ trễ trung bình" value={response.totals.avg_duration_ms == null ? "—" : `${number(response.totals.avg_duration_ms)} ms`} detail="Trung bình nhóm mart có trọng số request; giá trị nhóm đã làm tròn." scope="Kỳ đã chọn" />
       </div>
       {!points.length ? <EmptyState detail="Chưa có quan sát HTTP trong kỳ. Không tự điền số request hoặc độ trễ bằng 0." /> : <>
         <div className="grid gap-5 xl:grid-cols-2">{[false, true].map(errors => <div className="min-w-0" key={String(errors)}>
@@ -83,20 +86,17 @@ export function HttpMetricsPanel({ refreshVersion }: { refreshVersion: number })
             grid: { left: 4, right: 16, top: 40, bottom: 44, containLabel: true },
             xAxis: { type: "category", boundaryGap: false, data: hours.map(value => `${value.slice(5, 10)} ${value.slice(11, 16)}`), axisLabel: { color: "#5d6965", hideOverlap: true }, axisLine: { lineStyle: { color: "#dcd8cf" } } },
             yAxis: { type: "value", name: "Request", minInterval: 1, splitLine: { lineStyle: { color: "#ece6da", type: "dashed" } } },
-            series: (errors ? [{ name: "4xx", field: "client_error_count" as const }, { name: "5xx", field: "server_error_count" as const }] : [{ name: "Request", field: "total_requests" as const }]).map(item => ({ name: item.name, type: "line", showSymbol: points.length < 25, connectNulls: false, data: hours.map(value => byHour.get(value)?.[item.field] ?? null) })),
+            series: (errors ? [{ name: "4xx", field: "client_error_count" as const }, { name: "5xx", field: "server_error_count" as const }] : [{ name: "Request", field: "total_requests" as const }]).map(item => ({ name: item.name, type: "line", lineStyle: { type: item.field === "server_error_count" ? "dashed" : "solid" }, showSymbol: points.length < 25, connectNulls: false, data: hours.map(value => byHour.get(value)?.[item.field] ?? null) })),
           }} />
         </div>)}</div>
-        <p className="text-xs leading-5 text-muted">Giờ thiếu quan sát được để trống. Ngày cuối có thể chưa đủ 24 giờ; tải lại dashboard không chạy pipeline. Request 2xx/3xx được nhóm chung theo hợp đồng log hiện tại.</p>
         <div>
-          <h3 className="mb-2 text-sm font-semibold">Route cần kiểm tra</h3>
-          <p className="mb-4 text-xs leading-5 text-muted">Tối đa 20 nhóm route × method, ưu tiên số lỗi rồi độ trễ trung bình. Bảng không đại diện toàn bộ route; KPI và biểu đồ lấy toàn kỳ.</p>
+          <h3 className="text-sm font-semibold">Route theo số lỗi · Top 20</h3>
           <DetailTable caption="HTTP theo route và method" filename={`http-routes-${days}-ngay`} rows={response.routes} columns={routeColumns} rowKey={key} />
         </div>
-        <details className="border-t border-line pt-4"><summary className="cursor-pointer text-sm font-semibold">Nhóm giờ có p95 cao nhất</summary>
-          <p className="my-3 text-xs leading-5 text-muted">Tối đa 20 nhóm giờ UTC × route × method. Percentile xấp xỉ của từng nhóm; không phải p95/p99 toàn kỳ và không được lấy trung bình qua nhóm.</p>
+        <div><h3 className="text-sm font-semibold">p95 theo giờ × route × method · Top 20</h3>
           <DetailTable caption="Percentile HTTP từng nhóm giờ" filename={`http-percentiles-${days}-ngay`} rows={response.latency_groups} columns={latencyColumns} rowKey={row => JSON.stringify([row.metric_date, row.metric_hour, row.http_route, row.http_request_method])} />
-        </details>
+        </div>
       </>}
     </div>}
-  </Panel>;
+  </Panel></div>;
 }

@@ -4,32 +4,28 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AUTO_REFRESH_INTERVAL_MS } from "@/lib/dashboard-refresh";
-import { Icon } from "@/components/ui/Icon";
+import { Chart, EmptyState, MetricCard, Panel, PublicationStatus, number } from "@/components/analytics/AnalyticsUI";
+import { barOption } from "@/components/analytics/chart-options";
 import {
   ApiError,
   getAdminOverview,
   type AdminOverview,
+  formatMetricVnd,
+  formatVnd,
 } from "@/lib/api";
 
 const orderStages = [
-  { key: "pending_payment_orders", label: "Chờ thanh toán", tone: "bg-slate-400" },
-  { key: "paid_orders", label: "Chờ xác nhận", tone: "bg-amber-500" },
-  { key: "confirmed_orders", label: "Đã xác nhận", tone: "bg-sky-600" },
-  { key: "shipping_orders", label: "Đang giao", tone: "bg-indigo-600" },
-  { key: "delivered_orders", label: "Đã giao", tone: "bg-teal-600" },
-  { key: "completed_orders", label: "Hoàn tất", tone: "bg-emerald-600" },
-  { key: "boom_orders_count", label: "Giao thất bại", tone: "bg-rose-600" },
-  { key: "return_orders_count", label: "Đã trả hàng", tone: "bg-orange-600" },
-  { key: "cancelled_orders", label: "Đã hủy", tone: "bg-slate-400" },
+  { key: "pending_payment_orders", label: "Chờ thanh toán" }, { key: "paid_orders", label: "Chờ xác nhận" },
+  { key: "confirmed_orders", label: "Đã xác nhận" }, { key: "shipping_orders", label: "Đang giao" },
+  { key: "delivered_orders", label: "Đã giao" }, { key: "completed_orders", label: "Hoàn tất" },
+  { key: "boom_orders_count", label: "Giao thất bại" }, { key: "return_orders_count", label: "Đã trả hàng" },
+  { key: "cancelled_orders", label: "Đã hủy" },
 ] as const;
-
-const countLabel = (value: number | null | undefined) => value == null ? "—" : value.toLocaleString("vi-VN");
 
 export default function AdminOverviewPage() {
   const [data, setData] = useState<AdminOverview | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const inFlight = useRef(false);
@@ -40,7 +36,6 @@ export default function AdminOverviewPage() {
     getAdminOverview()
       .then((overviewData) => {
         setData(overviewData);
-        setLastUpdated(new Date());
         setError(null);
       })
       .catch((requestError) => {
@@ -96,271 +91,28 @@ export default function AdminOverviewPage() {
 
   if (!data) return null;
 
-  const boomCount = data.boom_orders_count;
-  const returnCount = data.return_orders_count;
-  const totalOrders = data.total_orders;
-  const completionRate = totalOrders != null && totalOrders > 0 && data.completed_orders != null
-    ? Math.round(data.completed_orders / totalOrders * 100) : null;
-
-  const quickLinks = [
-    { label: "Sản phẩm", value: data.active_products, href: "/admin/products" },
-    { label: "Biến thể", value: data.active_variants, href: "/admin/products" },
-    { label: "Mã giảm giá", value: data.active_coupons, href: "/admin/coupons" },
-    { label: "Đánh giá", value: data.total_reviews, href: "/admin/reviews" },
-  ];
-
-  return (
-    <section className="space-y-6">
-      {/* HEADER GỌN GÀNG */}
-      <header className="flex flex-wrap items-center justify-end gap-2">
-        {lastUpdated ? (
-          <span className="text-xs text-muted tabular-nums mr-auto">
-            Cập nhật lúc {lastUpdated.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
-          </span>
-        ) : null}
-        <button
-          className="button-secondary inline-flex items-center gap-1.5 h-9 px-3 text-xs font-semibold"
-          disabled={refreshing}
-          onClick={loadData}
-          title="Làm mới"
-          type="button"
-        >
-          <Icon className={refreshing ? "animate-spin text-accent" : ""} name="rotate-ccw" size={13} />
-          <span>Làm mới</span>
-        </button>
-        <Link className="button-secondary h-9 px-3 text-xs font-semibold" href="/admin/products">
-          Sản phẩm
-        </Link>
-        <Link className="button-primary h-9 px-3.5 text-xs font-semibold" href="/admin/orders">
-          Xử lý đơn
-        </Link>
-      </header>
-      <p className="mt-3 text-xs leading-5 text-muted">Nguồn: Lakehouse · Trino / Iceberg. Công bố: {data.data_updated_at ? new Date(data.data_updated_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false }) : "Chưa có thời điểm"} · UTC+7. Tải lại mỗi 15 giây.</p>
-      <p className="text-xs leading-5 text-muted">Mốc đo tổng quan: {data.admin_observed_at ? new Date(data.admin_observed_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false }) : "—"} · UTC+7. Dữ liệu thay đổi sau batch công bố; dấu — là chưa có quan sát. {data.served_from_cache && `Đang dùng bản lưu ${countLabel(data.cache_age_seconds)} giây.`}</p>
-      {data.is_degraded && <p className="mt-2 text-sm text-warning" role="status">{data.degraded_reason}</p>}
-
-      {/* BANNER SANG TRUNG TÂM BI LAKEHOUSE */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-accent/25 bg-gradient-to-r from-accent/10 via-moss/5 to-surface px-5 py-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">
-            OLAP
-          </span>
-          <h2 className="text-sm font-bold text-ink">
-            Trung tâm Phân tích Dữ liệu BI Lakehouse
-          </h2>
-        </div>
-        <Link
-          className="button-primary whitespace-nowrap text-xs font-semibold px-3.5 py-2 self-start sm:self-auto"
-          href="/admin/analytics"
-        >
-          Mở Báo cáo BI →
-        </Link>
-      </div>
-
-      {/* TẦNG 1: 4 THẺ TÁC VỤ ƯU TIÊN */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Link
-          className="admin-panel p-4 transition hover:-translate-y-0.5 hover:border-amber-500/50"
-          href="/admin/orders"
-        >
-          <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-            Chờ xác nhận
-          </p>
-          <p className="mt-2 text-2xl font-extrabold text-ink tabular-nums">
-            {countLabel(data.paid_orders)} <span className="text-xs font-normal text-muted">đơn</span>
-          </p>
-        </Link>
-
-        <Link
-          className="admin-panel p-4 transition hover:-translate-y-0.5 hover:border-rose-500/50 border-rose-500/20 bg-rose-500/[0.02]"
-          href="/admin/orders?status=failed_delivery"
-        >
-          <p className="text-xs font-semibold uppercase tracking-wider text-rose-700 dark:text-rose-400">
-            Đơn giao thất bại
-          </p>
-          <p className="mt-2 text-2xl font-extrabold text-rose-700 dark:text-rose-400 tabular-nums">
-            {countLabel(boomCount)} <span className="text-xs font-normal text-muted">đơn</span>
-          </p>
-        </Link>
-
-        <Link
-          className="admin-panel p-4 transition hover:-translate-y-0.5 hover:border-indigo-500/50"
-          href="/admin/returns"
-        >
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-            Đơn đã trả hàng
-          </p>
-          <p className="mt-2 text-2xl font-extrabold text-ink tabular-nums">
-            {countLabel(returnCount)} <span className="text-xs font-normal text-muted">đơn</span>
-          </p>
-        </Link>
-
-        <Link
-          className="admin-panel p-4 transition hover:-translate-y-0.5 hover:border-danger/50"
-          href="/admin/products"
-        >
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-            Cảnh báo tồn kho
-          </p>
-          <p className="mt-2 text-2xl font-extrabold text-ink tabular-nums">
-            {countLabel(data.low_stock_variants)} <span className="text-xs font-normal text-muted">biến thể</span>
-          </p>
-        </Link>
-      </div>
-
-      {/* TẦNG 2: 2 CỘT CHÍNH */}
-      <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
-        {/* CỘT TRÁI: HÀNG ĐỢI XỬ LÝ */}
-        <article className="admin-panel p-5">
-          <div className="flex items-center justify-between border-b border-line pb-3">
-            <h2 className="text-base font-bold text-ink">Các nhóm cần kiểm tra</h2>
-
-          </div>
-
-          <div className="divide-y divide-line/60">
-            <div className="flex items-center justify-between gap-4 py-3">
-              <div>
-                <p className="text-sm font-semibold text-ink">
-                  Đơn hàng chờ duyệt xuất kho
-                </p>
-                <span className="text-xs font-bold text-amber-700 tabular-nums">
-                  {countLabel(data.paid_orders)} đơn
-                </span>
-              </div>
-              <Link
-                className="button-secondary text-xs font-semibold px-3 py-1.5"
-                href="/admin/orders"
-              >
-                Xử lý
-              </Link>
-            </div>
-
-            <div className="flex items-center justify-between gap-4 py-3">
-              <div>
-                <p className="text-sm font-semibold text-rose-700">
-                  Đơn giao thất bại
-                </p>
-                <span className="text-xs font-bold text-rose-700 tabular-nums">
-                  {countLabel(boomCount)} đơn
-                </span>
-              </div>
-              <Link
-                className="button-secondary text-xs font-semibold px-3 py-1.5 border-rose-500/30 text-rose-700 hover:bg-rose-50"
-                href="/admin/orders?status=failed_delivery"
-              >
-                Xem đơn
-              </Link>
-            </div>
-
-            <div className="flex items-center justify-between gap-4 py-3">
-              <div>
-                <p className="text-sm font-semibold text-ink">
-                  Đơn có trạng thái trả hàng
-                </p>
-                <span className="text-xs font-bold text-muted tabular-nums">
-                  {countLabel(returnCount)} đơn
-                </span>
-              </div>
-              <Link
-                className="button-secondary text-xs font-semibold px-3 py-1.5"
-                href="/admin/returns"
-              >
-                Kiểm tra
-              </Link>
-            </div>
-
-            <div className="flex items-center justify-between gap-4 py-3">
-              <div>
-                <p className="text-sm font-semibold text-ink">
-                  Biến thể tồn thấp (≤5)
-                </p>
-                <span className="text-xs font-bold text-muted tabular-nums">
-                  {countLabel(data.low_stock_variants)} biến thể
-                </span>
-              </div>
-              <Link
-                className="button-secondary text-xs font-semibold px-3 py-1.5"
-                href="/admin/inbound"
-              >
-                Nhập kho
-              </Link>
-            </div>
-          </div>
-        </article>
-
-        {/* CỘT PHẢI: LUỒNG ĐƠN HÀNG */}
-        <div className="space-y-4">
-          <article className="admin-panel p-5">
-            <div className="flex items-center justify-between border-b border-line pb-3">
-              <h2 className="text-base font-bold text-ink">Luồng luân chuyển đơn</h2>
-              <span className="text-xs font-bold text-emerald-700 tabular-nums">
-                {completionRate == null ? "—" : `${completionRate}%`} hoàn tất
-              </span>
-            </div>
-
-            <div className="mt-4 space-y-3.5">
-              {orderStages.map((stage) => {
-                const count = data[stage.key];
-                const percent = count != null && totalOrders != null && totalOrders > 0
-                  ? Math.round(count / totalOrders * 100) : null;
-                const barWidth = percent ?? 0;
-
-                return (
-                  <div key={stage.key}>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-ink">{stage.label}</span>
-                      <div className="flex items-center gap-1.5 tabular-nums">
-                        <strong className="font-bold text-ink">{countLabel(count)}</strong>
-                        <span className="text-muted text-[11px]">({percent == null ? "—" : `${percent}%`})</span>
-                      </div>
-                    </div>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-sand/70">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${stage.tone}`}
-                        style={{ width: `${barWidth}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="mt-5 pt-3 border-t border-line flex items-center justify-between text-xs">
-              <span className="text-muted tabular-nums">Tổng {countLabel(totalOrders)} đơn</span>
-              <Link className="font-semibold text-accent hover:underline" href="/admin/logistics">
-                Cổng Logistics →
-              </Link>
-            </div>
-          </article>
-
-          {/* Khách hàng */}
-          <article className="admin-panel p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted">Tài khoản khách hàng</p>
-              <p className="text-xl font-bold text-ink tabular-nums">
-                {countLabel(data.customers)}
-              </p>
-            </div>
-            <Link className="text-xs font-semibold text-accent hover:underline" href="/admin/customers">
-              Quản lý →
-            </Link>
-          </article>
-        </div>
-      </div>
-
-      {/* TẦNG 3: 4 LỐI TẮT TỐI GIẢN */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {quickLinks.map((item) => (
-          <Link
-            className="admin-panel p-4 transition hover:-translate-y-0.5 hover:border-accent/40"
-            href={item.href}
-            key={item.label}
-          >
-            <p className="text-xs text-muted">{item.label}</p>
-            <p className="mt-1 text-xl font-bold text-ink tabular-nums">{countLabel(item.value)}</p>
-          </Link>
-        ))}
-      </div>
-    </section>
-  );
+  const states = orderStages.map(stage => ({ name: stage.label, value: data[stage.key] })).filter((row): row is typeof row & { value: number } => row.value != null);
+  const finance = [{ name: "Doanh thu thuần", value: data.net_revenue_vnd }, { name: "Giá vốn", value: data.cogs_vnd }, { name: "Lợi nhuận gộp", value: data.gross_profit_vnd }].filter((row): row is typeof row & { value: number } => row.value != null);
+  return <section className="space-y-4">
+    <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold">Tổng quan quản trị</h1><p className="mt-1 text-xs text-muted">Toàn kỳ đã nạp</p></div><div className="flex gap-2"><button className="button-secondary min-h-10 px-4 text-sm" disabled={refreshing} onClick={loadData} type="button">{refreshing ? "Đang tải…" : "Làm mới"}</button><Link className="button-secondary min-h-10 px-4 text-sm" href="/admin/analytics">Phân tích</Link></div></header>
+    <PublicationStatus data={data} observedAt={data.admin_observed_at} />
+    {error && <p className="feedback-error" role="alert">Chưa tải được số liệu mới; đang giữ kết quả trước đó.</p>}
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" data-mart="mart_admin_overview mart_order_daily">
+      <MetricCard label="Doanh thu thuần" value={formatMetricVnd(data.net_revenue_vnd)} exactValue={formatVnd(data.net_revenue_vnd)} scope="VND" emphasis />
+      <MetricCard label="Lợi nhuận gộp" value={formatMetricVnd(data.gross_profit_vnd)} exactValue={formatVnd(data.gross_profit_vnd)} scope="VND · Chưa trừ chi phí vận hành" warning={data.gross_profit_vnd != null && data.gross_profit_vnd < 0} />
+      <MetricCard label="Tổng đơn" value={number(data.total_orders)} scope="Mọi trạng thái" />
+      <MetricCard label="Biến thể tồn thấp" value={number(data.low_stock_variants)} scope="Kho · Tồn ≤ 5" />
+    </div>
+    <div className="grid gap-4 xl:grid-cols-2">
+      <div className="min-w-0" data-mart="mart_admin_overview"><Panel title="Đơn hàng theo trạng thái" subtitle="Đơn · Trạng thái hiện tại">
+        {states.length ? <Chart height={340} label="Số đơn theo chín trạng thái" option={barOption(states, "Đơn", number, "#315b4f", "Đơn")} /> : <EmptyState />}
+      </Panel></div>
+      <div className="min-w-0" data-mart="mart_order_daily"><Panel title="Doanh thu, giá vốn và lợi nhuận" subtitle="VND · Toàn kỳ đã nạp">
+        {finance.length ? <Chart height={340} label="Doanh thu thuần, giá vốn, lợi nhuận gộp VND" option={barOption(finance, "Giá trị", formatMetricVnd, "#315b4f", "VND", formatVnd)} /> : <EmptyState />}
+      </Panel></div>
+    </div>
+    <details className="rounded-xl border border-line bg-surface p-4"><summary className="cursor-pointer text-sm font-medium">Chỉ số danh mục và khách hàng</summary><dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-5">{[
+      ["Sản phẩm active", data.active_products], ["Biến thể active", data.active_variants], ["Voucher khả dụng", data.active_coupons], ["Đánh giá", data.total_reviews], ["Tài khoản khách hàng", data.customers],
+    ].map(([label, value]) => <div key={label}><dt className="text-xs text-muted">{label}</dt><dd className="mt-1 text-lg font-semibold">{number(value as number | null)}</dd></div>)}</dl></details>
+  </section>;
 }

@@ -37,8 +37,8 @@ export default function StoreLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="mx-auto min-h-[calc(100vh-4rem)] max-w-7xl px-4 py-5 sm:px-6 sm:py-8">
-      <div className="grid items-start gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
-        <aside className="sticky top-16 z-30 -mx-1 rounded-2xl border border-line bg-surface/95 shadow-admin backdrop-blur lg:top-24 lg:mx-0">
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
+        <aside className="sticky top-16 z-30 min-w-0 -mx-1 rounded-2xl border border-line bg-surface/95 shadow-admin backdrop-blur lg:top-24 lg:mx-0">
           <div className="hidden border-b border-line px-5 py-4 lg:block">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Quản lý cửa hàng</p>
             {customer.store_name && (
