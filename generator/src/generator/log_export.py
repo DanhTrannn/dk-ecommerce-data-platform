@@ -380,7 +380,7 @@ def _event(
         "client": {"user_agent": user_agent_randomizer.choice(USER_AGENTS)},
         "ecommerce": ecommerce,
         "error": {"code": error_code, "type": error_type},
-        "data_origin": "observed",
+        "data_origin": "synthetic",
     }
 
 

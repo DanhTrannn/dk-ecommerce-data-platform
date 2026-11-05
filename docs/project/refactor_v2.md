@@ -70,7 +70,23 @@ Xem [DATA_BASELINE.md](DATA_BASELINE.md): truy vấn MySQL read-only trong một
 
 Tất cả đơn có `data_origin=manual`, `generation_run_id=NULL`; đây là baseline local, không chứng minh giao dịch thực hay profile generator đã hiệu chỉnh. Có bảng legacy `alembic_version` ngoài 28 bảng ứng dụng; không đưa vào capture phân tích và không xóa. Không chạy backfill, import, DAG, traffic hoặc sửa bản ghi để tạo baseline này.
 
-Các điểm phải kiểm tra ở đợt 2: payment SQL export luôn succeeded; return chọn dòng đầu nhưng có thể gắn order_item cuối; chọn variant đều; số đơn/khách bị rescale; tồn cuối dựng từ lượng bán cộng buffer; COD/return theo modulo; log tổng hợp mang nhãn observed. Đây là phát hiện tĩnh, chưa sửa hoặc chạy tái hiện trong đợt 1. Lịch sử kho hiện chỉ quan sát từng lần chạy, không tự tái dựng tồn quá khứ.
+Đợt 1 phát hiện tĩnh các lỗi payment, liên kết return, biến động kho và nhãn log. Đợt 2a đã tái hiện và sửa nhóm lỗi này bằng generator **0.8.0**; số liệu baseline ở trên vẫn là quan sát cũ, không bị nạp lại. Chọn variant đều, rescale số đơn/khách, COD/return theo modulo và tồn đầu kỳ cộng buffer vẫn là giả định chưa hiệu chỉnh. Lịch sử kho Lakehouse vẫn chỉ quan sát từng lần chạy, không tự tái dựng tồn quá khứ.
+
+### Đợt 2a — Nhất quán nghiệp vụ generator
+
+| Vấn đề trước sửa | Hành vi ở 0.8 |
+|---|---|
+| Payment mọi đơn succeeded, COD có thể mang trạng thái paid dù chưa thu | COD checkout confirmed/pending; hoàn tất mới succeeded/paid_at; hủy COD chưa thu không có refund; VietQR hủy giữ mốc đã thanh toán |
+| Return lấy variant đầu nhưng order_item cuối; thiếu refund đã chi | Gắn đúng order item; refund theo đơn giá sau phân bổ discount và tạo bản ghi theo payment; trả toàn bộ chuyển returned |
+| Kho có inbound 500 không kèm phiếu, thiếu cặp xuất/hoàn và hàng đổi | Bỏ inbound giả; ghi xuất checkout, hoàn hủy/giao thất bại, nhận hàng trả và xuất variant đổi; tồn đầu + biến động ròng = tồn cuối |
+| Thời gian trả bị ép về anchor; exchange có thể thiếu variant | Chỉ hoàn tất return nếu đủ cửa sổ sau completion; thiếu variant thay thế thì dùng refund |
+| Log tự sinh mang nhãn observed; month-test có pending review không hợp lệ | Log lịch sử synthetic; preset chỉ có approved/rejected theo schema hiện hành |
+
+Đã chạy **15 regression test** bằng unittest, không dùng mạng/dữ liệu thật: kiểm tra tiền, tồn, lineage, trạng thái/thời gian, tái lập SQL, trường hợp đơn một variant/giá 0, nhiều seed và batch vượt 1.000 đơn. Bộ 7 test ban đầu tái hiện 5 failure và 1 error trước sửa; test tái lập đã đạt từ trước. Lệnh chạy trong [generator README](../../generator/README.md#regression-checks).
+
+Đã xuất/nạp `small.yml` (3.000 đơn, 89 yêu cầu đổi/trả, 108 refund) và `month-test.yml` (400 đơn, 4 yêu cầu đổi/trả, 7 refund) vào **MySQL 8.4.5 tạm, không nối mạng**, dùng schema gốc và bật FK/CHECK khi nạp dữ liệu. Cả hai đạt bốn truy vấn đối chiếu: COD chưa thu, liên kết return, refund hợp lệ và phương trình tồn. Refund gồm cả hủy đã thanh toán nên không so số lượng trực tiếp với yêu cầu trả hàng. Container đã được xóa; database/pipeline đang chạy và baseline đợt 1 giữ nguyên. Chưa kiểm chứng dataset mới qua Lakehouse hoặc dashboard.
+
+Tăng phiên bản package/identity lên 0.8.0 và cập nhật lock, không thêm dependency. SQL cũ không được tự sửa; phải xuất bộ SQL/log tương ứng phiên bản mới trước khi mô phỏng. Exchange còn là kịch bản SQL, không khẳng định API có luồng tương đương. Hai endpoint tồn kho thiếu commit đã ghi ở S06 chưa được sửa trong đợt generator này.
 
 ## 5. Hợp đồng cải thiện generator ở đợt kế tiếp
 
@@ -92,7 +108,7 @@ Baseline ưu tiên đặc trưng tham chiếu; scenario ưu tiên quy mô/kịch
 | Đợt | Đầu ra | Điều kiện chuyển bước |
 |---|---|---|
 | 1 — Phạm vi/baseline | Ma trận S00–S11, inventory API, bao phủ mart và số liệu quan sát | Đã hoàn thành phần tài liệu/quan sát; không đồng nghĩa các scenario đã chạy |
-| 2 — Generator | Sửa lỗi nghiệp vụ, đặc tả/profile và báo cáo trước/sau bằng CLI | Ràng buộc đạt, đặc trưng được đo, giới hạn/giả định rõ |
+| 2 — Generator | Đã xong 2a: sửa lỗi và kiểm tra nghiệp vụ; tiếp theo 2b: đặc tả/profile và đo trước/sau | 2a đạt các kiểm tra đã nêu; chưa hoàn tất hiệu chỉnh tham chiếu hoặc nghiệm thu cả đợt 2 |
 | 3 — Streamlit | Preset/YAML, validate, job nền và kết quả SQL/log, chạy lại không tự kích hoạt | Kết quả tương đương CLI; không ghi đè, không tự nạp MySQL |
 | 4 — Nạp/mô phỏng | Nạp dataset có nhận diện trùng; script/API cho các scenario đã chọn | Không reset dữ liệu ngầm; kiểm tra postcondition, quyền, CSRF/idempotency |
 | 5 — Superset | Một dashboard doanh thu/lợi nhuận trước, rồi đủ nhóm mart | Giữ công thức, publication đồng nhất và quyền; đối chiếu SQL trước khi chuyển toàn bộ |
@@ -101,4 +117,4 @@ Baseline ưu tiên đặc trưng tham chiếu; scenario ưu tiên quy mô/kịch
 
 Superset truy vấn trực tiếp không tự kế thừa `PublishedReader` hoặc RBAC tại API. Cần PoC riêng để chốt serving snapshot/version; publication OLTP và log có mốc độc lập. Không thêm database OLAP hoặc semantic layer mới trong bước chốt phạm vi. Upload JSONL lịch sử vào MinIO hiện chưa tự đi Gold; xuất SQL không sinh HTTP access log.
 
-Đợt 1 chỉ cập nhật tài liệu và kết quả tổng hợp nhỏ; JSON/query script gốc để ngoài Git. Chưa thay dependency, lệnh chạy, biến môi trường, source code, schema hoặc dịch vụ. `FINAL_REPORT.md` giữ nguyên. Bước tiếp theo là **đặc tả và tái hiện các lỗi nghiệp vụ generator**, rồi mới hiệu chỉnh thống kê.
+Đợt 1 chỉ cập nhật tài liệu và kết quả tổng hợp nhỏ; JSON/query script gốc để ngoài Git. Đợt 2a sửa generator và bổ sung regression test theo AGENTS.md, chưa đổi UI, API, schema, dịch vụ hay biến môi trường. `FINAL_REPORT.md` giữ nguyên. Bước tiếp theo là **đặc tả bốn đặc trưng, làm sạch/phân tích nguồn tham chiếu và tạo profile**, rồi mới thay sampler và đánh giá thống kê.

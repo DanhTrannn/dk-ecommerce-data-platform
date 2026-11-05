@@ -1,6 +1,6 @@
 # OLTP & Access Log Data Generator
 
-The Data Generator (`data-generator` package, v0.7.0) creates deterministic synthetic datasets with configured Vietnamese retail seasonality and purchase patterns. It exports relational SQL inserts for MySQL OLTP and synthetic HTTP access logs using the runtime log contract. These are modeled distributions, not calibration results from a measured customer dataset.
+The Data Generator (`data-generator` package, v0.8.0) creates deterministic synthetic datasets with configured Vietnamese retail seasonality and purchase patterns. It exports relational SQL inserts for MySQL OLTP and synthetic HTTP access logs using the runtime log contract. These are modeled distributions, not calibration results from a measured customer dataset.
 
 ---
 
@@ -50,7 +50,16 @@ Generated active accounts use `customer.<index>.<logical-prefix>@web.local` and 
 
 These are development data-source accounts. SQL and access logs are generated data, not measurements of real customer activity.
 
-Version 0.7 changes the generator logical identity, so the revised account mapping and order distribution belong to a new dataset namespace. Generate/import the matching SQL before running the traffic generator for that configuration.
+Version 0.8 changes the generator logical identity because payment, return and stock semantics changed. Generate/import matching SQL before running traffic for that configuration. Existing datasets are not migrated or repaired automatically; exporting a new version does not modify MySQL.
+
+### Business consistency in 0.8
+
+- COD starts confirmed with a pending payment. Payment succeeds and `paid_at` is set on completion; cancelled or failed-delivery COD has no successful payment or cash refund. VietQR cancellation retains the original paid timestamp and records its refund.
+- Return lines reference the selected order item and variant. Refunds use the discounted unit price rounded to VND, matching the current API formula; completed monetary refunds have payment-linked records. A full refund of all ordered units marks the order returned. An exchange without another variant becomes a refund.
+- Each order has a checkout stock withdrawal; cancellations and failed deliveries have compensating movements. Passed returns add stock; modeled exchanges also withdraw the replacement SKU. Opening balance plus net movements equals closing stock. The arbitrary 500-unit inbound rows have been removed: opening stock is an explicit assumption sized from total withdrawals plus an 80–200 unit buffer, not a simulated receipt or measured replenishment policy.
+- Return creation/resolution fits between completion and the anchor. Order status history follows COD/VietQR paths. Historical JSONL exports carry `data_origin=synthetic`; live middleware events remain `observed`, including requests from a simulator.
+
+These checks establish internal consistency within the covered scenarios. Product sampling, customer order rescaling, COD/return selection and seasonality still use configured assumptions. POS, actual inbound receipts, reference calibration and real API exchange execution are not supplied by these SQL fixes. A modeled exchange does not certify that an equivalent API workflow exists.
 
 ---
 
@@ -71,7 +80,7 @@ landing/logs/ingest_date=YYYY-MM-DD/ingest_hour=HH/service=ecommerce-api/<uuid>.
 
 - **Generation Window:** Exports a 30-day log window relative to the dataset anchor; this is not object-storage retention.
 - **Format:** Gzip-compressed newline-delimited JSON (`.jsonl.gz`).
-- **Telemetry Standards:** Standardized to OpenTelemetry-compatible fields (`service.name=ecommerce-api`, `data_origin=observed`, 12-character hex container IDs).
+- **Telemetry Standards:** Standardized to OpenTelemetry-compatible fields (`service.name=ecommerce-api`, `data_origin=synthetic`, 12-character hex container IDs).
 
 ### 4. Upload to MinIO Landing Zone
 
@@ -101,9 +110,9 @@ These are YAML inputs, not measured loaded row counts. Despite its filename, `la
 
 ## 6. Vietnamese E-Commerce Behavioral Distributions
 
-The generator models realistic retail consumption patterns:
+The generator uses the following retail scenario assumptions:
 
-- **Timezone & Seasonality:** Calibrated to `Asia/Ho_Chi_Minh` (stored as UTC). Models Lunar New Year (Tet) sales peaks, double-day campaigns (e.g. 9/9, 11/11, 12/12), and Black Friday.
+- **Timezone & Seasonality:** Uses `Asia/Ho_Chi_Minh` (stored as UTC). Models a configured Tet window, double-day campaigns (e.g. 9/9, 11/11, 12/12), and Black Friday. The fixed Tet window is an assumption, not a year-specific lunar-calendar lookup.
 - **Diurnal Rhythm:** Normal day peaks occur at 19:00–22:00. Campaign days feature 00:00–02:00 midnight spikes, lunch rushes (12:00), and evening surges.
 - **Customer Segmentation:** Customers are segmented into `loyal`, `regular`, and `one_off` cohorts with distinct purchase intervals, coupon affinity, review propensities, and cancellation rates.
 - **Review Behavior:** Reviews originate exclusively from verified `completed` order items. Default synthetic ratio features 94% published immediately and 6% post-moderated (`rejected`) with Vietnamese audit reasons.
@@ -127,3 +136,13 @@ uv run --locked --package data-generator -- python scripts/simulate_web_traffic.
 ```
 
 The API publishes these access events to Kafka for the Flink stream. Historical `.jsonl.gz` files uploaded to MinIO remain raw Landing files; the current Flink job reads Kafka and does not automatically process those uploaded files into Gold.
+
+## Regression Checks
+
+Run from the repository root, using Python's standard-library unittest runner:
+
+```bash
+uv run --locked --package data-generator -- python -m unittest discover -s generator/tests -v
+```
+
+The checks generate temporary datasets without contacting MySQL, Kafka or external APIs. They cover payment/paid timestamps, return lineage/refunds, stock balances and nonnegative stock history, status continuity, single-variant/free-item edges, multiple seeds and INSERT batches, preset loading, deterministic SQL output and historical-log provenance. Generated SQL/log files are removed with their temporary directories.

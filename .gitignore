@@ -42,6 +42,8 @@ pipelines/build/
 # Tests & test cache
 tests/
 **/tests/
+!generator/tests/
+!generator/tests/*.py
 .pytest_cache/
 .coverage
 .coverage.*
