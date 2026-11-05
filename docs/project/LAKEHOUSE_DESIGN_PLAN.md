@@ -29,7 +29,7 @@ Nguồn là 27 bảng khai báo trong [config.py](../../pipelines/src/lakehouse/
 
 Airflow allows one active batch. There is no source-wide transaction or cross-table rollback. Late commits outside the interval are intentionally not covered by lookback; recovery is an explicit interval rerun/full extract. Source updates must update the configured change timestamp (`payments` now uses updated_at). Hard deletes are audit events only until the separately approved manual delete-sync workflow is implemented. History and existing publications are not dropped.
 
-## 3. Gold OLTP: 26 bảng (6 dimension, 6 fact, 14 mart)
+## 3. Gold OLTP: 27 bảng (6 dimension, 6 fact, 15 mart)
 
 Nguồn DDL: [gold/schema.py](../../pipelines/src/lakehouse/oltp/gold/schema.py). Nguồn biến đổi: [gold.py](../../pipelines/src/lakehouse/oltp/gold/).
 
@@ -72,6 +72,7 @@ Tên bảng snapshot không chứng minh đang có đầy đủ lịch sử mọ
 | `mart_store_overview` | Một dòng/cửa hàng, gồm cửa hàng chưa có đơn/tồn; số đơn/doanh thu, nhân sự và trạng thái tồn |
 | `mart_operations_summary` | Một dòng tổng quan tại mốc quan sát; số đơn chờ, shipment, yêu cầu và refund tổng hợp độc lập |
 | `mart_cod_region_daily` | Ngày tạo shipment (UTC) × nhóm vùng địa chỉ đơn COD; bộ đếm cộng được |
+| `mart_admin_overview` | Singleton current: coverage và bộ đếm từng domain/trạng thái đơn, coupon khả dụng tại admin_observed_at; tài chính phục vụ từ order mart |
 | `mart_marketing_summary` | Một dòng coverage coupon/review và mốc quan sát nghiệp vụ |
 | `mart_coupon_usage` | Một dòng/coupon, lượt dùng/hạn mức, khả dụng và redeemed trong 15 phút tại mốc đo |
 | `mart_product_review_summary` | Một dòng/sản phẩm có review, số review và approved 1–2 sao trong 45 phút tại mốc đo |
@@ -91,7 +92,7 @@ Order count ở mart sales không được cộng qua các danh mục để suy 
 | Log Gold marts | `mart_hourly_route_metrics`, `mart_daily_product_demand`, `mart_marketing_funnel_daily` |
 | CDC Bronze | `bronze.oltp_cdc_events`; envelope, operation, before/after, event_id và replay coordinates |
 
-Job Flink access log sử dụng StatementSet để ghi các tầng của log. Spark `build_logs_gold` thực hiện rollup mart qua DAG `lakehouse_logs_marts` mỗi giờ, độc lập maintenance. DAG maintenance vẫn chạy mỗi hai giờ; chưa chuyển sang thủ công.
+Job Flink access log chỉ append Landing, giữ raw payload kể cả khi không hợp lệ. Spark `build_logs_gold` xử lý tuần tự Landing → Bronze → Silver → Gold fact → mart qua DAG `lakehouse_logs_marts` mỗi giờ, độc lập maintenance. Bronze bổ sung raw_payload/_raw_hash/_validation_error, giữ dòng lịch sử cũ; Silver/fact chỉ insert event_id thiếu. Các tầng bắt kịp độc lập khi retry, không dùng event-time watermark để bỏ sự kiện đến muộn. DAG maintenance vẫn chạy mỗi hai giờ; chưa chuyển sang thủ công.
 
 Ba mart log lần lượt có grain ngày × giờ × route × method, ngày × product, và **một dòng/ngày** chứa các cột bước phễu. Mỗi rollup đọc một snapshot fact và danh mục Silver pin theo publication OLTP, dựng lại toàn bộ ba mart để bao phủ các ngày có sự kiện tới mốc đo. Publication log độc lập công bố đủ ba snapshot sau kiểm tra; full overwrite cũng xóa kết quả current bị cũ khi nguồn không có dòng, giữ lịch sử snapshot. Flink và Spark chuẩn hóa UTC; dữ liệu log cũ theo giờ Việt Nam chưa được tự động chuyển đổi; xem [Access Log Design](../architecture/ACCESS_LOG_DESIGN.md) khi đối chiếu mốc ngày/giờ.
 

@@ -22,14 +22,14 @@ Dữ liệu tổng hợp cần được ghi nhận là dữ liệu tổng hợp 
 - Chuẩn hóa, khử trùng, MERGE, pseudonymization và quarantine.
 - Đối soát MySQL/Silver và kiểm tra Gold; lưu quality results.
 - Binlog → Debezium → Kafka → Flink → Bronze CDC.
-- Access log → Kafka → Flink → các tầng Iceberg; Spark rollup mart.
+- Access log → Kafka → Flink append Landing; Spark/Airflow mỗi giờ xử lý tuần tự Bronze → Silver → Gold fact → ba mart và publication. Raw không hợp lệ được giữ ở Landing/Bronze; realtime Landing dashboard còn chờ.
 - Trino SQL và BI Hub; RBAC và phạm vi cửa hàng tại API.
 - Bảo trì Iceberg, snapshot/file và retention quarantine.
 - CLI sinh dữ liệu nguồn; CI kiểm tra cấu hình, lint, typecheck và build.
 
 ## 4. Đầu ra phân tích
 
-Gold OLTP gồm 6 dimension, 6 fact, 14 mart. Nhóm log gồm 1 fact, 3 mart. Bronze CDC là log sự kiện riêng, không phải bảng trạng thái hiện tại.
+Gold OLTP gồm 6 dimension, 6 fact, 15 mart. Nhóm log gồm 1 fact, 3 mart. Bronze CDC là log sự kiện riêng, không phải bảng trạng thái hiện tại.
 
 Chi tiết grain ở [Lakehouse Design](LAKEHOUSE_DESIGN_PLAN.md). Công thức và khác biệt Gold/OLTP ở [Metrics Catalog](../architecture/METRICS_CATALOG.md).
 

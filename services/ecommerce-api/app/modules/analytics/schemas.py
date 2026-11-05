@@ -1,5 +1,7 @@
 """Pydantic schemas for published analytics and role-specific signals."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -303,23 +305,97 @@ class OperationsMetricsResponse(AnalyticsDataStatus):
 
 class ReconciliationVariance(BaseModel):
     metric_name: str
-    oltp_value: float
-    lakehouse_value: float
-    variance_percent: float
+    oltp_value: int | None
+    lakehouse_value: int | None
+    absolute_difference: int | None
+    variance_percent: float | None
 
 
 class SystemMetricsResponse(AnalyticsDataStatus):
-    model_config = ConfigDict(from_attributes=True)
-
     role: str = "system"
-    pipeline_status: str = "healthy"
-    data_freshness_minutes: int | None = None
-    data_freshness_sla_minutes: int = 15
+    source_mode: str | None = None
+    publication_age_minutes: int | None = None
+    reconciliation_status: str = "unavailable"
+    source_observed_at: str | None = None
     reconciliation_variance: list[ReconciliationVariance] = Field(default_factory=list)
-    cdc_apply_status: str = "unknown"
-    cdc_heartbeat_at: str | None = None
-    cdc_pending_events: int = 0
-    cdc_apply_lag_seconds: int = 0
+
+
+class HttpMetricTotals(BaseModel):
+    total_requests: int | None = None
+    success_count: int | None = None
+    client_error_count: int | None = None
+    server_error_count: int | None = None
+    error_rate_percent: float | None = None
+    avg_duration_ms: float | None = None
+
+
+class HttpHourMetric(HttpMetricTotals):
+    metric_date: str
+    metric_hour: int
+
+
+class HttpRouteMetric(HttpMetricTotals):
+    http_route: str | None
+    http_request_method: str | None
+
+
+class HttpLatencyGroup(BaseModel):
+    metric_date: str
+    metric_hour: int
+    http_route: str | None
+    http_request_method: str | None
+    total_requests: int
+    p50_duration_ms: float | None
+    p95_duration_ms: float | None
+    p99_duration_ms: float | None
+
+
+class HttpMetricsResponse(AnalyticsDataStatus):
+    days: int
+    window_start: str
+    observed_at: str
+    totals: HttpMetricTotals = Field(default_factory=HttpMetricTotals)
+    hours: list[HttpHourMetric] = Field(default_factory=list)
+    routes: list[HttpRouteMetric] = Field(default_factory=list)
+    latency_groups: list[HttpLatencyGroup] = Field(default_factory=list)
+
+
+class RealtimeHttpTotals(HttpMetricTotals):
+    p95_duration_ms: float | None = None
+
+
+class RealtimeHttpMinute(RealtimeHttpTotals):
+    minute: str
+
+
+class RealtimeHttpRoute(RealtimeHttpTotals):
+    http_route: str
+    http_request_method: str
+
+
+class RealtimeHttpQuality(BaseModel):
+    scanned_rows: int = 0
+    invalid_rows: int = 0
+    replayed_rows: int = 0
+    conflicting_event_ids: int = 0
+    late_event_ids: int = 0
+    future_event_ids: int = 0
+
+
+class RealtimeHttpResponse(BaseModel):
+    data_source: Literal["landing"] = "landing"
+    minutes: int
+    window_start: str
+    observed_at: str
+    queried_at: str
+    snapshot_id: str | None = None
+    snapshot_current_at: str | None = None
+    latest_ingest_at: str | None = None
+    latest_event_at: str | None = None
+    quality: RealtimeHttpQuality = Field(default_factory=RealtimeHttpQuality)
+    totals: RealtimeHttpTotals = Field(default_factory=RealtimeHttpTotals)
+    series: list[RealtimeHttpMinute] = Field(default_factory=list)
+    routes: list[RealtimeHttpRoute] = Field(default_factory=list)
 
 
 class DailySalesTrendPoint(BaseModel):

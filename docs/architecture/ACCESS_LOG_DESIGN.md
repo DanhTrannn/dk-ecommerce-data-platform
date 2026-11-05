@@ -54,26 +54,31 @@ The producer module defaults to enabled when run without Compose overrides. Comp
 
 Compose forwards the producer topic variable, but the Flink access job reads the same `KAFKA_ACCESS_LOG_TOPIC` variable. Keep the producer and consumer values aligned.
 
-## 5. Flink processing and tables
+## 5. Landing-first capture and sequential processing
 
-One PyFlink job reads Kafka using group `flink-lakehouse-pure-stream`, with earliest startup for a new submission and configured 10-second exactly-once checkpointing. Checkpoints use the mounted local Flink checkpoint directory. A new submission is not automatically a restore from a previous job's checkpoint.
+Flink reads Kafka with group `flink-lakehouse-pure-stream`, commits offsets at completed checkpoints and starts new submissions from committed offsets with earliest fallback. Configured checkpointing is 10 seconds in the access job; storage is the mounted Flink checkpoint directory. A new submission does not automatically restore an old checkpoint. The job name stays compatible with existing launch/health checks, with stable source/envelope operator IDs for future controlled restores.
 
-A single StatementSet writes four sinks from the same parsed source. These are parallel inserts, not four sequential jobs or a requirement that Spark constructs log Silver/Gold fact:
+Flink writes **only** `landing.access_logs`. The original decoded payload is retained unchanged; routing/time/status/duration projections are populated when the current parser accepts it. Invalid JSON or an invalid event contract remains in Landing with null projected event fields and an ingestion timestamp. This retains evidence instead of logging/dropping it. It does not make arbitrary raw payloads safe for public exposure; access must remain controlled. A Kafka String deserializer retains decoded text, not the original transport bytes.
 
-| Sink | Current transformation |
+| Layer | Writer and behavior |
 |---|---|
-| `landing.access_logs` | Routing fields, duration and original raw JSON |
-| `bronze.web_events` | Nested source representation and lineage |
-| `silver.silver_logs` | Flattened typed fields; event_id identifier/upsert configuration |
-| `gold.fact_web_events` | Event facts, duration_ms, HTTP success/error/slow flags; event_id identifier/upsert configuration |
+| Landing | Flink append; raw payload and ingestion envelope, including invalid contracts |
+| Bronze | Hourly Spark; nested typed projection plus raw payload, SHA-256 raw identity, validation marker and Landing snapshot lineage |
+| Silver | Hourly Spark; valid eligible events flattened/deduplicated by immutable event_id, insert missing IDs |
+| Gold fact | Hourly Spark; reads persisted Silver, computes UTC date, duration_ms and HTTP flags, inserts missing IDs |
+| Three marts | Hourly Spark; complete aggregation and validated snapshot publication |
 
-The job uses `request.id` as event_id, rejecting messages with missing or malformed identity. Silver/Gold tables are configured with an identifier and upsert; existing table metadata still matters. `ecommerce.filters` is currently set to NULL in the typed inserts, while raw Landing retains the original payload. Invalid JSON is logged and filtered out; this path does not route every malformed event to an Iceberg quarantine table. Other parsing/type failures are not a complete per-record recovery workflow.
+Spark recognizes missing raw payloads by hash and missing Silver/fact events by ID, scanning stored inputs rather than using an event-time watermark. Late events can therefore enter a later hourly run. Each layer reads its persisted predecessor independently, so retry catches up after a failure between commits. Invalid contracts remain in Bronze with `_validation_error=invalid_access_event`, without raw content in error messages; no separate quarantine table or automatic invalid-event repair is introduced. Different valid raw payloads sharing one event ID fail processing for investigation. Equivalent JSON text serialized differently is also a different raw payload, so producers must replay immutable event envelopes.
 
-The parser now normalizes timezone-aware timestamps to UTC before SQL casts; the Flink session and event-date buckets use UTC, matching Spark. Previously stored VN-local timestamp strings are not migrated automatically; replay/rebuild affected log partitions explicitly. Malformed timestamps are rejected rather than replaced with the current time. A checkpoint interval is not a measured end-to-end latency SLA.
+The schema upgrade only adds `raw_payload`, `_raw_hash` and `_validation_error` to Bronze. Legacy typed Bronze rows are kept with null new fields; the first run stores canonical raw observations alongside them. Do not use total Bronze rows as event volume. Existing Silver/fact events and their stored timestamps/lineage are preserved; legacy VN-local values are not silently migrated. New parser/session/date processing uses UTC. `ecommerce.filters` remains NULL in typed projections, matching the previous path; Landing/Bronze raw payload retains it. The parser performs explicit identity/time/status/duration checks, not full JSON Schema validation.
 
-## 6. Spark marts and historical files
+## 6. Hourly publication and historical files
 
-[build_logs_gold](../../pipelines/src/jobs/logs/build_logs_gold.py) pins a `gold.fact_web_events` snapshot and the published Silver product/variant catalog, then builds all three marts across dates up to its observation timestamp. The independent hourly `lakehouse_logs_marts` DAG replaces and validates the complete outputs before appending `system.logs_analytics_publications`. Empty inputs clear current mart rows and still publish an empty snapshot set; earlier Iceberg snapshots remain. Maintenance no longer runs the rollup. The CLI accepts `--run-id`; its old date-only `--ingest-date` mode has been removed. Marketing reads the funnel/product marts from the log publication, with independent source metadata and cache from OLTP coupon/review marts. Counts, mappings, windows and request-event limits are in [Metrics Catalog](METRICS_CATALOG.md).
+[build_logs_gold](../../pipelines/src/jobs/logs/build_logs_gold.py) now orchestrates the complete persisted sequence before building marts. `lakehouse_logs_marts` runs hourly with one active run and a fixed `--as-of` from the DAG start. Its existing `rollup_logs_gold_marts` task ID is retained. The CLI accepts `--run-id` and optional `--as-of`; without the latter it observes invocation time. Keep standalone writers separate from active DAG runs.
+
+The job pins Landing, Bronze, Silver, then fact snapshots and the published Silver product/variant catalog. It replaces and validates all three mart outputs before appending `system.logs_analytics_publications` schema 1. Source metadata includes all processed layer snapshots. A failure leaves readers on the last completed publication; the underlying layer/mart commits are not one global transaction. Empty fact input clears current mart rows and publishes an empty snapshot set; an empty Landing delta does not erase previously stored facts. Maintenance does not run this pipeline.
+
+Marketing and HTTP Metrics continue to read the log mart publication independently from OLTP publication/cache. System HTTP Realtime now reads Landing directly through an admin/system_admin API, independently of mart publications. Business-event realtime remains pending. Counts, mappings and windows are in [Metrics Catalog](METRICS_CATALOG.md). A checkpoint or refresh interval is not a measured end-to-end latency SLA.
 
 Generator output can be uploaded to this raw prefix:
 
@@ -82,6 +87,12 @@ s3://lakehouse/landing/logs/ingest_date=YYYY-MM-DD/ingest_hour=HH/service=ecomme
 ```
 
 These uploaded historical JSONL files are not consumed automatically by the Kafka job. A configured 30-day generation window is not a storage deletion/retention policy. `data_origin=observed` alone does not prove real user activity: generator exports and simulated API traffic must be identified separately when reporting results.
+
+### Realtime HTTP serving
+
+`GET /api/v1/admin/analytics/http-realtime?minutes=15` accepts 5–60 minutes. One current Landing snapshot serves all aggregates; UI polling is 10 seconds while visible. The API returns minute request/error counts, rates, direct approximate p95 and Top 20 routes, plus snapshot/query/observation metadata. Only aggregates and projected route/method labels are exposed; raw payloads and actor/request identities are not returned.
+
+The event-time window is UTC `[start, observed_at)` with `ingest_ts <= observed_at`. Reads also include recently ingested observations to count invalid rows and late/future IDs outside the event window. Event IDs deduplicate replay; multiple raw hashes under one ID are excluded and counted as conflicts within that scope. This is provisional projection validation, not the complete Silver pipeline. Missing minutes remain gaps, in-window arrivals can revise earlier minutes, and no eligible events keeps totals null. HTTP monitoring reads themselves are included in recorded API traffic. No server cache/publication fallback: failures return 503; the UI retains its old timestamp with an error label. See [HTTP realtime contract](../../services/ecommerce-api/README.md#http-realtime-contract) and [metrics](METRICS_CATALOG.md#11-http-realtime--landing).
 
 ## 7. Inspect and feed the stream
 

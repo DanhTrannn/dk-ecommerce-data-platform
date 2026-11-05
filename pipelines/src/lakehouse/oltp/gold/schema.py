@@ -67,6 +67,9 @@ GOLD_TABLE_DDL["mart_coupon_usage"] = load_sql("spark/gold/mart_coupon_usage.sql
 GOLD_TABLE_DDL["mart_product_review_summary"] = load_sql("spark/gold/mart_product_review_summary.sql")
 
 
+GOLD_TABLE_DDL["mart_admin_overview"] = load_sql("spark/gold/mart_admin_overview.sql")
+
+
 def ensure_oltp_gold_tables(spark: SparkSession, tables=None) -> None:
     spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.gold")
     for table_name in tables if tables is not None else GOLD_TABLE_DDL:

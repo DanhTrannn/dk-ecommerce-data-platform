@@ -11,7 +11,7 @@
         <mxCell id="landing-label-0" value="Landing" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=20;" vertex="1" parent="landing">
           <mxGeometry x="8" y="32.0" width="344.0" height="24" as="geometry" />
         </mxCell>
-        <mxCell id="landing-field-0" value="Parquet / manifest" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=14;" vertex="1" parent="landing">
+        <mxCell id="landing-field-0" value="Parquet Staging (chunk 10k)" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=14;" vertex="1" parent="landing">
           <mxGeometry x="8" y="74.0" width="344.0" height="20" as="geometry" />
         </mxCell>
         <mxCell id="bronze" value="" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;" vertex="1" parent="1">
@@ -20,7 +20,7 @@
         <mxCell id="bronze-label-0" value="Bronze" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=20;" vertex="1" parent="bronze">
           <mxGeometry x="8" y="32.0" width="344.0" height="24" as="geometry" />
         </mxCell>
-        <mxCell id="bronze-field-0" value="Iceberg / append" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=14;" vertex="1" parent="bronze">
+        <mxCell id="bronze-field-0" value="Iceberg / phiên bản nguồn" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=14;" vertex="1" parent="bronze">
           <mxGeometry x="8" y="74.0" width="344.0" height="20" as="geometry" />
         </mxCell>
         <mxCell id="silver" value="" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;" vertex="1" parent="1">

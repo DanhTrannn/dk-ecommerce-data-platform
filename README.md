@@ -30,7 +30,7 @@ The **D&K E-Commerce Data Platform** is a local Data Engineering project combini
 
 The project covers data collection, incremental extraction, Medallion transformations, data quality, reconciliation, and SQL analytics. The website and POS provide transactional source data; the generator supplies configurable synthetic datasets and simulated API traffic.
 
-All seven analytics roles, admin overview, store overview, and sales trends query Trino over pinned Iceberg publications. Marketing has independent log and OLTP publications, with separate availability and cache metadata. MySQL remains the transactional source for checkout, POS, inventory operations, authentication, RBAC, and source reconciliation. If Trino is unavailable, the API serves a bounded last-good OLAP response or returns 503; it does not switch analytical aggregates to MySQL. Machine learning training and scoring remain outside the implemented scope.
+Published reports for all seven analytics roles, admin overview, store overview, and sales trends query Trino over pinned Iceberg publications. System HTTP Realtime separately observes a current Landing snapshot. Marketing has independent log and OLTP publications, with separate availability and cache metadata. MySQL remains the transactional source for checkout, POS, inventory operations, authentication, RBAC, and source reconciliation. If Trino is unavailable, the API serves a bounded last-good OLAP response or returns 503; it does not switch analytical aggregates to MySQL. Machine learning training and scoring remain outside the implemented scope.
 
 ## Features
 
@@ -156,8 +156,9 @@ MySQL CDC:
   Bronze CDC events -> audit/replay inspection (no automatic Silver/Gold writes)
 
 Access logs:
-  FastAPI middleware -> Kafka -> Flink -> Iceberg log tables
-                                        (Landing / Bronze / Silver / Gold)
+  FastAPI middleware -> Kafka -> Flink -> append-only Landing
+  Landing -> Trino -> authorized HTTP Realtime API/dashboard (10-second UI refresh)
+  Hourly Spark: Landing -> Bronze -> Silver -> Gold fact -> three marts -> publication
 
 Storage / catalog:
   Iceberg data and metadata files on MinIO + Polaris REST catalog
@@ -179,7 +180,7 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 | **Operational DB** | MySQL | 8.4.5 | 28 OLTP tables; 27 analytical source tables |
 | **Change Capture** | Debezium | 3.0.8 | Initial snapshot and row-binlog capture |
 | **Event Streaming** | Apache Kafka | 3.8.0 | CDC and access-log topics |
-| **Stream Processing** | Apache Flink | 1.19 | Access-log tables and Bronze CDC ingestion |
+| **Stream Processing** | Apache Flink | 1.19 | Raw access-log Landing and Bronze CDC ingestion |
 | **Object Storage** | MinIO | `latest-dev` | Landing, Iceberg files, and processing state |
 | **Table Format** | Apache Iceberg | 1.10.1 | Tables, snapshots, and commits |
 | **Catalog** | Apache Polaris | 1.6.0 | REST catalog and access control |
@@ -188,9 +189,9 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 | **Metadata DB** | PostgreSQL | 16.8 | Polaris and Airflow metadata |
 | **Query Engine** | Trino | 483 | SQL over Iceberg |
 
-The OLTP Gold model defines **6 dimensions, 6 facts (including current inventory), and 14 marts**. The log model defines **1 fact and 3 marts**. Row counts depend on the loaded dataset and completed pipeline runs.
+The OLTP Gold model defines **6 dimensions, 6 facts (including current inventory), and 15 marts**. The log model defines **1 fact and 3 marts**. Row counts depend on the loaded dataset and completed pipeline runs.
 
-The OLTP batch DAG is scheduled daily at 02:00 Asia/Ho_Chi_Minh; OLTP maintenance runs at 03:00 and streaming maintenance every two hours. The independent `lakehouse_logs_marts` DAG rolls up and publishes all three log marts hourly; maintenance failures do not block that DAG. DAGs are paused at creation and must be enabled in Airflow. Flink runs continuously with a configured 10-second checkpoint interval. That interval is not a measured end-to-end latency guarantee.
+The OLTP batch DAG is scheduled daily at 02:00 Asia/Ho_Chi_Minh; OLTP maintenance runs at 03:00 and streaming maintenance every two hours. The independent `lakehouse_logs_marts` DAG processes Landing → Bronze → Silver → Gold fact, then validates and publishes all three log marts hourly; maintenance failures do not block that DAG. Raw payloads, including malformed events, stay in Landing/Bronze. Missing-key inserts make each layer retryable without rewriting existing Silver/fact history. DAGs are paused at creation and must be enabled in Airflow. Flink runs continuously with a configured 10-second checkpoint interval. That interval is not a measured end-to-end latency guarantee.
 
 Source–Silver reconciliation runs before Gold processing; a second gate checks Gold counts, monetary parity, keys, references, lineage, and PII tokens. Failures mark the task/DAG unsuccessful and results are recorded in `lakehouse.system.data_quality_results`. These runtime gates remain part of data processing.
 
@@ -263,7 +264,7 @@ Importing the same SQL dataset twice is rejected by unique keys. See the [genera
 
 ### Operational Signals and Analytical Metrics
 
-The BI Hub reads a pinned Iceberg snapshot set through Trino. Responses identify the publication ID/time and whether the bounded last-good cache is serving stale data. System reconciliation compares published Gold counts/revenue with current MySQL source values.
+The BI Hub reads a pinned Iceberg snapshot set through Trino. Responses identify the publication ID/time and whether the bounded last-good cache is serving stale data. System reconciliation compares published order-mart counts/placed value with a single current MySQL observation.
 
 | Role | Implemented Indicators | Primary Source | Interpretation |
 |---|---|---|---|
@@ -273,11 +274,17 @@ The BI Hub reads a pinned Iceberg snapshot set through Trino. Responses identify
 | **Inventory** | On-hand units/value, inbound batches, stock alerts and daily history | Published current/summary/history inventory marts | Current balances are separate from daily observations |
 | **Operations** | Pending orders at observation time, shipment performance, COD regions, return requests and successful refunds | Published operations/COD/logistics/return marts | Requests, lines, units and paid refunds use separate definitions |
 | **Marketing** | 30-day event funnel, product interest, coupon usage, recent approved negative reviews | Two published log marts and three published OLTP marketing marts | Independent source timestamps/cache; request events are not unique people/orders |
-| **System** | Batch publication age, order-count and monetary variance | Published Gold compared with current MySQL | Source values may be ahead between batch runs |
+| **System** | Batch publication age, order-count/value variance; HTTP request/errors/latency | Published order mart compared with current MySQL; hourly HTTP mart and separate realtime Landing snapshot | Source may lead batch; published and realtime HTTP windows/availability are independent |
 
 Dashboard refresh reads the latest complete publication; new OLTP data appears after a successful batch extraction, Silver MERGE, Gold refresh and publication. Definitions, windows, denominators, and current limitations are detailed in the [Metrics Catalog](docs/architecture/METRICS_CATALOG.md).
 
-Executive, Sales and sales trends read only published Data Marts. `mart_order_daily` groups by Vietnam order date, channel and store so order counts are additive; `mart_product_sales_daily` supplies product rankings, while `mart_sales_daily` retains category detail. Missing Executive data and undefined ratios return `null`; a verified zero amount remains zero. Store, Inventory, store overview and store selection also use published marts. `mart_inventory_current` stores one current SKU/location balance; `mart_inventory_summary` holds the overall counts/amounts and inbound count; `mart_store_overview` holds store totals/staff and stock coverage. The existing `mart_inventory_health` supplies daily history. Undefined stock coverage is null, and SKU stockouts are counted distinctly across locations. Depletion/runway estimates have been removed. Operations uses `mart_operations_summary`, `mart_cod_region_daily`, `mart_logistics_performance` and `mart_product_returns`. Waiting time is frozen at the declared observation timestamp. Missing shipment deadlines produce unknown on-time rates. Return counts distinguish unique requests and lines; requested refund amounts are separate from successful refund payments. Marketing uses `mart_marketing_funnel_daily` and `mart_daily_product_demand` through a separate log publication, and `mart_marketing_summary`, `mart_coupon_usage` and `mart_product_review_summary` through the OLTP publication. Its 15/45-minute commerce windows freeze at the observation time; the log window covers 30 UTC dates ending at the log observation date. Each source has independent availability/cache metadata. System and admin overview retain their current sources pending later phases.
+Executive, Sales and sales trends read only published Data Marts. `mart_order_daily` groups by Vietnam order date, channel and store so order counts are additive; `mart_product_sales_daily` supplies product rankings, while `mart_sales_daily` retains category detail. Missing Executive data and undefined ratios return `null`; a verified zero amount remains zero. Store, Inventory, store overview and store selection also use published marts. `mart_inventory_current` stores one current SKU/location balance; `mart_inventory_summary` holds the overall counts/amounts and inbound count; `mart_store_overview` holds store totals/staff and stock coverage. The existing `mart_inventory_health` supplies daily history. Undefined stock coverage is null, and SKU stockouts are counted distinctly across locations. Depletion/runway estimates have been removed. Operations uses `mart_operations_summary`, `mart_cod_region_daily`, `mart_logistics_performance` and `mart_product_returns`. Waiting time is frozen at the declared observation timestamp. Missing shipment deadlines produce unknown on-time rates. Return counts distinguish unique requests and lines; requested refund amounts are separate from successful refund payments. Marketing uses `mart_marketing_funnel_daily` and `mart_daily_product_demand` through a separate log publication, and `mart_marketing_summary`, `mart_coupon_usage` and `mart_product_review_summary` through the OLTP publication. Its 15/45-minute commerce windows freeze at the observation time; the log window covers 30 UTC dates ending at the log observation date. Each source has independent availability/cache metadata. Admin overview reads `mart_admin_overview` for independent domain/status counters and `mart_order_daily` for finance. Its counts freeze at `admin_observed_at`; missing domains remain null. System reads only the order mart on the Lakehouse side, observing current MySQL count/value together for reconciliation. It reports matched/mismatch/unavailable/cached with source observation time and publication age, rather than inferring pipeline health or an SLA. A zero source denominator leaves percentage null while absolute differences still identify mismatches.
+
+System adds **HTTP Realtime** from `landing.access_logs` through Trino, with a rolling 5–60-minute event-time window (UI: 5/15/60), request/error trends by minute, approximate p95 and a Top 20 route table. Admin/System Admin only. Each read pins one Landing snapshot, deduplicates replayed event IDs, excludes conflicting payloads and reports invalid/late/future observations separately. It returns aggregates without raw payloads and does not require an hourly publication. The view refreshes every 10 seconds while visible; failures return 503 and the UI labels the retained previous observation. Landing figures are provisional; refresh/checkpoint intervals are not latency guarantees. Business-event realtime remains pending.
+
+System also has an independent HTTP Metrics report backed by `mart_hourly_route_metrics` and the hourly log publication. Admin and System Admin can select 1/7/30 UTC calendar dates, inspect request/error trends and route breakdowns, and view approximate percentiles only at their original hour/route/method grain. HTTP availability and cache metadata are independent of order reconciliation.
+
+Dashboard presentation prioritizes KPI summaries and charts, with collapsed detail tables and separate views for independent sources/windows. All 18 built marts are mapped to visible measures or drill-downs in the [dashboard design](docs/design-analysis/DASHBOARD_DESIGN.md), based on official Power BI, Tableau and W3C guidance.
 
 System reconciliation renders one chart per metric so order counts and VND use independent scales. Cached OLAP responses are marked degraded and are not presented as a new source comparison.
 

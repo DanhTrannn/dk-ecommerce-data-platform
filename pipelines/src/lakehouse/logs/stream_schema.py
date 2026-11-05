@@ -1,4 +1,4 @@
-"""Named streaming fields shared by row type and table schema adapters."""
+"""Typed access-event fields used by the Spark parsing schema."""
 
 FIELD_SPECS = (
     ("event_id", "STRING"),

@@ -61,9 +61,9 @@ Money is stored as integer VND. MySQL runs with READ COMMITTED in the configured
 
 The API emits selected completed-request events to JSON stdout and asynchronously enqueues them to Kafka. GET liveness/readiness probes are excluded. Log fields include `request.id`, timestamp/service/event metadata, canonical route/status, actor and allowlisted commerce context. Raw request/response bodies, credentials and IP addresses are not included; search/user-agent handling uses bounded sanitization, not a blanket guarantee that arbitrary text cannot contain PII.
 
-The producer has a local DLQ path when unavailable/enqueue fails; there is no automated replay job or end-to-end exactly-once guarantee from HTTP completion. Flink writes four log tables through one StatementSet; Spark rolls up three marts. Uploaded historical JSONL is a separate raw source and is not automatically consumed by the Kafka job. See [access-log design](../architecture/ACCESS_LOG_DESIGN.md).
+The producer has a local DLQ path when unavailable/enqueue fails; there is no automated replay job or end-to-end exactly-once guarantee from HTTP completion. Flink appends only raw Landing; hourly Spark processes Bronze → Silver → Gold fact → three validated/published marts. Invalid contracts remain raw in Landing/Bronze. Realtime Landing serving remains pending. Uploaded historical JSONL is a separate raw source and is not automatically consumed by the Kafka job. See [access-log design](../architecture/ACCESS_LOG_DESIGN.md).
 
-Executive/sales use Gold; marketing combines Gold events and MySQL signals; store/inventory/operations use MySQL; system compares MySQL with Gold. Responses declare `data_source`, `is_degraded`, `degraded_reason`. Dashboard refresh reloads the API without triggering batch processing. Reconciliation charts use one axis per metric, separating order counts from VND.
+All analytical role views and admin/store overviews read published marts through Trino. Marketing reads independent log/OLTP mart publications; System compares its order mart with one current MySQL observation. Responses declare `data_source`, `is_degraded`, `degraded_reason`. Dashboard refresh reloads the API without triggering batch processing. Reconciliation charts use one axis per metric, separating order counts from VND.
 
 ## 6. Deployment and configuration
 
@@ -82,3 +82,7 @@ ML training/scoring, recommendations, forecasts, exchange-size/color processing,
 ## References
 
 [API usage](../../services/ecommerce-api/README.md) · [Storefront routes](../../apps/storefront/README.md) · [OLTP schema](../architecture/OLTP_SCHEMA.md) · [architecture](../architecture/SYSTEM_ARCHITECTURE_VISUAL.md) · [setup](../runbook/SETUP.md)
+
+## Dashboard presentation
+
+KPI summaries and charts are primary; detail tables are collapsed with local search/sort/CSV. Repeated instruction, banner and metric-definition panels are removed. Independent windows/sources have separate views and compact publication/cache labels. All 18 built marts are mapped in [Dashboard Design](../design-analysis/DASHBOARD_DESIGN.md), with official Power BI/Tableau/W3C references. API, KPI definitions, source data and role/store authorization remain unchanged.

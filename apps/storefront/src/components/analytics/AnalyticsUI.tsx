@@ -1,37 +1,46 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { EChart, type EChartsOption } from "@/components/ui/EChart";
 import { Icon } from "@/components/ui/Icon";
 import { exportToCsv } from "@/lib/csv-export";
-import { canRoleAccessRoute } from "@/lib/role-routes";
+import type { AnalyticsDataStatus } from "@/lib/commerce";
 
 export const number = (value: number | null | undefined) =>
   value != null && Number.isFinite(value) ? new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 2 }).format(value) : "—";
 export const percent = (value: number | null | undefined) => value != null && Number.isFinite(value) ? `${number(value)}%` : "—";
 export const ratio = (value: number, total: number) => total > 0 ? value / total * 100 : null;
 
-export function MetricCard({ label, value, detail, scope, emphasis = false, warning = false }: {
-  label: string; value: string; detail: string; scope: string; emphasis?: boolean; warning?: boolean;
+export function MetricCard({ label, value, detail, scope, exactValue, emphasis = false, warning = false }: {
+  label: string; value: string; detail?: string; scope?: string; exactValue?: string; emphasis?: boolean; warning?: boolean;
 }) {
-  return (
-    <article className={`min-w-0 rounded-2xl border p-5 ${emphasis ? "border-ink bg-ink text-paper" : "border-line bg-surface text-ink"}`}>
-      <p className={`text-sm font-medium ${emphasis ? "text-paper/80" : "text-muted"}`}>{label}</p>
-      <p className={`mt-3 break-words text-[clamp(1.5rem,2.2vw,2rem)] font-semibold leading-tight tracking-tight tabular-nums ${warning ? (emphasis ? "text-amber-200" : "text-danger") : ""}`}>{value}</p>
-      <p className={`mt-3 text-xs font-medium ${emphasis ? "text-paper/80" : "text-muted"}`}>{scope}</p>
-      <p className={`mt-1 text-xs leading-5 ${emphasis ? "text-paper/75" : "text-muted"}`}>{detail}</p>
-    </article>
-  );
+  return <article className={`min-w-0 rounded-xl border p-4 ${emphasis ? "border-moss bg-moss text-white" : "border-line bg-surface text-ink"}`} tabIndex={0} title={[exactValue ?? value, scope, detail].filter(Boolean).join(" · ")}>
+    <p className={`text-sm font-medium ${emphasis ? "text-white" : "text-muted"}`}>{label}</p>
+    <p className={`mt-2 break-words text-[clamp(1.5rem,2.2vw,2rem)] font-semibold leading-tight tracking-tight tabular-nums ${warning ? emphasis ? "text-amber-200" : "text-danger" : ""}`}>{value}</p>
+    {scope && <p className={`mt-2 text-xs ${emphasis ? "text-white" : "text-muted"}`}>{scope}</p>}
+    {exactValue && <span className="sr-only">{exactValue}</span>}{detail && <span className="sr-only">{detail}</span>}
+  </article>;
+}
+
+export function PublicationStatus({ data, observedAt, label = "Công bố" }: { data: AnalyticsDataStatus; observedAt?: string | null; label?: string }) {
+  const stamp = (value: string) => new Date(value).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+  return <p className={`text-xs leading-5 ${data.is_degraded ? "text-warning" : "text-muted"}`} data-run-id={data.source_run_id ?? undefined} role="status" title={data.degraded_reason ?? undefined}>
+    {label}: {data.data_updated_at ? stamp(data.data_updated_at) : "Chưa có dữ liệu"}{observedAt && ` · Đo ${stamp(observedAt)}`} · UTC+7
+    {data.served_from_cache ? ` · Bản lưu ${number(data.cache_age_seconds)} giây` : data.is_degraded ? " · Dữ liệu chưa đầy đủ" : ""}
+  </p>;
+}
+
+export function ViewSwitch({ value, onChange, items, label }: { value: string; onChange: (value: string) => void; items: { value: string; label: string }[]; label: string }) {
+  return <div aria-label={label} className="flex flex-wrap gap-1 border-b border-line" role="group">{items.map(item => <button aria-pressed={value === item.value} className={`min-h-11 border-b-2 px-3 py-2 text-sm font-medium ${value === item.value ? "border-moss text-moss" : "border-transparent text-muted hover:text-ink"}`} key={item.value} onClick={() => onChange(item.value)} type="button">{item.label}</button>)}</div>;
 }
 
 export function Panel({ title, subtitle, children, action, id }: {
   title: string; subtitle?: string; children: ReactNode; action?: ReactNode; id?: string;
 }) {
   return (
-    <section className="min-w-0 rounded-2xl border border-line bg-surface p-4 sm:p-6" id={id}>
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+    <section className="min-w-0 rounded-xl border border-line bg-surface p-4 sm:p-5" id={id}>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-base font-semibold tracking-tight text-ink">{title}</h2>
           {subtitle && <p className="mt-1 max-w-3xl text-xs leading-5 text-muted">{subtitle}</p>}
@@ -44,15 +53,14 @@ export function Panel({ title, subtitle, children, action, id }: {
 }
 
 export function EmptyState({ title = "Chưa có dữ liệu", detail = "Không có bản ghi trong phạm vi hiện tại." }: { title?: string; detail?: string }) {
-  return <div className="flex min-h-40 flex-col items-center justify-center rounded-xl border border-dashed border-line bg-paper/50 px-5 py-8 text-center" role="status">
-    <Icon className="mb-3 text-muted" name="bar-chart" size={24} />
+  return <div className="flex min-h-28 flex-col items-center justify-center rounded-xl border border-dashed border-line bg-paper/50 px-5 py-8 text-center" role="status">
     <p className="text-sm font-semibold text-ink">{title}</p>
     <p className="mt-1 max-w-md text-sm leading-6 text-muted">{detail}</p>
   </div>;
 }
 
 export function Chart({ option, label, height = 300 }: { option: EChartsOption; label: string; height?: number }) {
-  return <EChart height={height} label={label} option={{ animation: false, aria: { enabled: true, description: label }, ...option }} />;
+  return <EChart className="overflow-hidden" height={height} label={label} option={{ animation: false, aria: { enabled: true }, ...option }} />;
 }
 
 export interface Column<T> {
@@ -88,11 +96,11 @@ export function DetailTable<T>({ rows, columns, filename, caption, rowKey }: {
     exportToCsv(filename, columns.map(col => col.label), filtered.map(row => columns.map(col => safeCell(col.value(row)))));
   }
 
-  return <div>
+  return <details className="mt-4 border-t border-line pt-3"><summary className="cursor-pointer text-xs font-medium text-muted">{caption} · {number(rows.length)} dòng</summary><div className="mt-3">
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
       <label className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-line bg-paper/50 px-3 sm:max-w-xs">
         <Icon className="shrink-0 text-muted" name="search" size={16} />
-        <input aria-label={`Tìm trong ${caption}`} className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none" onChange={event => setQuery(event.target.value)} placeholder="Tìm trong bảng…" type="search" value={query} />
+        <input aria-label={`Tìm trong ${caption}`} className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted" onChange={event => setQuery(event.target.value)} placeholder="Tìm trong bảng…" type="search" value={query} />
       </label>
       <button className="button-secondary min-h-10 px-4 py-2 text-xs" disabled={!filtered.length} onClick={download} type="button">Xuất CSV · {number(filtered.length)} dòng</button>
     </div>
@@ -106,16 +114,5 @@ export function DetailTable<T>({ rows, columns, filename, caption, rowKey }: {
           <tbody className="divide-y divide-line">{filtered.map(row => <tr className="hover:bg-paper/60" key={rowKey(row)}>{columns.map(col => <td className={`px-4 py-3 ${col.numeric ? "whitespace-nowrap text-right tabular-nums" : "min-w-36"}`} key={col.key}>{col.render ? col.render(row) : (typeof col.value(row) === "number" ? number(col.value(row) as number) : col.value(row) ?? "—")}</td>)}</tr>)}</tbody>
         </table>
       </div>}
-    <p className="mt-3 text-xs leading-5 text-muted">Tìm kiếm, sắp xếp và CSV áp dụng cho bảng này; không thay đổi KPI hay biểu đồ.</p>
-  </div>;
-}
-
-export function NextSteps({ items, userRole }: { items: { title: string; detail: string; href?: string; linkLabel?: string }[]; userRole: string }) {
-  return <Panel id="analytics-actions" subtitle="Các bước kiểm tra đề xuất từ số liệu hiện có. Mở màn hình liên quan để xử lý và xác nhận." title="Bước tiếp theo">
-    <ul className="divide-y divide-line">{items.map((item, index) => <li className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-start" key={item.title}>
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sand text-xs font-semibold text-ink">{index + 1}</span>
-      <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-ink">{item.title}</p><p className="mt-1 text-sm leading-6 text-muted">{item.detail}</p></div>
-      {item.href && canRoleAccessRoute(userRole, item.href) && <Link className="inline-flex min-h-10 shrink-0 items-center gap-1 text-sm font-semibold text-accent" href={item.href}>{item.linkLabel ?? "Mở xử lý"}<Icon name="arrow-right" size={15} /></Link>}
-    </li>)}</ul>
-  </Panel>;
+  </div></details>;
 }

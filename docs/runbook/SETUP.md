@@ -298,7 +298,7 @@ docker compose logs --tail=200 trino
 - **UI/API role mismatch:** operations_manager can open order/logistics/return UI routes but those APIs require admin. A 403 is not a Trino/Iceberg failure. Store confirm/cancel routes also lack the explicit CSRF dependency.
 - **Branch stock changes return 204 but do not persist:** branch-inventory PATCH and inventory/refill POST currently only flush; get_db closes the session without committing. This is an application transaction limitation, not a CDC lag symptom. See [API limits](../../services/ecommerce-api/README.md#current-limits).
 - **COD payment changes missing in Silver:** payments uses updated_at. Existing databases require the explicit timestamp upgrade and one-time Silver refresh described below. A created_at-only legacy schema cannot capture later COD updates.
-- **Flink recovery/replay:** submission does not pass a checkpoint/savepoint restore path. A new access-log submission starts at earliest; CDC uses group offsets with earliest fallback. Inspect restore state and offsets explicitly. The access producer has a local DLQ without automatic replay.
+- **Flink recovery/replay:** submission does not automatically pass a checkpoint/savepoint restore path. Access capture and CDC start from their committed group offsets with earliest fallback. Stop the old access graph cleanly before replacing it; keep Kafka retention, offsets and checkpoint/savepoint volumes. See the Landing-first upgrade below. The access producer has a local DLQ without automatic replay.
 - **Dashboard data is behind OLTP:** check the OLTP batch DAG, its `validate_and_publish` task and the latest `system.analytics_publications` row. Browser refresh polls every 15 seconds and never starts a pipeline.
 
 ### Rebuild a changed frontend
@@ -343,3 +343,31 @@ To perform a complete factory reset (erasing all MySQL records, MinIO objects, P
 ```bash
 docker compose --profile "*" down -v --remove-orphans
 ```
+
+
+## System/Admin mart upgrade
+
+The OLTP Gold registry now contains 15 marts (27 Gold tables total). Both OLTP DAGs automatically include mart_admin_overview in their mart TaskGroup, bringing each DAG to 109 tasks. The new singleton is additive; no source schema migration, environment variable or dependency is required. Its observation time uses the fixed DAG --as-of. Existing DAG concurrency/staging rules still apply.
+
+On existing volumes, run the normal batch/init pipeline to build and validate the new mart and publish its snapshot before deploying the updated API/frontend. Keep batch/init/manual-delete jobs from overlapping; there is no shared writer lock. A publication without the new admin mart makes admin overview unavailable (or bounded cache), rather than aggregating Fact/Silver as a replacement. The two overview routes continue to require admin.
+
+Admin count/financial fields now accept null, add total_orders/pending_payment_orders and admin_observed_at, and distinguish returned orders from requests. System responses replace legacy CDC heartbeat/pending/lag, pipeline_status and SLA fields with source_mode, publication_age_minutes, source_observed_at and reconciliation_status. Variance rows preserve integer values/absolute_difference and allow null sides/percentages. A nonzero difference with zero MySQL denominator is mismatch with a null percentage. A cached response does not perform a new source comparison. Only System's source reconciliation queries MySQL; all Lakehouse business aggregates for these views read pinned marts.
+
+### Cập nhật HTTP Metrics trong góc nhìn System
+
+Không thêm biến môi trường, dependency hoặc thay đổi schema cho đợt HTTP Metrics. Dùng publication log có sẵn của `lakehouse_logs_marts`; nếu chưa có publication thì bật/chạy DAG này theo hướng dẫn log hiện có. Không cần chạy lại batch OLTP khi đã có publication catalog hợp lệ. Build/restart API và Storefront theo quy trình hiện có, giữ cấu hình `KAFKA_ENABLED` đang dùng khi tạo lại container API.
+
+Đăng nhập admin hoặc system_admin, mở `/admin/analytics?role=system`, xem phần HTTP Metrics và chọn 1/7/30 ngày UTC. Kiểm tra thời điểm quan sát/công bố riêng của phần HTTP; endpoint là `/api/v1/admin/analytics/http-metrics?days=7`. Báo cáo dùng mart theo giờ; poll giao diện không chạy DAG. Không có quan sát thì để trống; lỗi publication/Trino trả bản lưu có đánh dấu hoặc 503. Phần HTTP và đối soát đơn tải độc lập.
+
+### Landing-first access-log upgrade
+
+The access Flink job now writes only `landing.access_logs`; the hourly `lakehouse_logs_marts` task processes Bronze/Silver/fact before validating/publishing three marts. No new environment variables, dependencies or source schema changes are needed. Code is mounted into Flink/Airflow; submitting a new job is required to change the already running Flink graph.
+
+1. Pause `lakehouse_logs_marts` and wait for any active run to finish. Do not run standalone log Spark writers concurrently. Keep the last completed log publication available to dashboards.
+2. Stop **only the access-log job** with a completed savepoint, retaining its returned path. Flink REST uses `POST /jobs/{access_job_id}/stop` with `{"drain": false, "targetDirectory": "file:///opt/flink/checkpoints/savepoints"}`; poll the returned savepoint request until complete and confirm the old job has stopped. Leave the CDC job running. Inspect committed offsets for `flink-lakehouse-pure-stream`; do not reset offsets, delete topics or remove checkpoint volumes.
+3. Submit the updated access job through `flink-submit` with the normal launcher/Compose procedure. It keeps the group and job name, using committed offsets with earliest fallback when no committed position exists. The old four-sink savepoint is retained for controlled recovery; old code and the additively evolved Bronze schema must be checked for compatibility before any rollback. The changed graph is not blindly restored from that state using ignored/unmapped operators. This upgrade is broker-offset startup, not a tested cross-graph savepoint restore. Raw replay may repeat Landing envelopes; downstream hashes/IDs deduplicate them.
+4. Confirm the new Flink graph has only a Landing sink and a completed checkpoint. A new GET request should appear in Landing while remaining absent from downstream layers until Spark runs. No API realtime view is introduced in this phase.
+5. Unpause the log DAG and let its next run execute, or trigger it when idle. Its single-active-run boundary serializes runs. The existing task ID `rollup_logs_gold_marts` is kept; its CLI now accepts a fixed `--as-of` from the DAG start. Spark adds three nullable Bronze columns (`raw_payload`, `_raw_hash`, `_validation_error`) and initializes missing log schemas. No stored table is dropped or truncated. First migration adds canonical raw observations alongside retained legacy typed Bronze rows; Bronze total rows can increase without increasing valid event counts.
+6. Verify the run succeeds, the new publication still uses schema 1, and `source_snapshots_json` includes Landing/Bronze/Silver/fact. Check the request ID through Silver/fact/marts and open Marketing/HTTP Metrics. Existing Silver/fact rows and OLTP publication/business totals must remain unchanged. Retry a failed DAG run with the same fixed observation; each layer independently catches up from its persisted predecessor.
+
+The new path scans for missing raw hashes/IDs; it has no event-time cursor or incremental file-position checkpoint. Late events stay eligible. Invalid payloads remain raw in Landing/Bronze with a generic validation marker; conflicting valid raw envelopes sharing an event ID fail publication for investigation. Raw payloads are restricted source data, not dashboard output. Existing historical VN-local timestamps are preserved, not silently rewritten. Maintenance schedules/retention are unchanged; Landing realtime serving and 10-second UI polling remain a later phase. A successful local probe does not establish a latency SLA or end-to-end exactly-once delivery.

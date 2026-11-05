@@ -16,7 +16,7 @@ Vai trò dashboard, API và phạm vi truy cập được mô tả trong [kiến
 
 ## 2. Doanh thu, giá vốn và lợi nhuận
 
-Publication schema 3 dùng chung transformation cho batch và CDC. Tiền là số nguyên VND. Ngày báo cáo là ngày đặt hàng theo Asia/Ho_Chi_Minh; giao hàng hoặc hoàn tiền về sau có thể làm thay đổi kết quả của ngày đặt hàng cũ.
+Publication schema 3 công bố kết quả batch; CDC hiện chỉ ghi audit Bronze. Tiền là số nguyên VND. Ngày báo cáo là ngày đặt hàng theo Asia/Ho_Chi_Minh; giao hàng hoặc hoàn tiền về sau có thể làm thay đổi kết quả của ngày đặt hàng cũ.
 
 | Chỉ số | Công thức hiện tại | Nguồn / grain |
 |---|---|---|
@@ -36,7 +36,7 @@ Publication schema 3 dùng chung transformation cho batch và CDC. Tiền là s�
 
 Executive, Sales và xu hướng chỉ truy vấn mart trong cùng publication schema 3. `mart_order_daily` có grain ngày × kênh × cửa hàng; `mart_product_sales_daily` có grain ngày × sản phẩm; `mart_sales_daily` tiếp tục phục vụ danh mục. Số đơn đóng góp điểm bán đếm đơn có doanh thu thuần dương; tổng đơn Executive/xu hướng gồm mọi trạng thái. Top sản phẩm xếp theo doanh thu thuần, số lượng đã trừ hàng trả hoàn tất/kiểm định đạt. Tỷ trọng danh mục được tính lại từ tổng tiền, không cộng hoặc lấy trung bình tỷ lệ từng dòng.
 
-Mart rỗng làm KPI Executive trả `null`, danh sách Sales/xu hướng trả rỗng; giao diện hiển thị — hoặc trạng thái chưa có dữ liệu. Có dòng nguồn hợp lệ nhưng không phát sinh doanh thu thì số tiền 0 vẫn được giữ. AOV/biên lợi nhuận/tỷ trọng không có mẫu số hợp lệ trả `null`. Mart chưa nằm trong publication gây phản hồi unavailable hoặc cache có đánh dấu, không đọc fact/MySQL để thay thế. Store/Inventory được cập nhật ở đợt 3b như phần dưới; Operations cập nhật ở đợt 3c như phần dưới; Marketing cập nhật ở đợt 3d như phần dưới; System và admin overview giữ hợp đồng hiện tại.
+Mart rỗng làm KPI Executive trả `null`, danh sách Sales/xu hướng trả rỗng; giao diện hiển thị — hoặc trạng thái chưa có dữ liệu. Có dòng nguồn hợp lệ nhưng không phát sinh doanh thu thì số tiền 0 vẫn được giữ. AOV/biên lợi nhuận/tỷ trọng không có mẫu số hợp lệ trả `null`. Mart chưa nằm trong publication gây phản hồi unavailable hoặc cache có đánh dấu, không đọc fact/MySQL để thay thế. Store/Inventory được cập nhật ở đợt 3b như phần dưới; Operations cập nhật ở đợt 3c như phần dưới; Marketing cập nhật ở đợt 3d như phần dưới; System và admin overview cập nhật ở đợt 3e như phần dưới.
 
 Đơn chờ thanh toán, đã xác nhận hoặc đang giao chưa tạo doanh thu hàng hóa. Đơn đã trả vẫn giữ doanh thu ban đầu; hoàn tiền thành công được trừ riêng để xử lý trả một phần. Giá vốn được hoàn nhập theo số lượng trả hoàn tất và kiểm định đạt.
 
@@ -105,7 +105,7 @@ Mart nhu cầu sản phẩm ánh xạ product slug/public UUID và variant publi
 
 Coupon mart giữ mỗi coupon; API chọn tối đa 10 mã active, chưa archived, đang trong thời hạn tại mốc đo, sắp theo used_count. Không giới hạn giữ null, không coi hạn mức lượt là ngân sách quảng cáo. Review mart lưu mỗi sản phẩm có review; API lấy tối đa 5 sản phẩm có approved 1–2 sao trong cửa sổ. Không có bản ghi nguồn được hiển thị là thiếu quan sát; có nguồn nhưng không có mã/đánh giá thỏa điều kiện là danh sách rỗng.
 
-Rollup log chạy bằng DAG riêng mỗi giờ, đọc fact snapshot và xây lại đủ ba mart từ tập sự kiện tới mốc quan sát, kiểm tra trước công bố. Khoảng 15/45 phút là cửa sổ tại mốc mart nghiệp vụ, không phải thời gian thực khi refresh. Các dòng mart và snapshot cũ vẫn được giữ trong lịch sử Iceberg; không xóa nguồn log. Pipeline Flink qua bốn tầng chưa được chuyển sang thiết kế Landing → batch giờ trong đợt này.
+Rollup log chạy bằng DAG riêng mỗi giờ, đọc fact snapshot và xây lại đủ ba mart từ tập sự kiện tới mốc quan sát, kiểm tra trước công bố. Khoảng 15/45 phút là cửa sổ tại mốc mart nghiệp vụ, không phải thời gian thực khi refresh. Các dòng mart và snapshot cũ vẫn được giữ trong lịch sử Iceberg; không xóa nguồn log. Flink hiện chỉ append Landing; Spark giờ xử lý tuần tự Bronze → Silver → fact trước khi rollup và công bố ba mart.
 
 ## 5. Chỉ số kỹ thuật DE
 
@@ -119,11 +119,9 @@ Rollup log chạy bằng DAG riêng mỗi giờ, đọc fact snapshot và xây l
 | CDC traceability | event_id, before/after, binlog và Kafka offset; kiểm tra replay/truy vết từ Bronze |
 | Processing duration / throughput | Lấy từ log thời gian và khối lượng lần chạy; repo không ấn định con số benchmark |
 
-Ở CDC mode, API đánh giá heartbeat, trạng thái xử lý, độ trễ sự kiện và variance; ngưỡng hiển thị tuổi publication là 5 phút. Ở batch mode, API không đòi heartbeat CDC và dùng ngưỡng publication 1.500 phút cho lịch hằng ngày. Đây là ngưỡng cảnh báo, chưa phải SLA đã đo.
+System hiện đọc SUM(total_orders) và SUM(order_total_vnd) từ mart_order_daily đã pin. MySQL cung cấp COUNT(order_id) và SUM(total_vnd) trong cùng một câu SQL; source_observed_at ghi thời điểm hoàn tất lần đọc. Đây là tổng giá trị đơn mọi trạng thái, không phải doanh thu thuần. Hai phía có mốc thời gian khác nhau, nguồn có thể tiến trước batch. Không dùng CDC heartbeat/pending để suy ra sức khỏe Silver/Gold.
 
-Đối soát dashboard dùng hai metric: `total_orders` so COUNT đơn MySQL với COUNT DISTINCT order_id Gold; `order_total_vnd` so SUM orders.total_vnd với SUM fact_order.order_total_vnd, đều gồm mọi trạng thái. Chênh lệch = abs(OLTP−Gold)/OLTP × 100, làm tròn hai chữ số; OLTP=0 thì 0% nếu Gold=0, ngược lại 100%.
-
-UI vẽ từng metric riêng để số đơn không dùng chung thang với doanh thu. Số đơn có đơn vị đơn; tiền có trục VND, nhãn rút gọn và tooltip giá trị đầy đủ; badge dùng variance_percent từ API. Khi không có nguồn đối soát mới, không tự tạo variance để thay thế.
+Chênh tuyệt đối = ABS(MySQL − mart), giữ số nguyên cho đơn/VND. Chênh tương đối = chênh tuyệt đối / MySQL × 100 khi mẫu số >0; nguồn 0 trả null cho phần trăm, vẫn xác định mismatch theo chênh tuyệt đối. Thiếu quan sát phía nào giữ null phía đó và trạng thái unavailable. Khi đọc được cả hai phía, matched nếu cả hai chênh tuyệt đối bằng 0, mismatch nếu có chênh. Kết quả cache mang trạng thái cached, giữ thời điểm đo nguồn cũ và không được hiển thị như lần đối soát mới. Publication age chỉ đo tuổi metadata; không có SLA/khẳng định pipeline healthy trong hợp đồng này.
 
 ## 6. Cách trình bày kết quả
 
@@ -132,3 +130,54 @@ Ghi rõ dataset, dữ liệu tổng hợp hay phát sinh thật, thời gian ch�
 ## 7. Ngày quan sát tồn kho
 
 `fact_inventory_current` và snapshot tồn kho mới dùng ngày quan sát thực tế theo Asia/Ho_Chi_Minh, đối chiếu với `_gold_ingested_at`. Ngày logical của Airflow dùng để truy vết kỳ xử lý, không được dùng để ghi tồn hiện tại đè lên ngày quá khứ. Lịch sử snapshot của các ngày khác được giữ nguyên.
+
+
+## 8. Admin Overview từ mart
+
+mart_admin_overview có một dòng current tại admin_observed_at của DAG. Các nguồn được aggregate độc lập trước khi cross join để tránh nhân số sản phẩm, review, khách và đơn. Active variant yêu cầu cả product/variant active; tồn thấp chỉ lấy kho trung tâm và catalog active, ngưỡng ≤5 gồm cả 0. Khách hàng đếm role=customer, không suy ra đã kích hoạt. Review là tổng bản ghi nguồn; active coupon yêu cầu active, chưa archived, starts_at<=mốc đo<ends_at. Có coverage nhưng không thỏa điều kiện giữ 0; chưa có quan sát domain trả null. Không có coverage kho thì không kết luận tồn thấp bằng 0.
+
+Các bộ đếm trạng thái là số đơn, gồm pending_payment/paid/confirmed/shipping/delivered/completed/cancelled/failed_delivery/returned. Failed delivery không giới hạn COD; returned không phải số yêu cầu trả. API kiểm tra tổng dòng đơn của summary khớp SUM(total_orders) từ order mart. UI dùng total_orders được công bố cho mẫu số, hiển thị đầy đủ trạng thái và không cộng các đơn vị khác nhau thành số việc cần làm. Thanh tỷ lệ bằng 0 giữ chiều rộng 0.
+
+Tài chính Admin lấy SUM gross_revenue_vnd/refunded_amount_vnd/net_revenue_vnd/cogs_vnd/gross_profit_vnd từ mart_order_daily cùng publication, theo công thức nhận diện và phân bổ đã dùng ở Executive. Biên lợi nhuận = profit/net khi net>0; không có mẫu số hoặc không có mart row trả null. Thời điểm quan sát admin khác thời điểm publication và thời điểm UI nhận response. API chỉ đọc mart; không dùng MySQL để thay thế dữ liệu tổng quan thiếu.
+
+## 9. HTTP Metrics — báo cáo theo giờ
+
+API `GET /api/v1/admin/analytics/http-metrics?days=7` dành cho admin/system_admin; chỉ đọc `mart_hourly_route_metrics` pin snapshot từ publication log schema 1. Bộ chọn 1/7/30 ngày ở System chỉ đổi phần HTTP; API nhận 1–30 ngày. Cửa sổ gồm các ngày UTC, bắt đầu 00:00 ngày cách ngày `observed_at` của publication `days - 1` ngày, kết thúc ở mốc quan sát đó. Ngày cuối có thể chưa đủ 24 giờ. Publication log độc lập publication OLTP; tải lại giao diện không kích hoạt rollup.
+
+| Chỉ số | Cách tính / grain | Giới hạn |
+|---|---|---|
+| Tổng request | SUM total_requests trên toàn kỳ | Sự kiện đã ghi nhận, không phải người/session/giao dịch duy nhất |
+| Thành công | SUM success_2xx_count | Tên cột legacy; ingestion hiện đếm is_success (<400), UI ghi 2xx/3xx |
+| Lỗi 4xx / 5xx | SUM từng bộ đếm | Là phản hồi HTTP, không tự suy ra nguyên nhân hoặc thất bại nghiệp vụ |
+| Tỷ lệ lỗi | 100 × (SUM 4xx + SUM 5xx) / SUM request | Mẫu số 0 → null; không trung bình các tỷ lệ nhóm |
+| Độ trễ trung bình | SUM(avg_duration_ms × total_requests) / SUM trọng số nhóm có mean | Mean nhóm đã làm tròn; ingestion hiện cung cấp duration cho mỗi sự kiện hợp lệ; nhóm thiếu mean bị loại khỏi trọng số, không thay bằng 0 |
+| Chuỗi theo giờ | Tổng bộ đếm theo ngày UTC × giờ UTC | Giờ không có quan sát là khoảng trống, không nội suy 0 |
+| Route cần kiểm tra | Aggregate kỳ theo route × method, top 20 theo số lỗi rồi mean latency | Chỉ là tập con; không cộng bảng top để thay tổng KPI |
+| p50/p95/p99 | Giá trị percentile_approx tại ngày × giờ × route × method | Top 20 theo p95; không phải percentile toàn kỳ, không trung bình/cộng các percentile |
+
+Phản hồi có `window_start`, `observed_at`, `source_run_id`, `data_updated_at` và metadata cache riêng. Mart rỗng giữ null tổng và danh sách rỗng; số 0 đã quan sát vẫn là 0. Lỗi đọc hoặc thiếu publication/snapshot dùng cache còn hạn theo đúng `days`, có đánh dấu degraded, hoặc 503 nếu không có cache hợp lệ. Cache giữ cửa sổ và thời điểm đo cũ. Khi một trong hai phần HTTP/đối soát đơn lỗi, phần còn đọc được vẫn hiển thị độc lập. Luồng HTTP Landing realtime có hợp đồng độc lập tại mục 11; các chỉ số trên vẫn là báo cáo mart theo giờ, không xác nhận SLA hoặc năng lực chịu tải.
+
+## 10. Trình bày dashboard tối giản
+
+Giao diện chỉ giữ KPI, biểu đồ, phạm vi và metadata cần thiết; định nghĩa đầy đủ tiếp tục nằm trong tài liệu này và [thiết kế dashboard](../design-analysis/DASHBOARD_DESIGN.md). Bảng chi tiết mặc định thu gọn, có tìm kiếm/sắp xếp/CSV; Top 5/10/20 được ghi rõ. Sales, Operations, Marketing và System có góc nhìn nhỏ để không trộn phạm vi độc lập. Không thay công thức, query hoặc dữ liệu nguồn trong đợt thiết kế này.
+
+Marketing summary hiển thị số bản ghi coupon/review đã nạp, không phải số mã active hoặc số sản phẩm duy nhất. Sales cộng tổng từ toàn bộ store contributions, không từ top sản phẩm. Admin giữ đủ chín trạng thái đơn. Số 0 không có thanh giả dương; giá trị null để —; tiền/đơn đối soát vẫn dùng trục riêng. Lỗi tải mới giữ kết quả trước đó kèm cảnh báo, cache giữ mốc cũ; các kỳ date filter vẫn giữ phạm vi API hiện tại. Tất cả 15 mart OLTP và 3 mart log có ánh xạ KPI/biểu đồ/tra cứu trong tài liệu thiết kế.
+
+## 11. HTTP Realtime — Landing
+
+System → HTTP Realtime gọi `/api/v1/admin/analytics/http-realtime?minutes=15`; chỉ admin/system_admin. API nhận 5–60 phút, UI chọn 5/15/60 phút và tải lại 10 giây khi hiển thị. Mỗi lần đọc cố định một snapshot Landing và mốc UTC, không đợi publication giờ, không tổng hợp MySQL hoặc thay bằng mart khi lỗi.
+
+| Chỉ số | Công thức / phạm vi |
+|---|---|
+| Request | Số event ID duy nhất hợp lệ, một raw hash, event time trong `[start, observed_at)` và ingest tới mốc đo |
+| 4xx / 5xx | Đếm status 400–499 / 500–599 trong đúng tập request |
+| Tỷ lệ lỗi | 100 × (4xx + 5xx) / request; không mẫu số thì null |
+| Độ trễ trung bình / p95 | `duration_ns / 1e6`; mean / `approx_percentile(..., 0.95)` trực tiếp theo tập request ở từng grain |
+| Chuỗi phút | Tập request nhóm theo UTC minute; phút biên có thể chưa đủ 60 giây, không tự điền khoảng thiếu bằng 0 |
+| Route | Top 20 route × method theo số lỗi rồi số request; không dùng tập Top 20 để tính tổng toàn kỳ |
+| Dòng invalid / replay | Số dòng không đạt kiểm tra projected envelope / số bản sao thừa cùng ID và raw hash trong phạm vi đọc |
+| ID conflict / late / future | ID có nhiều raw hash bị loại / ID hợp lệ trước cửa sổ / ID hợp lệ tại hoặc sau mốc đo |
+
+Phạm vi đọc gồm dòng ingest tới mốc đo có event time trong cửa sổ **hoặc** ingest từ đầu cửa sổ. Nhánh ingest ghi nhận lỗi và sự kiện muộn/tương lai; các dòng ngoài cửa sổ event time không vào KPI HTTP. Arrival muộn còn trong cửa sổ được tính ở lần đọc sau. Dedup/conflict chỉ áp dụng phạm vi này, chưa phải kiểm soát Silver đầy đủ hoặc phát hiện xung đột toàn lịch sử. Không có request đủ điều kiện giữ tổng null và danh sách rỗng; số lỗi/độ trễ 0 đã đo giữ nguyên. Total gồm status hợp lệ 100–599; success chỉ 200–399.
+
+`snapshot_id` là chuỗi để giữ chính xác số 64 bit; `snapshot_current_at` là thời điểm snapshot trở thành current, không phải publication. `observed_at` là mốc cửa sổ, `queried_at` là lúc truy vấn xong; `latest_ingest_at`/`latest_event_at` chỉ là thời điểm mới nhất trong phạm vi tương ứng. Không gán tuổi log thành SLA hay kết luận pipeline chết. Lỗi đọc trả 503, UI giữ kết quả và mốc đo cũ cùng cảnh báo; không có server last-good cache. Payload raw/ID request/actor không được trả về. Lưu lượng có cả request đọc dashboard; không diễn giải thành số người dùng hay đơn hàng. Cửa sổ logic chưa bảo đảm pruning file vật lý của Landing hiện tại. Realtime sự kiện nghiệp vụ vẫn là phần tiếp theo.

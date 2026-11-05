@@ -1,6 +1,6 @@
 """FastAPI router for analytics endpoints with RBAC enforcement."""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.core.errors import FORBIDDEN, AppError
@@ -8,7 +8,11 @@ from app.db.deps import get_current_admin, get_current_staff, get_db
 from app.models.customer import Customer
 from app.modules.admin.schemas import AdminOverviewResponse
 from app.modules.admin.service import get_overview
+from app.modules.analytics.http_service import get_http_metrics
+from app.modules.analytics.realtime_service import get_realtime_http
 from app.modules.analytics.schemas import (
+    HttpMetricsResponse,
+    RealtimeHttpResponse,
     RoleMetricsResponse,
     SalesTrendResponse,
     StoreItemResponse,
@@ -22,6 +26,23 @@ from app.modules.analytics.service import (
 )
 
 router = APIRouter(prefix="/admin/analytics", tags=["admin-analytics"])
+
+
+@router.get("/http-realtime", response_model=RealtimeHttpResponse)
+def get_analytics_http_realtime(
+    response: Response,
+    minutes: int = Query(15, ge=5, le=60, description="Rolling event-time window in minutes, UTC [start, observed_at)"),
+    actor: Customer = Depends(get_current_staff),
+) -> RealtimeHttpResponse:
+    """Admin/System Admin: provisional Landing aggregates, one snapshot per read.
+
+    Replays are deduplicated by event ID; conflicting payloads are excluded.
+    No raw events, publication requirement, MySQL aggregate or server cache.
+    Unavailable Landing returns 503; an empty readable window has null totals.
+    """
+    validate_role_access(actor=actor, target_role="system")
+    response.headers["Cache-Control"] = "no-store"
+    return get_realtime_http(minutes=minutes)
 
 
 @router.get("/stores", response_model=list[StoreItemResponse])
@@ -70,3 +91,16 @@ def get_analytics_sales_trend(
         )
     return get_sales_trend(days=days, db=db)
 
+
+@router.get("/http-metrics", response_model=HttpMetricsResponse)
+def get_analytics_http_metrics(
+    days: int = Query(7, ge=1, le=30, description="UTC calendar dates ending at the log observation date"),
+    actor: Customer = Depends(get_current_staff),
+) -> HttpMetricsResponse:
+    """Admin/System Admin: hourly HTTP reporting pinned to the log publication.
+
+    Empty windows retain null totals; unavailable publications return bounded
+    last-good data marked degraded, or 503 when no valid cache exists.
+    """
+    validate_role_access(actor=actor, target_role="system")
+    return get_http_metrics(days=days)

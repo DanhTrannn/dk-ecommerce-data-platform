@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS lakehouse.silver.silver_logs (
     event_id STRING,
-    event_ts TIMESTAMP_LTZ(6),
-    observed_timestamp TIMESTAMP_LTZ(6),
+    event_ts TIMESTAMP,
+    observed_timestamp TIMESTAMP,
     schema_name STRING,
     schema_version STRING,
     service_name STRING,
@@ -33,11 +33,6 @@ CREATE TABLE IF NOT EXISTS lakehouse.silver.silver_logs (
     error_code STRING,
     error_type STRING,
     data_origin STRING,
-    _silver_ingested_at TIMESTAMP_LTZ(6),
-    _source_bronze_run_id STRING,
-    PRIMARY KEY (event_id) NOT ENFORCED
-) WITH (
-    'format-version' = '2',
-    'write.upsert.enabled' = 'true',
-    'write.parquet.compression-codec' = 'zstd'
-)
+    _silver_ingested_at TIMESTAMP,
+    _source_bronze_run_id STRING
+) USING iceberg TBLPROPERTIES ('format-version'='2')
