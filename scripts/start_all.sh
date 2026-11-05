@@ -139,6 +139,7 @@ if has_profile streaming; then
   show_url 'Debezium Connect' debezium-connect 8083
 fi
 if has_profile tools; then
+  show_url 'Generator Console' generator-console 8501
   show_url 'Polaris Console' polaris-console 8080
   show_url 'Trino Admin' trino-admin 8080
 fi

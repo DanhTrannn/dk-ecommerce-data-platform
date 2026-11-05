@@ -12,6 +12,7 @@ The local stack implements the decoupled architecture defined in the lakehouse p
 - **Trino (v483):** The distributed SQL query engine for read-only serving.
 - **Debezium Connect (v3.0.8):** Captures committed changes from the MySQL row binlog and publishes per-table Kafka topics (`:8086`, localhost only).
 - **Polaris Web Console:** Catalog and RBAC management UI (`:8183`).
+- **Generator Console:** Optional Streamlit UI (`:8501`) that creates and monitors background SQL/access-log jobs; it does not load MySQL, upload logs, or trigger pipelines.
 
 *Note: Polaris does not store Parquet files or execute queries. PostgreSQL holds only catalog/RBAC metadata, not actual Iceberg data.*
 
@@ -57,7 +58,9 @@ make up PROFILES=core,batch
 # Full processing platform, without optional management interfaces
 make up PROFILES=core,batch,streaming
 
-# Include Polaris Console and Trino Admin
+# Include Generator Console, Polaris Console and Trino Admin
+make up PROFILES=core,tools
+# Or the full stack
 ./scripts/start_all.sh --all
 make ps
 ```
@@ -161,6 +164,7 @@ Compose waits for health checks or successful completion of initialization jobs 
 | **Polaris Console** | `http://localhost:8183` | 8183 | Catalog & RBAC UI (`POLARIS_ROOT_CLIENT_ID` / `POLARIS_ROOT_CLIENT_SECRET`; Realm: `POLARIS`) |
 | **MinIO Console** | `http://localhost:9001` | 9001 | S3 Object browser (`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`) |
 | **Trino Admin (optional)** | `http://localhost:8087` | 8087 | Administrative Trino engine (profile `tools`, not started by default) |
+| **Generator Console (optional)** | `http://localhost:8501` | 8501 | Streamlit SQL/access-log jobs; state under `data/generator/jobs/` (profile `tools`) |
 | **Debezium Connect** | `http://127.0.0.1:8086` | 8086 | CDC connector lifecycle/status API |
 
 ### Starting the Optional Trino Admin Engine
@@ -172,6 +176,24 @@ COMPOSE_PROFILES=tools docker compose up -d trino-admin
 ```
 
 It serves on host port `8087` (`http://localhost:8087`). The read-only `trino` reader engine remains the default query engine.
+
+### Starting the Optional Generator Console
+
+The console runs the existing generator CLI in a detached worker and keeps job state under `data/generator/jobs/<job_id>/`. It is available in the `tools` profile:
+
+```bash
+make up PROFILES=core,tools
+# or
+docker compose --profile tools up -d --build generator-console
+```
+
+Open `http://localhost:8501` (`GENERATOR_CONSOLE_PORT` overrides the host port). For local development without Compose:
+
+```bash
+uv run --locked --package generator-console generator-console
+```
+
+Only one job can be `queued` or `running` per console. Refresh or tab changes do not create jobs; closing the tab does not stop the worker. If a console/worker restart cannot verify the worker PID, the job is marked `interrupted` and existing artifacts are retained. The console does not import SQL into MySQL, run traffic, upload logs, or trigger Airflow. See [apps/generator-console/README.md](../../apps/generator-console/README.md) for the job layout and download behavior.
 
 ---
 

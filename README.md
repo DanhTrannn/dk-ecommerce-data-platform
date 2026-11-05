@@ -99,7 +99,7 @@ make up PROFILES=core,batch
 # Add Kafka, CDC and access-log streaming
 make up PROFILES=core,batch,streaming
 
-# Optional management interfaces (Polaris Console and Trino Admin)
+# Optional management interfaces (Generator Console, Polaris Console and Trino Admin)
 make up PROFILES=core,batch,streaming,tools
 
 make ps
@@ -127,6 +127,7 @@ Ports and credentials below follow the default configuration; environment overri
 | **Kafka** | 9092, 9094 | `localhost:9094` | External listener; Docker clients use `kafka:9092` |
 | **Debezium Connect** | 8086 | `http://127.0.0.1:8086` | Connector lifecycle/status |
 | **Trino Admin (optional)** | 8087 | `http://localhost:8087` | Optional `tools` profile |
+| **Generator Console (optional)** | 8501 | `http://localhost:8501` | Optional `tools` profile; SQL/access-log jobs stored under `data/generator/jobs/` |
 
 Additional staff accounts and store assignments are managed through the application.
 
@@ -204,6 +205,19 @@ OLTP batch is the only Silver/Gold writer. Airflow supplies a fixed interval, Sp
 ## Data Generation and Simulation
 
 Data generation is configurable through `generator/configs/`. For example, `small.yml` specifies 500 customers, 60 products, 240 variants, 3,000 orders, and 12 months of history. Dates are anchored by `anchor_time` in the configuration.
+
+### Streamlit Generator Console
+
+The optional console drives the same generator CLI in a detached worker, keeps one job at a time, and persists config/state/artifacts under `data/generator/jobs/<job_id>/`:
+
+```bash
+# Local process
+uv run --locked --package generator-console generator-console
+# Or with the tools profile
+make up PROFILES=core,tools START_FLAGS=--build
+```
+
+Open `http://localhost:8501`, choose SQL, access log or both, then monitor the per-stage results and download outputs. The console does not import SQL, run traffic, upload logs or trigger Airflow. See [apps/generator-console/README.md](apps/generator-console/README.md) for job layout and recovery behavior.
 
 ### Real-Time Traffic Simulation
 
@@ -306,6 +320,9 @@ uvx ruff check .
 # Generator regression checks (temporary data, no running services required)
 uv run --locked --package data-generator -- python -m unittest discover -s generator/tests -v
 
+# Generator Console checks (job store, worker, config builder, UI smoke)
+uv run --locked --package generator-console -- python -m unittest discover -s apps/generator-console/tests -v
+
 # Frontend static checks and production build
 npm --prefix apps/storefront ci
 npm --prefix apps/storefront run lint
@@ -345,6 +362,7 @@ CI uses `--env-file .env.example` because `.env` is not committed and Compose re
 | **Access Logs** | [ACCESS_LOG_DESIGN.md](docs/architecture/ACCESS_LOG_DESIGN.md) | Event contract, privacy rules, and streaming/raw-file boundaries |
 | **Data Generator** | [generator/README.md](generator/README.md) | Synthetic SQL/log generation and live traffic |
 | **Generator Reference Profile** | [GENERATOR_REFERENCE_PROFILE.md](docs/project/GENERATOR_REFERENCE_PROFILE.md) | Pinned UCI source, feature definitions, cohort/quality policy, measured results and calibration limits |
+| **Generator Console** | [GENERATOR_CONSOLE.md](docs/project/GENERATOR_CONSOLE.md) | Streamlit job workflow, validation, persisted job layout, statuses and scope limits |
 | **Diagrams** | [docs/diagram/README.md](docs/diagram/README.md) | Chapter 3 draw.io sources, SVG figures, and offline HTML viewer |
 | **Business Analysis (B)** | [BUSINESS_DOMAIN.md](docs/architecture/BUSINESS_DOMAIN.md) | Implemented role views, business questions, sources, and KPI limits |
 | **Business Requirements (C)** | [BUSINESS_REQUIREMENTS.md](docs/project/BUSINESS_REQUIREMENTS.md) | Retail, POS, inventory, delivery, and returns |
