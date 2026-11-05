@@ -117,7 +117,7 @@ Writer Polaris hiện có quyền quản lý nội dung ở mức catalog, chưa
 
 ## 6. Triển khai cục bộ
 
-Profile chính: `core` (Web/API/MySQL), `batch` (Airflow và nền tảng phân tích), `streaming` (Kafka/Debezium/Flink và Spark CDC hiện tại), `tools` (Polaris Console/Trino Admin). `lakehouse-tools` cung cấp Spark SQL client dùng khi cần. Spark chạy local trong container thực thi, không có master/worker. `.env.example` và launcher mặc định chỉ bật `core`.
+Profile chính: `core` (Web/API/MySQL), `batch` (Airflow và nền tảng phân tích), `streaming` (Kafka/Debezium/Flink và Spark CDC hiện tại), `tools` (Generator Console/Polaris Console/Trino Admin). `lakehouse-tools` cung cấp Spark SQL client dùng khi cần. Spark chạy local trong container thực thi, không có master/worker. `.env.example` và launcher mặc định chỉ bật `core`.
 
 Stack local dùng HTTP. TLS, Secure cookie và secret manager production chưa được đóng gói đầy đủ trong Compose hiện tại.
 

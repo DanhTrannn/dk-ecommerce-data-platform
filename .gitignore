@@ -44,6 +44,8 @@ tests/
 **/tests/
 !generator/tests/
 !generator/tests/*.py
+!apps/generator-console/tests/
+!apps/generator-console/tests/*.py
 .pytest_cache/
 .coverage
 .coverage.*

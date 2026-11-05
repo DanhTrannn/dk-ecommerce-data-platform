@@ -23,6 +23,7 @@ from generator.config import (
     SaleEvent,
     TetWindow,
 )
+from generator.validation import COLORS, SIZES, validate_scale
 
 SYNTHETIC_CUSTOMER_PASSWORD = "Synthetic@12345"
 PRODUCT_IMAGE_URL = "https://sixdo.vn/modules/uniform/assets/image/aotruoc.webp"
@@ -84,8 +85,6 @@ MALE_GIVEN_NAMES = (
     "Nghĩa", "Phúc", "Quang", "Thắng", "Thọ", "Tiến", "Trung", "Việt",
     "Bảo", "Chí", "Giang", "Hiếu", "Hoàng", "Khoa", "Luân",
 )
-SIZES = ("XS", "S", "M", "L", "XL")
-COLORS = ("BLACK", "WHITE", "RED", "GREEN", "BLUE", "YELLOW", "PINK", "PURPLE", "ORANGE", "BROWN", "GRAY", "BEIGE")
 LEAF_CATEGORIES = tuple((code, name) for code, name in CATEGORY_NAMES.items())
 
 DELIVERY_STAFF_SEEDS = (
@@ -417,25 +416,6 @@ def _deterministic_password_hash(logical_identity: str) -> str:
         hash_len=32,
         type=Type.ID,
     ).decode()
-
-
-def _validate_scale(config: GeneratorConfig) -> tuple[int, int, int, int]:
-    required = ("customers", "products", "variants", "orders")
-    missing = [key for key in required if key not in config.scale]
-    if missing:
-        raise ValueError(f"missing scale keys: {missing}")
-
-    customer_count = config.scale["customers"]
-    product_count = config.scale["products"]
-    variant_count = config.scale["variants"]
-    order_count = config.scale["orders"]
-    if customer_count < 1 or product_count < 1 or order_count < 0:
-        raise ValueError("customers/products must be positive and orders must be non-negative")
-    if variant_count < product_count:
-        raise ValueError("variants must be greater than or equal to products")
-    if variant_count > product_count * len(SIZES) * len(COLORS):
-        raise ValueError("variant scale exceeds unique size/color combinations")
-    return customer_count, product_count, variant_count, order_count
 
 
 def _timestamp_between(randomizer: random.Random, start: datetime, end: datetime) -> datetime:
@@ -792,7 +772,7 @@ def _write_header(
 
 
 def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
-    customer_count, product_count, variant_count, order_count = _validate_scale(config)
+    customer_count, product_count, variant_count, order_count = validate_scale(config.scale)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     randomizer = random.Random(config.seed)

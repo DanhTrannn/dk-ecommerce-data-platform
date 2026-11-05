@@ -12,6 +12,7 @@ members = [
   "services/ecommerce-api",
   "generator",
   "pipelines",
+  "apps/generator-console",
 ]
 
 [tool.ruff]
