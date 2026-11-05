@@ -284,6 +284,8 @@ Executive, Sales and sales trends read only published Data Marts. `mart_order_da
 
 System also has an independent HTTP Metrics report backed by `mart_hourly_route_metrics` and the hourly log publication. Admin and System Admin can select 1/7/30 UTC calendar dates, inspect request/error trends and route breakdowns, and view approximate percentiles only at their original hour/route/method grain. HTTP availability and cache metadata are independent of order reconciliation.
 
+Dashboard presentation prioritizes KPI summaries and charts, with collapsed detail tables and separate views for independent sources/windows. All 18 built marts are mapped to visible measures or drill-downs in the [dashboard design](docs/design-analysis/DASHBOARD_DESIGN.md), based on official Power BI, Tableau and W3C guidance.
+
 System reconciliation renders one chart per metric so order counts and VND use independent scales. Cached OLAP responses are marked degraded and are not presented as a new source comparison.
 
 ---

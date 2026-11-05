@@ -104,7 +104,7 @@ Executive, sales, marketing, store, inventory, operations, system, admin overvie
 
 BI Hub tổ chức từng góc nhìn theo tổng quan → xu hướng (khi có API phù hợp) → phân nhóm/bảng chi tiết → bước kiểm tra. Bộ chọn 7/30/90 ngày chỉ tác động biểu đồ và bảng xu hướng, không đổi KPI toàn nguồn. Bộ chọn cửa hàng áp dụng góc nhìn store theo quyền của API. Tìm kiếm, sắp xếp và xuất CSV giới hạn trong từng bảng.
 
-Giao diện hiển thị thời điểm công bố snapshot (UTC+7), nguồn OLAP và cảnh báo cache, và cung cấp từ điển chỉ số theo nguồn phản hồi. Không dựng target/delta khi API chưa cung cấp. Các bước marketing được trình bày như lượng request thành công, các nhóm giao vận có thể chồng lặp không dùng làm cơ cấu đơn. Khi System dùng cache OLAP, dữ liệu không biểu thị một lần đối soát mới. Các hành động là hướng dẫn hoặc liên kết tới màn hình nghiệp vụ có quyền truy cập.
+Giao diện ưu tiên KPI/biểu đồ và metadata ngắn về mốc đo/công bố/cache. Bảng chi tiết mặc định thu gọn; định nghĩa đầy đủ nằm ở Metrics Catalog. Marketing, Vận hành, Sales và System có các góc nhìn nhỏ theo nguồn/phạm vi. Không dựng target/delta khi API chưa có. System cache không biểu thị lần đối soát mới. [Thiết kế dashboard](../design-analysis/DASHBOARD_DESIGN.md) ánh xạ đủ 18 mart và nguyên tắc trình bày.
 
 Đối soát system vẽ từng metric thành biểu đồ riêng, so sánh MySQL/Gold: số đơn có đơn vị đơn, các trường tiền có đơn vị VND và trục độc lập. Tooltip tiền giữ giá trị đầy đủ, badge dùng variance_percent từ API. Chỉ hiển thị cặp so sánh khi nguồn là lakehouse và có dữ liệu; cache OLAP được đánh dấu degraded, không dùng để kết luận đối soát mới.
 

@@ -7,7 +7,7 @@ import { Icon } from "@/components/ui/Icon";
 
 export function Footer() {
   const pathname = usePathname();
-  if (pathname.startsWith("/admin")) return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/store")) return null;
 
   return (
     <footer className="mt-12 border-t border-white/10 bg-ink text-paper sm:mt-16">

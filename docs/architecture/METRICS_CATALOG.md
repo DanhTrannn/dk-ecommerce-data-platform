@@ -105,7 +105,7 @@ Mart nhu cầu sản phẩm ánh xạ product slug/public UUID và variant publi
 
 Coupon mart giữ mỗi coupon; API chọn tối đa 10 mã active, chưa archived, đang trong thời hạn tại mốc đo, sắp theo used_count. Không giới hạn giữ null, không coi hạn mức lượt là ngân sách quảng cáo. Review mart lưu mỗi sản phẩm có review; API lấy tối đa 5 sản phẩm có approved 1–2 sao trong cửa sổ. Không có bản ghi nguồn được hiển thị là thiếu quan sát; có nguồn nhưng không có mã/đánh giá thỏa điều kiện là danh sách rỗng.
 
-Rollup log chạy bằng DAG riêng mỗi giờ, đọc fact snapshot và xây lại đủ ba mart từ tập sự kiện tới mốc quan sát, kiểm tra trước công bố. Khoảng 15/45 phút là cửa sổ tại mốc mart nghiệp vụ, không phải thời gian thực khi refresh. Các dòng mart và snapshot cũ vẫn được giữ trong lịch sử Iceberg; không xóa nguồn log. Pipeline Flink qua bốn tầng chưa được chuyển sang thiết kế Landing → batch giờ trong đợt này.
+Rollup log chạy bằng DAG riêng mỗi giờ, đọc fact snapshot và xây lại đủ ba mart từ tập sự kiện tới mốc quan sát, kiểm tra trước công bố. Khoảng 15/45 phút là cửa sổ tại mốc mart nghiệp vụ, không phải thời gian thực khi refresh. Các dòng mart và snapshot cũ vẫn được giữ trong lịch sử Iceberg; không xóa nguồn log. Flink hiện chỉ append Landing; Spark giờ xử lý tuần tự Bronze → Silver → fact trước khi rollup và công bố ba mart.
 
 ## 5. Chỉ số kỹ thuật DE
 
@@ -156,3 +156,9 @@ API `GET /api/v1/admin/analytics/http-metrics?days=7` dành cho admin/system_adm
 | p50/p95/p99 | Giá trị percentile_approx tại ngày × giờ × route × method | Top 20 theo p95; không phải percentile toàn kỳ, không trung bình/cộng các percentile |
 
 Phản hồi có `window_start`, `observed_at`, `source_run_id`, `data_updated_at` và metadata cache riêng. Mart rỗng giữ null tổng và danh sách rỗng; số 0 đã quan sát vẫn là 0. Lỗi đọc hoặc thiếu publication/snapshot dùng cache còn hạn theo đúng `days`, có đánh dấu degraded, hoặc 503 nếu không có cache hợp lệ. Cache giữ cửa sổ và thời điểm đo cũ. Khi một trong hai phần HTTP/đối soát đơn lỗi, phần còn đọc được vẫn hiển thị độc lập. Chưa triển khai luồng Landing realtime 10 giây trong phần này; không xác nhận SLA hoặc năng lực chịu tải từ các chỉ số trên.
+
+## 10. Trình bày dashboard tối giản
+
+Giao diện chỉ giữ KPI, biểu đồ, phạm vi và metadata cần thiết; định nghĩa đầy đủ tiếp tục nằm trong tài liệu này và [thiết kế dashboard](../design-analysis/DASHBOARD_DESIGN.md). Bảng chi tiết mặc định thu gọn, có tìm kiếm/sắp xếp/CSV; Top 5/10/20 được ghi rõ. Sales, Operations, Marketing và System có góc nhìn nhỏ để không trộn phạm vi độc lập. Không thay công thức, query hoặc dữ liệu nguồn trong đợt thiết kế này.
+
+Marketing summary hiển thị số bản ghi coupon/review đã nạp, không phải số mã active hoặc số sản phẩm duy nhất. Sales cộng tổng từ toàn bộ store contributions, không từ top sản phẩm. Admin giữ đủ chín trạng thái đơn. Số 0 không có thanh giả dương; giá trị null để —; tiền/đơn đối soát vẫn dùng trục riêng. Lỗi tải mới giữ kết quả trước đó kèm cảnh báo, cache giữ mốc cũ; các kỳ date filter vẫn giữ phạm vi API hiện tại. Tất cả 15 mart OLTP và 3 mart log có ánh xạ KPI/biểu đồ/tra cứu trong tài liệu thiết kế.

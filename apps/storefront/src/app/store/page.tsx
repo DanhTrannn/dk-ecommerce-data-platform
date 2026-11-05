@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AUTO_REFRESH_INTERVAL_MS } from "@/lib/dashboard-refresh";
-import { Icon } from "@/components/ui/Icon";
+import { Chart, MetricCard, Panel, PublicationStatus, number } from "@/components/analytics/AnalyticsUI";
+import { barOption } from "@/components/analytics/chart-options";
 import { apiFetch } from "@/lib/api-client";
 import { formatMetricVnd, formatVnd } from "@/lib/api";
 
@@ -26,7 +26,6 @@ export default function StoreDashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const inFlight = useRef(false);
@@ -38,7 +37,6 @@ export default function StoreDashboardPage() {
       .then((res) => {
         setData(res);
         setError(null);
-        setLastUpdated(new Date());
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Không thể tải dữ liệu."))
       .finally(() => {
@@ -73,7 +71,7 @@ export default function StoreDashboardPage() {
     return (
       <section className="feedback-error">
         <h1 className="font-semibold">Không tải được dữ liệu cửa hàng</h1>
-        <p className="mt-1">{error}</p>
+        <p className="mt-1">{error}</p><button className="button-secondary mt-3" disabled={refreshing} onClick={loadData} type="button">Thử lại</button>
       </section>
     );
   }
@@ -82,167 +80,19 @@ export default function StoreDashboardPage() {
     return <div className="admin-panel text-muted">Không thể tải dữ liệu.</div>;
   }
 
-  return (
-    <div>
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="eyebrow">Tổng quan vận hành</p>
-          <h1 className="admin-heading mt-2">Quản lý cửa hàng</h1>
-          <p className="mt-2 text-sm leading-6 text-muted">{data.store_name}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {lastUpdated ? (
-            <span className="text-xs text-muted tabular-nums">
-              Cập nhật lúc {lastUpdated.toLocaleTimeString("vi-VN")}
-            </span>
-          ) : null}
-          <button
-            className="button-secondary inline-flex items-center gap-1.5 h-10 px-3.5 text-xs font-semibold"
-            disabled={refreshing}
-            onClick={loadData}
-            title="Làm mới dữ liệu cửa hàng"
-            type="button"
-          >
-            <Icon className={refreshing ? "animate-spin text-accent" : ""} name="rotate-ccw" size={15} />
-            <span>Làm mới</span>
-          </button>
-        </div>
-      </header>
-      <p className="mt-3 text-xs leading-5 text-muted">Nguồn: Lakehouse · Trino / Iceberg. Công bố: {data.data_updated_at ? new Date(data.data_updated_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false }) : "Chưa có thời điểm"} · UTC+7. Tải lại mỗi 15 giây.</p>
-      {error && <p className="mt-2 text-sm text-warning" role="alert">Không tải được dữ liệu mới: {error}. Các số bên dưới là kết quả đã tải trước đó.</p>}
-      {data.is_degraded && <p className="mt-2 text-sm text-warning" role="status">{data.degraded_reason}</p>}
-
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
-        <article className="min-w-0 overflow-hidden rounded-2xl bg-ink p-6 text-paper shadow-lift">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-paper/70">Đơn hôm nay</p>
-            <Icon className="text-paper/65" name="receipt" />
-          </div>
-          <p className="mt-4 max-w-full truncate whitespace-nowrap text-[clamp(1.25rem,1.8vw,1.75rem)] font-semibold leading-tight tracking-[-0.03em] tabular-nums">
-            {data.today_orders?.toLocaleString("vi-VN") ?? "—"}
-          </p>
-          <p
-            aria-label={formatVnd(data.today_revenue_vnd)}
-            className="mt-4 text-xs text-paper/60"
-            title={formatVnd(data.today_revenue_vnd)}
-          >
-            Doanh thu: {formatVnd(data.today_revenue_vnd)}
-          </p>
-        </article>
-
-        <article className="admin-panel min-w-0 overflow-hidden">
-          <p className="text-sm text-muted">Tổng đơn</p>
-          <p className="mt-4 max-w-full truncate whitespace-nowrap text-[clamp(1.25rem,1.8vw,1.75rem)] font-semibold leading-tight tracking-[-0.03em] tabular-nums">
-            {data.total_orders.toLocaleString("vi-VN")}
-          </p>
-          <p className="mt-4 text-xs text-muted">
-            {data.completed_orders.toLocaleString("vi-VN")} hoàn thành
-          </p>
-        </article>
-
-        <article className="admin-panel min-w-0 overflow-hidden">
-          <p className="text-sm text-muted">Doanh thu</p>
-          <p
-            aria-label={formatVnd(data.total_revenue_vnd)}
-            className="mt-4 max-w-full truncate whitespace-nowrap text-[clamp(1.25rem,1.8vw,1.75rem)] font-semibold leading-tight tracking-[-0.03em] tabular-nums"
-            title={formatVnd(data.total_revenue_vnd)}
-          >
-            {formatMetricVnd(data.total_revenue_vnd)}
-          </p>
-          <p className="mt-4 text-xs text-muted">Tất cả thời gian</p>
-        </article>
-
-        <article className="admin-panel min-w-0 overflow-hidden">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted">Nhân sự vận hành</p>
-            <Icon className="text-muted" name="users" size={18} />
-          </div>
-          <p className="mt-4 max-w-full truncate whitespace-nowrap text-[clamp(1.25rem,1.8vw,1.75rem)] font-semibold leading-tight tracking-[-0.03em] tabular-nums">
-            {data.active_staff.toLocaleString("vi-VN")}
-          </p>
-          <p className="mt-4 text-xs text-muted">
-            {data.low_stock_items != null && data.low_stock_items > 0 ? (
-              <span className="font-semibold text-danger">
-                {data.low_stock_items} mặt hàng tồn kho thấp
-              </span>
-            ) : (
-              data.low_stock_items == null ? "Chưa có quan sát tồn kho" : "Không có dòng tồn ≤ 5"
-            )}
-          </p>
-        </article>
-      </div>
-
-      {data.low_stock_items != null && data.low_stock_items > 0 && (
-        <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-danger/25 bg-danger/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-danger/10 text-danger">
-              <Icon name="alert" size={20} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-danger">Cảnh báo tồn kho thấp</p>
-              <p className="text-xs text-muted">
-                Có {data.low_stock_items} biến thể sản phẩm tại cửa hàng đang dưới ngưỡng tồn kho an toàn.
-              </p>
-            </div>
-          </div>
-          <Link
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-danger/30 bg-surface px-3.5 py-2 text-xs font-semibold text-danger transition hover:bg-danger/10"
-            href="/store/inventory"
-          >
-            Kiểm tra kho <Icon name="arrow-right" size={14} />
-          </Link>
-        </div>
-      )}
-
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Link className="group min-w-0 overflow-hidden rounded-2xl border border-line bg-surface p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-accent/25 hover:shadow-admin" href="/store/pos">
-          <div className="flex items-center justify-between">
-            <Icon className="text-moss" name="bag" size={20} />
-            <Icon className="text-muted transition group-hover:translate-x-1 group-hover:text-accent" name="arrow-right" size={17} />
-          </div>
-          <p className="mt-4 text-sm text-muted">Bán hàng</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">POS</p>
-        </Link>
-
-        <Link className="group min-w-0 overflow-hidden rounded-2xl border border-line bg-surface p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-accent/25 hover:shadow-admin" href="/store/orders">
-          <div className="flex items-center justify-between">
-            <Icon className="text-moss" name="receipt" size={20} />
-            <Icon className="text-muted transition group-hover:translate-x-1 group-hover:text-accent" name="arrow-right" size={17} />
-          </div>
-          <p className="mt-4 text-sm text-muted">Đơn hàng</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{data.total_orders.toLocaleString("vi-VN")}</p>
-        </Link>
-
-        <Link className="group min-w-0 overflow-hidden rounded-2xl border border-line bg-surface p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-accent/25 hover:shadow-admin" href="/store/inventory">
-          <div className="flex items-center justify-between">
-            <Icon className="text-moss" name="package" size={20} />
-            {data.low_stock_items != null && data.low_stock_items > 0 ? (
-              <span className="inline-flex items-center rounded-full bg-danger/10 px-2.5 py-0.5 text-xs font-semibold text-danger">
-                Cần bổ sung
-              </span>
-            ) : (
-              <Icon className="text-muted transition group-hover:translate-x-1 group-hover:text-accent" name="arrow-right" size={17} />
-            )}
-          </div>
-          <p className="mt-4 text-sm text-muted">Tồn kho</p>
-          <p
-            className={`mt-1 text-2xl font-semibold tabular-nums ${
-              data.low_stock_items != null && data.low_stock_items > 0 ? "text-danger" : ""
-            }`}
-          >
-            {data.low_stock_items?.toLocaleString("vi-VN") ?? "—"}
-          </p>
-        </Link>
-
-        <Link className="group min-w-0 overflow-hidden rounded-2xl border border-line bg-surface p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-accent/25 hover:shadow-admin" href="/store/staff">
-          <div className="flex items-center justify-between">
-            <Icon className="text-moss" name="users" size={20} />
-            <Icon className="text-muted transition group-hover:translate-x-1 group-hover:text-accent" name="arrow-right" size={17} />
-          </div>
-          <p className="mt-4 text-sm text-muted">Nhân viên</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{data.active_staff.toLocaleString("vi-VN")}</p>
-        </Link>
-      </div>
+  return <section className="space-y-4">
+    <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold">{data.store_name}</h1><p className="mt-1 text-xs text-muted">Hôm nay · Ngày đặt hàng UTC+7</p></div><button className="button-secondary min-h-10 px-4 text-sm" disabled={refreshing} onClick={loadData} type="button">{refreshing ? "Đang tải…" : "Làm mới"}</button></header>
+    <PublicationStatus data={data} observedAt={data.inventory_observed_at} />
+    {error && <p className="feedback-error" role="alert">Chưa tải được dữ liệu mới; đang giữ kết quả trước đó.</p>}
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" data-mart="mart_order_daily mart_store_overview">
+      <MetricCard label="Doanh thu hôm nay" value={formatMetricVnd(data.today_revenue_vnd)} exactValue={formatVnd(data.today_revenue_vnd)} scope="VND · UTC+7" emphasis />
+      <MetricCard label="Đơn hôm nay" value={number(data.today_orders)} scope="Mọi trạng thái · UTC+7" />
+      <MetricCard label="Dòng tồn thấp" value={number(data.low_stock_items)} scope="Tại cửa hàng · Tồn ≤ 5" />
+      <MetricCard label="Nhân sự active" value={number(data.active_staff)} scope="Tại mốc đo" />
     </div>
-  );
+    <div className="grid gap-4 xl:grid-cols-2">
+      <div className="min-w-0" data-mart="mart_store_overview"><Panel title="Đơn hoàn tất và tổng đơn" subtitle="Đơn · Toàn kỳ đã nạp"><Chart height={250} label="Số đơn hoàn tất và tổng đơn tại cửa hàng" option={barOption([{ name: "Hoàn tất", value: data.completed_orders }, { name: "Tổng đơn", value: data.total_orders }], "Đơn", number, "#315b4f", "Đơn")} /></Panel></div>
+      <Panel title="Doanh thu đã ghi nhận" subtitle="VND · Toàn kỳ đã nạp"><div className="py-8" data-mart="mart_store_overview"><MetricCard label="Doanh thu thuần" value={formatMetricVnd(data.total_revenue_vnd)} exactValue={formatVnd(data.total_revenue_vnd)} detail="Hàng hóa sau giảm giá và hoàn tiền; không gồm vận chuyển." /></div></Panel>
+    </div>
+  </section>;
 }
