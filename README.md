@@ -97,7 +97,7 @@ make up PROFILES=core,batch
 # Add Kafka, CDC and access-log streaming
 make up PROFILES=core,batch,streaming
 
-# Optional management interfaces (Polaris Console, LibreDB and Trino Admin)
+# Optional management interfaces (Polaris Console and Trino Admin)
 make up PROFILES=core,batch,streaming,tools
 
 make ps
@@ -117,7 +117,6 @@ Ports and credentials below follow the default configuration; environment overri
 | **BI Analytics Hub** | 3000 | `http://localhost:3000/admin/analytics` | Staff role or admin |
 | **POS** | 3000 | `http://localhost:3000/store/pos` | Store manager / admin UI; store scope checked by API |
 | **Backend API Docs** | 8000 | `http://localhost:8000/docs` | Swagger UI |
-| **LibreDB Studio** | 3001 | `http://localhost:3001` | `LIBREDB_ADMIN_EMAIL` / `LIBREDB_ADMIN_PASSWORD` |
 | **MinIO Console** | 9001 | `http://localhost:9001` | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` |
 | **Polaris Console** | 8183 | `http://localhost:8183` | `POLARIS_ROOT_CLIENT_ID` / `POLARIS_ROOT_CLIENT_SECRET`; realm `POLARIS` |
 | **Airflow UI** | 8080 | `http://localhost:8080` | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
@@ -166,7 +165,6 @@ Storage / catalog:
 Serving:
   Iceberg -> Trino -> FastAPI analytics -> Admin BI Hub / ECharts
   MySQL -----------> FastAPI transactions, auth/RBAC, source reconciliation
-  Trino -----------> LibreDB Studio
 ```
 
 See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) and [editable draw.io diagram](docs/diagram/08-system-architecture.drawio) for component boundaries.
@@ -189,7 +187,6 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 | **Orchestration** | Apache Airflow | 2.10.5 | Batch and maintenance DAGs |
 | **Metadata DB** | PostgreSQL | 16.8 | Polaris and Airflow metadata |
 | **Query Engine** | Trino | 483 | SQL over Iceberg |
-| **SQL UI** | LibreDB Studio | `latest` | Database/query interface |
 
 The OLTP Gold model defines **6 dimensions, 6 facts (including current inventory), and 14 marts**. The log model defines **1 fact and 3 marts**. Row counts depend on the loaded dataset and completed pipeline runs.
 
