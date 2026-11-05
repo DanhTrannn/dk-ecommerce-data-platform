@@ -1119,6 +1119,48 @@ export function getAdminHttpMetrics(days: number = 7): Promise<HttpMetricsRespon
   return apiFetch<HttpMetricsResponse>(`/api/v1/admin/analytics/http-metrics?days=${encodeURIComponent(days)}`);
 }
 
+export interface RealtimeHttpTotals extends HttpMetricTotals {
+  p95_duration_ms: number | null;
+}
+
+export interface RealtimeHttpMinute extends RealtimeHttpTotals {
+  minute: string;
+}
+
+export interface RealtimeHttpRoute extends RealtimeHttpTotals {
+  http_route: string;
+  http_request_method: string;
+}
+
+export interface RealtimeHttpQuality {
+  scanned_rows: number;
+  invalid_rows: number;
+  replayed_rows: number;
+  conflicting_event_ids: number;
+  late_event_ids: number;
+  future_event_ids: number;
+}
+
+export interface RealtimeHttpResponse {
+  data_source: "landing";
+  minutes: number;
+  window_start: string;
+  observed_at: string;
+  queried_at: string;
+  snapshot_id: string | null;
+  snapshot_current_at: string | null;
+  latest_ingest_at: string | null;
+  latest_event_at: string | null;
+  quality: RealtimeHttpQuality;
+  totals: RealtimeHttpTotals;
+  series: RealtimeHttpMinute[];
+  routes: RealtimeHttpRoute[];
+}
+
+export function getAdminHttpRealtime(minutes: number = 15): Promise<RealtimeHttpResponse> {
+  return apiFetch<RealtimeHttpResponse>(`/api/v1/admin/analytics/http-realtime?minutes=${encodeURIComponent(minutes)}`, { cache: "no-store" });
+}
+
 export interface DailySalesTrendPoint {
   date: string;
   revenue_vnd: number;

@@ -155,10 +155,29 @@ API `GET /api/v1/admin/analytics/http-metrics?days=7` dành cho admin/system_adm
 | Route cần kiểm tra | Aggregate kỳ theo route × method, top 20 theo số lỗi rồi mean latency | Chỉ là tập con; không cộng bảng top để thay tổng KPI |
 | p50/p95/p99 | Giá trị percentile_approx tại ngày × giờ × route × method | Top 20 theo p95; không phải percentile toàn kỳ, không trung bình/cộng các percentile |
 
-Phản hồi có `window_start`, `observed_at`, `source_run_id`, `data_updated_at` và metadata cache riêng. Mart rỗng giữ null tổng và danh sách rỗng; số 0 đã quan sát vẫn là 0. Lỗi đọc hoặc thiếu publication/snapshot dùng cache còn hạn theo đúng `days`, có đánh dấu degraded, hoặc 503 nếu không có cache hợp lệ. Cache giữ cửa sổ và thời điểm đo cũ. Khi một trong hai phần HTTP/đối soát đơn lỗi, phần còn đọc được vẫn hiển thị độc lập. Chưa triển khai luồng Landing realtime 10 giây trong phần này; không xác nhận SLA hoặc năng lực chịu tải từ các chỉ số trên.
+Phản hồi có `window_start`, `observed_at`, `source_run_id`, `data_updated_at` và metadata cache riêng. Mart rỗng giữ null tổng và danh sách rỗng; số 0 đã quan sát vẫn là 0. Lỗi đọc hoặc thiếu publication/snapshot dùng cache còn hạn theo đúng `days`, có đánh dấu degraded, hoặc 503 nếu không có cache hợp lệ. Cache giữ cửa sổ và thời điểm đo cũ. Khi một trong hai phần HTTP/đối soát đơn lỗi, phần còn đọc được vẫn hiển thị độc lập. Luồng HTTP Landing realtime có hợp đồng độc lập tại mục 11; các chỉ số trên vẫn là báo cáo mart theo giờ, không xác nhận SLA hoặc năng lực chịu tải.
 
 ## 10. Trình bày dashboard tối giản
 
 Giao diện chỉ giữ KPI, biểu đồ, phạm vi và metadata cần thiết; định nghĩa đầy đủ tiếp tục nằm trong tài liệu này và [thiết kế dashboard](../design-analysis/DASHBOARD_DESIGN.md). Bảng chi tiết mặc định thu gọn, có tìm kiếm/sắp xếp/CSV; Top 5/10/20 được ghi rõ. Sales, Operations, Marketing và System có góc nhìn nhỏ để không trộn phạm vi độc lập. Không thay công thức, query hoặc dữ liệu nguồn trong đợt thiết kế này.
 
 Marketing summary hiển thị số bản ghi coupon/review đã nạp, không phải số mã active hoặc số sản phẩm duy nhất. Sales cộng tổng từ toàn bộ store contributions, không từ top sản phẩm. Admin giữ đủ chín trạng thái đơn. Số 0 không có thanh giả dương; giá trị null để —; tiền/đơn đối soát vẫn dùng trục riêng. Lỗi tải mới giữ kết quả trước đó kèm cảnh báo, cache giữ mốc cũ; các kỳ date filter vẫn giữ phạm vi API hiện tại. Tất cả 15 mart OLTP và 3 mart log có ánh xạ KPI/biểu đồ/tra cứu trong tài liệu thiết kế.
+
+## 11. HTTP Realtime — Landing
+
+System → HTTP Realtime gọi `/api/v1/admin/analytics/http-realtime?minutes=15`; chỉ admin/system_admin. API nhận 5–60 phút, UI chọn 5/15/60 phút và tải lại 10 giây khi hiển thị. Mỗi lần đọc cố định một snapshot Landing và mốc UTC, không đợi publication giờ, không tổng hợp MySQL hoặc thay bằng mart khi lỗi.
+
+| Chỉ số | Công thức / phạm vi |
+|---|---|
+| Request | Số event ID duy nhất hợp lệ, một raw hash, event time trong `[start, observed_at)` và ingest tới mốc đo |
+| 4xx / 5xx | Đếm status 400–499 / 500–599 trong đúng tập request |
+| Tỷ lệ lỗi | 100 × (4xx + 5xx) / request; không mẫu số thì null |
+| Độ trễ trung bình / p95 | `duration_ns / 1e6`; mean / `approx_percentile(..., 0.95)` trực tiếp theo tập request ở từng grain |
+| Chuỗi phút | Tập request nhóm theo UTC minute; phút biên có thể chưa đủ 60 giây, không tự điền khoảng thiếu bằng 0 |
+| Route | Top 20 route × method theo số lỗi rồi số request; không dùng tập Top 20 để tính tổng toàn kỳ |
+| Dòng invalid / replay | Số dòng không đạt kiểm tra projected envelope / số bản sao thừa cùng ID và raw hash trong phạm vi đọc |
+| ID conflict / late / future | ID có nhiều raw hash bị loại / ID hợp lệ trước cửa sổ / ID hợp lệ tại hoặc sau mốc đo |
+
+Phạm vi đọc gồm dòng ingest tới mốc đo có event time trong cửa sổ **hoặc** ingest từ đầu cửa sổ. Nhánh ingest ghi nhận lỗi và sự kiện muộn/tương lai; các dòng ngoài cửa sổ event time không vào KPI HTTP. Arrival muộn còn trong cửa sổ được tính ở lần đọc sau. Dedup/conflict chỉ áp dụng phạm vi này, chưa phải kiểm soát Silver đầy đủ hoặc phát hiện xung đột toàn lịch sử. Không có request đủ điều kiện giữ tổng null và danh sách rỗng; số lỗi/độ trễ 0 đã đo giữ nguyên. Total gồm status hợp lệ 100–599; success chỉ 200–399.
+
+`snapshot_id` là chuỗi để giữ chính xác số 64 bit; `snapshot_current_at` là thời điểm snapshot trở thành current, không phải publication. `observed_at` là mốc cửa sổ, `queried_at` là lúc truy vấn xong; `latest_ingest_at`/`latest_event_at` chỉ là thời điểm mới nhất trong phạm vi tương ứng. Không gán tuổi log thành SLA hay kết luận pipeline chết. Lỗi đọc trả 503, UI giữ kết quả và mốc đo cũ cùng cảnh báo; không có server last-good cache. Payload raw/ID request/actor không được trả về. Lưu lượng có cả request đọc dashboard; không diễn giải thành số người dùng hay đơn hàng. Cửa sổ logic chưa bảo đảm pruning file vật lý của Landing hiện tại. Realtime sự kiện nghiệp vụ vẫn là phần tiếp theo.

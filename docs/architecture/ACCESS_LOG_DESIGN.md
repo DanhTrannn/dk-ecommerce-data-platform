@@ -78,7 +78,7 @@ The schema upgrade only adds `raw_payload`, `_raw_hash` and `_validation_error` 
 
 The job pins Landing, Bronze, Silver, then fact snapshots and the published Silver product/variant catalog. It replaces and validates all three mart outputs before appending `system.logs_analytics_publications` schema 1. Source metadata includes all processed layer snapshots. A failure leaves readers on the last completed publication; the underlying layer/mart commits are not one global transaction. Empty fact input clears current mart rows and publishes an empty snapshot set; an empty Landing delta does not erase previously stored facts. Maintenance does not run this pipeline.
 
-Marketing and HTTP Metrics continue to read the log mart publication independently from OLTP publication/cache. Realtime serving from Landing is still pending. Counts, mappings and windows are in [Metrics Catalog](METRICS_CATALOG.md). A checkpoint or refresh interval is not a measured end-to-end latency SLA.
+Marketing and HTTP Metrics continue to read the log mart publication independently from OLTP publication/cache. System HTTP Realtime now reads Landing directly through an admin/system_admin API, independently of mart publications. Business-event realtime remains pending. Counts, mappings and windows are in [Metrics Catalog](METRICS_CATALOG.md). A checkpoint or refresh interval is not a measured end-to-end latency SLA.
 
 Generator output can be uploaded to this raw prefix:
 
@@ -87,6 +87,12 @@ s3://lakehouse/landing/logs/ingest_date=YYYY-MM-DD/ingest_hour=HH/service=ecomme
 ```
 
 These uploaded historical JSONL files are not consumed automatically by the Kafka job. A configured 30-day generation window is not a storage deletion/retention policy. `data_origin=observed` alone does not prove real user activity: generator exports and simulated API traffic must be identified separately when reporting results.
+
+### Realtime HTTP serving
+
+`GET /api/v1/admin/analytics/http-realtime?minutes=15` accepts 5–60 minutes. One current Landing snapshot serves all aggregates; UI polling is 10 seconds while visible. The API returns minute request/error counts, rates, direct approximate p95 and Top 20 routes, plus snapshot/query/observation metadata. Only aggregates and projected route/method labels are exposed; raw payloads and actor/request identities are not returned.
+
+The event-time window is UTC `[start, observed_at)` with `ingest_ts <= observed_at`. Reads also include recently ingested observations to count invalid rows and late/future IDs outside the event window. Event IDs deduplicate replay; multiple raw hashes under one ID are excluded and counted as conflicts within that scope. This is provisional projection validation, not the complete Silver pipeline. Missing minutes remain gaps, in-window arrivals can revise earlier minutes, and no eligible events keeps totals null. HTTP monitoring reads themselves are included in recorded API traffic. No server cache/publication fallback: failures return 503; the UI retains its old timestamp with an error label. See [HTTP realtime contract](../../services/ecommerce-api/README.md#http-realtime-contract) and [metrics](METRICS_CATALOG.md#11-http-realtime--landing).
 
 ## 7. Inspect and feed the stream
 

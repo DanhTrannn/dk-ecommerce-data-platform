@@ -603,6 +603,8 @@ export type {
   HttpHourMetric,
   HttpRouteMetric,
   HttpLatencyGroup,
+  RealtimeHttpResponse,
+  RealtimeHttpRoute,
   TopProductMetric,
   ViralProductSignal,
   CouponUsageMetric,
@@ -631,6 +633,7 @@ export {
   getAdminRoleMetrics,
   getAdminSalesTrend,
   getAdminHttpMetrics,
+  getAdminHttpRealtime,
   getAdminAnalyticsStores,
 } from "./commerce";
 

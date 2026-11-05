@@ -1,5 +1,7 @@
 """Pydantic schemas for published analytics and role-specific signals."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -356,6 +358,44 @@ class HttpMetricsResponse(AnalyticsDataStatus):
     hours: list[HttpHourMetric] = Field(default_factory=list)
     routes: list[HttpRouteMetric] = Field(default_factory=list)
     latency_groups: list[HttpLatencyGroup] = Field(default_factory=list)
+
+
+class RealtimeHttpTotals(HttpMetricTotals):
+    p95_duration_ms: float | None = None
+
+
+class RealtimeHttpMinute(RealtimeHttpTotals):
+    minute: str
+
+
+class RealtimeHttpRoute(RealtimeHttpTotals):
+    http_route: str
+    http_request_method: str
+
+
+class RealtimeHttpQuality(BaseModel):
+    scanned_rows: int = 0
+    invalid_rows: int = 0
+    replayed_rows: int = 0
+    conflicting_event_ids: int = 0
+    late_event_ids: int = 0
+    future_event_ids: int = 0
+
+
+class RealtimeHttpResponse(BaseModel):
+    data_source: Literal["landing"] = "landing"
+    minutes: int
+    window_start: str
+    observed_at: str
+    queried_at: str
+    snapshot_id: str | None = None
+    snapshot_current_at: str | None = None
+    latest_ingest_at: str | None = None
+    latest_event_at: str | None = None
+    quality: RealtimeHttpQuality = Field(default_factory=RealtimeHttpQuality)
+    totals: RealtimeHttpTotals = Field(default_factory=RealtimeHttpTotals)
+    series: list[RealtimeHttpMinute] = Field(default_factory=list)
+    routes: list[RealtimeHttpRoute] = Field(default_factory=list)
 
 
 class DailySalesTrendPoint(BaseModel):
