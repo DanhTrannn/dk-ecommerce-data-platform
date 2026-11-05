@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import yaml
 
 from generator import __version__
+from generator.validation import validate_scale
 
 _LOGICAL_IDENTITY_NAMESPACE = uuid.uuid5(
     uuid.NAMESPACE_URL,
@@ -508,8 +509,9 @@ class GeneratorConfig:
         return str(uuid.uuid5(uuid.UUID(self.logical_identity), "generation-run"))
 
 
-def load_config(path: Path) -> GeneratorConfig:
-    raw: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8"))
+def config_from_dict(raw: dict[str, Any]) -> GeneratorConfig:
+    """Parse and validate a generator configuration mapping."""
+
     anchor_time = datetime.fromisoformat(str(raw["anchor_time"]).replace("Z", "+00:00"))
     if anchor_time.tzinfo is None:
         raise ValueError("anchor_time must include timezone")
@@ -517,7 +519,7 @@ def load_config(path: Path) -> GeneratorConfig:
     if "distributions" in raw:
         distributions = _parse_distributions(raw["distributions"])
     _validate_distributions(distributions)
-    return GeneratorConfig(
+    config = GeneratorConfig(
         scenario_id=str(raw["scenario_id"]),
         dataset_size=str(raw["dataset_size"]),
         seed=int(raw["seed"]),
@@ -527,3 +529,10 @@ def load_config(path: Path) -> GeneratorConfig:
         scale={str(key): int(value) for key, value in raw["scale"].items()},
         distributions=distributions,
     )
+    validate_scale(config.scale)
+    return config
+
+
+def load_config(path: Path) -> GeneratorConfig:
+    raw: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return config_from_dict(raw)

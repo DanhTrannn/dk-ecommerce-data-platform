@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from generator import __version__
 from generator.config import CATEGORY_NAMES, DistributionConfig, GeneratorConfig, SaleEvent, TetWindow
+from generator.validation import validate_scale
 
 SCHEMA_NAME = "ecommerce.access"
 SCHEMA_VERSION = "1.0.0"
@@ -426,11 +427,7 @@ def export_logs(
 ) -> LogExportSummary:
     if expected_requests < 1:
         raise ValueError("expected_requests must be positive")
-    customer_count = config.scale.get("customers", 0)
-    product_count = config.scale.get("products", 0)
-    variant_count = config.scale.get("variants", 0)
-    if min(customer_count, product_count, variant_count) < 1:
-        raise ValueError("customers, products, and variants must be positive")
+    _, _, variant_count, _ = validate_scale(config.scale)
 
     history_end = config.anchor_time.astimezone(UTC)
     # Landing access logs are operational staging buffers: retain ~1 month (30 days)
