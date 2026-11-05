@@ -3,6 +3,7 @@ from pathlib import Path
 
 from generator.config import load_config
 from generator.log_export import export_logs
+from generator.reference_profile import write_reference_profile
 from generator.runner import run
 from generator.sql_export import export_sql
 
@@ -10,6 +11,11 @@ from generator.sql_export import export_sql
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="generator")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    reference_parser = subparsers.add_parser("profile-reference", help="Measure a pinned UCI source without changing the sampler")
+    reference_parser.add_argument("--input", type=Path, required=True)
+    reference_parser.add_argument("--spec", type=Path, required=True)
+    reference_parser.add_argument("--output", type=Path, required=True)
 
     run_parser = subparsers.add_parser("run", help="Write the scenario manifest")
     run_parser.add_argument("--config", type=Path, required=True)
@@ -38,7 +44,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    arguments = build_parser().parse_args()
+    parser = build_parser()
+    arguments = parser.parse_args()
+    if arguments.command == "profile-reference":
+        try:
+            profile = write_reference_profile(arguments.input, arguments.spec, arguments.output)
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
+        print(f"Reference profile: {arguments.output}")
+        print(f"Profile ID: {profile['profile_id']}")
+        print(f"Rows: {profile['audit']['raw_rows']} raw / {profile['audit']['kept_rows']} kept")
+        return
     config = load_config(arguments.config)
 
     if arguments.command == "run":

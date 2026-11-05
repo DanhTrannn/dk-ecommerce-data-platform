@@ -90,7 +90,9 @@ Tăng phiên bản package/identity lên 0.8.0 và cập nhật lock, không th�
 
 ## 5. Hợp đồng cải thiện generator ở đợt kế tiếp
 
-Bắt đầu bằng [UCI Online Retail](https://archive.ics.uci.edu/dataset/352/online+retail), đã audit raw sơ bộ nhưng chưa làm sạch/fit. Nguồn quà tặng UK, có khách sỉ; không đại diện thời trang/POS VN. Ghim nguồn/version/checksum, giấy phép/attribution, cohort và cửa sổ trước khi đo. Tách hóa đơn bán hợp lệ với credit/cancellation, dòng dịch vụ, lượng âm/giá không hợp lệ, missing và nghi trùng; không tự xóa outlier. Chỉ khách có định danh được dùng đo mua lại, có ghi thời gian quan sát.
+Đợt **2b đã hoàn thành đo nguồn và tạo profile tham chiếu**, xem [GENERATOR_REFERENCE_PROFILE.md](GENERATOR_REFERENCE_PROFILE.md), [spec](../../generator/profiles/uci-reference.yml) và [JSON aggregate](../../generator/profiles/uci-online-retail-uk-v1.json). CLI `profile-reference` đọc artifact được ghim SHA-256, không tự tải hoặc nạp DB. Từ 541.909 dòng raw, chính sách cohort giữ 457.220 dòng trong hai kỳ sáu tháng UK, tương ứng 7.335 invoice fit và 9.783 invoice evaluation. Ghi từng lý do loại, giữ dòng nghi trùng và outlier, cách ly invoice có metadata xung đột; missing CustomerID không bị đưa vào mẫu số mua lại.
+
+Nguồn [UCI Online Retail](https://archive.ics.uci.edu/dataset/352/online+retail) bán quà tặng UK và có khách sỉ, không đại diện thời trang/POS VN. Profile đã đo bốn đặc trưng và quan hệ giỏ/lượng mua, nhưng **chưa áp dụng vào generator**. Ví dụ median giỏ fit là 15 mã hàng so với giới hạn 1–4 SKU của generator hiện tại; cần chốt cách thích nghi, không sao chép nguyên phân phối nguồn. Attribution/license, timezone chưa xác định, exposure/censoring và giới hạn diễn giải được lưu trong tài liệu.
 
 | Đặc trưng | Cách đo phải thống nhất |
 |---|---|
@@ -108,7 +110,7 @@ Baseline ưu tiên đặc trưng tham chiếu; scenario ưu tiên quy mô/kịch
 | Đợt | Đầu ra | Điều kiện chuyển bước |
 |---|---|---|
 | 1 — Phạm vi/baseline | Ma trận S00–S11, inventory API, bao phủ mart và số liệu quan sát | Đã hoàn thành phần tài liệu/quan sát; không đồng nghĩa các scenario đã chạy |
-| 2 — Generator | Đã xong 2a: sửa lỗi và kiểm tra nghiệp vụ; tiếp theo 2b: đặc tả/profile và đo trước/sau | 2a đạt các kiểm tra đã nêu; chưa hoàn tất hiệu chỉnh tham chiếu hoặc nghiệm thu cả đợt 2 |
+| 2 — Generator | Đã xong 2a: sửa lỗi; 2b: đặc tả, audit và profile tham chiếu; tiếp theo 2c: áp dụng/đánh giá | Chưa có sampler hiệu chỉnh hoặc báo cáo trước/sau dữ liệu sinh; chưa nghiệm thu cả đợt 2 |
 | 3 — Streamlit | Preset/YAML, validate, job nền và kết quả SQL/log, chạy lại không tự kích hoạt | Kết quả tương đương CLI; không ghi đè, không tự nạp MySQL |
 | 4 — Nạp/mô phỏng | Nạp dataset có nhận diện trùng; script/API cho các scenario đã chọn | Không reset dữ liệu ngầm; kiểm tra postcondition, quyền, CSRF/idempotency |
 | 5 — Superset | Một dashboard doanh thu/lợi nhuận trước, rồi đủ nhóm mart | Giữ công thức, publication đồng nhất và quyền; đối chiếu SQL trước khi chuyển toàn bộ |
@@ -117,4 +119,4 @@ Baseline ưu tiên đặc trưng tham chiếu; scenario ưu tiên quy mô/kịch
 
 Superset truy vấn trực tiếp không tự kế thừa `PublishedReader` hoặc RBAC tại API. Cần PoC riêng để chốt serving snapshot/version; publication OLTP và log có mốc độc lập. Không thêm database OLAP hoặc semantic layer mới trong bước chốt phạm vi. Upload JSONL lịch sử vào MinIO hiện chưa tự đi Gold; xuất SQL không sinh HTTP access log.
 
-Đợt 1 chỉ cập nhật tài liệu và kết quả tổng hợp nhỏ; JSON/query script gốc để ngoài Git. Đợt 2a sửa generator và bổ sung regression test theo AGENTS.md, chưa đổi UI, API, schema, dịch vụ hay biến môi trường. `FINAL_REPORT.md` giữ nguyên. Bước tiếp theo là **đặc tả bốn đặc trưng, làm sạch/phân tích nguồn tham chiếu và tạo profile**, rồi mới thay sampler và đánh giá thống kê.
+Đợt 1 chốt phạm vi/baseline; 2a sửa nghiệp vụ; 2b thêm CLI đo nguồn, spec và profile aggregate nhỏ cùng test không dùng mạng/dữ liệu thật. Raw UCI để ngoài Git, không thêm dependency. Chưa đổi UI, API, schema, dịch vụ hoặc biến môi trường. `FINAL_REPORT.md` giữ nguyên. Bước tiếp theo **2c**: chốt cohort/cách điều chỉnh cho retail, cấu hình baseline/scenario, gắn profile vào dataset identity, thay sampler rồi đánh giá dữ liệu sinh theo cùng grain và các ràng buộc nghiệp vụ.

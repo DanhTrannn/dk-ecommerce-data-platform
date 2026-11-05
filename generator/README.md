@@ -137,6 +137,22 @@ uv run --locked --package data-generator -- python scripts/simulate_web_traffic.
 
 The API publishes these access events to Kafka for the Flink stream. Historical `.jsonl.gz` files uploaded to MinIO remain raw Landing files; the current Flink job reads Kafka and does not automatically process those uploaded files into Gold.
 
+## Reference Profiling
+
+`profile-reference` measures a local copy of UCI Online Retail with a pinned checksum and explicit cohort policy. It reads the official ZIP/XLSX layout or an eight-column UTF-8 CSV with naive ISO invoice timestamps, using standard-library readers. It does not download data, import SQL, change the current sampler or load the resulting profile into exports.
+
+```bash
+export UCI_RETAIL_SOURCE=/path/to/online_retail.zip
+uv run --locked --package data-generator -- generator profile-reference \
+  --input "$UCI_RETAIL_SOURCE" \
+  --spec generator/profiles/uci-reference.yml \
+  --output data/generator/reference/uci-online-retail-uk-v1.json
+```
+
+The [spec](profiles/uci-reference.yml) pins the source/license, UK cohort, stock-code pattern, retained-duplicate policy and separate six-month fit/evaluation windows. The [measured profile](profiles/uci-online-retail-uk-v1.json) contains histograms, repeat-purchase observations, ranked unit totals and an audit of excluded rows. It publishes no invoice/customer/SKU identifiers. Its content-derived ID changes with the source, measurement policy or results; generation identity is unchanged because exports do not use this profile yet.
+
+See the [measurement definitions and results](../docs/project/GENERATOR_REFERENCE_PROFILE.md) before interpreting or applying the profile. The source contains wholesale activity and does not represent Vietnamese fashion retail; long-tail baskets and quantities require an explicit adaptation decision before calibration. Keep raw downloads outside Git. Checksums reject a different artifact, so converted CSV/XLSX files need a separate pinned specification rather than silently reusing the official ZIP checksum.
+
 ## Regression Checks
 
 Run from the repository root, using Python's standard-library unittest runner:

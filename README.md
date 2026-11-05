@@ -43,7 +43,7 @@ Published reports for all seven analytics roles, admin overview, store overview,
 - **Open Lakehouse Storage:** MinIO object storage, Iceberg tables/snapshots, Polaris catalog, and scheduled maintenance.
 - **Role-Based Analytics:** Seven dashboard views with API-level role and store filtering, Trino/Iceberg publications, bounded last-good OLAP cache, and API-level role/store filtering.
 - **Access-Log Analytics:** Request volume, duration percentiles, error rates, product interactions, and event-based marketing funnels.
-- **Synthetic Data Generation:** Version 0.8 generates deterministic SQL history with corrected payment/return/stock consistency and synthetic-labelled historical access logs from YAML configurations; live API traffic can feed the Kafka stream. Reference-data calibration remains pending.
+- **Synthetic Data Generation:** Version 0.8 generates deterministic SQL history with corrected payment/return/stock consistency and synthetic-labelled historical access logs from YAML configurations; live API traffic can feed the Kafka stream. The reference-profiling CLI records measured UCI distributions and audit counts; applying them to generation remains pending.
 - **Operational Source Application:** Storefront, cart/checkout, POS, store inventory, in-house delivery, COD failure tracking, returns/refunds, and product reviews.
 - **Inventory Costing:** Inbound receipts, Moving Weighted Average costs, and order-item cost snapshots for analytical COGS calculations.
 
@@ -344,6 +344,7 @@ CI uses `--env-file .env.example` because `.env` is not committed and Compose re
 | **CDC** | [CDC_DASHBOARD_DATA_SPEC.md](docs/architecture/CDC_DASHBOARD_DATA_SPEC.md) | Capture contract, replay metadata, and recovery |
 | **Access Logs** | [ACCESS_LOG_DESIGN.md](docs/architecture/ACCESS_LOG_DESIGN.md) | Event contract, privacy rules, and streaming/raw-file boundaries |
 | **Data Generator** | [generator/README.md](generator/README.md) | Synthetic SQL/log generation and live traffic |
+| **Generator Reference Profile** | [GENERATOR_REFERENCE_PROFILE.md](docs/project/GENERATOR_REFERENCE_PROFILE.md) | Pinned UCI source, feature definitions, cohort/quality policy, measured results and calibration limits |
 | **Diagrams** | [docs/diagram/README.md](docs/diagram/README.md) | Chapter 3 draw.io sources, SVG figures, and offline HTML viewer |
 | **Business Analysis (B)** | [BUSINESS_DOMAIN.md](docs/architecture/BUSINESS_DOMAIN.md) | Implemented role views, business questions, sources, and KPI limits |
 | **Business Requirements (C)** | [BUSINESS_REQUIREMENTS.md](docs/project/BUSINESS_REQUIREMENTS.md) | Retail, POS, inventory, delivery, and returns |
