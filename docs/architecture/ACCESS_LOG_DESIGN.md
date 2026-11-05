@@ -86,7 +86,7 @@ Generator output can be uploaded to this raw prefix:
 s3://lakehouse/landing/logs/ingest_date=YYYY-MM-DD/ingest_hour=HH/service=ecommerce-api/<uuid>.jsonl.gz
 ```
 
-These uploaded historical JSONL files are not consumed automatically by the Kafka job. A configured 30-day generation window is not a storage deletion/retention policy. `data_origin=observed` alone does not prove real user activity: generator exports and simulated API traffic must be identified separately when reporting results.
+These uploaded historical JSONL files are not consumed automatically by the Kafka job. A configured 30-day generation window is not a storage deletion/retention policy. Generator 0.8 labels historical exports `data_origin=synthetic`; older exports may carry `observed`. Runtime middleware still emits `observed`, including simulated API traffic, so that label alone does not prove real user activity. Identify export version and traffic source separately when reporting results.
 
 ### Realtime HTTP serving
 

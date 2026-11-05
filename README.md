@@ -43,7 +43,7 @@ Published reports for all seven analytics roles, admin overview, store overview,
 - **Open Lakehouse Storage:** MinIO object storage, Iceberg tables/snapshots, Polaris catalog, and scheduled maintenance.
 - **Role-Based Analytics:** Seven dashboard views with API-level role and store filtering, Trino/Iceberg publications, bounded last-good OLAP cache, and API-level role/store filtering.
 - **Access-Log Analytics:** Request volume, duration percentiles, error rates, product interactions, and event-based marketing funnels.
-- **Synthetic Data Generation:** Version 0.7 generates deterministic SQL history and historical access logs from YAML configurations; live API traffic can feed the Kafka stream.
+- **Synthetic Data Generation:** Version 0.8 generates deterministic SQL history with corrected payment/return/stock consistency and synthetic-labelled historical access logs from YAML configurations; live API traffic can feed the Kafka stream. Reference-data calibration remains pending.
 - **Operational Source Application:** Storefront, cart/checkout, POS, store inventory, in-house delivery, COD failure tracking, returns/refunds, and product reviews.
 - **Inventory Costing:** Inbound receipts, Moving Weighted Average costs, and order-item cost snapshots for analytical COGS calculations.
 
@@ -302,6 +302,9 @@ docker compose --env-file .env.example --profile "*" config --quiet
 uv lock --check
 python3 -m compileall -q airflow/dags/
 uvx ruff check .
+
+# Generator regression checks (temporary data, no running services required)
+uv run --locked --package data-generator -- python -m unittest discover -s generator/tests -v
 
 # Frontend static checks and production build
 npm --prefix apps/storefront ci
