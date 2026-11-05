@@ -25,7 +25,6 @@ def artifact_files(job_dir: Path) -> list[Path]:
     for path in sorted(job_dir.rglob("*")):
         if not path.is_file() or path.is_symlink():
             continue
-        relative = path.relative_to(job_dir)
         if path.name in EXCLUDED_NAMES or path.name.endswith(".tmp"):
             continue
         result.append(path)

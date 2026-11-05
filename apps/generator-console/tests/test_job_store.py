@@ -9,7 +9,6 @@ from generator_console.job_store import (
     STATUS_FAILED,
     STATUS_INTERRUPTED,
     STATUS_QUEUED,
-    STATUS_RUNNING,
     STATUS_SUCCEEDED,
     JobAlreadyRunning,
     JobNotFound,
