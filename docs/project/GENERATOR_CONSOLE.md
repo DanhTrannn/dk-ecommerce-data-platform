@@ -129,4 +129,4 @@ data/generator/jobs/
 - Unit test generator: validation scale, `config_from_dict`, CLI `--json`.
 - Unit test console: build cấu hình, từ chối cấu hình sai, job store/lock/reconcile, artifact/checksum, worker với command runner giả.
 - Kiểm chứng tay: chạy preset small qua console, so sánh SQL với CLI cùng cấu hình; chạy cấu hình chỉ SQL, chỉ log, cả hai; kiểm tra refresh/restart và job gián đoạn.
-- `ruff`, test generator, test console, Compose config, storefront checks vẫn đạt.
+- `ruff`, test generator, test console, Compose config; Next.js và `FINAL_REPORT.md` không bị sửa.
