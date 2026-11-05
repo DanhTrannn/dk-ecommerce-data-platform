@@ -6,6 +6,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 
 import { EmptyState, PublicationStatus, ViewSwitch } from "@/components/analytics/AnalyticsUI";
 import { RoleDashboards } from "@/components/analytics/RoleDashboards";
+import { HttpRealtimePanel } from "@/components/analytics/HttpRealtimePanel";
 import { HttpMetricsPanel } from "@/components/analytics/HttpMetricsPanel";
 import { SalesTrendPanel } from "@/components/analytics/SalesTrendPanel";
 import { getAdminAnalyticsStores, getAdminRoleMetrics, type RoleMetricsResponse, type StoreItemResponse } from "@/lib/api";
@@ -60,7 +61,7 @@ function AnalyticsHubContent() {
   }, [customerId, activeRole, unauthorized, refreshVersion]);
 
   useEffect(() => {
-    if (authLoading || !customerId || unauthorized || (activeRole === "system" && systemView === "http")) return;
+    if (authLoading || !customerId || unauthorized || (activeRole === "system" && systemView !== "reconciliation")) return;
     let current = true;
     inFlight.current = true;
     setPending(true);
@@ -78,12 +79,12 @@ function AnalyticsHubContent() {
   }, [authLoading, customerId, activeRole, unauthorized, storeParam, requestKey, refreshVersion, systemView]);
 
   useEffect(() => {
-    if (!customerId || unauthorized || !autoRefresh) return;
+    if (!customerId || unauthorized || !autoRefresh || (activeRole === "system" && systemView === "realtime")) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible" && !inFlight.current) setRefreshVersion(value => value + 1);
     }, AUTO_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [customerId, unauthorized, autoRefresh, activeRole]);
+  }, [customerId, unauthorized, autoRefresh, activeRole, systemView]);
 
   if (authLoading || !customer) return <LoadingDashboard />;
 
@@ -91,12 +92,14 @@ function AnalyticsHubContent() {
   const effectiveStoreId = selectedStoreId ?? (metrics?.role === "store" ? metrics.store_id ?? undefined : undefined);
   const displayedStoreMissing = effectiveStoreId != null && !availableStores.some(store => store.store_id === effectiveStoreId);
   const showHttp = activeRole === "system" && systemView === "http";
+  const showRealtime = activeRole === "system" && systemView === "realtime";
+  const independentView = showHttp || showRealtime;
   const scope = { executive: "Toàn kỳ đã nạp", sales: "Toàn kỳ đã nạp · Xu hướng có kỳ riêng", store: "Hôm nay · UTC+7", inventory: "Số dư hiện tại · Lịch sử 30 ngày", operations: "Theo mốc đo đã công bố", marketing: "Kỳ riêng theo nguồn", system: "Theo lần quan sát đã công bố" }[activeRole];
 
   return <section className="space-y-4">
     <header className="flex flex-wrap items-center justify-between gap-3">
-      <div><h1 className="text-2xl font-semibold tracking-tight text-ink">{role.label}</h1><p className="mt-1 text-xs text-muted">{scope}</p></div>
-      {!unauthorized && <button className="button-secondary min-h-10 px-4 text-sm" disabled={pending && !showHttp} onClick={() => setRefreshVersion(value => value + 1)} type="button">{pending && !showHttp ? "Đang tải…" : "Làm mới"}</button>}
+      <div><h1 className="text-2xl font-semibold tracking-tight text-ink">{role.label}</h1><p className="mt-1 text-xs text-muted">{showRealtime ? "Cửa sổ trượt · UTC · Landing" : scope}</p></div>
+      {!unauthorized && <button className="button-secondary min-h-10 px-4 text-sm" disabled={pending && !independentView} onClick={() => setRefreshVersion(value => value + 1)} type="button">{pending && !independentView ? "Đang tải…" : "Làm mới"}</button>}
     </header>
     <nav aria-label="Góc nhìn báo cáo" className="flex flex-wrap gap-1 border-b border-line">
       {visibleRoles.map(item => <Link aria-current={activeRole === item.id ? "page" : undefined} className={`inline-flex min-h-11 items-center border-b-2 px-3 py-2 text-sm font-medium ${activeRole === item.id ? "border-moss text-moss" : "border-transparent text-muted hover:text-ink"}`} href={`/admin/analytics?role=${item.id}`} key={item.id}>{item.label}</Link>)}
@@ -110,8 +113,8 @@ function AnalyticsHubContent() {
         </select>{selectedStoreId != null && <button className="min-h-9 text-xs font-medium text-moss underline" onClick={() => setSelectedStoreId(undefined)} type="button">Về mặc định</button>}</> : <p className="text-sm font-medium">{metrics?.role === "store" ? metrics.store_name : "Cửa hàng được phân quyền"}</p>}
         {storeError && <p className="mt-1 text-xs text-danger" role="status">{storeError}</p>}
       </div>}
-      {activeRole === "system" && <ViewSwitch label="Phân tích hệ thống" value={systemView} onChange={setSystemView} items={[{ value: "reconciliation", label: "Đối soát" }, { value: "http", label: "HTTP Metrics" }]} />}
-      {showHttp ? <HttpMetricsPanel key={customerId} refreshVersion={refreshVersion} /> : <>
+      {activeRole === "system" && <ViewSwitch label="Phân tích hệ thống" value={systemView} onChange={setSystemView} items={[{ value: "reconciliation", label: "Đối soát" }, { value: "http", label: "HTTP Metrics" }, { value: "realtime", label: "HTTP Realtime" }]} />}
+      {showRealtime ? <HttpRealtimePanel key={customerId} refreshVersion={refreshVersion} /> : showHttp ? <HttpMetricsPanel key={customerId} refreshVersion={refreshVersion} /> : <>
         {error && <div className="feedback-error" role="alert">Chưa tải được dữ liệu mới. {metrics ? "Đang giữ kết quả trước đó." : error} <button className="min-h-9 underline" onClick={() => setRefreshVersion(value => value + 1)} type="button">Thử lại</button></div>}
         {loading && <LoadingDashboard />}
         {metrics && <div aria-busy={pending} className="space-y-4" key={requestKey}>

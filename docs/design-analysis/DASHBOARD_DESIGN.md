@@ -24,7 +24,7 @@ Giả định thiết kế, chưa phải kết quả khảo sát người dùng 
 | Marketing | Khi rà soát tương tác/chương trình | Phễu request, sản phẩm quan tâm, voucher và review |
 | System | Khi kiểm tra vận hành dữ liệu | Đối soát, độ mới, request/lỗi/latency và bảng route |
 
-Chu kỳ xem dự kiến không thay lịch xử lý dữ liệu: UI vẫn poll 15 giây, các số liệu thay đổi theo publication tương ứng.
+Chu kỳ xem dự kiến không thay lịch xử lý dữ liệu: Báo cáo mart poll 15 giây và thay đổi theo publication; HTTP Realtime đọc Landing có chu kỳ riêng 10 giây khi hiển thị.
 
 ## Quyết định trình bày
 
@@ -33,7 +33,7 @@ Chu kỳ xem dự kiến không thay lịch xử lý dữ liệu: UI vẫn poll 
 - Mỗi góc nhìn chính ưu tiên 2–4 KPI; không tạo card chỉ để đủ cột. Sales dùng hai KPI từ tập đóng góp đầy đủ, không cộng top sản phẩm để giả định tổng doanh thu.
 - Bar chart so sánh nhóm; line chart cho ngày/giờ. Trục bar chứa mốc 0, có hỗ trợ số âm; số 0 không vẽ thanh giả dương. Đơn và VND của đối soát dùng biểu đồ riêng.
 - Màu chính moss/ink, màu nhấn amber/terracotta; nhãn và kiểu nét giúp phân biệt chuỗi. Không dựng target, delta hoặc nguyên nhân khi API chưa có bằng chứng.
-- Marketing tách Tương tác / Voucher & đánh giá; Vận hành tách Giao vận / Đổi trả; System tách Đối soát / HTTP. Các nguồn/kỳ độc lập có metadata riêng, không gán một bộ lọc ngày chung giả định.
+- Marketing tách Tương tác / Voucher & đánh giá; Vận hành tách Giao vận / Đổi trả; System tách Đối soát / HTTP Metrics theo mart / HTTP Realtime từ Landing. Các nguồn/kỳ độc lập có metadata riêng, không gán một bộ lọc ngày chung giả định.
 - Bảng tra cứu được thu gọn mặc định; vẫn có tìm kiếm, sắp xếp và CSV theo tập đã trả về. Top 5/10/20 được ghi trên tiêu đề. Tìm bảng không thay KPI hay biểu đồ.
 - Card/tooltip cho phép đọc số tiền đầy đủ; giao diện chính dùng định dạng gọn. Đơn vị, kỳ và mốc công bố/quan sát giữ ngắn gọn. Cache và dữ liệu chưa đầy đủ vẫn có nhãn; lỗi tải mới không biến kết quả cũ thành dữ liệu mới.
 - Giữ null thành —, số 0 đã quan sát thành 0, khoảng thời gian thiếu thành gap. Không thay mean có trọng số hay gộp percentile giờ thành percentile toàn kỳ.
@@ -70,4 +70,4 @@ Tên mart là bảng Gold; không phải mọi cột của mart đều cần xu�
 
 KPI Executive/Sales tổng hợp toàn kỳ đã nạp; bộ chọn 7/30/90 ngày chỉ đổi xu hướng. Store dùng ngày đặt hàng Việt Nam. Inventory giữ số dư hiện tại riêng với lịch sử 30 ngày. Marketing log giữ 30 ngày UTC, còn coupon/review dùng cửa sổ cố định tại mốc nghiệp vụ. HTTP dùng 1/7/30 ngày UTC tại mốc rollup, độc lập publication OLTP. Vì vậy giao diện không thêm bộ lọc ngày toàn trang khi backend chưa cung cấp hợp đồng đó.
 
-Báo cáo log vẫn cập nhật qua pipeline giờ; chu kỳ tải giao diện hiện tại là 15 giây. Thiết kế này không triển khai Landing realtime 10 giây, không sửa định nghĩa KPI và không xác nhận hiệu năng production. Đối chiếu số liệu, kiểm tra responsive/keyboard, null/0/âm/cache và các biểu đồ có đơn vị riêng là các bước xác minh của đợt giao diện; test/ảnh/log chỉ giữ ngoài Git.
+Báo cáo log vẫn cập nhật qua pipeline giờ; chu kỳ tải giao diện hiện tại là 15 giây. HTTP Realtime được bổ sung riêng: cửa sổ 5/15/60 phút, bốn KPI, request/lỗi theo phút, route và chất lượng trong bảng/chi tiết thu gọn. Nhãn Landing/sơ bộ, UTC và mốc snapshot/đo tách khỏi publication; chỉ poll 10 giây khi hiển thị, lỗi giữ mốc cũ. Không sửa công thức mart hoặc xác nhận hiệu năng production. Đối chiếu số liệu, kiểm tra responsive/keyboard, null/0/âm/cache và các biểu đồ có đơn vị riêng là các bước xác minh của đợt giao diện; test/ảnh/log chỉ giữ ngoài Git.

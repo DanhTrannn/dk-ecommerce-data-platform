@@ -50,6 +50,18 @@ The window starts at 00:00 UTC `days - 1` dates before the publication's `observ
 
 An empty published window has null totals and empty lists; an observed zero remains zero, with null ratios when the denominator is zero. Missing publication/snapshot or Trino failure uses a bounded last-good cache for the same window size, marked degraded, or returns 503. Cached responses retain their original window and observation/publication times. No global percentile or production SLA is inferred.
 
+### HTTP realtime contract
+
+`GET /api/v1/admin/analytics/http-realtime?minutes=15` accepts integers 5–60 (default 15). Admin/System Admin only: other roles 403, anonymous 401, invalid windows 422. Reads `landing.access_logs` through Trino, without a publication or MySQL aggregates. Successful responses use `Cache-Control: no-store`; there is no server last-good cache. Unavailable Landing, expired snapshots or failed queries return a generic 503 without raw error details.
+
+Each read fixes UTC `observed_at` and one current main snapshot from Iceberg `$history`. It includes rows ingested by that cutoff with either event time in `[window_start, observed_at)` or ingestion time since `window_start`. The second branch captures recent invalid/late/future observations. Snapshot metadata and one aggregate query each use an eight-second client timeout. A logical time window does not guarantee physical file pruning on the existing unpartitioned Landing table.
+
+Valid projected envelopes are grouped by event ID. Identical payload hashes count once; IDs with multiple payload hashes are excluded from HTTP metrics. Conflict/replay detection is limited to the scanned scope, not global validation. `quality` distinguishes scanned/invalid/replayed rows from conflicting/late/future IDs. Late IDs have event time before the window; future IDs are at/after the upper boundary. In-window late arrivals are counted when visible and can change earlier minutes.
+
+The response contains `snapshot_id` (string), `snapshot_current_at`, `window_start`, `observed_at`, `queried_at`, latest in-scope ingest/event times, nullable totals, observed minute `series` and at most 20 routes ordered by error count, request count and route/method. Rates and approximate p95 are computed directly over eligible unique requests at each grain; p95 totals are not averaged minute/route percentiles. Duration uses nanoseconds / 1e6; success counts 200–399, errors 400–599, and total requests includes accepted 100–599 statuses. No eligible requests means null totals and empty series/routes; observed zero errors or zero latency remains zero. No raw payload, event IDs, actor identifiers or individual request records are returned.
+
+Realtime polling happens only while its System view is mounted and visible, every 10 seconds with in-flight reuse. A failed refresh retains the previous observation and its timestamp with an error label. Analytical HTTP reporting remains independently published hourly. All recorded API traffic, including dashboard requests, is included; this is not external-user traffic alone. This endpoint is HTTP observation, not business-event realtime or full Silver validation.
+
 ## Settings and request conventions
 
 Backend settings are defined in [config.py](app/core/config.py) and use `API_*`; [Kafka settings](app/core/kafka_producer.py) use `KAFKA_*`. [Trino settings](app/modules/analytics/trino_client.py) use their own environment names. Compose only forwards the variables explicitly listed under its API service; adding a new API_* line to the project `.env` does not automatically inject it into that container.
@@ -88,6 +100,7 @@ Paths and methods below are registered in source. Authentication columns describ
 | GET | `/api/v1/admin/analytics/role-metrics` | Staff, analytics role/store checks | — |
 | GET | `/api/v1/admin/analytics/sales-trend` | Sales manager / admin | — |
 | GET | `/api/v1/admin/analytics/http-metrics` | Admin / System Admin | — |
+| GET | `/api/v1/admin/analytics/http-realtime` | Admin / System Admin | — |
 | POST | `/api/v1/auth/register` | Public | — |
 | POST | `/api/v1/auth/login` | Public | — |
 | POST | `/api/v1/auth/logout` | Public | Yes |
