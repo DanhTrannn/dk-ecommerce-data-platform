@@ -25,6 +25,7 @@ class AppSmokeTests(unittest.TestCase):
         self.assertEqual([title.value for title in app.title][-1], "Generator Console")
         sections = next(radio for radio in app.radio if radio.label == "Màn hình")
         self.assertIn("Cấu hình", sections.options)
+        self.assertEqual(app.selectbox(key="preset_name").value, "small.yml")
 
 
 if __name__ == "__main__":

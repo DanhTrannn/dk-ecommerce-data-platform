@@ -262,7 +262,11 @@ def _render_artifacts(job: JobRecord) -> None:
                 "Loại": KIND_LABELS.get(artifact.get("kind", ""), artifact.get("kind", "")),
                 "Dung lượng": _format_size(int(artifact.get("size", 0))),
                 "SHA-256": str(artifact.get("sha256", ""))[:16],
-                "Số file": artifact.get("file_count", ""),
+                "Số file": (
+                    str(artifact["file_count"])
+                    if artifact.get("file_count") is not None
+                    else ""
+                ),
             }
         )
     st.dataframe(rows, hide_index=True)

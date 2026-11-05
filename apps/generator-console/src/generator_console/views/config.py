@@ -21,18 +21,7 @@ from generator_console.config_builder import (
 from generator_console.job_store import JobAlreadyRunning, JobStore, JobStoreError
 
 OUTPUT_LABELS = {"sql": "SQL", "logs": "Access log", "both": "Cả hai"}
-FORM_KEYS = (
-    "scenario_id",
-    "seed",
-    "anchor_time",
-    "history_months",
-    "customers",
-    "products",
-    "variants",
-    "orders",
-    "expected_requests",
-    "distributions_yaml",
-)
+DEFAULT_PRESET = "small.yml"
 
 
 def render(store: JobStore) -> None:
@@ -47,7 +36,7 @@ def render(store: JobStore) -> None:
     preset_paths = {path.name: path for path in presets}
     names = list(preset_paths)
     if st.session_state.get("preset_name") not in names:
-        st.session_state["preset_name"] = names[0]
+        st.session_state["preset_name"] = DEFAULT_PRESET if DEFAULT_PRESET in names else names[0]
         st.session_state["loaded_preset"] = None
     if st.session_state.get("loaded_preset") != st.session_state["preset_name"]:
         try:
@@ -168,7 +157,15 @@ def _submit(store: JobStore, preset_path: Path) -> None:
             generator_version=GENERATOR_VERSION,
             dataset_identity=config.logical_identity,
         )
-    except (JobAlreadyRunning, JobStoreError, OSError, ValueError, yaml.YAMLError) as error:
+    except (
+        JobAlreadyRunning,
+        JobStoreError,
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+        yaml.YAMLError,
+    ) as error:
         st.error(str(error))
         return
 
