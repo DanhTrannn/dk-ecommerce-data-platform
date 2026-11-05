@@ -11,22 +11,22 @@
         <mxCell id="landing" value="Landing (Parquet)" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
           <mxGeometry x="560.0" y="40.0" width="368.0" height="120.0" as="geometry" />
         </mxCell>
-        <mxCell id="bronze" value="Bronze (append)" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
+        <mxCell id="bronze" value="Bronze (Phiên bản nguồn)" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
           <mxGeometry x="1080.0" y="40.0" width="368.0" height="120.0" as="geometry" />
         </mxCell>
-        <mxCell id="cursor" value="Commit cursor" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
+        <mxCell id="cursor" value="Làm sạch &amp; Băm PII" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
           <mxGeometry x="1080.0" y="344.0" width="368.0" height="120.0" as="geometry" />
         </mxCell>
         <mxCell id="silver" value="Silver (MERGE)" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
           <mxGeometry x="560.0" y="344.0" width="368.0" height="120.0" as="geometry" />
         </mxCell>
-        <mxCell id="reconcile" value="Đối soát MySQL–Silver" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
+        <mxCell id="reconcile" value="Xây dựng Gold &amp; Marts" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
           <mxGeometry x="40.0" y="344.0" width="368.0" height="120.0" as="geometry" />
         </mxCell>
-        <mxCell id="gold" value="Gold" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
+        <mxCell id="gold" value="Công bố Snapshot (Serving)" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
           <mxGeometry x="40.0" y="652.0" width="368.0" height="120.0" as="geometry" />
         </mxCell>
-        <mxCell id="dq" value="Kiểm tra chất lượng Gold" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
+        <mxCell id="dq" value="Công bố Snapshot (Serving)" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
           <mxGeometry x="560.0" y="652.0" width="368.0" height="120.0" as="geometry" />
         </mxCell>
         <mxCell id="edge-0" value="" style="html=1;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#222222;strokeWidth=1.2;fontColor=#222222;fontSize=14;fontFamily=DejaVu Sans;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.5;exitPerimeter=0;entryX=0;entryY=0.5;entryPerimeter=0;endArrow=open;endFill=0;" edge="1" parent="1" source="mysql" target="landing">
@@ -83,6 +83,12 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="edge-3" value="" style="html=1;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#222222;strokeWidth=1.2;fontColor=#222222;fontSize=14;fontFamily=DejaVu Sans;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.5;exitPerimeter=0;entryX=1;entryY=0.5;entryPerimeter=0;endArrow=open;endFill=0;" edge="1" parent="1" source="flink" target="bronze">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+              <mxCell id="hard-delete" value="Spark Hard Delete Sync&#xa;→ Silver (cart/wishlist)" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="40.0" y="420.0" width="368.0" height="136.0" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-cdc-del" value="CDC delete > 30d" style="html=1;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#222222;strokeWidth=1.2;fontColor=#222222;fontSize=14;fontFamily=DejaVu Sans;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.5;exitPerimeter=0;entryX=1;entryY=0.5;entryPerimeter=0;endArrow=open;endFill=0;dashed=1;dashPattern=6 5;" edge="1" parent="1" source="bronze" target="hard-delete">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>

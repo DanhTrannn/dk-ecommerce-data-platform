@@ -17,10 +17,10 @@
 <text x="1628" y="260" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#222222" text-anchor="middle" font-weight="400">Kết quả gate</text>
 <rect x="40" y="40" width="360" height="124" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
 <text x="220" y="92" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Landing</text>
-<text x="220" y="128" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#222222" text-anchor="middle" font-weight="400">Parquet / manifest</text>
+<text x="220" y="128" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#222222" text-anchor="middle" font-weight="400">Parquet Staging (chunk 10k)</text>
 <rect x="480" y="40" width="360" height="124" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
 <text x="660" y="92" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Bronze</text>
-<text x="660" y="128" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#222222" text-anchor="middle" font-weight="400">Iceberg / append</text>
+<text x="660" y="128" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#222222" text-anchor="middle" font-weight="400">Iceberg / phiên bản nguồn</text>
 <rect x="920" y="40" width="360" height="124" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
 <text x="1100" y="92" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Silver</text>
 <text x="1100" y="128" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" fill="#222222" text-anchor="middle" font-weight="400">Iceberg / MERGE</text>

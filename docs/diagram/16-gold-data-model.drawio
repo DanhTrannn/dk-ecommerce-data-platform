@@ -261,10 +261,10 @@
         <mxCell id="sales-mart" value="" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;" vertex="1" parent="1">
           <mxGeometry x="960.0" y="40.0" width="708.0" height="132.0" as="geometry" />
         </mxCell>
-        <mxCell id="sales-mart-label-0" value="mart_sales_daily" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=18;" vertex="1" parent="sales-mart">
+        <mxCell id="sales-mart-label-0" value="Nhóm Kinh doanh: mart_sales_daily · mart_order_daily · mart_product_sales_daily" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=18;" vertex="1" parent="sales-mart">
           <mxGeometry x="8" y="38.0" width="692.0" height="24" as="geometry" />
         </mxCell>
-        <mxCell id="sales-mart-field-0" value="order_date × channel × store_key × category_id" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=14;" vertex="1" parent="sales-mart">
+        <mxCell id="sales-mart-field-0" value="Doanh thu, đơn hàng, SKU bán chạy (grain ngày × kênh × cửa hàng × danh mục)" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=14;" vertex="1" parent="sales-mart">
           <mxGeometry x="8" y="78.0" width="692.0" height="20" as="geometry" />
         </mxCell>
         <mxCell id="ship-src" value="fact_shipment + dim_delivery_staff" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;fontSize=18;" vertex="1" parent="1">
@@ -273,10 +273,10 @@
         <mxCell id="ship-mart" value="" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;" vertex="1" parent="1">
           <mxGeometry x="960.0" y="280.0" width="708.0" height="132.0" as="geometry" />
         </mxCell>
-        <mxCell id="ship-mart-label-0" value="mart_logistics_performance" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=18;" vertex="1" parent="ship-mart">
+        <mxCell id="ship-mart-label-0" value="Nhóm Vận hành: mart_logistics_performance · mart_operations_summary · mart_cod_region_daily" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=18;" vertex="1" parent="ship-mart">
           <mxGeometry x="8" y="38.0" width="692.0" height="24" as="geometry" />
         </mxCell>
-        <mxCell id="ship-mart-field-0" value="shipment_date × staff_key" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=14;" vertex="1" parent="ship-mart">
+        <mxCell id="ship-mart-field-0" value="Hiệu suất giao vận, đơn hàng tồn đọng &amp; công nợ thu hộ COD (grain ngày × shipper × vùng)" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=14;" vertex="1" parent="ship-mart">
           <mxGeometry x="8" y="78.0" width="692.0" height="20" as="geometry" />
         </mxCell>
         <mxCell id="return-src" value="fact_return_exchange + dim_variant" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;fontSize=18;" vertex="1" parent="1">
@@ -285,10 +285,10 @@
         <mxCell id="return-mart" value="" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;" vertex="1" parent="1">
           <mxGeometry x="960.0" y="520.0" width="708.0" height="132.0" as="geometry" />
         </mxCell>
-        <mxCell id="return-mart-label-0" value="mart_product_returns" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=18;" vertex="1" parent="return-mart">
+        <mxCell id="return-mart-label-0" value="Nhóm Đổi trả &amp; Hậu mãi: mart_product_returns" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=18;" vertex="1" parent="return-mart">
           <mxGeometry x="8" y="38.0" width="692.0" height="24" as="geometry" />
         </mxCell>
-        <mxCell id="return-mart-field-0" value="return_date × returned_variant_key × action_type × reason" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=14;" vertex="1" parent="return-mart">
+        <mxCell id="return-mart-field-0" value="Tỷ lệ đổi trả, lý do hoàn hàng &amp; kiểm định (grain ngày × variant × action × lý do)" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=14;" vertex="1" parent="return-mart">
           <mxGeometry x="8" y="78.0" width="692.0" height="20" as="geometry" />
         </mxCell>
         <mxCell id="inv-src" value="fact_inventory_daily_snapshot+ dim_product" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;spacing=12;fontSize=18;" vertex="1" parent="1">
@@ -297,10 +297,10 @@
         <mxCell id="inv-mart" value="" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;rounded=1;arcSize=6;" vertex="1" parent="1">
           <mxGeometry x="960.0" y="760.0" width="708.0" height="132.0" as="geometry" />
         </mxCell>
-        <mxCell id="inv-mart-label-0" value="mart_inventory_health" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=18;" vertex="1" parent="inv-mart">
+        <mxCell id="inv-mart-label-0" value="Nhóm Kho &amp; Cửa hàng: mart_inventory_health · mart_inventory_current · mart_store_overview" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=18;" vertex="1" parent="inv-mart">
           <mxGeometry x="8" y="38.0" width="692.0" height="24" as="geometry" />
         </mxCell>
-        <mxCell id="inv-mart-field-0" value="snapshot_date × location_type × location_id × category_id" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=14;" vertex="1" parent="inv-mart">
+        <mxCell id="inv-mart-field-0" value="Tồn kho tức thời, lịch sử số dư &amp; cảnh báo hết hàng (grain ngày/hiện tại × kho/chi nhánh)" style="html=1;whiteSpace=wrap;fontFamily=DejaVu Sans;fontSize=20;fontColor=#222222;strokeColor=#222222;strokeWidth=1.2;fillColor=#ffffff;text;strokeColor=none;fontSize=14;" vertex="1" parent="inv-mart">
           <mxGeometry x="8" y="78.0" width="692.0" height="20" as="geometry" />
         </mxCell>
         <mxCell id="edge-0" value="" style="html=1;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#222222;strokeWidth=1.2;fontColor=#222222;fontSize=14;fontFamily=DejaVu Sans;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.5;exitPerimeter=0;entryX=0;entryY=0.5;entryPerimeter=0;endArrow=open;endFill=0;" edge="1" parent="1" source="sales-src" target="sales-mart">

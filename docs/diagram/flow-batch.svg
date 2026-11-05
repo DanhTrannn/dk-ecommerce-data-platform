@@ -13,17 +13,17 @@
 <rect x="40" y="40" width="368" height="120" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
 <text x="224" y="106.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">MySQL / Spark JDBC</text>
 <rect x="560" y="40" width="368" height="120" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="744" y="106.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Landing (Parquet)</text>
+<text x="744" y="106.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Landing (Parquet Staging)</text>
 <rect x="1080" y="40" width="368" height="120" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="1264" y="106.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Bronze (append)</text>
+<text x="1264" y="106.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Bronze (Phiên bản nguồn)</text>
 <rect x="1080" y="344" width="368" height="120" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="1264" y="410.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Commit cursor</text>
+<text x="1264" y="106.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400" transform="translate(0, 304)">Làm sạch &amp; Băm PII</text>
 <rect x="560" y="344" width="368" height="120" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="744" y="410.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Silver (MERGE)</text>
+<text x="744" y="410.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Silver (Iceberg MERGE)</text>
 <rect x="40" y="344" width="368" height="120" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="224" y="410.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Đối soát MySQL–Silver</text>
+<text x="224" y="410.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Xây dựng Gold &amp; Marts</text>
 <rect x="40" y="652" width="368" height="120" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="224" y="718.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Gold</text>
+<text x="224" y="718.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Kiểm tra chất lượng Gold</text>
 <rect x="560" y="652" width="368" height="120" rx="6" fill="#ffffff" stroke="#222222" stroke-width="1.2"/>
-<text x="744" y="718.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Kiểm tra chất lượng Gold</text>
+<text x="744" y="718.8" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" fill="#222222" text-anchor="middle" font-weight="400">Công bố Snapshot (Serving)</text>
 </svg>

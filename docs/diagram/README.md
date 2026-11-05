@@ -1,6 +1,6 @@
 # Sơ đồ Chương 3 — Phân tích và thiết kế hệ thống
 
-Bộ sơ đồ phục vụ dàn ý Chương 3, được dựng theo mã nguồn ngày **28/10/2026**. Nguồn chỉnh sửa và bản xem nằm tại `docs/diagram/`; bộ sơ đồ cũ đã được loại bỏ. Tài liệu kiến trúc/nghiệp vụ được đối chiếu lại ngày 31/10/2026; các giới hạn mới ghi nhận bên dưới không đồng nghĩa đã thay đổi nội dung bản vẽ.
+Bộ sơ đồ phục vụ dàn ý Chương 3, được đối chiếu và cập nhật đồng bộ theo mã nguồn và cấu hình pipeline ngày **04/11/2026**. Nguồn chỉnh sửa và bản xem nằm tại `docs/diagram/`; bộ sơ đồ cũ đã được loại bỏ.
 
 ## Mở và sử dụng
 
