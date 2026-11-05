@@ -122,6 +122,9 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(state["stages"]["sql"]["status"], STAGE_SUCCEEDED)
         self.assertEqual(state["stages"]["logs"]["status"], STAGE_FAILED)
         self.assertTrue((job.directory / "outputs" / "sql" / "test-scenario-identity.sql").is_file())
+        kinds = {item["kind"] for item in state["artifacts"]}
+        self.assertIn("sql", kinds)
+        self.assertIn("checksums", kinds)
         self.assertIn("logs: log export failed", state["error"])
 
     def test_validation_failure_skips_exports(self):
