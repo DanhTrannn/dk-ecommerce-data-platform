@@ -1,0 +1,22 @@
+profile_version: uci-online-retail-uk-v1
+source:
+  name: UCI Online Retail
+  url: https://archive.ics.uci.edu/dataset/352/online+retail
+  download_url: https://archive.ics.uci.edu/static/public/352/online%2Bretail.zip
+  doi: 10.24432/C5BW33
+  attribution: "Chen, D. (2015). Online Retail [Dataset]. UCI Machine Learning Repository."
+  license: CC BY 4.0
+  license_url: https://creativecommons.org/licenses/by/4.0/
+  artifact: online_retail.zip
+  sha256: f5385cbb54bbebf7196389109c6b0621faab0c304e3702548165e71c84aede8b
+cohort:
+  country: United Kingdom
+  stock_code_pattern: '^[0-9]{5}[A-Za-z]{0,2}$'
+  duplicate_policy: retain
+windows:
+  fit:
+    start: '2010-12-01T00:00:00'
+    end: '2011-06-01T00:00:00'
+  evaluation:
+    start: '2011-06-01T00:00:00'
+    end: '2011-12-01T00:00:00'
