@@ -24,6 +24,17 @@ To backfill data without leaving temporary SQL or log files on your host filesys
 
 ## Manual Export Workflow
 
+### Machine-readable summaries
+
+`run`, `export-sql`, and `export-logs` accept `--json` for job runners and other tools. The JSON summary is printed to stdout; the existing human-readable lines remain the default.
+
+```bash
+uv run --locked --package data-generator -- generator run \
+  --config generator/configs/small.yml \
+  --output data/generator/manifest \
+  --json
+```
+
 ### 1. Export SQL History
 
 ```bash
