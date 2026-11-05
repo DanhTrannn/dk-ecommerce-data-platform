@@ -20,6 +20,16 @@ Bộ tài liệu lấy phần Data Engineering làm trọng tâm, được đố
 | [Sơ đồ Chương 3](diagram/README.md) | Bộ sơ đồ theo dàn ý: Use Case, Activity, Sequence, kiến trúc, ERD MySQL, Lakehouse và wireframe; có trang HTML xem nhanh |
 | [Access log schema](contracts/ecommerce-access-v1.schema.json) | JSON Schema cho hợp đồng dữ liệu |
 
+## Kế hoạch chuyển đổi và baseline
+
+Đợt 1 ngày **05/11/2026** chốt phạm vi và quan sát dữ liệu local. Streamlit/Superset là kiến trúc mục tiêu; Next.js và API hiện tại chưa bị thay thế hoặc loại bỏ.
+
+| Tài liệu | Nội dung |
+|---|---|
+| [refactor_v2](project/refactor_v2.md) | Quyết định kiến trúc, 12 kịch bản nguồn, bao phủ 18 mart và lộ trình chuyển đổi |
+| [API_TRANSITION_SCOPE](project/API_TRANSITION_SCOPE.csv) | 86 endpoint đã đối chiếu source/OpenAPI; quyết định giữ, rà soát hoặc bỏ sau khi có thay thế |
+| [DATA_BASELINE](project/DATA_BASELINE.md) | Số dòng nguồn/Silver, tài chính, kho, HTTP và snapshot ID phục vụ đối chiếu |
+
 ## Tài liệu giữ để phân tích và viết tiểu luận
 
 Các tài liệu A–D mô tả phân tích, nghiệp vụ và thiết kế theo code hiện tại. Các phần chưa triển khai và khác biệt UI/API được ghi rõ; định nghĩa công thức chi tiết dùng Metrics Catalog để tránh lặp lại.

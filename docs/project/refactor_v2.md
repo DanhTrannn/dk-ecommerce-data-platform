@@ -1,71 +1,104 @@
-# Refactor v2 — Kế hoạch cải thiện Data Generator
+# Refactor v2 — Generator Console và BI trên Lakehouse
 
-Cập nhật: **05/11/2026**. Trạng thái: kế hoạch, chưa sửa code/config generator.
+Cập nhật **05/11/2026**. Quyết định đã chốt: thay toàn bộ Next.js, gồm Storefront/Admin/POS/BI UI, bằng **Streamlit điều khiển generator** và **Superset phục vụ BI qua Trino**. Đây là kiến trúc mục tiêu; đợt 1 chỉ chốt phạm vi và ghi baseline, chưa xóa UI, đổi API, sửa generator hoặc cài hai công cụ mới.
 
-## 1. Mục tiêu và phạm vi
+## 1. Quyết định kiến trúc và ranh giới
 
-Xây dựng generator cho **retail thời trang Việt Nam** với ba yêu cầu: **tham số giải thích được nguồn gốc, dữ liệu đúng nghiệp vụ và kết quả kiểm chứng tái lập được**.
+Giữ bài toán **retail thời trang Việt Nam**, VND, ngày nghiệp vụ Asia/Ho_Chi_Minh. Tập trung vào nguồn dữ liệu giải thích được, nghiệp vụ nhất quán và kết quả phân tích có thể đối soát.
 
-Đợt đầu tập trung vào bốn đặc trưng của giao dịch: **kích thước giỏ hàng, số lượng mua, tần suất mua lại và mức tập trung sản phẩm**. Giữ mô hình MySQL, đơn vị VND và múi giờ nghiệp vụ hiện có. Chưa tích hợp API/scraping, thay FE, xây trang điều khiển hoặc triển khai ML.
-
-## 2. Điểm cần cải thiện trong generator hiện tại
-
-| Hiện trạng đã kiểm tra | Việc cần làm |
+| Thành phần | Trách nhiệm sau chuyển đổi |
 |---|---|
-| Các tỷ lệ trong YAML là mô hình giả lập, chưa được hiệu chỉnh từ dataset thực | Lập bảng nguồn → cách đo → tham số → giả định |
-| Config `small.yml` phân bổ giỏ 1–4 variant và lượng mua 1–3 mỗi dòng | Kiểm tra miền giá trị với nguồn tham chiếu; không ép dữ liệu thực vào các khoảng hiện có |
-| `random.sample` chọn variant đều ngẫu nhiên | Bổ sung lựa chọn có trọng số để thể hiện nhóm bán chạy và phần ít bán; vẫn giữ SKU khác nhau trong một đơn |
-| `_order_targets` điều chỉnh số đơn mỗi khách để đạt tổng đơn cấu hình | Chốt đầu vào nào được giữ cứng và đo lại phân phối sau điều chỉnh, kể cả nhóm chỉ mua một lần |
-| Dataset identity đã chứa seed/config/version, chưa có tham chiếu profile riêng | Ghim phiên bản/checksum của profile vào nhận diện dataset khi bổ sung profile |
+| Streamlit | Chọn preset/profile, chỉnh cấu hình, chạy generator, xem/tải kết quả; tác vụ nạp và traffic là bước riêng |
+| Generator CLI | Sinh SQL lịch sử và access log tổng hợp; là logic dùng chung cho CLI/console |
+| FastAPI + MySQL | Nghiệp vụ nguồn và tra cứu phục vụ mô phỏng; giữ auth, quyền, CSRF/idempotency cần thiết |
+| Spark/Airflow | Batch, Silver/Gold/mart, quality gate và publication |
+| Debezium/Kafka/Flink | CDC Bronze audit và access log tới Landing; không tự cập nhật OLTP Silver/Gold |
+| Trino + Superset | Đọc đầu ra phân tích đã công bố; Superset thay giao diện BI tự viết |
+| MinIO/Iceberg/Polaris | Giữ dữ liệu, snapshot, catalog và quyền workload hiện có |
 
-Thành phần liên quan: [config.py](../../generator/src/generator/config.py), [sql_export.py](../../generator/src/generator/sql_export.py), [config mẫu](../../generator/configs/small.yml). Giữ CLI và cách export hiện có, chỉ mở rộng phần cần thiết.
+Bối cảnh: BI đang nằm chung trong `apps/storefront`, còn nguồn nghiệp vụ và pipeline hoạt động độc lập với Next.js. Hệ quả của quyết định: cần nguồn gọi API thay thao tác UI, dựng lại dashboard và chuyển quyền/phạm vi cửa hàng cùng cơ chế publication; không tự kế thừa các kiểm tra ở FastAPI khi BI truy vấn thẳng Trino. Next.js và API cũ được giữ tới khi có đầu ra thay thế đã kiểm chứng. Volume, checkpoint, bảng nguồn và lịch sử được giữ; ML, marketplace và API/scraping ngoài phạm vi chuyển đổi này.
 
-## 3. Nguồn tham chiếu và cách sử dụng
+## 2. Kịch bản dữ liệu phải giữ
 
-Bắt đầu bằng [UCI Online Retail](https://archive.ics.uci.edu/dataset/352/online+retail), có invoice, mã sản phẩm, lượng mua, thời gian và khách hàng. Nguồn này bán quà tặng tại Anh, có khách sỉ, giấy phép CC BY 4.0; chỉ dùng làm căn cứ cho đặc trưng phù hợp, không coi là mẫu đại diện thời trang Việt Nam.
+API trong bảng có tiền tố `/api/v1`, trừ health và đường internal nêu riêng. “Có API” chỉ xác nhận source code và OpenAPI; chưa chứng minh simulator tự động hóa hoặc giao dịch runtime đúng toàn luồng.
 
-Trước khi đo phải chốt nhóm giao dịch được phân tích, cách xử lý dòng dịch vụ/điều chỉnh, lượng âm, hóa đơn hủy, giá không hợp lệ và bản ghi nghi trùng. Không tự loại đơn lớn để làm kết quả đẹp hơn. Khách thiếu định danh không dùng đo mua lại; phải ghi số mẫu và phạm vi quan sát. Mã sản phẩm nguồn cần được ánh xạ rõ với SKU/variant của generator.
+| Mã / kịch bản | Nguồn và thao tác cần giữ | Bảng nguồn chính | Đầu ra phân tích / khoảng trống hiện tại |
+|---|---|---|---|
+| S00 — Dữ liệu tham chiếu, tài khoản | Auth; catalog; quản trị product/variant, customer; lookup cửa hàng/nhân sự khi cần | customers, customer_credentials, categories, products, product_variants, cities, stores, delivery_staff | Dimension, coverage admin/store. Credentials chỉ phục vụ auth, loại khỏi batch/CDC |
+| S01 — Mua online thành công | Cart, checkout/quote, checkout; xác nhận, dispatch, deliver, complete; đọc đơn để kiểm tra | carts, cart_items, orders, order_items, payments, order_status_history, inventory, inventory_transactions, shipments | Order/product/category sales, operations, logistics. Simulator có checkout/confirm/complete, chưa thay toàn bộ fulfillment |
+| S02 — Hủy đơn | Cancel của khách/admin; trả tồn, release coupon và refund khi nghiệp vụ yêu cầu | orders, order_status_history, inventory, inventory_transactions, payments, refunds, coupon_redemptions | Tài chính/order mart, operations; cần bổ sung kịch bản tự động và đối soát rollback |
+| S03 — COD/giao thất bại | Payment method, dispatch/deliver/failed-delivery; lookup nhân sự/shipment | orders, payments, shipments, shipment_attempts, customers, inventory_transactions | Logistics/COD/operations; chưa có hạn giao dự kiến nên không kết luận on-time SLA |
+| S04 — POS | GET pos/products và POST pos/transactions với store/staff hợp lệ | orders, order_items, payments, order_status_history, store_inventory, inventory_transactions | Doanh số kênh/cửa hàng, tồn; generator SQL hiện không ghi channel/store_id và nhận mặc định online |
+| S05 — Nhập hàng và giá vốn | POST admin/inbound/receipts; đọc phiếu để kiểm tra | inbound_receipts, inbound_receipt_items, inventory, inventory_transactions, product_variants | Tồn/phiếu nhập và COGS snapshot của lần bán sau; simulator chưa tạo nhập hàng |
+| S06 — Điều chuyển/điều chỉnh tồn | admin/inventory/refill, admin/branch-inventory; kiểm tra số dư trước/sau | inventory, store_inventory, inventory_transactions | Current/summary/history/store marts; hai route ghi hiện chỉ flush, chưa commit, là điểm chặn cần sửa trước khi dùng |
+| S07 — Trả/đổi/hoàn tiền | Tạo/cancel yêu cầu; admin review, receive, inspect-and-resolve; đọc kết quả | return_requests, return_items, refunds, payments, orders, order_items, inventory, inventory_transactions | Returns, operations và tài chính. Trả hàng online là kịch bản đầu; không mặc định POS walk-in dùng được luồng khách đăng nhập |
+| S08 — Coupon | Available; tạo/sửa/archive; redeem/release qua checkout/cancel | coupons, coupon_redemptions, orders, order_items | Coupon/marketing summary, tài chính; chưa suy hiệu quả nhân quả từ tỷ lệ do generator đặt |
+| S09 — Review | Tạo sau mua đủ điều kiện; admin moderation | product_reviews, order_items, products, customers | Review/marketing summary; ngưỡng approved 1–2 sao tại mốc đo, không suy nguyên nhân từ số lượng |
+| S10 — Tìm kiếm, giỏ, wishlist | Categories/facets/products, cart và wishlist GET/PUT/DELETE | carts, cart_items, wishlist_items; access events | Product demand/funnel. Request không phải session/người/đơn distinct; bỏ các GET sẽ đổi cơ cấu log |
+| S11 — Quan sát kỹ thuật | Health, HTTP readouts, truy vấn publication/quality/reconciliation | Landing/log fact/marts, system publications/quality; MySQL để đối soát | HTTP/system; chỉ gọi thêm API khi cần đo vì request quan sát có thể tự phát sinh log |
 
-| Đặc trưng ưu tiên | Thống kê cần tạo |
+### Bao phủ 18 mart hiện có
+
+| Nhóm | Mart cần có đầu ra BI/tra cứu sau chuyển đổi |
 |---|---|
-| Kích thước giỏ | Phân bố số SKU khác nhau mỗi hóa đơn bán hàng hợp lệ; tách với số dòng và tổng số lượng |
-| Lượng mua | Phân bố quantity dương theo SKU trong đơn, sau khi thống nhất cách gộp dòng |
-| Mua lại | Số đơn/khách, tỷ lệ khách có từ hai đơn và khoảng cách mua trong cùng cửa sổ quan sát |
-| Độ tập trung sản phẩm | Tỷ trọng lượng bán theo SKU, đường tích lũy và tỷ trọng của nhóm SKU dẫn đầu |
+| Kinh doanh | mart_order_daily, mart_sales_daily, mart_product_sales_daily |
+| Kho/cửa hàng | mart_inventory_current, mart_inventory_summary, mart_inventory_health, mart_store_overview |
+| Vận hành | mart_operations_summary, mart_logistics_performance, mart_cod_region_daily, mart_product_returns |
+| Marketing nghiệp vụ | mart_marketing_summary, mart_coupon_usage, mart_product_review_summary |
+| Tổng quan admin | mart_admin_overview; tổng tài chính vẫn lấy order mart |
+| Log | mart_hourly_route_metrics, mart_daily_product_demand, mart_marketing_funnel_daily |
 
-Mỗi tham số có một nhãn: **đo từ nguồn**, **đã điều chỉnh có lý do**, **giả định** hoặc **kịch bản**. Giá VND, cơ cấu thời trang, POS, hiệu ứng Tết/sale, coupon, COD, review và tỷ lệ hủy chưa có bằng chứng phù hợp thì giữ nhãn giả định/kịch bản. Không lấy hóa đơn hủy của UCI làm tỷ lệ hủy trước giao của đồ án.
+CSV [API_TRANSITION_SCOPE.csv](API_TRANSITION_SCOPE.csv) liệt kê đủ **86 endpoint** từ router đăng ký và khớp OpenAPI của image API đang chạy. SQL exporter hiện có 23 đích INSERT; không trực tiếp sinh `cities`, `stores`, `store_inventory`, `inbound_receipts`, `inbound_receipt_items`. Không coi preset lịch sử hiện có là đã bao phủ đủ các nguồn này.
 
-Nếu một đặc trưng không phù hợp sau phân tích, ghi rõ giới hạn và hoãn hiệu chỉnh đặc trưng đó; không cần buộc cả bốn phải dùng trực tiếp số liệu UCI. Nguồn thời trang khác có thể bổ sung sau, không chặn bản đầu tiên.
+Cơ sở đối chiếu: [router đăng ký](../../services/ecommerce-api/app/api/router.py), [SQL exporter](../../generator/src/generator/sql_export.py), [simulator](../../scripts/simulate_web_traffic.py), [API kho](../../services/ecommerce-api/app/modules/admin/router.py), [publication reader](../../services/ecommerce-api/app/modules/analytics/reader.py) và [định nghĩa KPI](../architecture/METRICS_CATALOG.md).
 
-## 4. Các bước triển khai và đầu ra
+## 3. Phạm vi backend và điều kiện bỏ endpoint
 
-| Bước | Công việc | Đầu ra |
+| Nhãn trong CSV | Số endpoint | Quyết định cho đợt chuyển đổi |
+|---|---:|---|
+| keep | 65 | Giữ trong hợp đồng nguồn/mô phỏng dự kiến, kể cả GET lookup và auth; không đồng nghĩa đã có automation |
+| keep_blocked | 2 | Giữ mục tiêu nghiệp vụ, sửa/kiểm chứng transaction trước khi đưa vào kịch bản |
+| review | 12 | Lookup/list hoặc route cửa hàng có thể dư; chỉ bỏ sau khi console/simulator có thay thế và giữ quyền store |
+| keep_until_replacement | 2 | HTTP Metrics/Realtime: giữ tới khi có quan sát tương đương đã kiểm chứng |
+| retire_after_replacement | 5 | Hai overview, role metrics, sales trend và analytics store selector: dự kiến bỏ sau khi chuyển BI/quyền/publication |
+
+Không xóa endpoint, schema, service hay bảng trong đợt 1. Lúc thu gọn phải kiểm tra consumer và kiểm tra nghiệp vụ; không xóa logic tiền/tồn/permission chỉ vì bỏ response trình bày. GET catalog/cart/order và auth đang được `scripts/simulate_web_traffic.py` dùng. Prefix `/internal/v1/orders/.../confirm` vẫn thuộc mô phỏng fulfillment hiện có.
+
+## 4. Baseline đã ghi nhận và giới hạn
+
+Xem [DATA_BASELINE.md](DATA_BASELINE.md): truy vấn MySQL read-only trong một consistent snapshot và Trino theo các snapshot publication đã chọn. Kết quả local ngày 05/11/2026: **34 đơn = 28 online + 6 POS; tổng giá trị đơn 365.506.100 VND; doanh thu thuần đã công bố 19.405.100 VND**. Hai số tiền có định nghĩa khác nhau. Số dòng 27 nguồn phân tích khớp Silver đã pin; chưa phải kiểm chứng toàn bộ tính đúng nghiệp vụ.
+
+Tất cả đơn có `data_origin=manual`, `generation_run_id=NULL`; đây là baseline local, không chứng minh giao dịch thực hay profile generator đã hiệu chỉnh. Có bảng legacy `alembic_version` ngoài 28 bảng ứng dụng; không đưa vào capture phân tích và không xóa. Không chạy backfill, import, DAG, traffic hoặc sửa bản ghi để tạo baseline này.
+
+Các điểm phải kiểm tra ở đợt 2: payment SQL export luôn succeeded; return chọn dòng đầu nhưng có thể gắn order_item cuối; chọn variant đều; số đơn/khách bị rescale; tồn cuối dựng từ lượng bán cộng buffer; COD/return theo modulo; log tổng hợp mang nhãn observed. Đây là phát hiện tĩnh, chưa sửa hoặc chạy tái hiện trong đợt 1. Lịch sử kho hiện chỉ quan sát từng lần chạy, không tự tái dựng tồn quá khứ.
+
+## 5. Hợp đồng cải thiện generator ở đợt kế tiếp
+
+Bắt đầu bằng [UCI Online Retail](https://archive.ics.uci.edu/dataset/352/online+retail), đã audit raw sơ bộ nhưng chưa làm sạch/fit. Nguồn quà tặng UK, có khách sỉ; không đại diện thời trang/POS VN. Ghim nguồn/version/checksum, giấy phép/attribution, cohort và cửa sổ trước khi đo. Tách hóa đơn bán hợp lệ với credit/cancellation, dòng dịch vụ, lượng âm/giá không hợp lệ, missing và nghi trùng; không tự xóa outlier. Chỉ khách có định danh được dùng đo mua lại, có ghi thời gian quan sát.
+
+| Đặc trưng | Cách đo phải thống nhất |
+|---|---|
+| Giỏ hàng | SKU distinct mỗi invoice hợp lệ, tách với số dòng/tổng lượng; chốt mapping SKU nguồn sang variant |
+| Lượng mua | Quantity dương theo SKU trong đơn sau khi gộp dòng đúng quy tắc |
+| Mua lại | Số đơn/khách, tỷ lệ có từ hai đơn và khoảng cách mua trong cùng cửa sổ |
+| Tập trung sản phẩm | Tỷ trọng lượng bán, đường tích lũy/top share theo thứ hạng hoặc tỷ lệ SKU khi đổi quy mô |
+
+Nguồn → cách làm sạch → thống kê → profile/logic sinh → kiểm tra đầu ra. Mỗi tham số gắn nhãn **đo từ nguồn / đã điều chỉnh / giả định / kịch bản**. Chỉ hiệu chỉnh đặc trưng có nguồn phù hợp; giá VND, Tết, POS, coupon, COD, hủy và review còn thiếu bằng chứng thì giữ giả định/kịch bản.
+
+Baseline ưu tiên đặc trưng tham chiếu; scenario ưu tiên quy mô/kịch bản, công bố phần phải điều chỉnh. Chốt đầu vào giữ cứng khi tổng đơn/số khách/tần suất xung đột. Tách tập hiệu chỉnh/đánh giá theo thời gian, giữ nguyên invoice; kiểm tra quan hệ giữa biến và dữ liệu sau ràng buộc, chạy nhiều seed/quy mô. Đặt ngưỡng theo từng đặc trưng có lý do; không công bố “độ thật 95%”. Ghim profile/reference version vào nhận diện dataset; ID lần chạy job khác ID dataset.
+
+## 6. Lộ trình và điều kiện hoàn thành
+
+| Đợt | Đầu ra | Điều kiện chuyển bước |
 |---|---|---|
-| 1. Chốt cách đo | Ghi định nghĩa bốn đặc trưng, nhóm giao dịch, cửa sổ thời gian và quy tắc nghiệp vụ | Đặc tả ngắn và danh sách kiểm tra |
-| 2. Làm sạch và phân tích nguồn | Ghim file/checksum; báo số dòng trước/sau từng bộ lọc; tách dữ liệu hiệu chỉnh và đánh giá trước khi tạo tham số | Báo cáo chất lượng và các tập tham chiếu |
-| 3. Tạo profile | Tính thống kê, ghi nguồn, đơn vị, số mẫu, cách điều chỉnh và giới hạn | Profile JSON/CSV có phiên bản và bảng ánh xạ tham số |
-| 4. Sửa generator | Nạp profile, sửa sampler giỏ/lượng mua/popularity và cách phân bổ đơn; giữ quan hệ giữa các biến khi nguồn hỗ trợ | Cấu hình baseline/scenario và generator được cập nhật |
-| 5. Đánh giá | So bản hiện tại với bản mới, chạy nhiều seed/quy mô; kiểm tra dữ liệu sau mọi bước điều chỉnh/ràng buộc | Báo cáo trước/sau, biểu đồ và các trường hợp chưa đạt |
+| 1 — Phạm vi/baseline | Ma trận S00–S11, inventory API, bao phủ mart và số liệu quan sát | Đã hoàn thành phần tài liệu/quan sát; không đồng nghĩa các scenario đã chạy |
+| 2 — Generator | Sửa lỗi nghiệp vụ, đặc tả/profile và báo cáo trước/sau bằng CLI | Ràng buộc đạt, đặc trưng được đo, giới hạn/giả định rõ |
+| 3 — Streamlit | Preset/YAML, validate, job nền và kết quả SQL/log, chạy lại không tự kích hoạt | Kết quả tương đương CLI; không ghi đè, không tự nạp MySQL |
+| 4 — Nạp/mô phỏng | Nạp dataset có nhận diện trùng; script/API cho các scenario đã chọn | Không reset dữ liệu ngầm; kiểm tra postcondition, quyền, CSRF/idempotency |
+| 5 — Superset | Một dashboard doanh thu/lợi nhuận trước, rồi đủ nhóm mart | Giữ công thức, publication đồng nhất và quyền; đối chiếu SQL trước khi chuyển toàn bộ |
+| 6 — Bỏ Next.js/thu gọn API | Dọn frontend, Compose/CI/env/docs và endpoint đã có thay thế | Nguồn và đầu ra BI chạy khi không bật Next.js; giữ dữ liệu/volume/checkpoint |
+| 7 — Kiểm chứng toàn luồng | Generator → MySQL → batch → publication → Trino → Superset; CDC/log kiểm tra riêng | Có bằng chứng từng luồng, nguồn/độ mới rõ; không gán SLA khi chưa đo |
 
-**Baseline:** ưu tiên đặc trưng tham chiếu, suy ra hoặc kiểm tra tính khả thi của số lượng phụ thuộc. **Scenario:** ưu tiên số lượng/kịch bản người dùng yêu cầu, ghi rõ đặc trưng bị thay đổi. Không âm thầm điều chỉnh tổng đơn rồi tuyên bố giữ nguyên phân phối khách hàng.
+Superset truy vấn trực tiếp không tự kế thừa `PublishedReader` hoặc RBAC tại API. Cần PoC riêng để chốt serving snapshot/version; publication OLTP và log có mốc độc lập. Không thêm database OLAP hoặc semantic layer mới trong bước chốt phạm vi. Upload JSONL lịch sử vào MinIO hiện chưa tự đi Gold; xuất SQL không sinh HTTP access log.
 
-Khi đổi số SKU, so mức tập trung theo thứ hạng/tỷ lệ SKU thay vì yêu cầu khớp mã sản phẩm thật. Khi đổi lịch sang kỳ giả lập, giữ nhất quán khoảng thời gian quan sát; hiệu ứng sale chèn thêm phải tách khỏi baseline tham chiếu.
-
-## 5. Tiêu chí kiểm chứng
-
-- **Nghiệp vụ:** khóa liên kết hợp lệ; tiền hàng/discount/refund đúng; tồn kho và diễn biến trạng thái/thời gian nhất quán. Tăng độ giống thống kê không được làm sai các ràng buộc này.
-- **Thống kê:** so phân bố, trung vị/phân vị, mua lại và mức tập trung theo cùng định nghĩa/cửa sổ. Kiểm tra cả quan hệ như kích thước giỏ với lượng mua; không chỉ so từng cột độc lập.
-- **Đánh giá riêng:** không dùng lại chính mẫu đã hiệu chỉnh làm bằng chứng độc lập. Tách theo thời gian, giữ nguyên từng hóa đơn và xử lý khác biệt thời gian quan sát của khách; báo cả thay đổi của dữ liệu nguồn giữa hai kỳ.
-- **Ngưỡng đạt:** xác định trước khi đánh giá, dựa trên biến động nguồn và sai lệch chấp nhận được của từng đặc trưng. Không đặt một mức “giống thật 95%” chung.
-- **Tái lập:** cùng code/config/seed/profile cho cùng dataset; lưu phiên bản và checksum nguồn. Profile mới phải tạo phiên bản dữ liệu mới.
-- **Tích hợp:** import vào MySQL kiểm tra biệt lập, đối soát số lượng/tiền qua Lakehouse và đầu ra phân tích. Hiện SQL không hỗ trợ import lặp vào cùng DB; không dùng việc chạy lại import làm tiêu chí idempotency đã có.
-
-Khi sửa hành vi, thêm/cập nhật kiểm tra phù hợp theo AGENTS.md và chạy lint hiện có. Dữ liệu thô, SQL/log sinh ra và kết quả lớn để ngoài Git; code, cấu hình và tài liệu nhỏ có thể review trong repo.
-
-## 6. Mốc hoàn thành và bước làm đầu tiên
-
-Bản đầu tiên hoàn thành khi có **tài liệu nguồn/giả định, profile có phiên bản, config baseline/scenario, generator đã hiệu chỉnh và báo cáo kiểm chứng trước/sau**. Đặc trưng nào chưa đạt phải được nêu rõ; không tuyên bố dữ liệu đại diện thị trường Việt Nam.
-
-**Bước tiếp theo:** hoàn thành bước 1–2 trước: định nghĩa bốn đặc trưng, làm sạch UCI và lập báo cáo phân tích. Chỉ sau khi xem được kết quả mới chốt tham số và sửa sampler.
-
-**Hiện trạng:** UCI đã được kiểm tra dữ liệu thô sơ bộ, chưa hoàn tất làm sạch, tạo profile hoặc hiệu chỉnh generator. Đợt cập nhật kế hoạch này giữ nguyên code, pipeline và `FINAL_REPORT.md`.
+Đợt 1 chỉ cập nhật tài liệu và kết quả tổng hợp nhỏ; JSON/query script gốc để ngoài Git. Chưa thay dependency, lệnh chạy, biến môi trường, source code, schema hoặc dịch vụ. `FINAL_REPORT.md` giữ nguyên. Bước tiếp theo là **đặc tả và tái hiện các lỗi nghiệp vụ generator**, rồi mới hiệu chỉnh thống kê.
