@@ -506,25 +506,6 @@ services:
         condition: service_completed_successfully
     networks: ["lakehouse-network"]
 
-  libredb-studio:
-    image: ghcr.io/libredb/libredb-studio:latest
-    profiles: ["tools"]
-    ports:
-      - "${LIBREDB_PORT:-3001}:3000"
-    environment:
-      AUTH_COOKIE_SECURE: "false"
-      ADMIN_EMAIL: ${LIBREDB_ADMIN_EMAIL:-admin@libredb.org}
-      ADMIN_PASSWORD: ${LIBREDB_ADMIN_PASSWORD:-password}
-      JWT_SECRET: ${LIBREDB_JWT_SECRET:-libredb-jwt-secret-change-me-in-prod}
-    depends_on:
-      mysql:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      trino:
-        condition: service_healthy
-    networks: ["lakehouse-network"]
-
   kafka:
     image: apache/kafka:3.8.0
     profiles: ["streaming"]

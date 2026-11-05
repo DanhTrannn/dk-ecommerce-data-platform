@@ -19,7 +19,6 @@ Bản vẽ tổng quan: [08-system-architecture.drawio](../diagram/08-system-arc
 | Iceberg 1.10 | Định dạng bảng, snapshot, schema và commit |
 | Polaris 1.6 / PostgreSQL | REST catalog, quyền truy cập và metadata quản trị |
 | Trino 483 | Đọc Iceberg qua Polaris/MinIO để phục vụ SQL |
-| LibreDB Studio | Giao diện SQL cho người vận hành |
 
 Frontend không truy cập MySQL/Trino trực tiếp. FastAPI đọc Trino cho tất cả KPI; MySQL phục vụ giao dịch, auth/RBAC và đối soát nguồn. API không gọi Spark để xử lý từng request.
 
@@ -118,7 +117,7 @@ Writer Polaris hiện có quyền quản lý nội dung ở mức catalog, chưa
 
 ## 6. Triển khai cục bộ
 
-Profile chính: `core` (Web/API/MySQL), `batch` (Airflow và nền tảng phân tích), `streaming` (Kafka/Debezium/Flink và Spark CDC hiện tại), `tools` (Polaris Console/LibreDB/Trino Admin). `lakehouse-tools` cung cấp Spark SQL client dùng khi cần. Spark chạy local trong container thực thi, không có master/worker. `.env.example` và launcher mặc định chỉ bật `core`.
+Profile chính: `core` (Web/API/MySQL), `batch` (Airflow và nền tảng phân tích), `streaming` (Kafka/Debezium/Flink và Spark CDC hiện tại), `tools` (Polaris Console/Trino Admin). `lakehouse-tools` cung cấp Spark SQL client dùng khi cần. Spark chạy local trong container thực thi, không có master/worker. `.env.example` và launcher mặc định chỉ bật `core`.
 
 Stack local dùng HTTP. TLS, Secure cookie và secret manager production chưa được đóng gói đầy đủ trong Compose hiện tại.
 
