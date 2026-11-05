@@ -10,7 +10,6 @@ The local stack implements the decoupled architecture defined in the lakehouse p
 - **Apache Polaris (v1.6.0):** Acts as the Iceberg REST Catalog, backed by PostgreSQL 16.8 for realm and RBAC metadata.
 - **Apache Spark (v3.5.9 + Iceberg v1.10.1):** The batch writer engine responsible for ETL and table commits; Flink independently handles streaming writes.
 - **Trino (v483):** The distributed SQL query engine for read-only serving.
-- **LibreDB Studio (vlatest):** Web-based SQL IDE for MySQL, PostgreSQL, and Trino (`:3001`).
 - **Debezium Connect (v3.0.8):** Captures committed changes from the MySQL row binlog and publishes per-table Kafka topics (`:8086`, localhost only).
 - **Polaris Web Console:** Catalog and RBAC management UI (`:8183`).
 
@@ -32,7 +31,7 @@ If exposing services beyond `localhost`, update the following variables to avoid
 
 Review browser-facing NEXT_PUBLIC_API_BASE_URL and API_CORS_ORIGINS together. NEXT_PUBLIC_* values are frontend build arguments; rebuild the image after changing them. Compose forwards only the listed API variables; adding API_COOKIE_SECURE or API_INTERNAL_SECRET to the root .env alone does not inject them into the API container.
 
-The seven MinIO access-key names are validated by minio-init as the managed lakehouse-* identities; secret keys must meet its length checks. Replace development secrets, but do not arbitrarily rename these accounts without updating bootstrap/policies. The LibreDB port variable is **LIBREDB_PORT**, default 3001.
+The seven MinIO access-key names are validated by minio-init as the managed lakehouse-* identities; secret keys must meet its length checks. Replace development secrets, but do not arbitrarily rename these accounts without updating bootstrap/policies.
 
 Validate interpolation without displaying rendered secrets:
 
@@ -58,7 +57,7 @@ make up PROFILES=core,batch
 # Full processing platform, without optional management interfaces
 make up PROFILES=core,batch,streaming
 
-# Include Polaris Console, LibreDB Studio and Trino Admin
+# Include Polaris Console and Trino Admin
 ./scripts/start_all.sh --all
 make ps
 ```
@@ -142,7 +141,7 @@ Compose waits for health checks or successful completion of initialization jobs 
 | Web (`core`) | Healthy `mysql` → `ecommerce-api` → `storefront`; Kafka is optional and used when `streaming` is enabled |
 | CDC (`streaming`) | Healthy MySQL → `mysql-cdc-init`; healthy Kafka plus successful MySQL CDC init → `debezium-connect` → `debezium-init` |
 | Flink (`streaming`) | Kafka/catalog ready → JobManager/TaskManager → separate access-log and CDC submissions |
-| Management interfaces (`tools`) | Polaris Console, LibreDB Studio and Trino Admin, with their storage/query dependencies; no Airflow or streaming jobs |
+| Management interfaces (`tools`) | Polaris Console and Trino Admin, with their storage/query dependencies; no Airflow or streaming jobs |
 | Spark SQL utility (`lakehouse-tools`) | `spark-client` runs local Spark SQL with its own credential volume; storage/catalog dependencies are included |
 
 `mysql` is shared by `core`, `batch`, `streaming` and `tools`. The `lakehouse-tools` profile is a one-off utility, not a normal long-running startup group. Exact membership is defined in [`docker-compose.yml`](../../docker-compose.yml).
@@ -156,7 +155,6 @@ Compose waits for health checks or successful completion of initialization jobs 
 | **Storefront** | `http://localhost:3000` | 3000 | Consumer shopping UI |
 | **Admin Console** | `http://localhost:3000/admin` | 3000 | Store operations; bootstrap account from `API_BOOTSTRAP_ADMIN_*` |
 | **Ecommerce API** | `http://localhost:8000/docs` | 8000 | Backend Swagger UI |
-| **LibreDB Studio (SQL IDE)** | `http://localhost:3001` | 3001 | Web-based SQL editor for MySQL, PostgreSQL, and Trino |
 | **Airflow UI** | `http://localhost:8080` | 8080 | DAG orchestration UI (`AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD`) |
 | **Trino Web UI** | `http://localhost:8084` | 8084 | Query execution status |
 | **Flink Dashboard** | `http://localhost:8085` | 8085 | Streaming jobs and task status |
@@ -186,7 +184,7 @@ docker compose exec trino trino --execute "SHOW SCHEMAS FROM lakehouse;"
 docker compose exec trino trino --execute "SHOW TABLES FROM lakehouse.gold;"
 ```
 
-LibreDB Studio at `http://localhost:3001` also provides a SQL interface. Airflow and Flink dashboards show the state of batch and streaming jobs.
+Airflow and Flink dashboards show the state of batch and streaming jobs.
 
 ### Load Source History and Run Batch
 

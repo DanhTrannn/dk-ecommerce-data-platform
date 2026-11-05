@@ -140,7 +140,6 @@ if has_profile streaming; then
 fi
 if has_profile tools; then
   show_url 'Polaris Console' polaris-console 8080
-  show_url 'LibreDB Studio' libredb-studio 3000
   show_url 'Trino Admin' trino-admin 8080
 fi
 if [[ "$DEGRADED" == true ]]; then
