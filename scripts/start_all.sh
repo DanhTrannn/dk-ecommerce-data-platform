@@ -14,7 +14,7 @@ usage() {
 Usage: ./scripts/start_all.sh [OPTIONS]
 
   --profiles LIST   Exact comma-separated groups: core,batch,streaming,tools
-                    Default: core (MySQL, API and storefront)
+                    Default: core (PostgreSQL)
   --all             Select core,batch,streaming,tools
   -b, --build       Build selected images before starting
   --no-wait         Skip readiness and Gold-schema checks
@@ -70,11 +70,6 @@ fi
 
 # Shell environment overrides Compose's .env without sourcing secrets as code.
 export COMPOSE_PROFILES="$PROFILES"
-if has_profile streaming; then
-  export KAFKA_ENABLED=true
-else
-  export KAFKA_ENABLED=false
-fi
 
 UP_ARGS=(-d)
 if [[ "$BUILD_IMAGES" == true ]]; then UP_ARGS+=(--build); fi
@@ -82,7 +77,7 @@ if [[ "$WAIT_FOR_HEALTH" == true ]]; then
   UP_ARGS+=(--wait --wait-timeout "$WAIT_TIMEOUT")
 fi
 DEGRADED=false
-echo "Starting service groups: $PROFILES (Kafka access logging: $KAFKA_ENABLED)"
+echo "Starting service groups: $PROFILES"
 if ! docker compose up "${UP_ARGS[@]}"; then
   if [[ "$ALLOW_DEGRADED" != true ]]; then
     echo "Startup/readiness failed. Inspect make ps and make logs." >&2
@@ -124,12 +119,7 @@ show_url() {
 }
 echo
 echo "Selected service endpoints:"
-if has_profile core; then
-  show_url Storefront storefront 3000
-  show_url 'BI dashboards' storefront 3000 /admin/analytics
-  show_url 'API documentation' ecommerce-api 8000 /docs
-fi
-if has_profile batch; then show_url Airflow airflow-webserver 8080; fi
+if has_profile batch; then show_url Airflow airflow-api-server 8080; fi
 if has_profile batch || has_profile streaming || has_profile tools; then
   show_url Trino trino 8080
   show_url 'MinIO Console' minio 9001
@@ -141,7 +131,6 @@ fi
 if has_profile tools; then
   show_url 'Generator Console' generator-console 8501
   show_url 'Polaris Console' polaris-console 8080
-  show_url 'Trino Admin' trino-admin 8080
 fi
 if [[ "$DEGRADED" == true ]]; then
   echo "WARNING: selected stack is degraded; inspect service logs."

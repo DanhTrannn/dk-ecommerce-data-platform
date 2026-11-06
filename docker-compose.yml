@@ -1,8 +1,10 @@
 x-airflow-common: &airflow-common
   build:
     context: .
-    dockerfile: infrastructure/docker/airflow/Dockerfile
-  image: lakehouse-airflow:2.10.5
+    dockerfile: infrastructure/airflow/Dockerfile
+    args:
+      ICEBERG_VERSION: ${ICEBERG_VERSION:-1.10.1}
+  image: lakehouse-airflow:3.3.2
   profiles: ["batch"]
   user: "${AIRFLOW_UID:-50000}:0"
   environment: &airflow-environment
@@ -11,34 +13,16 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER:-airflow}:${AIRFLOW_DB_PASSWORD:-password}@postgres:5432/${AIRFLOW_DB_NAME:-airflow}
-    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-change-me-airflow-secret}
-    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
-    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
-    AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type":"spark","host":"${SPARK_MASTER_URL:-local[2]}"}'
-    PIPELINE_ENV: ${PIPELINE_ENV:-local}
-    FLINK_REQUIRED_JOBS: ${FLINK_REQUIRED_JOBS:-kafka_to_lakehouse_pure_streaming,oltp_cdc_to_bronze}
-    PIPELINE_RUN_DIRECTORY: /data/pipeline-runs
-    PIPELINE_CONFIG_PATH: /opt/project/pipelines/config/default.yml
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+    AIRFLOW__SCHEDULER__CREATE_CRON_DATA_INTERVALS: "true"
+    AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-change-me-airflow-secret}
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-change-me-airflow-jwt-secret}
     PYTHONPATH: /opt/project/pipelines/src
-    MYSQL_ECOMMERCE_READER_URL: mysql+pymysql://${MYSQL_USER:-ecommerce_app}:${MYSQL_PASSWORD:-password}@mysql:3306/${MYSQL_DATABASE:-ecommerce}
-    MINIO_ENDPOINT: http://minio:9000
-    MINIO_AIRFLOW_ACCESS_KEY: ${MINIO_AIRFLOW_ACCESS_KEY:?set MINIO_AIRFLOW_ACCESS_KEY}
-    MINIO_AIRFLOW_SECRET_KEY: ${MINIO_AIRFLOW_SECRET_KEY:?set MINIO_AIRFLOW_SECRET_KEY}
-    MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
-    MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
-    MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
-    SILVER_PSEUDONYMIZE_SALT: ${SILVER_PSEUDONYMIZE_SALT:-ecommerce_lakehouse_pii_salt_2026_nd13_secure}
-    POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
-
-    POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
-    POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
-    SPARK_MASTER_URL: ${SPARK_MASTER_URL:-local[2]}
-    TRINO_URL: http://trino:8080
   volumes:
     - ./airflow/dags:/opt/airflow/dags:ro
     - ./pipelines:/opt/project/pipelines:ro
     - airflow-logs:/opt/airflow/logs
-    - pipeline-run-data:/data/pipeline-runs
     - polaris-spark-airflow-credentials:/run/polaris:ro
   networks: ["lakehouse-network"]
   depends_on:
@@ -46,17 +30,6 @@ x-airflow-common: &airflow-common
       condition: service_healthy
     polaris-init:
       condition: service_completed_successfully
-
-x-spark-common: &spark-common
-  build:
-    context: .
-    dockerfile: infrastructure/spark/Dockerfile
-    args:
-      ICEBERG_VERSION: ${ICEBERG_VERSION:-1.10.1}
-  image: lakehouse-spark:3.5.9-iceberg-${ICEBERG_VERSION:-1.10.1}
-  environment:
-    POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
-  networks: ["lakehouse-network"]
 
 x-flink-common: &flink-common
   build:
@@ -75,10 +48,7 @@ x-flink-common: &flink-common
     MINIO_FLINK_SECRET_KEY: ${MINIO_FLINK_SECRET_KEY:?set MINIO_FLINK_SECRET_KEY}
     MINIO_ENDPOINT: http://minio:9000
     KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-    KAFKA_ACCESS_LOG_TOPIC: ${KAFKA_ACCESS_LOG_TOPIC:-ecommerce.access_logs}
     CDC_TOPIC_PREFIX: ${CDC_TOPIC_PREFIX:-ecommerce}
-    CDC_FLINK_GROUP_ID: ${CDC_FLINK_GROUP_ID:-flink-oltp-cdc-bronze-v1}
-    MYSQL_DATABASE: ${MYSQL_DATABASE:-ecommerce}
     PYTHONPATH: /opt/project/pipelines/src
   networks: ["lakehouse-network"]
 
@@ -90,108 +60,6 @@ x-polaris-database-environment: &polaris-database-environment
   QUARKUS_DATASOURCE_PASSWORD: ${POLARIS_DB_PASSWORD:-password}
 
 services:
-  mysql:
-    image: mysql:8.4.5
-    profiles: ["core", "batch", "streaming", "tools"]
-    environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-ecommerce}
-      MYSQL_USER: ${MYSQL_USER:-ecommerce_app}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-password}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
-      MYSQL_CDC_USER: ${MYSQL_CDC_USER:-debezium}
-      MYSQL_CDC_PASSWORD: ${MYSQL_CDC_PASSWORD:-password}
-      TZ: UTC
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_0900_ai_ci
-      - --server-id=1
-      - --log-bin=mysql-bin
-      - --binlog-format=ROW
-      - --binlog-row-image=FULL
-      - --binlog-expire-logs-seconds=604800
-      - --gtid-mode=ON
-      - --enforce-gtid-consistency=ON
-    ports:
-      - "${MYSQL_PORT:-3306}:3306"
-    volumes:
-      - mysql-data:/var/lib/mysql
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/10-ecommerce-schema.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping --protocol=tcp -h 127.0.0.1 -P 3306 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --connect-timeout=2 --silent"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-    networks: ["lakehouse-network"]
-
-  mysql-cdc-init:
-    image: mysql:8.4.5
-    profiles: ["streaming"]
-    entrypoint: ["/bin/bash", "/opt/cdc/create-user.sh"]
-    environment:
-      MYSQL_HOST: mysql
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
-      MYSQL_CDC_USER: ${MYSQL_CDC_USER:-debezium}
-      MYSQL_CDC_PASSWORD: ${MYSQL_CDC_PASSWORD:-password}
-    volumes:
-      - ./infrastructure/mysql/create-cdc-user.sh:/opt/cdc/create-user.sh:ro
-    depends_on:
-      mysql:
-        condition: service_healthy
-    restart: "no"
-    networks: ["lakehouse-network"]
-
-  ecommerce-api:
-    build:
-      context: .
-      dockerfile: services/ecommerce-api/Dockerfile
-    image: ecommerce-api:0.1.0
-    profiles: ["core"]
-    environment:
-      API_DATABASE_URL: mysql+pymysql://${MYSQL_USER:-ecommerce_app}:${MYSQL_PASSWORD:-password}@mysql:3306/${MYSQL_DATABASE:-ecommerce}
-      API_ANALYTICS_CACHE_MAX_AGE_SECONDS: ${API_ANALYTICS_CACHE_MAX_AGE_SECONDS:-3600}
-      API_SECRET_KEY: ${API_SECRET_KEY:-change-me-with-at-least-32-random-characters}
-      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:3000}
-      API_BOOTSTRAP_ADMIN_EMAIL: ${API_BOOTSTRAP_ADMIN_EMAIL:-admin@web.local}
-      API_BOOTSTRAP_ADMIN_PASSWORD: ${API_BOOTSTRAP_ADMIN_PASSWORD:-Admin@12345}
-      API_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${API_BOOTSTRAP_ADMIN_DISPLAY_NAME:-Admin}
-      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
-      KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
-      KAFKA_ACCESS_LOG_TOPIC: ${KAFKA_ACCESS_LOG_TOPIC:-ecommerce.access_logs}
-    ports:
-      - "${API_PORT:-8000}:8000"
-    depends_on:
-      mysql:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-        required: false
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-    networks: ["lakehouse-network"]
-
-  storefront:
-    build:
-      context: ./apps/storefront
-      args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
-        NEXT_PUBLIC_CSRF_COOKIE_NAME: ${NEXT_PUBLIC_CSRF_COOKIE_NAME:-web_csrf}
-    image: storefront:0.1.0
-    profiles: ["core"]
-    ports:
-      - "${STOREFRONT_PORT:-3000}:3000"
-    depends_on:
-      ecommerce-api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks: ["lakehouse-network"]
-
   minio:
     image: cgr.dev/chainguard/minio:latest-dev
     command: server /data --console-address ":9001"
@@ -230,12 +98,8 @@ services:
       MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
       MINIO_FLINK_ACCESS_KEY: ${MINIO_FLINK_ACCESS_KEY:?set MINIO_FLINK_ACCESS_KEY}
       MINIO_FLINK_SECRET_KEY: ${MINIO_FLINK_SECRET_KEY:?set MINIO_FLINK_SECRET_KEY}
-      MINIO_AIRFLOW_ACCESS_KEY: ${MINIO_AIRFLOW_ACCESS_KEY:?set MINIO_AIRFLOW_ACCESS_KEY}
-      MINIO_AIRFLOW_SECRET_KEY: ${MINIO_AIRFLOW_SECRET_KEY:?set MINIO_AIRFLOW_SECRET_KEY}
       MINIO_TRINO_ACCESS_KEY: ${MINIO_TRINO_ACCESS_KEY:?set MINIO_TRINO_ACCESS_KEY}
       MINIO_TRINO_SECRET_KEY: ${MINIO_TRINO_SECRET_KEY:?set MINIO_TRINO_SECRET_KEY}
-      MINIO_TRINO_ADMIN_ACCESS_KEY: ${MINIO_TRINO_ADMIN_ACCESS_KEY:?set MINIO_TRINO_ADMIN_ACCESS_KEY}
-      MINIO_TRINO_ADMIN_SECRET_KEY: ${MINIO_TRINO_ADMIN_SECRET_KEY:?set MINIO_TRINO_ADMIN_SECRET_KEY}
       MINIO_UPLOADER_ACCESS_KEY: ${MINIO_UPLOADER_ACCESS_KEY:?set MINIO_UPLOADER_ACCESS_KEY}
       MINIO_UPLOADER_SECRET_KEY: ${MINIO_UPLOADER_SECRET_KEY:?set MINIO_UPLOADER_SECRET_KEY}
     volumes:
@@ -247,11 +111,21 @@ services:
 
 
   postgres:
-    image: postgres:16.8-alpine
-    profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
+    image: postgres:16.8
+    profiles: ["core", "batch", "streaming", "tools", "lakehouse-tools"]
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=4", "-c", "max_wal_senders=4"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
+      POSTGRES_ECOMMERCE_USER: ${POSTGRES_ECOMMERCE_USER:-ecommerce_app}
+      POSTGRES_ECOMMERCE_PASSWORD: ${POSTGRES_ECOMMERCE_PASSWORD:-password}
+      POSTGRES_CDC_USER: ${POSTGRES_CDC_USER:-debezium}
+      POSTGRES_CDC_PASSWORD: ${POSTGRES_CDC_PASSWORD:-password}
+      POLARIS_DB_NAME: ${POLARIS_DB_NAME:-polaris}
+      POLARIS_DB_USER: ${POLARIS_DB_USER:-polaris}
+      AIRFLOW_DB_NAME: ${AIRFLOW_DB_NAME:-airflow}
+      AIRFLOW_DB_USER: ${AIRFLOW_DB_USER:-airflow}
       POLARIS_DB_PASSWORD: ${POLARIS_DB_PASSWORD:-password}
       AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:-password}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --data-checksums"
@@ -332,7 +206,10 @@ services:
     networks: ["lakehouse-network"]
 
   polaris-init:
-    image: alpine/curl:8.21.0
+    build:
+      context: .
+      dockerfile: infrastructure/polaris/Dockerfile
+    image: lakehouse-polaris-init:0.1.0
     profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
     environment:
       POLARIS_URL: http://polaris:8181
@@ -355,7 +232,6 @@ services:
       - polaris-spark-airflow-credentials:/run/polaris-output/spark-airflow
       - polaris-flink-credentials:/run/polaris-output/flink
       - polaris-trino-reader-credentials:/run/polaris-output/trino-reader
-      - polaris-trino-admin-credentials:/run/polaris-output/trino-admin
     depends_on:
       polaris:
         condition: service_healthy
@@ -386,7 +262,12 @@ services:
     networks: ["lakehouse-network"]
 
   spark-client:
-    <<: *spark-common
+    build:
+      context: .
+      dockerfile: infrastructure/spark/Dockerfile
+      args:
+        ICEBERG_VERSION: ${ICEBERG_VERSION:-1.10.1}
+    image: lakehouse-spark:3.5.9-iceberg-${ICEBERG_VERSION:-1.10.1}
     profiles: ["lakehouse-tools"]
     entrypoint: ["/opt/project/spark/with-polaris-credentials.sh"]
     environment:
@@ -395,12 +276,8 @@ services:
       MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
       MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
       POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
-      POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
-      POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
     command:
       - /opt/spark/bin/spark-sql
-      - --master
-      - ${SPARK_MASTER_URL:-local[2]}
       - -e
       - SHOW NAMESPACES IN lakehouse
     volumes:
@@ -408,6 +285,7 @@ services:
     depends_on:
       polaris-init:
         condition: service_completed_successfully
+    networks: ["lakehouse-network"]
 
   airflow-init:
     <<: *airflow-common
@@ -422,23 +300,19 @@ services:
         --firstname Web
         --lastname Admin
         --role Admin
-        --email admin@example.local || true) &&
-        (airflow connections delete spark_default || true) &&
-        airflow connections add spark_default
-        --conn-host "$${SPARK_MASTER_URL}"
-        --conn-type spark
+        --email admin@example.local || true)
     environment:
       <<: *airflow-environment
       AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-airflow}
       AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-password}
 
-  airflow-webserver:
+  airflow-api-server:
     <<: *airflow-common
-    command: webserver
+    command: api-server
     ports:
       - "${AIRFLOW_PORT:-8080}:8080"
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 15s
       timeout: 10s
       retries: 20
@@ -451,6 +325,20 @@ services:
     command: scheduler
     healthcheck:
       test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname $${HOSTNAME}"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-api-server:
+        condition: service_healthy
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type DagProcessorJob --hostname $${HOSTNAME}"]
       interval: 20s
       timeout: 10s
       retries: 10
@@ -485,27 +373,6 @@ services:
       start_period: 30s
     networks: ["lakehouse-network"]
 
-  trino-admin:
-    image: trinodb/trino:483
-    profiles: ["tools"]
-    entrypoint: ["/bin/sh", "/opt/trino/start.sh"]
-    environment:
-      POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
-      POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
-      MINIO_TRINO_ACCESS_KEY: ${MINIO_TRINO_ADMIN_ACCESS_KEY:?set MINIO_TRINO_ADMIN_ACCESS_KEY}
-      MINIO_TRINO_SECRET_KEY: ${MINIO_TRINO_ADMIN_SECRET_KEY:?set MINIO_TRINO_ADMIN_SECRET_KEY}
-    ports:
-      - "${TRINO_BIND_ADDRESS:-127.0.0.1}:${TRINO_ADMIN_PORT:-8087}:8080"
-    volumes:
-      - ./infrastructure/trino/start.sh:/opt/trino/start.sh:ro
-      - ./infrastructure/trino/config.properties:/etc/trino/config.properties:ro
-      - ./infrastructure/trino/catalog:/etc/trino/catalog:ro
-      - polaris-trino-admin-credentials:/run/polaris:ro
-    depends_on:
-      polaris-init:
-        condition: service_completed_successfully
-    networks: ["lakehouse-network"]
-
   generator-console:
     build:
       context: .
@@ -515,11 +382,6 @@ services:
     user: "${GENERATOR_CONSOLE_UID:-1000}:${GENERATOR_CONSOLE_GID:-1000}"
     environment:
       HOME: /tmp
-      GENERATOR_CONSOLE_REPO_ROOT: /app
-      GENERATOR_CONFIGS_DIR: /app/generator/configs
-      GENERATOR_PROFILE_PATH: /app/generator/profiles/uci-online-retail-uk-v1.json
-      GENERATOR_CONSOLE_DATA_DIR: /data/generator/jobs
-      GENERATOR_CONSOLE_MAX_ARCHIVE_BYTES: ${GENERATOR_CONSOLE_MAX_ARCHIVE_BYTES:-209715200}
       STREAMLIT_SERVER_HEADLESS: "true"
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
     ports:
@@ -606,19 +468,19 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      mysql-cdc-init:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     networks: ["lakehouse-network"]
 
   debezium-init:
-    image: curlimages/curl:8.17.0
+    image: alpine/curl:8.21.0
     profiles: ["streaming"]
     entrypoint: ["/bin/sh", "/opt/debezium/register-connector.sh"]
     environment:
       DEBEZIUM_CONNECT_URL: http://debezium-connect:8083
-      MYSQL_CDC_USER: ${MYSQL_CDC_USER:-debezium}
-      MYSQL_CDC_PASSWORD: ${MYSQL_CDC_PASSWORD:-password}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-ecommerce}
+      POSTGRES_CDC_USER: ${POSTGRES_CDC_USER:-debezium}
+      POSTGRES_CDC_PASSWORD: ${POSTGRES_CDC_PASSWORD:-password}
+      POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
       CDC_TOPIC_PREFIX: ${CDC_TOPIC_PREFIX:-ecommerce}
     volumes:
       - ./infrastructure/debezium/register-connector.sh:/opt/debezium/register-connector.sh:ro
@@ -637,8 +499,6 @@ services:
       <<: *flink-environment
       JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
     volumes:
-      - ./infrastructure/flink/conf/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml:ro
-      - ./infrastructure/flink/bin:/opt/project/flink/bin:ro
       - ./pipelines:/opt/project/pipelines:ro
       - polaris-flink-credentials:/run/polaris:ro
       - flink-checkpoints:/opt/flink/checkpoints
@@ -663,8 +523,6 @@ services:
       <<: *flink-environment
       JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
     volumes:
-      - ./infrastructure/flink/conf/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml:ro
-      - ./infrastructure/flink/bin:/opt/project/flink/bin:ro
       - ./pipelines:/opt/project/pipelines:ro
       - polaris-flink-credentials:/run/polaris:ro
       - flink-checkpoints:/opt/flink/checkpoints
@@ -677,7 +535,6 @@ services:
     command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/opt/project/flink/bin/submit-job.sh"]
     restart: "no"  # one-shot: submit job then exit
     volumes:
-      - ./infrastructure/flink/bin:/opt/project/flink/bin:ro
       - ./pipelines:/opt/project/pipelines:ro
       - polaris-flink-credentials:/run/polaris:ro
       - flink-checkpoints:/opt/flink/checkpoints
@@ -698,7 +555,6 @@ services:
       JOB_NAME_PATTERN: oltp_cdc_to_bronze
     restart: "no"
     volumes:
-      - ./infrastructure/flink/bin:/opt/project/flink/bin:ro
       - ./pipelines:/opt/project/pipelines:ro
       - polaris-flink-credentials:/run/polaris:ro
       - flink-checkpoints:/opt/flink/checkpoints
@@ -716,16 +572,13 @@ networks:
     name: lakehouse-network
 
 volumes:
-  mysql-data:
   minio-data:
   postgres-data:
   polaris-spark-client-credentials:
   polaris-spark-airflow-credentials:
   polaris-flink-credentials:
   polaris-trino-reader-credentials:
-  polaris-trino-admin-credentials:
   polaris-credential-state:
   airflow-logs:
-  pipeline-run-data:
   kafka-data:
   flink-checkpoints:

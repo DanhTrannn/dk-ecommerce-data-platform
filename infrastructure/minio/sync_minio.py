@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Converge the seven configured MinIO users in place; preserve other identities."""
+"""Converge configured MinIO users in place; preserve other identities."""
 
 from __future__ import annotations
 
@@ -24,9 +24,7 @@ IDENTITIES = {
     "lakehouse-polaris": "POLARIS",
     "lakehouse-spark": "SPARK",
     "lakehouse-flink": "FLINK",
-    "lakehouse-airflow": "AIRFLOW",
     "lakehouse-trino": "TRINO",
-    "lakehouse-trino-admin": "TRINO_ADMIN",
     "lakehouse-uploader": "UPLOADER",
 }
 AUTH_ERRORS = {"SignatureDoesNotMatch", "InvalidAccessKeyId"}

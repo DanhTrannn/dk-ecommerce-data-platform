@@ -21,6 +21,12 @@
 
 </div>
 
+> **Infrastructure transition:** Compose now uses one PostgreSQL service with separate `ecommerce`, `airflow` and `polaris` databases; MySQL services and their volume declaration are removed. This is a fresh-install infrastructure change only. The MySQL business schema, Backend/ORM, generator, pipeline JDBC/source handling and CDC consumer code have **not** been ported yet, so full application/pipeline startup is not ready. Existing data will not be migrated; build/start/reset has not been performed. Spark and Airflow retain separate Dockerfiles/images. Airflow 3.3.2 build verification remains paused.
+
+**Current infrastructure-only scope:** Compose excludes the API/frontend and retains the Streamlit Generator Console on its Python slim image. The `core` profile starts PostgreSQL only. Airflow has service startup configuration and the Python path required to parse mounted DAGs; source credentials, Spark connections, pipeline configuration and PII salt must be supplied later before running business DAGs. Existing application/startup instructions below describe the broader project and are outside this temporary scope.
+
+Infrastructure images remain separate per service. `ICEBERG_VERSION` is passed to Airflow, Spark and Flink builds. Flink configuration and launcher scripts are baked into its image; rebuild after editing `infrastructure/flink/conf/` or `infrastructure/flink/bin/` (pipeline source remains mounted). Polaris init also installs its Python/YAML dependencies at build time. See the [bootstrap workflow](docs/runbook/SETUP.md#automated-bootstrap-workflow) for the reduced set of service accounts.
+
 The **D&K E-Commerce Data Platform** is a local Data Engineering project combining an e-commerce source application, batch data processing, MySQL change capture, and access-log streaming. MySQL contains 28 OLTP tables; 27 are configured for analytical ingestion. Data is stored in Apache Iceberg on MinIO, cataloged by Polaris, and queried through Trino. A Next.js/FastAPI application provides Storefront, POS, administration, and ECharts dashboards.
 
 > [!NOTE]
@@ -99,7 +105,7 @@ make up PROFILES=core,batch
 # Add Kafka, CDC and access-log streaming
 make up PROFILES=core,batch,streaming
 
-# Optional management interfaces (Generator Console, Polaris Console and Trino Admin)
+# Optional management interfaces (Generator Console and Polaris Console)
 make up PROFILES=core,batch,streaming,tools
 
 make ps
@@ -126,14 +132,13 @@ Ports and credentials below follow the default configuration; environment overri
 | **Flink Dashboard** | 8085 | `http://localhost:8085` | Job status |
 | **Kafka** | 9092, 9094 | `localhost:9094` | External listener; Docker clients use `kafka:9092` |
 | **Debezium Connect** | 8086 | `http://127.0.0.1:8086` | Connector lifecycle/status |
-| **Trino Admin (optional)** | 8087 | `http://localhost:8087` | Optional `tools` profile |
 | **Generator Console (optional)** | 8501 | `http://localhost:8501` | Optional `tools` profile; SQL/access-log jobs stored under `data/generator/jobs/` |
 
 Additional staff accounts and store assignments are managed through the application.
 
 ### Service Identities
 
-Storage workloads use seven scoped MinIO identities and four Polaris principals: `spark_writer`, `flink_writer`, `trino_reader`, and `trino_admin`. Each consumer mounts its own credential file. Polaris uses YAML only for first-run bootstrap; later access changes are managed through Console/API and preserved when init runs again. MinIO initialization uses root only to synchronize seven managed users/policies in place; correct credentials remain unchanged, excess grants are removed, and other accounts are preserved. Regular workloads use their assigned identities. Details are in the [setup guide](docs/runbook/SETUP.md).
+Storage bootstrap configures five scoped MinIO identities and three Polaris principals: `spark_writer`, `flink_writer`, and `trino_reader`. The standalone `trino-admin` service and its seed identity/credential output are removed, as is the unused MinIO Airflow identity. Polaris uses YAML only for first-run bootstrap; later access changes are managed through Console/API and preserved when init runs again. MinIO initialization uses root only to synchronize the five managed users/policies in place; correct credentials remain unchanged, excess grants are removed, and other accounts are preserved. This configuration cleanup does not delete existing remote identities or Docker volumes. Details are in the [setup guide](docs/runbook/SETUP.md).
 
 ---
 
@@ -188,7 +193,7 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 | **Table Format** | Apache Iceberg | 1.10.1 | Tables, snapshots, and commits |
 | **Catalog** | Apache Polaris | 1.6.0 | REST catalog and access control |
 | **Batch Processing** | Apache Spark | 3.5.9 | Local execution inside job containers; extraction, transforms, gates and maintenance |
-| **Orchestration** | Apache Airflow | 2.10.5 | Batch and maintenance DAGs |
+| **Orchestration** | Apache Airflow | 3.3.2 | API server/UI, scheduler, standalone DAG processor; LocalExecutor |
 | **Metadata DB** | PostgreSQL | 16.8 | Polaris and Airflow metadata |
 | **Query Engine** | Trino | 483 | SQL over Iceberg |
 

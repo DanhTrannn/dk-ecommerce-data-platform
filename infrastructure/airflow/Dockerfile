@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 FROM curlimages/curl:8.17.0 AS pipeline-jars
 ARG ICEBERG_VERSION=1.10.1
-ARG MYSQL_CONNECTOR_VERSION=8.4.0
+ARG POSTGRES_JDBC_VERSION=42.7.14
 ARG HADOOP_AWS_VERSION=3.3.4
 ARG AWS_SDK_BUNDLE_VERSION=1.12.262
 ARG MAVEN_MIRROR=https://repo1.maven.org/maven2
@@ -16,8 +16,8 @@ RUN mkdir -p /tmp/jars \
       --output /tmp/jars/iceberg-aws-bundle.jar \
     && curl --fail --location --retry 5 --retry-all-errors --retry-delay 5 \
       -C - --connect-timeout 30 \
-      "${MAVEN_MIRROR}/com/mysql/mysql-connector-j/${MYSQL_CONNECTOR_VERSION}/mysql-connector-j-${MYSQL_CONNECTOR_VERSION}.jar" \
-      --output /tmp/jars/mysql-connector-j.jar \
+      "${MAVEN_MIRROR}/org/postgresql/postgresql/${POSTGRES_JDBC_VERSION}/postgresql-${POSTGRES_JDBC_VERSION}.jar" \
+      --output /tmp/jars/postgresql.jar \
     && curl --fail --location --retry 5 --retry-all-errors --retry-delay 5 \
       -C - --connect-timeout 30 \
       "${MAVEN_MIRROR}/org/apache/hadoop/hadoop-aws/${HADOOP_AWS_VERSION}/hadoop-aws-${HADOOP_AWS_VERSION}.jar" \
@@ -27,7 +27,7 @@ RUN mkdir -p /tmp/jars \
       "${MAVEN_MIRROR}/com/amazonaws/aws-java-sdk-bundle/${AWS_SDK_BUNDLE_VERSION}/aws-java-sdk-bundle-${AWS_SDK_BUNDLE_VERSION}.jar" \
       --output /tmp/jars/aws-java-sdk-bundle.jar
 
-FROM apache/airflow:2.10.5-python3.11
+FROM apache/airflow:3.3.2-python3.11
 COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 
 USER root
@@ -44,13 +44,17 @@ COPY --chown=airflow:root pyproject.toml uv.lock .python-version ./
 COPY --chown=airflow:root services/ecommerce-api/pyproject.toml services/ecommerce-api/pyproject.toml
 COPY --chown=airflow:root generator/pyproject.toml generator/pyproject.toml
 COPY --chown=airflow:root pipelines/pyproject.toml pipelines/pyproject.toml
+COPY --chown=airflow:root apps/generator-console/pyproject.toml apps/generator-console/pyproject.toml
 USER airflow
 RUN --mount=type=cache,target=/home/airflow/.cache/uv,uid=50000,gid=0 \
     uv export --frozen --no-dev \
         --no-emit-project --no-emit-workspace --no-hashes \
         --package batch-pipeline \
         --output-file /tmp/airflow-requirements.txt \
-    && uv pip install --requirement /tmp/airflow-requirements.txt \
+    && uv pip install "apache-airflow==3.3.2" --requirement /tmp/airflow-requirements.txt \
     && rm /tmp/airflow-requirements.txt \
-    && uv pip install pyspark==3.5.9 pandas==2.2.3 apache-airflow-providers-apache-spark==4.11.3 \
+    && uv pip install "apache-airflow==3.3.2" pyspark==3.5.9 pandas==2.2.3 \
+        apache-airflow-providers-apache-spark==5.6.0 \
+        apache-airflow-providers-fab==3.9.0 \
+        apache-airflow-providers-standard==1.19.0 \
     && cp /opt/spark/jars/*.jar "$(python -c 'import pyspark, os; print(os.path.join(os.path.dirname(pyspark.__file__), "jars"))')/"

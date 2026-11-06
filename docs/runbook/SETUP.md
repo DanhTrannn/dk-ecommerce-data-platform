@@ -1,5 +1,9 @@
 # Local Lakehouse Setup
 
+> **Infrastructure-only transition (2026-11-06):** PostgreSQL now hosts separate empty databases `ecommerce`, `airflow` and `polaris` on first initialization. MySQL/CDC-user-init services, MySQL JDBC JARs and the MySQL connector plugin are removed from infrastructure. Debezium now targets PostgreSQL `pgoutput` with a filtered publication. Each service keeps its own Dockerfile/image.
+>
+> No old data migration or runtime reset is performed in this change. Build alone does not empty Docker volumes: database init scripts run only on a fresh PostgreSQL volume. The application schema/ORM/drivers, generator, Spark source logic, scripts and Flink CDC consumer still require a separate PostgreSQL port; do not treat the older MySQL application/ingestion instructions below as working against the new infrastructure. Source tables and their replica identity must be prepared before enabling CDC. Airflow 3.3.2 build/migration verification is still paused.
+
 This runbook covers local startup dependencies, data operations, RBAC bootstrapping, catalog inspection, and troubleshooting. Run commands from the repository root. See the [root README](../../README.md#development-commands) for development commands and CI.
 
 ## 1. Component Boundaries
@@ -32,7 +36,7 @@ If exposing services beyond `localhost`, update the following variables to avoid
 
 Review browser-facing NEXT_PUBLIC_API_BASE_URL and API_CORS_ORIGINS together. NEXT_PUBLIC_* values are frontend build arguments; rebuild the image after changing them. Compose forwards only the listed API variables; adding API_COOKIE_SECURE or API_INTERNAL_SECRET to the root .env alone does not inject them into the API container.
 
-The seven MinIO access-key names are validated by minio-init as the managed lakehouse-* identities; secret keys must meet its length checks. Replace development secrets, but do not arbitrarily rename these accounts without updating bootstrap/policies.
+The five MinIO access-key names are validated by minio-init as the managed lakehouse-* identities; secret keys must meet its length checks. Replace development secrets, but do not arbitrarily rename these accounts without updating bootstrap/policies.
 
 Validate interpolation without displaying rendered secrets:
 
@@ -58,7 +62,7 @@ make up PROFILES=core,batch
 # Full processing platform, without optional management interfaces
 make up PROFILES=core,batch,streaming
 
-# Include Generator Console, Polaris Console and Trino Admin
+# Include Generator Console and Polaris Console
 make up PROFILES=core,tools
 # Or the full stack
 ./scripts/start_all.sh --all
@@ -82,6 +86,23 @@ OLTP analytics now has one writer: the batch DAG. Starting `core,batch` does not
 
 Spark runs with `SPARK_MASTER_URL=local[2]` inside the container executing each job. Airflow's `spark_default` connection uses the same value, including an environment-backed connection that overrides legacy metadata pointing at the retired cluster. Ad hoc Spark SQL also runs locally. There is no Spark master/worker service or persistent Spark cluster UI. Adjust the local thread count in `.env` if required.
 
+### Airflow 3.3.2 upgrade
+
+Airflow now runs as `airflow-api-server` (UI/API on the same port 8080), `airflow-scheduler` and `airflow-dag-processor`. The former `airflow-webserver` command/service is replaced. LocalExecutor, Spark 3.5.9 and FAB users are retained. FAB and Standard providers are installed explicitly; DAGs use the Airflow SDK imports.
+
+The current decision is a clean installation: do not migrate or reuse old application/metadata data. `airflow-init` still uses `airflow db migrate` to create the Airflow schema in its new empty database; this is not a data migration from MySQL or an upgrade of the old metadata volume.
+
+```bash
+docker compose --profile batch build airflow-init
+# After a fresh PostgreSQL volume has been initialized:
+docker compose --profile batch run --rm airflow-init
+docker compose --profile batch up -d airflow-api-server airflow-scheduler airflow-dag-processor
+```
+
+Set `AIRFLOW_JWT_SECRET` in `.env` to a stable private value shared by all Airflow components; API secret signing still uses `AIRFLOW_SECRET_KEY`. Health is exposed at `/api/v2/monitor/health`; the public API is `/api/v2`, with FAB token login. `AIRFLOW__SCHEDULER__CREATE_CRON_DATA_INTERVALS=true` preserves batch extraction intervals. No triggerer or separate worker service is needed by the current DAGs.
+
+Official migration reference: [Upgrading to Airflow 3](https://airflow.apache.org/docs/apache-airflow/3.3.2/installation/upgrading_to_airflow3.html).
+
 ### Updating an existing installation
 
 Rebuild the Spark utility/CDC image and recreate the changed execution services. Preserve all named volumes:
@@ -101,23 +122,27 @@ After MySQL becomes healthy, `ecommerce-api` initializes the catalog/admin if ne
 
 ### Automated Bootstrap Workflow
 
-1. `minio-init` builds from `infrastructure/minio/Dockerfile` and converges the private `lakehouse` bucket plus **seven explicitly managed users/policies** (`lakehouse-polaris`, `lakehouse-spark`, `lakehouse-flink`, `lakehouse-airflow`, `lakehouse-trino`, `lakehouse-trino-admin`, `lakehouse-uploader`). Correct users/policies remain unchanged; missing resources are created and drift is updated in place. Unexpected direct policies and group memberships are removed only from these users. Accounts/policies outside this exact list are preserved, including unknown `lakehouse-*` names, which produce a warning. Access keys/secrets come from `.env`; no user is deleted/recreated by synchronization.
-2. On a fresh volume, `postgres` provisions databases for `polaris` and `airflow`; its initialization script also retains a legacy `hue` database definition. There is no active Hue service in this Compose stack.
+For the current infrastructure-only phase, Compose excludes API/frontend and keeps the Streamlit console on Python slim. `core` starts PostgreSQL only. Airflow no longer receives business source/S3/catalog variables, PII salt or preconfigured Spark connections. Keep its mounted DAG import path; configure task execution separately when pipeline work resumes. Streamlit uses its image defaults for application settings.
+
+Polaris init uses its own image (`infrastructure/polaris/Dockerfile`), based on the same `alpine/curl:8.21.0` version as Debezium init. Python/PyYAML are installed at build time; init no longer installs packages or changes package repositories on startup.
+
+1. `minio-init` builds from `infrastructure/minio/Dockerfile` and converges the private `lakehouse` bucket plus **five explicitly managed users/policies** (`lakehouse-polaris`, `lakehouse-spark`, `lakehouse-flink`, `lakehouse-trino`, `lakehouse-uploader`). Correct users/policies remain unchanged; missing resources are created and drift is updated in place. Unexpected direct policies and group memberships are removed only from these users. Accounts/policies outside this exact list are preserved, including unknown `lakehouse-*` names, which produce a warning. Access keys/secrets come from `.env`; no user is deleted/recreated by synchronization.
+2. On a fresh volume, `postgres` provisions separate `ecommerce`, `polaris` and `airflow` databases and the Debezium replication account. Business tables still require the pending PostgreSQL schema conversion.
 3. `polaris-bootstrap` initializes the JDBC metadata store and default `POLARIS` realm.
 4. `polaris-init` creates the `lakehouse` catalog mapped to `s3://lakehouse/warehouse` and registers the namespaces (`landing`, `bronze`, `silver`, `gold`, `quarantine`, `system`).
-5. On a new installation, `polaris-init` bootstraps **four dedicated service principals** (`spark_writer`, `flink_writer`, `trino_reader`, `trino_admin`) from `infrastructure/polaris/rbac.yml`. Each consumer receives its **own private `clients.env`** written to `polaris-spark-client-credentials`, `polaris-spark-airflow-credentials`, `polaris-flink-credentials`, `polaris-trino-reader-credentials`, or `polaris-trino-admin-credentials` (per-consumer Docker volumes, `0600` files). Principal credentials are also cached in a **root-only state file** under `polaris-credential-state` (`/run/polaris-state/`) so subsequent init verifies identities and restores missing output files without applying YAML or resetting credentials. Existing catalogs/credentials are adopted without RBAC changes. See section 6 for the JSON bootstrap marker and recovery.
-6. `mysql-cdc-init` provisions the dedicated replication account; `debezium-init` idempotently registers the MySQL connector.
+5. On a new installation, `polaris-init` bootstraps **three dedicated service principals** (`spark_writer`, `flink_writer`, `trino_reader`) from `infrastructure/polaris/rbac.yml`. Each consumer receives its **own private `clients.env`** written to `polaris-spark-client-credentials`, `polaris-spark-airflow-credentials`, `polaris-flink-credentials`, or `polaris-trino-reader-credentials` (per-consumer Docker volumes, `0600` files). Principal credentials are also cached in a **root-only state file** under `polaris-credential-state` (`/run/polaris-state/`) so subsequent init verifies identities and restores missing output files without applying YAML or resetting credentials. Existing catalogs/credentials are adopted without RBAC changes. See section 6 for the JSON bootstrap marker and recovery.
+6. `debezium-init` idempotently registers the PostgreSQL connector. The application schema and CDC consumer conversion remain pending.
 7. `flink-cdc-submit` starts the continuous Kafka-to-Iceberg Bronze CDC job alongside access-log streaming.
 
 ### MinIO identity synchronization
 
-The repository remains authoritative for the seven managed MinIO users. This differs from Polaris, whose YAML is only a first-run seed. Manual changes to a managed MinIO user's policy, group membership, enabled status or configured secret are reconciled on the next init.
+The repository remains authoritative for the five managed MinIO users. This differs from Polaris, whose YAML is only a first-run seed. Manual changes to a managed MinIO user's policy, group membership, enabled status or configured secret are reconciled on the next init.
 
 The one-shot init image adds Python and Boto3 (the workspace's pinned version) to the MinIO CLI runtime. Python parses CLI JSON and compares IAM documents without relying on text formatting or action/resource order. No additional long-running service or persistent synchronization database is introduced.
 
 The controller validates all local credentials/policy files before remote changes, validates changed IAM documents with temporary policies, then creates/updates only the required resources. Preflight policies have unique names and are removed after validation. Updating a policy used by an unmanaged user or a group containing unmanaged members fails before the real update; sharing must be resolved explicitly.
 
-S3 `GetBucketLocation` verifies each configured credential; the seven seed policies allow it. Only authentication errors trigger an in-place secret update. Permission, network and other verification errors fail instead of rotating a secret. Secrets are passed to CLI user commands through stdin and are not printed in logs. User status is converged to enabled, matching these configured workload identities.
+S3 `GetBucketLocation` verifies each configured credential; the five seed policies allow it. Only authentication errors trigger an in-place secret update. Permission, network and other verification errors fail instead of rotating a secret. Secrets are passed to CLI user commands through stdin and are not printed in logs. User status is converged to enabled, matching these configured workload identities.
 
 Once MinIO is healthy, rebuild the new init image and run it independently:
 
@@ -128,7 +153,7 @@ docker compose run --rm --no-deps minio-init
 
 The final log reports counts of created users/policies, changed secrets, repaired attachments/group memberships and bucket changes. An already correct installation reports zero changes. Any failed command/verification returns nonzero; a multi-user update is not atomic, so rerun after resolving the error. The controller does not delete users or their data. The configured bucket is created only when missing, and its bucket policy is removed when needed to maintain the repository's private-bucket configuration; object contents are retained.
 
-To rotate a managed secret deliberately, coordinate a maintenance window for its consumers, update `.env`, run `minio-init`, then recreate the consumers with the new environment. `docker compose restart` does not reload environment values. Remember that Spark in Airflow uses the Spark identity, while orchestration also receives the Airflow identity. Updating a MinIO secret does not rotate Polaris OAuth credentials.
+To rotate a managed secret deliberately, coordinate a maintenance window for its consumers, update `.env`, run `minio-init`, then recreate the consumers with the new environment. `docker compose restart` does not reload environment values. Spark task credentials must be configured separately when pipeline execution is restored; Airflow currently receives only service startup settings. Updating a MinIO secret does not rotate Polaris OAuth credentials.
 
 Unknown or retired `lakehouse-*` users/policies are preserved and warned about, rather than purged by prefix. Removing a name from the managed list is not an account-deletion command. Deactivation/removal remains an explicit operator action.
 
@@ -163,19 +188,12 @@ Compose waits for health checks or successful completion of initialization jobs 
 | **Flink Dashboard** | `http://localhost:8085` | 8085 | Streaming jobs and task status |
 | **Polaris Console** | `http://localhost:8183` | 8183 | Catalog & RBAC UI (`POLARIS_ROOT_CLIENT_ID` / `POLARIS_ROOT_CLIENT_SECRET`; Realm: `POLARIS`) |
 | **MinIO Console** | `http://localhost:9001` | 9001 | S3 Object browser (`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`) |
-| **Trino Admin (optional)** | `http://localhost:8087` | 8087 | Administrative Trino engine (profile `tools`, not started by default) |
 | **Generator Console (optional)** | `http://localhost:8501` | 8501 | Streamlit SQL/access-log jobs; state under `data/generator/jobs/` (profile `tools`) |
 | **Debezium Connect** | `http://127.0.0.1:8086` | 8086 | CDC connector lifecycle/status API |
 
-### Starting the Optional Trino Admin Engine
+### Trino query engine
 
-The default startup provisions `trino` with the read-only `trino_reader` principal. An administrative Trino engine using the `trino_admin` principal (full catalog management) can be started on demand — it is **not** part of the default startup:
-
-```bash
-COMPOSE_PROFILES=tools docker compose up -d trino-admin
-```
-
-It serves on host port `8087` (`http://localhost:8087`). The read-only `trino` reader engine remains the default query engine.
+`trino` is the only Trino service and uses the read-only `trino_reader` principal on host port 8084. The standalone `trino-admin` engine and its port setting have been removed. Its dedicated MinIO identity, Polaris bootstrap roles/principal and credential output are no longer configured. Unused MinIO Airflow credentials and the batch `pipeline-run-data` volume are also removed from Compose. This configuration cleanup does not delete existing remote identities, saved Polaris bootstrap state or Docker volumes; the new seed applies to a fresh installation.
 
 ### Starting the Optional Generator Console
 
@@ -255,8 +273,8 @@ CDC appends Bronze audit events only; batch owns Silver/Gold publication. No per
 
 - **`catalog` / `namespaces`**: Initial S3 catalog settings and the six namespaces.
 - **`catalog_roles` / `principal_roles`**: Initial privileges and role bindings. The seed reader role has metadata/data-read privileges; the seed Spark/Flink roles manage catalog content.
-- **`principals`**: Four initial identities: `spark_writer`, `flink_writer`, `trino_reader`, `trino_admin`.
-- **`credential_outputs`**: Six private consumer files for Spark CDC, Spark SQL, Airflow, Flink, Trino Reader and Trino Admin. Each consumer mounts only its own `clients.env`, mode `0600`, with its configured UID/GID.
+- **`principals`**: Three initial identities: `spark_writer`, `flink_writer`, `trino_reader`.
+- **`credential_outputs`**: Four private consumer files for Spark SQL, Airflow, Flink and Trino Reader. Each consumer mounts only its own `clients.env`, mode `0600`, with its configured UID/GID.
 
 The historical entrypoint name `sync_polaris_rbac.py` remains for compatibility; it implements one-time bootstrap. It has no purge, privilege-revocation, catalog-update or credential-reset operation.
 
@@ -314,7 +332,7 @@ docker compose logs --tail=200 trino
 ### Common Issues
 
 - **CORS Errors in Polaris Console:** Ensure `POLARIS_CONSOLE_ORIGIN` matches the exact browser URL origin.
-- **Authentication Failures in Spark/Trino:** Check that `polaris-init` exited with code 0 and that your consumer mounts its own private credential volume (`polaris-spark-client-credentials`, `polaris-spark-airflow-credentials`, `polaris-flink-credentials`, `polaris-trino-reader-credentials`, or `polaris-trino-admin-credentials`) — there is no shared credential volume. Each `clients.env` is written `0600` and owned by the consumer UID; a service that cannot read its file **fails startup** rather than falling back, so a startup failure usually means a UID/permission mismatch, not missing data.
+- **Authentication Failures in Spark/Trino:** Check that `polaris-init` exited with code 0 and that your consumer mounts its own private credential volume (`polaris-spark-client-credentials`, `polaris-spark-airflow-credentials`, `polaris-flink-credentials`, or `polaris-trino-reader-credentials`) — there is no shared credential volume. Each `clients.env` is written `0600` and owned by the consumer UID; a service that cannot read its file **fails startup** rather than falling back, so a startup failure usually means a UID/permission mismatch, not missing data.
 - **Upgrading an Existing Deployment (Polaris root secret):** The Polaris `root` client secret is baked into the Polaris metadata database at first bootstrap. On an existing `postgres-data` volume, keep your current `POLARIS_ROOT_CLIENT_SECRET` in `.env` even if `.env.example` now ships a new default — `polaris-init` does not auto-rotate the root secret, and using the new default against an existing realm fails `root` authentication and blocks startup. Only brand-new installs (no `postgres-data` volume) pick up the `.env.example` value.
 - **S3 Connectivity Errors:** Ensure container network connectivity to `http://minio:9000`. Each consumer must use its own dedicated MinIO service user (`lakehouse-*`); MinIO root credentials are not mounted into any workload.
 - **UI/API role mismatch:** operations_manager can open order/logistics/return UI routes but those APIs require admin. A 403 is not a Trino/Iceberg failure. Store confirm/cancel routes also lack the explicit CSRF dependency.

@@ -3,7 +3,7 @@ FROM curlimages/curl:8.17.0 AS iceberg
 ARG ICEBERG_VERSION=1.10.1
 ARG HADOOP_AWS_VERSION=3.3.4
 ARG AWS_SDK_BUNDLE_VERSION=1.12.262
-ARG MYSQL_CONNECTOR_VERSION=8.4.0
+ARG POSTGRES_JDBC_VERSION=42.7.14
 RUN mkdir -p /tmp/iceberg \
     && curl --fail --location --retry 3 \
       "https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/${ICEBERG_VERSION}/iceberg-spark-runtime-3.5_2.12-${ICEBERG_VERSION}.jar" \
@@ -18,8 +18,8 @@ RUN mkdir -p /tmp/iceberg \
       "https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_SDK_BUNDLE_VERSION}/aws-java-sdk-bundle-${AWS_SDK_BUNDLE_VERSION}.jar" \
       --output /tmp/iceberg/aws-java-sdk-bundle.jar \
     && curl --fail --location --retry 3 \
-      "https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/${MYSQL_CONNECTOR_VERSION}/mysql-connector-j-${MYSQL_CONNECTOR_VERSION}.jar" \
-      --output /tmp/iceberg/mysql-connector-j.jar
+      "https://repo1.maven.org/maven2/org/postgresql/postgresql/${POSTGRES_JDBC_VERSION}/postgresql-${POSTGRES_JDBC_VERSION}.jar" \
+      --output /tmp/iceberg/postgresql.jar
 
 FROM apache/spark:3.5.9-java17-python3
 USER root

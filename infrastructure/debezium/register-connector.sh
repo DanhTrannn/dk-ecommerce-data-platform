@@ -2,41 +2,38 @@
 set -eu
 
 connect_url="${DEBEZIUM_CONNECT_URL:-http://debezium-connect:8083}"
-connector_name="mysql-ecommerce-cdc"
+connector_name="postgres-ecommerce-cdc"
 
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
-cdc_user="$(json_escape "${MYSQL_CDC_USER:?MYSQL_CDC_USER is required}")"
-cdc_password="$(json_escape "${MYSQL_CDC_PASSWORD:?MYSQL_CDC_PASSWORD is required}")"
-database_name="$(json_escape "${MYSQL_DATABASE:-ecommerce}")"
+cdc_user="$(json_escape "${POSTGRES_CDC_USER:?POSTGRES_CDC_USER is required}")"
+cdc_password="$(json_escape "${POSTGRES_CDC_PASSWORD:?POSTGRES_CDC_PASSWORD is required}")"
+database_name="$(json_escape "${POSTGRES_ECOMMERCE_DB:-ecommerce}")"
 topic_prefix="$(json_escape "${CDC_TOPIC_PREFIX:-ecommerce}")"
 
 config="$(cat <<JSON
 {
-  "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
   "tasks.max": "1",
-  "database.hostname": "mysql",
-  "database.port": "3306",
+  "database.hostname": "postgres",
+  "database.port": "5432",
   "database.user": "${cdc_user}",
   "database.password": "${cdc_password}",
-  "database.server.id": "5401",
   "topic.prefix": "${topic_prefix}",
-  "database.include.list": "${database_name}",
-  "table.include.list": "${database_name}\\\\.(customers|categories|products|product_variants|carts|cart_items|wishlist_items|orders|order_items|payments|order_status_history|inventory|coupons|coupon_redemptions|refunds|product_reviews|cities|stores|store_inventory|delivery_staff|shipments|return_requests|return_items|inventory_transactions|inbound_receipts|inbound_receipt_items|shipment_attempts)",
+  "database.dbname": "${database_name}",
+  "plugin.name": "pgoutput",
+  "slot.name": "ecommerce_cdc",
+  "publication.name": "ecommerce_publication",
+  "publication.autocreate.mode": "filtered",
+  "schema.include.list": "public",
+  "table.include.list": "public\\\\.(customers|categories|products|product_variants|carts|cart_items|wishlist_items|orders|order_items|payments|order_status_history|inventory|coupons|coupon_redemptions|refunds|product_reviews|cities|stores|store_inventory|delivery_staff|shipments|return_requests|return_items|inventory_transactions|inbound_receipts|inbound_receipt_items|shipment_attempts)",
   "snapshot.mode": "initial",
-  "snapshot.locking.mode": "minimal",
-  "include.schema.changes": "true",
   "provide.transaction.metadata": "true",
   "tombstones.on.delete": "true",
   "decimal.handling.mode": "string",
-  "binary.handling.mode": "base64",
-  "time.precision.mode": "adaptive_time_microseconds",
   "heartbeat.interval.ms": "10000",
-  "schema.history.internal.kafka.bootstrap.servers": "kafka:9092",
-  "schema.history.internal.kafka.topic": "schemahistory.${topic_prefix}",
-  "schema.history.internal.store.only.captured.tables.ddl": "true",
   "topic.creation.enable": "true",
   "topic.creation.default.replication.factor": "1",
   "topic.creation.default.partitions": "1",

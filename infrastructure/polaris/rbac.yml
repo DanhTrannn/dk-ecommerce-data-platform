@@ -56,15 +56,6 @@ catalog_roles:
       - type: catalog
         privilege: CATALOG_MANAGE_CONTENT
 
-  trino_admin_catalog_role:
-    grants:
-      - type: catalog
-        privilege: CATALOG_MANAGE_CONTENT
-      - type: catalog
-        privilege: CATALOG_MANAGE_ACCESS
-      - type: catalog
-        privilege: CATALOG_MANAGE_METADATA
-
 # Principal roles and the catalog roles they inherit
 principal_roles:
   spark_writer_role:
@@ -78,11 +69,6 @@ principal_roles:
   flink_writer_role:
     catalog_roles:
       - flink_writer_catalog_role
-
-  trino_admin_role:
-    catalog_roles:
-      - trino_admin_catalog_role
-      - catalog_admin # Built-in Polaris role for full catalog administration
 
 # Principals, their principal role assignments, and output credential mappings
 principals:
@@ -107,13 +93,6 @@ principals:
       client_id_var: POLARIS_TRINO_CLIENT_ID
       client_secret_var: POLARIS_TRINO_CLIENT_SECRET
 
-  trino_admin:
-    principal_roles:
-      - trino_admin_role
-    credentials_export:
-      client_id_var: POLARIS_TRINO_ADMIN_CLIENT_ID
-      client_secret_var: POLARIS_TRINO_ADMIN_CLIENT_SECRET
-
 credential_outputs:
   - principal: spark_writer
     directory: /run/polaris-output/spark-client
@@ -129,9 +108,5 @@ credential_outputs:
     gid: 9999
   - principal: trino_reader
     directory: /run/polaris-output/trino-reader
-    uid: 1000
-    gid: 1000
-  - principal: trino_admin
-    directory: /run/polaris-output/trino-admin
     uid: 1000
     gid: 1000
