@@ -20,11 +20,11 @@ COPY pyproject.toml uv.lock .python-version ./
 COPY services/ecommerce-api/pyproject.toml services/ecommerce-api/pyproject.toml
 COPY generator/pyproject.toml generator/pyproject.toml
 COPY pipelines/pyproject.toml pipelines/pyproject.toml
-COPY apps/generator-console/pyproject.toml apps/generator-console/pyproject.toml
+COPY apps/main-console/pyproject.toml apps/main-console/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-workspace --package generator-console
 
-COPY apps/generator-console/src apps/generator-console/src
+COPY apps/main-console/src apps/main-console/src
 COPY generator/src generator/src
 COPY generator/configs generator/configs
 COPY generator/profiles generator/profiles

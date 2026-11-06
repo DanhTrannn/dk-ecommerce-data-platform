@@ -27,6 +27,5 @@ RUN python3 -m pip install --no-cache-dir PyYAML==6.0.2
 COPY --from=iceberg /tmp/iceberg/*.jar /opt/spark/jars/
 COPY infrastructure/spark/conf/spark-defaults.conf /opt/project/spark/spark-defaults.conf
 COPY infrastructure/spark/bin/with-polaris-credentials.sh /opt/project/spark/with-polaris-credentials.sh
-COPY infrastructure/spark/sql /opt/project/spark/sql
 RUN chmod 0755 /opt/project/spark/with-polaris-credentials.sh
 USER spark

@@ -1,7 +1,5 @@
-# Apache Polaris first-run bootstrap template.
-# After bootstrap, manage catalogs and permissions through Console/Management API.
-# Rerunning polaris-init verifies saved identities and restores credential files;
-# it does not apply later edits to this template or reset credentials.
+# Reference template for future bootstrap tools in main-console.
+# No Python initializer currently applies this template.
 
 version: "1"
 

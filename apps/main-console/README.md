@@ -24,7 +24,7 @@ Có thể chạy trực tiếp Streamlit nếu package đã được cài:
 
 ```bash
 uv run --locked --package generator-console -- \
-  streamlit run apps/generator-console/src/generator_console/app.py
+  streamlit run apps/main-console/src/generator_console/app.py
 ```
 
 ## Chạy bằng Docker Compose
@@ -36,10 +36,10 @@ Console nằm trong profile `tools`:
 make up PROFILES=core,tools START_FLAGS=--build
 
 # Hoặc chỉ console
-docker compose --profile tools up -d --build generator-console
+docker compose --profile tools up -d --build main-console
 ```
 
-Mở `http://localhost:8501` (đổi `GENERATOR_CONSOLE_PORT` nếu cần). Thư mục host `./data` được mount vào `/data`; job nằm tại `./data/generator/jobs/`. Container chạy bằng UID/GID cấu hình trong `.env` (`GENERATOR_CONSOLE_UID`, `GENERATOR_CONSOLE_GID`) để file trên host không bị root sở hữu.
+Mở `http://localhost:8501` (đổi `MAIN_CONSOLE_PORT` nếu cần). Thư mục host `./data` được mount vào `/data`; job nằm tại `./data/generator/jobs/`. Container chạy bằng UID/GID cấu hình trong `.env` (`MAIN_CONSOLE_UID`, `MAIN_CONSOLE_GID`) để file trên host không bị root sở hữu.
 
 Healthcheck dùng `http://localhost:8501/_stcore/health`.
 
@@ -112,7 +112,7 @@ data/generator/jobs/
 uv run --locked --package data-generator -- \
   python -m unittest discover -s generator/tests -v
 uv run --locked --package generator-console -- \
-  python -m unittest discover -s apps/generator-console/tests -v
+  python -m unittest discover -s apps/main-console/tests -v
 uvx ruff check .
 ```
 

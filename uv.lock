@@ -416,7 +416,7 @@ wheels = [
 [[package]]
 name = "generator-console"
 version = "0.1.0"
-source = { editable = "apps/generator-console" }
+source = { editable = "apps/main-console" }
 dependencies = [
     { name = "data-generator" },
     { name = "pyyaml" },

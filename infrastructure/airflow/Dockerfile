@@ -28,7 +28,6 @@ RUN mkdir -p /tmp/jars \
       --output /tmp/jars/aws-java-sdk-bundle.jar
 
 FROM apache/airflow:3.3.2-python3.11
-COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 
 USER root
 RUN apt-get update \
@@ -36,24 +35,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=pipeline-jars /tmp/jars/*.jar /opt/spark/jars/
 
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=never
 WORKDIR /opt/project
-COPY --chown=airflow:root pyproject.toml uv.lock .python-version ./
-COPY --chown=airflow:root services/ecommerce-api/pyproject.toml services/ecommerce-api/pyproject.toml
-COPY --chown=airflow:root generator/pyproject.toml generator/pyproject.toml
-COPY --chown=airflow:root pipelines/pyproject.toml pipelines/pyproject.toml
-COPY --chown=airflow:root apps/generator-console/pyproject.toml apps/generator-console/pyproject.toml
 USER airflow
-RUN --mount=type=cache,target=/home/airflow/.cache/uv,uid=50000,gid=0 \
-    uv export --frozen --no-dev \
-        --no-emit-project --no-emit-workspace --no-hashes \
-        --package batch-pipeline \
-        --output-file /tmp/airflow-requirements.txt \
-    && uv pip install "apache-airflow==3.3.2" --requirement /tmp/airflow-requirements.txt \
-    && rm /tmp/airflow-requirements.txt \
-    && uv pip install "apache-airflow==3.3.2" pyspark==3.5.9 pandas==2.2.3 \
+RUN python -m pip install --no-cache-dir "apache-airflow==3.3.2" pyspark==3.5.9 pandas==2.2.3 \
         apache-airflow-providers-apache-spark==5.6.0 \
         apache-airflow-providers-fab==3.9.0 \
         apache-airflow-providers-standard==1.19.0 \

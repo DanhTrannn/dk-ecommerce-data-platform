@@ -28,8 +28,6 @@ x-airflow-common: &airflow-common
   depends_on:
     postgres:
       condition: service_healthy
-    polaris-init:
-      condition: service_completed_successfully
 
 x-flink-common: &flink-common
   build:
@@ -78,37 +76,6 @@ services:
       timeout: 5s
       retries: 20
     networks: ["lakehouse-network"]
-
-  minio-init:
-    build:
-      context: .
-      dockerfile: infrastructure/minio/Dockerfile
-    image: lakehouse-minio-init:0.1.0
-    profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
-    entrypoint: ["/bin/sh", "/bootstrap/init.sh"]
-    environment:
-      MINIO_ENDPOINT: http://minio:9000
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
-      MINIO_POLARIS_ACCESS_KEY: ${MINIO_POLARIS_ACCESS_KEY:?set MINIO_POLARIS_ACCESS_KEY}
-      MINIO_POLARIS_SECRET_KEY: ${MINIO_POLARIS_SECRET_KEY:?set MINIO_POLARIS_SECRET_KEY}
-      MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
-      MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
-      MINIO_FLINK_ACCESS_KEY: ${MINIO_FLINK_ACCESS_KEY:?set MINIO_FLINK_ACCESS_KEY}
-      MINIO_FLINK_SECRET_KEY: ${MINIO_FLINK_SECRET_KEY:?set MINIO_FLINK_SECRET_KEY}
-      MINIO_TRINO_ACCESS_KEY: ${MINIO_TRINO_ACCESS_KEY:?set MINIO_TRINO_ACCESS_KEY}
-      MINIO_TRINO_SECRET_KEY: ${MINIO_TRINO_SECRET_KEY:?set MINIO_TRINO_SECRET_KEY}
-      MINIO_UPLOADER_ACCESS_KEY: ${MINIO_UPLOADER_ACCESS_KEY:?set MINIO_UPLOADER_ACCESS_KEY}
-      MINIO_UPLOADER_SECRET_KEY: ${MINIO_UPLOADER_SECRET_KEY:?set MINIO_UPLOADER_SECRET_KEY}
-    volumes:
-      - ./infrastructure/minio:/bootstrap:ro
-    depends_on:
-      minio:
-        condition: service_healthy
-    networks: ["lakehouse-network"]
-
 
   postgres:
     image: postgres:16.8
@@ -193,8 +160,8 @@ services:
       - "${POLARIS_BIND_ADDRESS:-127.0.0.1}:${POLARIS_API_PORT:-8181}:8181"
       - "${POLARIS_BIND_ADDRESS:-127.0.0.1}:${POLARIS_MANAGEMENT_PORT:-8182}:8182"
     depends_on:
-      minio-init:
-        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
       polaris-bootstrap:
         condition: service_completed_successfully
     healthcheck:
@@ -203,62 +170,6 @@ services:
       timeout: 10s
       retries: 30
       start_period: 15s
-    networks: ["lakehouse-network"]
-
-  polaris-init:
-    build:
-      context: .
-      dockerfile: infrastructure/polaris/Dockerfile
-    image: lakehouse-polaris-init:0.1.0
-    profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
-    environment:
-      POLARIS_URL: http://polaris:8181
-      POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
-      POLARIS_CATALOG: ${POLARIS_CATALOG_NAME:-lakehouse}
-      POLARIS_ROOT_CLIENT_ID: ${POLARIS_ROOT_CLIENT_ID:-root}
-      POLARIS_ROOT_CLIENT_SECRET: ${POLARIS_ROOT_CLIENT_SECRET:-password}
-      POLARIS_WAREHOUSE_LOCATION: s3://${MINIO_LAKEHOUSE_BUCKET:-lakehouse}/warehouse
-      POLARIS_ALLOWED_LOCATION: s3://${MINIO_LAKEHOUSE_BUCKET:-lakehouse}/
-      POLARIS_S3_ENDPOINT: http://minio:9000
-      POLARIS_S3_ENDPOINT_INTERNAL: http://minio:9000
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      POLARIS_CREDENTIAL_STATE_FILE: /run/polaris-state/clients.env
-      POLARIS_RBAC_CONFIG: /bootstrap/rbac.yml
-    entrypoint: ["/bin/sh", "/bootstrap/bootstrap.sh"]
-    volumes:
-      - ./infrastructure/polaris:/bootstrap:ro
-      - polaris-credential-state:/run/polaris-state
-      - polaris-spark-client-credentials:/run/polaris-output/spark-client
-      - polaris-spark-airflow-credentials:/run/polaris-output/spark-airflow
-      - polaris-flink-credentials:/run/polaris-output/flink
-      - polaris-trino-reader-credentials:/run/polaris-output/trino-reader
-    depends_on:
-      polaris:
-        condition: service_healthy
-    networks: ["lakehouse-network"]
-
-  polaris-console:
-    build:
-      context: https://github.com/apache/polaris-tools.git#e5fea020aedcb1834f306d9a13de7fccbfff1943:console
-      dockerfile: docker/Dockerfile
-    image: polaris-console:1.4.0-e5fea020
-    profiles: ["tools"]
-    environment:
-      VITE_POLARIS_API_URL: ${POLARIS_PUBLIC_API_URL:-http://localhost:8181}
-      VITE_OAUTH_TOKEN_URL: ${POLARIS_PUBLIC_API_URL:-http://localhost:8181}/api/catalog/v1/oauth/tokens
-      VITE_POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
-      VITE_POLARIS_PRINCIPAL_SCOPE: PRINCIPAL_ROLE:ALL
-      VITE_POLARIS_REALM_HEADER_NAME: Polaris-Realm
-    ports:
-      - "${POLARIS_BIND_ADDRESS:-127.0.0.1}:${POLARIS_CONSOLE_PORT:-8183}:8080"
-    depends_on:
-      polaris-init:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
     networks: ["lakehouse-network"]
 
   spark-client:
@@ -283,8 +194,8 @@ services:
     volumes:
       - polaris-spark-client-credentials:/run/polaris:ro
     depends_on:
-      polaris-init:
-        condition: service_completed_successfully
+      polaris:
+        condition: service_healthy
     networks: ["lakehouse-network"]
 
   airflow-init:
@@ -363,8 +274,8 @@ services:
       - ./infrastructure/trino/catalog:/etc/trino/catalog:ro
       - polaris-trino-reader-credentials:/run/polaris:ro
     depends_on:
-      polaris-init:
-        condition: service_completed_successfully
+      polaris:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/v1/info"]
       interval: 10s
@@ -373,19 +284,19 @@ services:
       start_period: 30s
     networks: ["lakehouse-network"]
 
-  generator-console:
+  main-console:
     build:
       context: .
-      dockerfile: apps/generator-console/Dockerfile
-    image: lakehouse-generator-console:0.1.0
+      dockerfile: apps/main-console/Dockerfile
+    image: lakehouse-main-console:0.1.0
     profiles: ["tools"]
-    user: "${GENERATOR_CONSOLE_UID:-1000}:${GENERATOR_CONSOLE_GID:-1000}"
+    user: "${MAIN_CONSOLE_UID:-1000}:${MAIN_CONSOLE_GID:-1000}"
     environment:
       HOME: /tmp
       STREAMLIT_SERVER_HEADLESS: "true"
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
     ports:
-      - "${GENERATOR_CONSOLE_BIND_ADDRESS:-127.0.0.1}:${GENERATOR_CONSOLE_PORT:-8501}:8501"
+      - "${MAIN_CONSOLE_BIND_ADDRESS:-127.0.0.1}:${MAIN_CONSOLE_PORT:-8501}:8501"
     volumes:
       - ./data:/data
     healthcheck:
@@ -474,7 +385,7 @@ services:
 
   debezium-init:
     image: alpine/curl:8.21.0
-    profiles: ["streaming"]
+    profiles: ["pipeline"]
     entrypoint: ["/bin/sh", "/opt/debezium/register-connector.sh"]
     environment:
       DEBEZIUM_CONNECT_URL: http://debezium-connect:8083
@@ -513,8 +424,6 @@ services:
         condition: service_healthy
       polaris:
         condition: service_healthy
-      polaris-init:
-        condition: service_completed_successfully
 
   flink-taskmanager:
     <<: *flink-common
@@ -532,6 +441,7 @@ services:
 
   flink-submit:
     <<: *flink-common
+    profiles: ["pipeline"]
     command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/opt/project/flink/bin/submit-job.sh"]
     restart: "no"  # one-shot: submit job then exit
     volumes:
@@ -548,6 +458,7 @@ services:
 
   flink-cdc-submit:
     <<: *flink-common
+    profiles: ["pipeline"]
     command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/opt/project/flink/bin/submit-job.sh"]
     environment:
       <<: *flink-environment
@@ -578,7 +489,6 @@ volumes:
   polaris-spark-airflow-credentials:
   polaris-flink-credentials:
   polaris-trino-reader-credentials:
-  polaris-credential-state:
   airflow-logs:
   kafka-data:
   flink-checkpoints:

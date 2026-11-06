@@ -21,11 +21,15 @@
 
 </div>
 
-> **Infrastructure transition:** Compose now uses one PostgreSQL service with separate `ecommerce`, `airflow` and `polaris` databases; MySQL services and their volume declaration are removed. This is a fresh-install infrastructure change only. The MySQL business schema, Backend/ORM, generator, pipeline JDBC/source handling and CDC consumer code have **not** been ported yet, so full application/pipeline startup is not ready. Existing data will not be migrated; build/start/reset has not been performed. Spark and Airflow retain separate Dockerfiles/images. Airflow 3.3.2 build verification remains paused.
+> **Infrastructure transition:** Compose uses one PostgreSQL service with separate `ecommerce`, `airflow` and `polaris` databases. API/frontend and the old Python bootstrap services are excluded. Application schema/ORM, generator source integration, JDBC/source handling and CDC consumer conversion remain pending. Existing data is not migrated; infrastructure image builds and service health checks do not verify business pipelines.
 
 **Current infrastructure-only scope:** Compose excludes the API/frontend and retains the Streamlit Generator Console on its Python slim image. The `core` profile starts PostgreSQL only. Airflow has service startup configuration and the Python path required to parse mounted DAGs; source credentials, Spark connections, pipeline configuration and PII salt must be supplied later before running business DAGs. Existing application/startup instructions below describe the broader project and are outside this temporary scope.
 
-Infrastructure images remain separate per service. `ICEBERG_VERSION` is passed to Airflow, Spark and Flink builds. Flink configuration and launcher scripts are baked into its image; rebuild after editing `infrastructure/flink/conf/` or `infrastructure/flink/bin/` (pipeline source remains mounted). Polaris init also installs its Python/YAML dependencies at build time. See the [bootstrap workflow](docs/runbook/SETUP.md#automated-bootstrap-workflow) for the reduced set of service accounts.
+`main-console` builds from `apps/main-console/Dockerfile` and uses the `MAIN_CONSOLE_*` host port/user settings. The Python distribution/CLI remains named `generator-console`. The launcher starts services only; it no longer initializes Gold tables. CDC connector registration and Flink job submissions are reserved for the explicit `pipeline` profile, outside infrastructure startup.
+
+MinIO runs only its storage server image; there is no separate Python init image/container. Application and administration Python code (FastAPI, Streamlit and future bootstrap tools) is intended to run in `main-console`. MinIO policies remain as reference files; bootstrap will be redesigned separately. Airflow and PyFlink retain their engine runtimes.
+
+Infrastructure images remain separate per service. `ICEBERG_VERSION` is passed to Airflow, Spark and Flink builds. Flink configuration and launcher scripts are baked into its image; rebuild after editing `infrastructure/flink/conf/` or `infrastructure/flink/bin/`. Airflow installs runtime dependencies with pip independently of the business workspace. MinIO/Polaris account and catalog bootstrap will be redesigned in `main-console`.
 
 The **D&K E-Commerce Data Platform** is a local Data Engineering project combining an e-commerce source application, batch data processing, MySQL change capture, and access-log streaming. MySQL contains 28 OLTP tables; 27 are configured for analytical ingestion. Data is stored in Apache Iceberg on MinIO, cataloged by Polaris, and queried through Trino. A Next.js/FastAPI application provides Storefront, POS, administration, and ECharts dashboards.
 
@@ -138,7 +142,7 @@ Additional staff accounts and store assignments are managed through the applicat
 
 ### Service Identities
 
-Storage bootstrap configures five scoped MinIO identities and three Polaris principals: `spark_writer`, `flink_writer`, and `trino_reader`. The standalone `trino-admin` service and its seed identity/credential output are removed, as is the unused MinIO Airflow identity. Polaris uses YAML only for first-run bootstrap; later access changes are managed through Console/API and preserved when init runs again. MinIO initialization uses root only to synchronize the five managed users/policies in place; correct credentials remain unchanged, excess grants are removed, and other accounts are preserved. This configuration cleanup does not delete existing remote identities or Docker volumes. Details are in the [setup guide](docs/runbook/SETUP.md).
+The retained policy templates describe five scoped MinIO identities and three Polaris principals: `spark_writer`, `flink_writer`, and `trino_reader`. The standalone `trino-admin` service and its seed identity/credential output are removed, as is the unused MinIO Airflow identity. Polaris uses YAML only for first-run bootstrap; later access changes are managed through Console/API and preserved when init runs again. The old MinIO Python initializer has been removed; account/policy initialization is pending redesign in `main-console`. This configuration cleanup does not delete existing remote identities or Docker volumes. Details are in the [setup guide](docs/runbook/SETUP.md).
 
 ---
 
@@ -222,7 +226,7 @@ uv run --locked --package generator-console generator-console
 make up PROFILES=core,tools START_FLAGS=--build
 ```
 
-Open `http://localhost:8501`, choose SQL, access log or both, then monitor the per-stage results and download outputs. The console does not import SQL, run traffic, upload logs or trigger Airflow. See [apps/generator-console/README.md](apps/generator-console/README.md) for job layout and recovery behavior.
+Open `http://localhost:8501`, choose SQL, access log or both, then monitor the per-stage results and download outputs. The console does not import SQL, run traffic, upload logs or trigger Airflow. See [apps/main-console/README.md](apps/main-console/README.md) for job layout and recovery behavior.
 
 ### Real-Time Traffic Simulation
 
@@ -326,7 +330,7 @@ uvx ruff check .
 uv run --locked --package data-generator -- python -m unittest discover -s generator/tests -v
 
 # Generator Console checks (job store, worker, config builder, UI smoke)
-uv run --locked --package generator-console -- python -m unittest discover -s apps/generator-console/tests -v
+uv run --locked --package generator-console -- python -m unittest discover -s apps/main-console/tests -v
 
 # Frontend static checks and production build
 npm --prefix apps/storefront ci
