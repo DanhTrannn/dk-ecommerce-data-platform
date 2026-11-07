@@ -1,6 +1,6 @@
 # Local Lakehouse Setup
 
-FastAPI and Streamlit now share the `platform-app` Python slim image. Start with `docker compose --profile tools up -d --build platform-app`; PostgreSQL is its required dependency. Streamlit uses `PLATFORM_APP_PORT` (8501), FastAPI uses `API_PORT` (8000). Healthchecks cover both processes; business schema migration and bootstrap tooling remain deferred.
+FastAPI and Streamlit now share the `platform-app` Python slim image. Start with `docker compose --profile core up -d --build platform-app`; PostgreSQL is its required dependency. Streamlit uses `PLATFORM_APP_PORT` (8501), FastAPI uses `API_PORT` (8000). Healthchecks cover both processes; business schema migration and bootstrap tooling remain deferred.
 
 > **Infrastructure-only transition (2026-11-06):** PostgreSQL now hosts separate empty databases `ecommerce`, `airflow` and `polaris` on first initialization. MySQL/CDC-user-init services, MySQL JDBC JARs and the MySQL connector plugin are removed from infrastructure. Debezium now targets PostgreSQL `pgoutput` with a filtered publication. Each service keeps its own Dockerfile/image.
 >
@@ -56,9 +56,10 @@ Makefile calls Compose directly. `PROFILES` defaults to `core` and overrides `CO
 
 ```bash
 make build
-make up                                  # PostgreSQL only
-make up PROFILES=core,tools               # Shared FastAPI/Streamlit application
-make up PROFILES=core,batch,streaming,tools
+make up                                  # Core services
+make up PROFILES=core,batch               # Add local Spark client
+make up PROFILES=core,streaming           # Add streaming infrastructure
+make up PROFILES=core,batch,streaming
 make ps
 make logs
 make down                                # All profiles; retain volumes
@@ -75,10 +76,10 @@ Airflow now runs as `airflow-api-server` (UI/API on the same port 8080), `airflo
 The current decision is a clean installation: do not migrate or reuse old application/metadata data. `airflow-init` still uses `airflow db migrate` to create the Airflow schema in its new empty database; this is not a data migration from MySQL or an upgrade of the old metadata volume.
 
 ```bash
-docker compose --profile batch build airflow-init
+docker compose --profile core build airflow-init
 # After a fresh PostgreSQL volume has been initialized:
-docker compose --profile batch run --rm airflow-init
-docker compose --profile batch up -d airflow-api-server airflow-scheduler airflow-dag-processor
+docker compose --profile core run --rm airflow-init
+docker compose --profile core up -d airflow-api-server airflow-scheduler airflow-dag-processor
 ```
 
 Set `AIRFLOW_JWT_SECRET` in `.env` to a stable private value shared by all Airflow components; API secret signing still uses `AIRFLOW_SECRET_KEY`. Health is exposed at `/api/v2/monitor/health`; the public API is `/api/v2`, with FAB token login. `AIRFLOW__SCHEDULER__CREATE_CRON_DATA_INTERVALS=true` preserves batch extraction intervals. No triggerer or separate worker service is needed by the current DAGs.
@@ -104,14 +105,22 @@ The current shared `platform-app` container starts FastAPI and Streamlit after P
 
 ### Infrastructure startup and deferred bootstrap
 
-`core` starts PostgreSQL only. The other infrastructure profiles start service runtimes without submitting data jobs. `platform-app` builds from `services/platform-app/Dockerfile`; its Python package/CLI is named `platform-app`, and its host settings use `PLATFORM_APP_*`.
+`core` starts PostgreSQL, MinIO, Polaris, Airflow, Trino and platform-app. The other infrastructure profiles start service runtimes without submitting data jobs. `platform-app` builds from `services/platform-app/Dockerfile`; its Python package/CLI is named `platform-app`, and its host settings use `PLATFORM_APP_*`.
 
 1. On a fresh PostgreSQL volume, its entrypoint creates `ecommerce`, `airflow` and `polaris` databases and the Debezium replication account. Business tables remain pending.
 2. `polaris-bootstrap` is the native Java tool that creates the Polaris realm; `polaris` then waits for that tool and MinIO server readiness.
 3. Old MinIO/Polaris Python init services are removed. Bucket, IAM, catalog, namespaces and client credential provisioning will be redesigned in `platform-app`; no replacement bootstrap is implemented in this change.
 4. Existing data and credential volumes are retained. Starting compute/query consumers on new empty volumes still requires the deferred bootstrap. Airflow startup depends only on its PostgreSQL metadata database.
 
-The `pipeline` profile contains Debezium connector registration and Flink job submission services. It is intentionally excluded from the default infrastructure profiles; business source/consumer configuration must be completed before using it. Make does not create Gold tables or references the deleted Gold init SQL.
+There are only three profiles: core, batch and streaming. CDC registration (`debezium-init`) and Flink submissions (`flink-submit`, `flink-cdc-submit`) belong to streaming with `scale: 0`, so normal startup creates no data jobs. After source/schema/bootstrap configuration is ready and core/streaming engines are running, invoke each manually:
+
+```bash
+COMPOSE_PROFILES=core,streaming docker compose run --rm --no-deps debezium-init
+COMPOSE_PROFILES=core,streaming docker compose run --rm --no-deps flink-submit
+COMPOSE_PROFILES=core,streaming docker compose run --rm --no-deps flink-cdc-submit
+```
+
+Register CDC successfully before submitting the CDC job. Spark remains a local SQL client in batch, not a master/worker cluster. `make up PROFILES=core,batch` keeps the client container idle without running SQL. Run a query manually with `COMPOSE_PROFILES=core,batch docker compose run --rm spark-client /opt/spark/bin/spark-sql -e "SHOW NAMESPACES IN lakehouse"`.
 
 ### MinIO initialization
 
@@ -123,33 +132,14 @@ Compose waits for health checks or successful completion of initialization jobs 
 
 | Group / profile | Startup dependencies |
 |---|---|
-| Shared storage/catalog (`batch`, `streaming`, `tools`, `lakehouse-tools`) | Healthy `postgres` → `polaris-bootstrap`; healthy `minio` plus successful Polaris realm bootstrap → `polaris`; catalog/RBAC initialization is pending redesign |
-| Query serving (`batch`, `streaming`, `tools`) | Healthy `polaris` plus pre-provisioned credentials → read-only `trino` |
-| Airflow (`batch`) | Healthy `postgres`, initialized catalog/credentials → `airflow-init` → webserver/scheduler with `LocalExecutor`; Spark jobs execute locally |
-| Application (`tools`) | Healthy `postgres` → `platform-app` (FastAPI and Streamlit); storefront code is retained outside active Compose |
-| CDC (`streaming`) | Healthy MySQL → `mysql-cdc-init`; healthy Kafka plus successful MySQL CDC init → `debezium-connect` → `debezium-init` |
-| Flink (`streaming`) | Kafka/catalog ready → JobManager/TaskManager → separate access-log and CDC submissions |
-| Management interfaces (`tools`) | Polaris Console and Trino Admin, with their storage/query dependencies; no Airflow or streaming jobs |
-| Spark SQL utility (`lakehouse-tools`) | `spark-client` runs local Spark SQL with its own credential volume; storage/catalog dependencies are included |
+| Core storage/catalog | PostgreSQL → native Polaris realm bootstrap; MinIO + bootstrap → Polaris → Trino |
+| Core Airflow | PostgreSQL → airflow-init → API server and DAG processor → scheduler |
+| Core application | PostgreSQL → platform-app (FastAPI and Streamlit) |
+| Batch | Core Polaris/credentials → local Spark client |
+| Streaming | Core PostgreSQL + Kafka → Debezium Connect; Kafka + core Polaris → Flink JobManager → TaskManager |
+| Streaming manual jobs | Connector registration and job submissions use scale 0; explicit Compose run only |
 
-`mysql` is shared by `core`, `batch`, `streaming` and `tools`. The `lakehouse-tools` profile is a one-off utility, not a normal long-running startup group. Exact membership is defined in [`docker-compose.yml`](../../docker-compose.yml).
-
----
-
-## 4. Local Service Endpoints
-
-| Service | Local URL | Port | Description |
-|---|---|---|---|
-| **Storefront** | `http://localhost:3000` | 3000 | Consumer shopping UI |
-| **Admin Console** | `http://localhost:3000/admin` | 3000 | Store operations; bootstrap account from `API_BOOTSTRAP_ADMIN_*` |
-| **Ecommerce API** | `http://localhost:8000/docs` | 8000 | Backend Swagger UI |
-| **Airflow UI** | `http://localhost:8080` | 8080 | DAG orchestration UI (`AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD`) |
-| **Trino Web UI** | `http://localhost:8084` | 8084 | Query execution status |
-| **Flink Dashboard** | `http://localhost:8085` | 8085 | Streaming jobs and task status |
-| **Polaris Console** | `http://localhost:8183` | 8183 | Catalog & RBAC UI (`POLARIS_ROOT_CLIENT_ID` / `POLARIS_ROOT_CLIENT_SECRET`; Realm: `POLARIS`) |
-| **MinIO Console** | `http://localhost:9001` | 9001 | S3 Object browser (`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`) |
-| **Generator Console (optional)** | `http://localhost:8501` | 8501 | Streamlit SQL/access-log jobs; state under `data/generator/jobs/` (profile `tools`) |
-| **Debezium Connect** | `http://127.0.0.1:8086` | 8086 | CDC connector lifecycle/status API |
+Use `make up`, `make up PROFILES=core,batch`, `make up PROFILES=core,streaming` or `make up PROFILES=core,batch,streaming`. Include core when selecting batch or streaming because their dependencies belong to core. Existing credentials/metadata are retained; fresh bootstrap is still pending redesign.
 
 ### Trino query engine
 
@@ -157,12 +147,12 @@ Compose waits for health checks or successful completion of initialization jobs 
 
 ### Starting the Optional Generator Console
 
-The console runs the existing generator CLI in a detached worker and keeps job state under `data/generator/jobs/<job_id>/`. It is available in the `tools` profile:
+The console runs the existing generator CLI in a detached worker and keeps job state under `data/generator/jobs/<job_id>/`. It is available in the `core` profile:
 
 ```bash
-make up PROFILES=core,tools
+make up PROFILES=core
 # or
-docker compose --profile tools up -d --build platform-app
+docker compose --profile core up -d --build platform-app
 ```
 
 Open `http://localhost:8501` (`PLATFORM_APP_PORT` overrides the host port). For local development without Compose:

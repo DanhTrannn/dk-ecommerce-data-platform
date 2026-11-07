@@ -47,7 +47,7 @@
 
 Python workspace có `platform-app`, `data-generator`, `batch-pipeline` dùng chung `uv.lock`. Package `platform_app` chứa `api/` và `ui/`; generator vẫn là CLI/thư viện riêng. Spark/Flink runtime nằm trong các Docker image xử lý dữ liệu.
 
-Profile `core` chỉ chứa PostgreSQL. `batch` chứa Airflow cùng storage/catalog/query; `streaming` chứa Kafka/Debezium Connect/Flink và storage/catalog/query. `tools` chứa `platform-app` và các thành phần storage/query dùng chung. Profile `pipeline` riêng chứa đăng ký connector và submit job Flink; `lakehouse-tools` cung cấp Spark SQL client. Spark chạy `local[2]`; không có master/worker. `.env.example` và Makefile mặc định chọn `core`.
+Profile `core` chứa PostgreSQL, MinIO, Polaris, Airflow, Trino và platform-app; `batch` chứa Spark SQL client local; `streaming` chứa Kafka, Debezium Connect và Flink. Các init thuộc nhóm service tương ứng. Các job đăng ký CDC/submit Flink nằm trong streaming với scale 0, chỉ chạy thủ công. Khi chọn batch hoặc streaming, bật kèm core. Makefile mặc định chọn core.
 
 Bootstrap MinIO/Polaris mới và chuyển schema/SQL nghiệp vụ từ MySQL sang PostgreSQL còn chờ triển khai. Build/healthcheck của service không xác nhận pipeline nghiệp vụ chạy đầu cuối.
 

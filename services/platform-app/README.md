@@ -33,15 +33,15 @@ uv run --locked --package platform-app -- \
 
 ## Chạy bằng Docker Compose
 
-Console nằm trong profile `tools`:
+Console nằm trong profile `core`:
 
 ```bash
 # Cùng các dịch vụ core
 make build
-make up PROFILES=core,tools
+make up PROFILES=core
 
 # Hoặc chỉ console
-docker compose --profile tools up -d --build platform-app
+docker compose --profile core up -d --build platform-app
 ```
 
 Mở `http://localhost:8501` (đổi `PLATFORM_APP_PORT` nếu cần). Thư mục host `./data` được mount vào `/data`; job nằm tại `./data/generator/jobs/`. Container chạy bằng UID/GID cấu hình trong `.env` (`PLATFORM_APP_UID`, `PLATFORM_APP_GID`) để file trên host không bị root sở hữu.

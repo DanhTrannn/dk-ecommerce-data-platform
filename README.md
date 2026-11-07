@@ -23,11 +23,11 @@
 
 > **Infrastructure transition:** Compose uses one PostgreSQL service with separate `ecommerce`, `airflow` and `polaris` databases. The standalone API/frontend containers and old Python bootstrap services are excluded. FastAPI and Streamlit share platform-app. Application schema/ORM, generator source integration, JDBC/source handling and CDC consumer conversion remain pending. Existing data is not migrated; infrastructure image builds and service health checks do not verify business pipelines.
 
-**Current infrastructure-only scope:** Compose excludes standalone API/frontend services. FastAPI and the Streamlit Generator Console run together in the platform-app Python slim image. The `core` profile starts PostgreSQL only. Airflow has service startup configuration and the Python path required to parse mounted DAGs; source credentials, Spark connections, pipeline configuration and PII salt must be supplied later before running business DAGs. Existing application/startup instructions below describe the broader project and are outside this temporary scope.
+**Current infrastructure-only scope:** Compose excludes standalone API/frontend services. FastAPI and the Streamlit Generator Console run together in the platform-app Python slim image. The `core` profile starts PostgreSQL, MinIO, Polaris, Airflow, Trino and platform-app. Airflow has service startup configuration and the Python path required to parse mounted DAGs; source credentials, Spark connections, pipeline configuration and PII salt must be supplied later before running business DAGs. Existing application/startup instructions below describe the broader project and are outside this temporary scope.
 
 Application code is grouped under `services/`: `services/platform-app` owns the shared Python package `platform_app` (`api/` and `ui/`), Dockerfile and startup script; `services/storefront` retains Next.js. `generator/` stays a separate reusable CLI/package. Compose service and image are named `platform-app`; host settings use `PLATFORM_APP_*`.
 
-`platform-app` builds from `services/platform-app/Dockerfile` and uses the `PLATFORM_APP_*` host port/user settings. The Python distribution and UI command are named `platform-app`. Make starts services only; it no longer initializes Gold tables. CDC connector registration and Flink job submissions are reserved for the explicit `pipeline` profile, outside infrastructure startup.
+`platform-app` builds from `services/platform-app/Dockerfile` and uses the `PLATFORM_APP_*` host port/user settings. The Python distribution and UI command are named `platform-app`. Make starts services only; it no longer initializes Gold tables. CDC registration and Flink submission jobs belong to streaming with `scale: 0`; run them manually with Compose run.
 
 The shared container exposes Streamlit on `PLATFORM_APP_PORT` (8501) and FastAPI on `API_PORT` (8000). Both use `PLATFORM_APP_BIND_ADDRESS`. Its healthcheck verifies both HTTP processes; PostgreSQL readiness is checked separately at `/health/ready`. No source schema or seed is applied automatically. The PostgreSQL driver is available, but migration of business schema/SQL remains pending. Both processes shut down when either exits.
 
@@ -71,20 +71,27 @@ Published reports for all seven analytics roles, admin overview, store overview,
 
 ### Quick Start
 
+| Profile | Services |
+|---|---|
+| `core` | PostgreSQL, MinIO, Polaris, Airflow, Trino, platform-app; associated initialization services |
+| `batch` | Local Spark client (`spark-client`), used with core; idle until a manual command |
+| `streaming` | Kafka, Debezium Connect, Flink; manual jobs default to zero instances |
+
+
 Makefile is the entrypoint for Compose. `make up` creates `.env` from `.env.example` only when missing, selects `PROFILES` (`core` by default), and waits for service readiness. Existing `.env` files are preserved.
 
 ```bash
 # Build all project images
 make build
 
-# PostgreSQL only
+# Core services
 make up
 
-# FastAPI and Streamlit with PostgreSQL
-make up PROFILES=core,tools
+# Add local Spark client
+make up PROFILES=core,batch
 
-# Full infrastructure; data job submission remains in the separate pipeline profile
-make up PROFILES=core,batch,streaming,tools
+# Full infrastructure; data jobs are manual
+make up PROFILES=core,batch,streaming
 
 make ps
 make logs
@@ -201,7 +208,7 @@ The optional console drives the same generator CLI in a detached worker, keeps o
 uv run --locked --package platform-app platform-app
 # Or with the tools profile
 make build
-make up PROFILES=core,tools
+make up PROFILES=core
 ```
 
 Open `http://localhost:8501`, choose SQL, access log or both, then monitor the per-stage results and download outputs. The console does not import SQL, run traffic, upload logs or trigger Airflow. See [services/platform-app/README.md](services/platform-app/README.md) for job layout and recovery behavior.

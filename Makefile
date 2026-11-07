@@ -7,9 +7,9 @@ all: up
 
 help:
 	@echo "D&K E-Commerce Lakehouse Platform"
-	@echo "  make up                        Start core (PostgreSQL) and wait for readiness"
-	@echo "  make up PROFILES=core,batch     Add the batch/query platform"
-	@echo "  make up PROFILES=core,batch,streaming,tools  Start all groups"
+	@echo "  make up                        Start core services and wait for readiness"
+	@echo "  make up PROFILES=core,batch     Add local Spark client"
+	@echo "  make up PROFILES=core,batch,streaming  Start all groups"
 	@echo "  make build                     Build all project images"
 	@echo "  make down                      Stop all groups; retain volumes"
 	@echo "  make restart PROFILES=core     Restart selected existing containers"

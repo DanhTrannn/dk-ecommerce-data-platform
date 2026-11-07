@@ -5,7 +5,7 @@ x-airflow-common: &airflow-common
     args:
       ICEBERG_VERSION: ${ICEBERG_VERSION:-1.10.1}
   image: lakehouse-airflow:3.3.2
-  profiles: ["batch"]
+  profiles: ["core"]
   user: "${AIRFLOW_UID:-50000}:0"
   environment: &airflow-environment
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -61,7 +61,7 @@ services:
   minio:
     image: cgr.dev/chainguard/minio:latest-dev
     command: server /data --console-address ":9001"
-    profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
+    profiles: ["core"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
@@ -79,7 +79,7 @@ services:
 
   postgres:
     image: postgres:16.8
-    profiles: ["core", "batch", "streaming", "tools", "lakehouse-tools"]
+    profiles: ["core"]
     command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=4", "-c", "max_wal_senders=4"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -110,7 +110,7 @@ services:
 
   polaris-bootstrap:
     image: apache/polaris-admin-tool:1.6.0
-    profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
+    profiles: ["core"]
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -141,7 +141,7 @@ services:
 
   polaris:
     image: apache/polaris:1.6.0
-    profiles: ["batch", "streaming", "tools", "lakehouse-tools"]
+    profiles: ["core"]
     environment:
       <<: *polaris-database-environment
       POLARIS_PERSISTENCE_RELATIONAL_JDBC_MAX_RETRIES: 5
@@ -179,7 +179,7 @@ services:
       args:
         ICEBERG_VERSION: ${ICEBERG_VERSION:-1.10.1}
     image: lakehouse-spark:3.5.9-iceberg-${ICEBERG_VERSION:-1.10.1}
-    profiles: ["lakehouse-tools"]
+    profiles: ["batch"]
     entrypoint: ["/opt/project/spark/with-polaris-credentials.sh"]
     environment:
       SPARK_MASTER_URL: ${SPARK_MASTER_URL:-local[2]}
@@ -187,10 +187,7 @@ services:
       MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
       MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
       POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
-    command:
-      - /opt/spark/bin/spark-sql
-      - -e
-      - SHOW NAMESPACES IN lakehouse
+    command: ["sleep", "infinity"]
     volumes:
       - polaris-spark-client-credentials:/run/polaris:ro
     depends_on:
@@ -259,7 +256,7 @@ services:
 
   trino:
     image: trinodb/trino:483
-    profiles: ["batch", "streaming", "tools"]
+    profiles: ["core"]
     entrypoint: ["/bin/sh", "/opt/trino/start.sh"]
     environment:
       POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
@@ -289,7 +286,7 @@ services:
       context: .
       dockerfile: services/platform-app/Dockerfile
     image: lakehouse-platform-app:0.1.0
-    profiles: ["tools"]
+    profiles: ["core"]
     user: "${PLATFORM_APP_UID:-1000}:${PLATFORM_APP_GID:-1000}"
     environment:
       HOME: /tmp
@@ -393,7 +390,8 @@ services:
 
   debezium-init:
     image: alpine/curl:8.21.0
-    profiles: ["pipeline"]
+    profiles: ["streaming"]
+    scale: 0  # Run manually with docker compose run.
     entrypoint: ["/bin/sh", "/opt/debezium/register-connector.sh"]
     environment:
       DEBEZIUM_CONNECT_URL: http://debezium-connect:8083
@@ -449,7 +447,8 @@ services:
 
   flink-submit:
     <<: *flink-common
-    profiles: ["pipeline"]
+    profiles: ["streaming"]
+    scale: 0  # Run manually with docker compose run.
     command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/opt/project/flink/bin/submit-job.sh"]
     restart: "no"  # one-shot: submit job then exit
     volumes:
@@ -466,7 +465,8 @@ services:
 
   flink-cdc-submit:
     <<: *flink-common
-    profiles: ["pipeline"]
+    profiles: ["streaming"]
+    scale: 0  # Run manually with docker compose run.
     command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/opt/project/flink/bin/submit-job.sh"]
     environment:
       <<: *flink-environment
