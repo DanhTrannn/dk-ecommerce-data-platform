@@ -1,24 +1,6 @@
-# OLTP & Access Log Data Generator
+# OLTP Data Generator
 
-The Data Generator (`data-generator` package, v0.8.0) creates deterministic synthetic datasets with configured Vietnamese retail seasonality and purchase patterns. It exports relational SQL inserts for MySQL OLTP and synthetic HTTP access logs using the runtime log contract. These are modeled distributions, not calibration results from a measured customer dataset.
-
----
-
-## Automated Backfill (Zero-Footprint on Host)
-
-To backfill data without leaving temporary SQL or log files on your host filesystem, use [`scripts/backfill_data.sh`](../scripts/backfill_data.sh):
-
-```bash
-# Backfill both OLTP SQL into MySQL and Access Logs to MinIO S3
-./scripts/backfill_data.sh
-
-# Or backfill individually
-./scripts/backfill_data.sh --mode oltp  # MySQL database only
-./scripts/backfill_data.sh --mode logs  # MinIO Landing Zone only
-
-# With a specific scale configuration
-./scripts/backfill_data.sh --config generator/configs/medium.yml
-```
+The Data Generator (`data-generator` package, v0.8.0) creates deterministic synthetic datasets with configured Vietnamese retail seasonality and purchase patterns. It exports relational SQL inserts for MySQL OLTP. Synthetic access-log generation is currently removed. These are modeled distributions, not calibration results from a measured customer dataset.
 
 ---
 
@@ -26,7 +8,7 @@ To backfill data without leaving temporary SQL or log files on your host filesys
 
 ### Machine-readable summaries
 
-`run`, `export-sql`, and `export-logs` accept `--json` for job runners and other tools. The JSON summary is printed to stdout; the existing human-readable lines remain the default.
+`run` and `export-sql` accept `--json` for job runners and other tools. The JSON summary is printed to stdout; the existing human-readable lines remain the default.
 
 ```bash
 uv run --locked --package data-generator -- generator run \
@@ -57,53 +39,24 @@ Once MySQL is running and its 28-table schema has been initialized from `databas
 > The generated SQL runs within a single atomic transaction without disabling foreign key checks. Do not import the same SQL file twice into the same database.
 
 ### Synthetic Customer Accounts
-Generated active accounts use `customer.<index>.<logical-prefix>@web.local` and the synthetic-data password `Synthetic@12345`. The traffic generator uses the same mapping. No featured customer receives a reserved order quota or a special timeline; order allocation follows the configured customer classes.
+Generated active accounts use `customer.<index>.<logical-prefix>@web.local` and the synthetic-data password `Synthetic@12345`. No featured customer receives a reserved order quota or a special timeline; order allocation follows the configured customer classes.
 
-These are development data-source accounts. SQL and access logs are generated data, not measurements of real customer activity.
+These are development data-source accounts. SQL records are generated data, not measurements of real customer activity.
 
-Version 0.8 changes the generator logical identity because payment, return and stock semantics changed. Generate/import matching SQL before running traffic for that configuration. Existing datasets are not migrated or repaired automatically; exporting a new version does not modify MySQL.
+Version 0.8 changes the generator logical identity because payment, return and stock semantics changed. Existing datasets are not migrated or repaired automatically; exporting a new version does not modify MySQL.
 
 ### Business consistency in 0.8
 
 - COD starts confirmed with a pending payment. Payment succeeds and `paid_at` is set on completion; cancelled or failed-delivery COD has no successful payment or cash refund. VietQR cancellation retains the original paid timestamp and records its refund.
 - Return lines reference the selected order item and variant. Refunds use the discounted unit price rounded to VND, matching the current API formula; completed monetary refunds have payment-linked records. A full refund of all ordered units marks the order returned. An exchange without another variant becomes a refund.
 - Each order has a checkout stock withdrawal; cancellations and failed deliveries have compensating movements. Passed returns add stock; modeled exchanges also withdraw the replacement SKU. Opening balance plus net movements equals closing stock. The arbitrary 500-unit inbound rows have been removed: opening stock is an explicit assumption sized from total withdrawals plus an 80–200 unit buffer, not a simulated receipt or measured replenishment policy.
-- Return creation/resolution fits between completion and the anchor. Order status history follows COD/VietQR paths. Historical JSONL exports carry `data_origin=synthetic`; live middleware events remain `observed`, including requests from a simulator.
+- Return creation/resolution fits between completion and the anchor. Order status history follows COD/VietQR paths.
 
 These checks establish internal consistency within the covered scenarios. Product sampling, customer order rescaling, COD/return selection and seasonality still use configured assumptions. POS, actual inbound receipts, reference calibration and real API exchange execution are not supplied by these SQL fixes. A modeled exchange does not certify that an equivalent API workflow exists.
 
 ---
 
-### 3. Export Matching Access Logs
-
-```bash
-uv run --locked --package data-generator -- generator export-logs \
-  --config generator/configs/small.yml \
-  --output-directory data/generator/access-logs \
-  --expected-requests 60000
-```
-
-Output files are structured in Hive-style partition directories under `data/generator/access-logs/landing/logs/`:
-
-```text
-landing/logs/ingest_date=YYYY-MM-DD/ingest_hour=HH/service=ecommerce-api/<uuid>.jsonl.gz
-```
-
-- **Generation Window:** Exports a 30-day log window relative to the dataset anchor; this is not object-storage retention.
-- **Format:** Gzip-compressed newline-delimited JSON (`.jsonl.gz`).
-- **Telemetry Standards:** Standardized to OpenTelemetry-compatible fields (`service.name=ecommerce-api`, `data_origin=synthetic`, 12-character hex container IDs).
-
-### 4. Upload to MinIO Landing Zone
-
-When MinIO and Docker services are active, upload generated logs to the S3 Landing Zone:
-
-```bash
-./scripts/upload_generated_logs.sh data/generator/access-logs
-```
-
----
-
-## 5. Dataset Scale Configurations
+## Dataset Scale Configurations
 
 The `configs/` directory provides pre-configured scenarios:
 
@@ -119,7 +72,7 @@ The `configs/` directory provides pre-configured scenarios:
 
 These are YAML inputs, not measured loaded row counts. Despite its filename, `large-10m.yml` currently configures 1,000,000 orders. Dates follow `anchor_time`, not the date the command runs.
 
-## 6. Vietnamese E-Commerce Behavioral Distributions
+## Vietnamese E-Commerce Behavioral Distributions
 
 The generator uses the following retail scenario assumptions:
 
@@ -131,22 +84,11 @@ The generator uses the following retail scenario assumptions:
 
 ---
 
-## 7. Deterministic Identity Strategy
+## Deterministic Identity Strategy
 
 - **Surrogate PKs:** Uses `BIGINT UNSIGNED` keys for internal joins and performant bulk imports.
 - **Public Identifiers:** Uses deterministic UUIDv5 for `public_id`, `logical_identity`, `generation_run_id`, and transaction idempotency keys.
 - **Business Keys:** Keeps human-readable `order_number`, SKU, slug, and coupon code identifiers.
-
-## Live Access Log Source
-
-After importing the matching SQL dataset, create API traffic with:
-
-```bash
-uv run --locked --package data-generator -- python scripts/simulate_web_traffic.py \
-  --config generator/configs/small.yml --duration 300 --concurrency 5
-```
-
-The API publishes these access events to Kafka for the Flink stream. Historical `.jsonl.gz` files uploaded to MinIO remain raw Landing files; the current Flink job reads Kafka and does not automatically process those uploaded files into Gold.
 
 ## Reference Profiling
 
@@ -164,6 +106,53 @@ The [spec](profiles/uci-reference.yml) pins the source/license, UK cohort, stock
 
 See the [measurement definitions and results](../docs/project/GENERATOR_REFERENCE_PROFILE.md) before interpreting or applying the profile. The source contains wholesale activity and does not represent Vietnamese fashion retail; long-tail baskets and quantities require an explicit adaptation decision before calibration. Keep raw downloads outside Git. Checksums reject a different artifact, so converted CSV/XLSX files need a separate pinned specification rather than silently reusing the official ZIP checksum.
 
+## Reference Dataset EDA (local notebook)
+
+The [EDA notebook](notebooks/reference_datasets_eda.ipynb) profiles all three sources with `describe()` and `null_count()`. Olist 2017 covers baskets/order values, status/payment mix, delivery duration/lateness and ratings by lateness. H&M 2019 covers purchase days, observed repurchase gaps, product concentration, product groups and normalized monthly demand. The behavior section measures observed session spans, event mix, raw cart/purchase presence, a strictly ordered same-product funnel, timestamp ties and completed-path timings. This analysis remains reference material; log generation is outside the current generator scope. See the [plan](../docs/project/GENERATOR_EDA_PLAN.md).
+
+Behavior analysis uses October 2019 with November 1 as boundary context. It excludes sessions touching October 1 or November 1, keeps the source `(user_id, user_session)` key and applies no inactivity timeout. The main funnel denominator is sessions with a view; timing statistics use completed session/product paths. No HTTP latency or order count is inferred from these events.
+
+Each business analysis ends with a short Markdown finding and proposed generation rule. Section 4 summarizes the rules and evidence gaps. Code cells only load data, calculate statistics and plot; the notebook writes no CSV, figures or other files. Results and commentary stay in the notebook.
+
+Generator code and parameters remain unchanged. Before claiming improved generation quality, compare baseline and calibrated output using matching definitions, seed, scale and time window, then evaluate on held-out reference periods. Calibration and that comparison have not been performed.
+
+From the repository root:
+
+```bash
+uv sync --locked --group eda
+```
+
+Open the notebook in VS Code and select the repository's `.venv/bin/python` kernel, or use an existing local Jupyter installation with that kernel. No containers or running services are required. EDA dependencies are in the optional `eda` group; Seaborn brings Pandas as a transitive dependency, while analysis uses Polars.
+
+Sources and local CSV locations:
+
+- [H&M](https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations/data): `data/generator/eda/raw/hm/transactions_train.csv` and `articles.csv`; images are not needed. The original competition download requires Kaggle authentication and applicable competition terms.
+- [Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce), CC BY-NC-SA 4.0: CSV files under `data/generator/eda/raw/olist/`.
+- [eCommerce Behavior](https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store): `2019-Oct.csv` and `2019-Nov.csv` under `data/generator/eda/raw/ecommerce_behavior/`. Follow the author's source-attribution requirements on the dataset page.
+
+The user-provided H&M mirror is [einrafh/hnm-fashion-recommendations-data](https://huggingface.co/datasets/einrafh/hnm-fashion-recommendations-data/tree/acde210b0090be673abdba5f989c48925c856f78), pinned to commit `acde210b0090be673abdba5f989c48925c856f78`. Downloaded CSV sizes and SHA-256 were checked against its Git LFS pointers; this verifies the mirror revision, not independent equality with the original Kaggle download. The data directory retains only source CSV files; downloaded archives, the duplicate clone, download metadata and previous EDA exports have been removed.
+
+The notebook contains analysis and minimal data-loading code. Large sources use Polars lazy scans; `describe()` collects only the selected price/date columns, and null counts use streaming aggregation. Setup instructions, source provenance and implementation progress stay outside the notebook. Edit `data_dir` if files are stored elsewhere.
+
+Analysis references, read through Kaggle's public notebook API:
+
+- [Relational Database — EDA & Data Preparation](https://www.kaggle.com/code/khusheekapoor/relational-database-eda-data-preparation): table-level missingness and relational structure.
+- [H&M EDA FIRST LOOK](https://www.kaggle.com/code/vanguarde/h-m-eda-first-look): separation of product/customer/transaction analysis and product-group exploration.
+- [ECommerce behavior data from multi category store](https://www.kaggle.com/code/varshnidevi/ecommerce-behavior-data-from-multi-category-store): missing category/brand, event counts and session journeys.
+
+These references guide questions and presentation. All results are recomputed locally. Basic profiling retains source rows and does not apply cleaning rules.
+
+To execute from a fresh kernel and save results in the same notebook:
+
+```bash
+uv run --locked --group eda jupyter nbconvert --to notebook --execute \
+  generator/notebooks/reference_datasets_eda.ipynb \
+  --inplace \
+  --ExecutePreprocessor.timeout=1800
+```
+
+Raw CSV files stay under the ignored `data/generator/eda/raw/` directory. Sources are documented above. Analysis results stay in notebook cells; clear outputs and execution counts before committing.
+
 ## Regression Checks
 
 Run from the repository root, using Python's standard-library unittest runner:
@@ -172,4 +161,4 @@ Run from the repository root, using Python's standard-library unittest runner:
 uv run --locked --package data-generator -- python -m unittest discover -s generator/tests -v
 ```
 
-The checks generate temporary datasets without contacting MySQL, Kafka or external APIs. They cover payment/paid timestamps, return lineage/refunds, stock balances and nonnegative stock history, status continuity, single-variant/free-item edges, multiple seeds and INSERT batches, preset loading, deterministic SQL output and historical-log provenance. Generated SQL/log files are removed with their temporary directories.
+The checks generate temporary datasets without contacting MySQL, Kafka or external APIs. They cover payment/paid timestamps, return lineage/refunds, stock balances and nonnegative stock history, status continuity, single-variant/free-item edges, multiple seeds and INSERT batches, preset loading, deterministic SQL output and CLI summaries. Generated SQL files are removed with their temporary directories.

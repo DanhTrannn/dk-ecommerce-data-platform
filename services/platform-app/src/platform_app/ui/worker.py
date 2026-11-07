@@ -10,13 +10,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from platform_app.ui.artifacts import archive_logs, collect_artifacts, write_checksums
+from platform_app.ui.artifacts import collect_artifacts, write_checksums
 from platform_app.ui.job_store import (
     STAGE_FAILED,
     STAGE_SKIPPED,
     STAGE_SUCCEEDED,
     STATUS_FAILED,
-    STATUS_PARTIAL,
     STATUS_SUCCEEDED,
     JobStore,
 )
@@ -130,41 +129,14 @@ def _sql_command(config_path: Path, sql_path: Path) -> list[str]:
     ]
 
 
-def _logs_command(config_path: Path, log_root: Path, expected_requests: int) -> list[str]:
-    command = generator_cli_command() + [
-        "export-logs",
-        "--config",
-        str(config_path),
-        "--output-directory",
-        str(log_root),
-        "--json",
-    ]
-    if expected_requests > 0:
-        command.extend(["--expected-requests", str(expected_requests)])
-    return command
-
-
 def _overall_status(store: JobStore, job_id: str) -> tuple[str, str | None]:
     state = store.get_job(job_id).state
-    selected = [
-        stage
-        for stage in ("sql", "logs")
-        if state["stages"][stage]["status"] != STAGE_SKIPPED
-    ]
-    succeeded = [stage for stage in selected if state["stages"][stage]["status"] == STAGE_SUCCEEDED]
-    failed = [stage for stage in selected if state["stages"][stage]["status"] != STAGE_SUCCEEDED]
-    if not selected:
-        return STATUS_FAILED, "Validation failed"
-    if not failed:
-        return STATUS_SUCCEEDED, None
-    messages = []
-    for stage in failed:
-        message = state["stages"][stage].get("message") or state["stages"][stage]["status"]
-        messages.append(f"{stage}: {message}")
-    error = "; ".join(messages)
-    if succeeded:
-        return STATUS_PARTIAL, error
-    return STATUS_FAILED, error
+    for stage in ("validate", "sql"):
+        stage_state = state["stages"][stage]
+        if stage_state["status"] != STAGE_SUCCEEDED:
+            message = stage_state.get("message") or stage_state["status"]
+            return STATUS_FAILED, f"{stage}: {message}"
+    return STATUS_SUCCEEDED, None
 
 
 def run_job(
@@ -210,43 +182,30 @@ def run_job(
             scenario = str(state["scenario_id"])
             identity = str(state["dataset_identity"])
             sql_path = job_dir / "outputs" / "sql" / f"{scenario}-{identity}.sql"
-            if state["stages"]["sql"]["status"] != STAGE_SKIPPED:
-                sql_path.parent.mkdir(parents=True, exist_ok=True)
-                sql_ok, _ = _run_stage(
-                    store,
+            sql_path.parent.mkdir(parents=True, exist_ok=True)
+            sql_ok, _ = _run_stage(
+                store,
+                job_id,
+                "sql",
+                _sql_command(config_path, sql_path),
+                runner,
+            )
+            if sql_ok and not sql_path.is_file():
+                store.complete_stage(
                     job_id,
                     "sql",
-                    _sql_command(config_path, sql_path),
-                    runner,
-                )
-                if sql_ok and not sql_path.is_file():
-                    store.complete_stage(
-                        job_id,
-                        "sql",
-                        STAGE_FAILED,
-                        exit_code=0,
-                        message=f"SQL file was not written: {sql_path}",
-                    )
-            log_root = job_dir / "outputs" / "access-logs"
-            if state["stages"]["logs"]["status"] != STAGE_SKIPPED:
-                _run_stage(
-                    store,
-                    job_id,
-                    "logs",
-                    _logs_command(config_path, log_root, int(state["expected_requests"])),
-                    runner,
+                    STAGE_FAILED,
+                    exit_code=0,
+                    message=f"SQL file was not written: {sql_path}",
                 )
         else:
-            for stage in ("sql", "logs"):
-                if store.get_job(job_id).state["stages"][stage]["status"] != STAGE_SKIPPED:
-                    store.complete_stage(
-                        job_id,
-                        stage,
-                        STAGE_SKIPPED,
-                        message="Skipped because validation failed",
-                    )
+            store.complete_stage(
+                job_id,
+                "sql",
+                STAGE_SKIPPED,
+                message="Skipped because validation failed",
+            )
 
-        archive_logs(job_dir)
         write_checksums(job_dir)
         store.set_artifacts(job_id, collect_artifacts(job_dir))
         status, error = _overall_status(store, job_id)

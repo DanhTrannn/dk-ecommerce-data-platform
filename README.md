@@ -57,7 +57,7 @@ Published reports for all seven analytics roles, admin overview, store overview,
 - **Open Lakehouse Storage:** MinIO object storage, Iceberg tables/snapshots, Polaris catalog, and scheduled maintenance.
 - **Role-Based Analytics:** Seven dashboard views with API-level role and store filtering, Trino/Iceberg publications, bounded last-good OLAP cache, and API-level role/store filtering.
 - **Access-Log Analytics:** Request volume, duration percentiles, error rates, product interactions, and event-based marketing funnels.
-- **Synthetic Data Generation:** Version 0.8 generates deterministic SQL history with corrected payment/return/stock consistency and synthetic-labelled historical access logs from YAML configurations; live API traffic can feed the Kafka stream. The reference-profiling CLI records measured UCI distributions and audit counts; applying them to generation remains pending.
+- **Synthetic Data Generation:** Version 0.8 generates deterministic SQL history with corrected payment/return/stock consistency from YAML configurations. Synthetic log generation is removed; runtime API access logging remains separate. The reference-profiling CLI records measured UCI distributions and audit counts; applying them to generation remains pending.
 - **Operational Source Application:** Storefront, cart/checkout, POS, store inventory, in-house delivery, COD failure tracking, returns/refunds, and product reviews.
 - **Inventory Costing:** Inbound receipts, Moving Weighted Average costs, and order-item cost snapshots for analytical COGS calculations.
 
@@ -120,7 +120,7 @@ Ports and credentials below follow the default configuration; environment overri
 | **Flink Dashboard** | 8085 | `http://localhost:8085` | Job status |
 | **Kafka** | 9092, 9094 | `localhost:9094` | External listener; Docker clients use `kafka:9092` |
 | **Debezium Connect** | 8086 | `http://127.0.0.1:8086` | Connector lifecycle/status |
-| **Generator Console (optional)** | 8501 | `http://localhost:8501` | Optional `tools` profile; SQL/access-log jobs stored under `data/generator/jobs/` |
+| **Generator Console (optional)** | 8501 | `http://localhost:8501` | Optional `tools` profile; SQL jobs stored under `data/generator/jobs/` |
 
 Additional staff accounts and store assignments are managed through the application.
 
@@ -211,7 +211,7 @@ make build
 make up PROFILES=core
 ```
 
-Open `http://localhost:8501`, choose SQL, access log or both, then monitor the per-stage results and download outputs. The console does not import SQL, run traffic, upload logs or trigger Airflow. See [services/platform-app/README.md](services/platform-app/README.md) for job layout and recovery behavior.
+Open `http://localhost:8501`, configure a SQL generation job, then monitor the per-stage results and download outputs. The console does not import SQL, run traffic, upload logs or trigger Airflow. See [services/platform-app/README.md](services/platform-app/README.md) for job layout and recovery behavior.
 
 ### Real-Time Traffic Simulation
 
@@ -227,37 +227,15 @@ uv run --locked --package data-generator -- python scripts/simulate_web_traffic.
 
 ### Historical Data Backfill
 
-#### Automated Backfill
-
-The helper generates data in a temporary directory, imports/uploads it, and removes temporary files:
+Export OLTP history with the generator CLI:
 
 ```bash
-# Import OLTP history and upload raw historical access logs
-./scripts/backfill_data.sh
-
-# Select one source
-./scripts/backfill_data.sh --mode oltp
-./scripts/backfill_data.sh --mode logs
-```
-
-#### Manual Step-by-Step Backfill
-
-```bash
-# 1. Export and import OLTP history
 uv run --locked --package data-generator -- generator export-sql \
   --config generator/configs/small.yml \
   --output data/generator/small.sql
-./scripts/import_generated_sql.sh data/generator/small.sql
-
-# 2. Export historical log files and upload them to raw Landing
-uv run --locked --package data-generator -- generator export-logs \
-  --config generator/configs/small.yml \
-  --output-directory data/generator/access-logs \
-  --expected-requests 60000
-./scripts/upload_generated_logs.sh data/generator/access-logs
 ```
 
-Uploaded JSONL files remain raw Landing assets: the current Flink job reads Kafka, so uploading files does not automatically process them into Gold. Live API traffic feeds the streaming path. Generated data is synthetic; it is not evidence of real customer behavior or production performance.
+Synthetic access-log export is currently removed. Runtime API middleware remains the source for the Kafka access-log stream. Generated SQL is synthetic and does not establish real customer behavior or production performance.
 
 ### Run the OLTP Batch Pipeline
 
@@ -356,6 +334,7 @@ CI uses `--env-file .env.example` because `.env` is not committed and Compose re
 | **Access Logs** | [ACCESS_LOG_DESIGN.md](docs/architecture/ACCESS_LOG_DESIGN.md) | Event contract, privacy rules, and streaming/raw-file boundaries |
 | **Data Generator** | [generator/README.md](generator/README.md) | Synthetic SQL/log generation and live traffic |
 | **Generator Reference Profile** | [GENERATOR_REFERENCE_PROFILE.md](docs/project/GENERATOR_REFERENCE_PROFILE.md) | Pinned UCI source, feature definitions, cohort/quality policy, measured results and calibration limits |
+| **Generator EDA** | [Notebook](generator/notebooks/reference_datasets_eda.ipynb) · [Plan](docs/project/GENERATOR_EDA_PLAN.md) | Local Polars EDA for H&M, Olist and eCommerce Behavior; describe, missing values and date coverage |
 | **Generator Console** | [GENERATOR_CONSOLE.md](docs/project/GENERATOR_CONSOLE.md) | Streamlit job workflow, validation, persisted job layout, statuses and scope limits |
 | **Diagrams** | [docs/diagram/README.md](docs/diagram/README.md) | Chapter 3 draw.io sources, SVG figures, and offline HTML viewer |
 | **Business Analysis (B)** | [BUSINESS_DOMAIN.md](docs/architecture/BUSINESS_DOMAIN.md) | Implemented role views, business questions, sources, and KPI limits |

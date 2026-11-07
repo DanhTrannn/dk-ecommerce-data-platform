@@ -12,14 +12,12 @@ STATUS_LABELS = {
     "queued": "Đang chờ",
     "running": "Đang chạy",
     "succeeded": "Thành công",
-    "partial": "Thành công một phần",
     "failed": "Thất bại",
     "interrupted": "Bị gián đoạn",
 }
 STAGE_LABELS = {
     "validate": "Kiểm tra cấu hình",
     "sql": "Xuất SQL",
-    "logs": "Xuất access log",
 }
 STAGE_STATUS_LABELS = {
     "pending": "Chờ chạy",
@@ -34,8 +32,6 @@ KIND_LABELS = {
     "request": "Yêu cầu",
     "manifest": "Manifest",
     "sql": "SQL",
-    "logs_directory": "Thư mục access log",
-    "logs_archive": "Zip access log",
     "checksums": "Checksum",
     "log": "Log",
     "artifact": "Tệp",
@@ -107,15 +103,11 @@ def _job_panel(store: JobStore, job_id: str) -> None:
     metrics[1].metric("Scenario", str(state.get("scenario_id", "—")))
     metrics[2].metric("Bắt đầu", _time_label(state.get("started_at")))
     metrics[3].metric("Kết thúc", _time_label(state.get("finished_at")))
-    details = st.columns(4)
+    details = st.columns(3)
     details[0].metric("Preset", str(state.get("preset", "—")))
     details[1].metric("Đầu ra", str(state.get("output", "—")))
     details[2].metric("Generator", str(state.get("generator_version", "—")))
-    details[3].metric("Expected requests", f"{int(state.get('expected_requests', 0)):,}")
-    st.caption(
-        f"Dataset identity: `{state.get('dataset_identity', '—')}` · "
-        f"Log identity: `{state.get('log_identity') or '—'}`"
-    )
+    st.caption(f"Dataset identity: `{state.get('dataset_identity', '—')}`")
     if error := state.get("error"):
         st.error(str(error))
     st.subheader("Công đoạn")
@@ -136,7 +128,6 @@ def _result_panel(store: JobStore, job: JobRecord) -> None:
     metrics[3].metric("Kết thúc", _time_label(state.get("finished_at")))
     st.caption(
         f"Dataset identity: `{state.get('dataset_identity', '—')}` · "
-        f"Log identity: `{state.get('log_identity') or '—'}` · "
         f"Generator: {state.get('generator_version', '—')}"
     )
     if error := state.get("error"):
@@ -166,8 +157,6 @@ def _status_callout(job: JobRecord) -> None:
     label = STATUS_LABELS.get(status, status)
     if status == "succeeded":
         st.success(f"Trạng thái: {label}")
-    elif status == "partial":
-        st.warning(f"Trạng thái: {label}. Một số công đoạn đã thất bại; xem chi tiết bên dưới.")
     elif status == "interrupted":
         st.warning(f"Trạng thái: {label}. Worker không còn xác minh được; artifact đã có vẫn được giữ.")
     elif status == "failed":
@@ -262,11 +251,6 @@ def _render_artifacts(job: JobRecord) -> None:
                 "Loại": KIND_LABELS.get(artifact.get("kind", ""), artifact.get("kind", "")),
                 "Dung lượng": _format_size(int(artifact.get("size", 0))),
                 "SHA-256": str(artifact.get("sha256", ""))[:16],
-                "Số file": (
-                    str(artifact["file_count"])
-                    if artifact.get("file_count") is not None
-                    else ""
-                ),
             }
         )
     st.dataframe(rows, hide_index=True)
@@ -274,8 +258,7 @@ def _render_artifacts(job: JobRecord) -> None:
     downloadable = [
         artifact
         for artifact in artifacts
-        if artifact.get("kind") != "logs_directory"
-        and (job.directory / artifact["path"]).is_file()
+        if (job.directory / artifact["path"]).is_file()
     ]
     if downloadable:
         options = [artifact["path"] for artifact in downloadable]
@@ -295,19 +278,6 @@ def _render_artifacts(job: JobRecord) -> None:
                 "Tải tệp đã chọn",
                 _mime_for(path),
                 key=f"artifact-download-{job.job_id}-{artifact['path']}",
-            )
-
-    logs = next((item for item in artifacts if item.get("kind") == "logs_directory"), None)
-    if logs is not None:
-        st.caption(
-            f"Access log: {logs.get('file_count', 0)} file, "
-            f"{_format_size(int(logs.get('size', 0)))}. "
-            "Checksum cây log nằm trong cột SHA-256."
-        )
-        if not logs.get("archive"):
-            st.info(
-                "Không tạo zip access log (chưa có file hoặc vượt ngưỡng "
-                "GENERATOR_CONSOLE_MAX_ARCHIVE_BYTES). Tải từ thư mục job."
             )
 
 
@@ -375,8 +345,4 @@ def _mime_for(path: Path) -> str:
         return "application/json"
     if suffix == ".sql":
         return "application/sql"
-    if suffix == ".zip":
-        return "application/zip"
-    if suffix == ".gz":
-        return "application/gzip"
     return "text/plain"

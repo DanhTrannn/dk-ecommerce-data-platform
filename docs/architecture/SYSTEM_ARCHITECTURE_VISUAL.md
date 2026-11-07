@@ -34,7 +34,7 @@ Frontend không truy cập MySQL/Trino trực tiếp. FastAPI đọc Trino cho t
 
 Batch xây dữ liệu phân tích có đối soát; CDC lưu lịch sử để truy vết/replay. Bản ghi xóa trong binlog không đồng nghĩa Silver batch đã tự áp dụng xóa đó.
 
-JSONL lịch sử do `generator export-logs` tạo và upload lên `landing/logs/` là file thô. Job Flink hiện tại đọc Kafka; upload file không tự kích hoạt xử lý sang Gold.
+Generator hiện chỉ sinh SQL; chức năng sinh log lịch sử đã được gỡ. Luồng access log lấy sự kiện từ middleware API qua Kafka.
 
 ## 3. Lưu trữ và chất lượng
 
