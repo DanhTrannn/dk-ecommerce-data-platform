@@ -13,7 +13,7 @@ This runbook covers local startup dependencies, data operations, RBAC bootstrapp
 The local stack implements the decoupled architecture defined in the lakehouse plan:
 
 - **MinIO S3:** Stores Landing zone files, Iceberg metadata, and Parquet data files under bucket `lakehouse`.
-- **Apache Polaris (v1.6.0):** Acts as the Iceberg REST Catalog, backed by PostgreSQL 16.8 for realm and RBAC metadata.
+- **Apache Polaris (v1.8.0):** Acts as the Iceberg REST Catalog, backed by PostgreSQL 16.8 for realm and RBAC metadata.
 - **Apache Spark (v3.5.9 + Iceberg v1.10.1):** The batch writer engine responsible for ETL and table commits; Flink independently handles streaming writes.
 - **Trino (v483):** The distributed SQL query engine for read-only serving.
 - **Debezium Connect (v3.0.8):** Captures committed changes from the MySQL row binlog and publishes per-table Kafka topics (`:8086`, localhost only).
@@ -216,6 +216,10 @@ CDC appends Bronze audit events only; batch owns Silver/Gold publication. No per
 ---
 
 ## 6. Polaris bootstrap pending redesign
+
+Server and native admin tool both use tag `1.8.0`. PostgreSQL's first-init script creates `polaris_schema` owned by the configured Polaris user before realm bootstrap, as required by [Polaris 1.8](https://polaris.apache.org/downloads/1.8.0/). This init change applies only to empty PostgreSQL volumes.
+
+For an existing 1.6 installation, preserve metadata, credentials and the existing schema. The current JDBC URL has no `currentSchema` override, so it retains the default schema. Polaris does not run automatic schema migrations: schema-v6 index improvements require a separate operator-reviewed upgrade; see the release notes above. Changing the image tag does not reset volumes, migrate metadata or verify runtime compatibility.
 
 The old Python `polaris-init` service, image and entrypoint are removed. `infrastructure/polaris/rbac.yml` remains a reference template for the three service principals and four private consumer credential outputs. Provisioning will be implemented later in `platform-app`; this refactor does not recreate credentials, alter grants or implement YAML synchronization.
 

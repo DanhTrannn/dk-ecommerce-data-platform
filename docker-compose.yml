@@ -109,7 +109,7 @@ services:
     networks: ["lakehouse-network"]
 
   polaris-bootstrap:
-    image: apache/polaris-admin-tool:1.6.0
+    image: apache/polaris-admin-tool:1.8.0
     profiles: ["core"]
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -140,7 +140,7 @@ services:
     networks: ["lakehouse-network"]
 
   polaris:
-    image: apache/polaris:1.6.0
+    image: apache/polaris:1.8.0
     profiles: ["core"]
     environment:
       <<: *polaris-database-environment

@@ -15,6 +15,12 @@ create_user_and_database "${POSTGRES_ECOMMERCE_DB:-ecommerce}" "${POSTGRES_ECOMM
 create_user_and_database "${POLARIS_DB_NAME:-polaris}" "${POLARIS_DB_USER:-polaris}" "${POLARIS_DB_PASSWORD:-password}"
 create_user_and_database "${AIRFLOW_DB_NAME:-airflow}" "${AIRFLOW_DB_USER:-airflow}" "${AIRFLOW_DB_PASSWORD:-password}"
 
+# Polaris 1.8 requires the schema to exist before its realm bootstrap.
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${POLARIS_DB_NAME:-polaris}" \
+  -v polaris_user="${POLARIS_DB_USER:-polaris}" <<'SQL'
+CREATE SCHEMA polaris_schema AUTHORIZATION :"polaris_user";
+SQL
+
 # Membership of the source owner allows filtered publication management.
 # This role has no membership of the Airflow or Polaris database owners.
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${POSTGRES_ECOMMERCE_DB:-ecommerce}" \

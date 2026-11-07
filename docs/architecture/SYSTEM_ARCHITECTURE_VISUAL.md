@@ -17,7 +17,7 @@ Bản vẽ tổng quan: [08-system-architecture.drawio](../diagram/08-system-arc
 | Airflow 2.10 / Spark 3.5 | Điều phối/thực thi batch, biến đổi, đối soát và bảo trì |
 | MinIO | Lưu file Landing, data/metadata Iceberg và state |
 | Iceberg 1.10 | Định dạng bảng, snapshot, schema và commit |
-| Polaris 1.6 / PostgreSQL | REST catalog, quyền truy cập và metadata quản trị |
+| Polaris 1.8 / PostgreSQL | REST catalog, quyền truy cập và metadata quản trị |
 | Trino 483 | Đọc Iceberg qua Polaris/MinIO để phục vụ SQL |
 
 Frontend không truy cập MySQL/Trino trực tiếp. FastAPI đọc Trino cho tất cả KPI; MySQL phục vụ giao dịch, auth/RBAC và đối soát nguồn. API không gọi Spark để xử lý từng request.

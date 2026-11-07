@@ -10,7 +10,7 @@
 [![Apache Flink](https://img.shields.io/badge/Apache_Flink-1.19-E6526F?style=flat-square&logo=apacheflink&logoColor=white)](https://flink.apache.org)
 [![Apache Spark](https://img.shields.io/badge/Apache_Spark-3.5.9-E25A1C?style=flat-square&logo=apachespark&logoColor=white)](https://spark.apache.org)
 [![Apache Iceberg](https://img.shields.io/badge/Apache_Iceberg-1.10.1-blue?style=flat-square&logo=apache&logoColor=white)](https://iceberg.apache.org)
-[![Apache Polaris](https://img.shields.io/badge/Apache_Polaris-1.6.0-teal?style=flat-square&logo=apache&logoColor=white)](https://polaris.apache.org)
+[![Apache Polaris](https://img.shields.io/badge/Apache_Polaris-1.8.0-teal?style=flat-square&logo=apache&logoColor=white)](https://polaris.apache.org)
 [![Trino](https://img.shields.io/badge/Trino-483-DD00A1?style=flat-square&logo=trino&logoColor=white)](https://trino.io)
 [![Apache ECharts](https://img.shields.io/badge/Apache_ECharts-6.1-AA344D?style=flat-square&logo=apacheecharts&logoColor=white)](https://echarts.apache.org)
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
@@ -179,7 +179,7 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 | **Stream Processing** | Apache Flink | 1.19 | Raw access-log Landing and Bronze CDC ingestion |
 | **Object Storage** | MinIO | `latest-dev` | Landing, Iceberg files, and processing state |
 | **Table Format** | Apache Iceberg | 1.10.1 | Tables, snapshots, and commits |
-| **Catalog** | Apache Polaris | 1.6.0 | REST catalog and access control |
+| **Catalog** | Apache Polaris | 1.8.0 | REST catalog and access control |
 | **Batch Processing** | Apache Spark | 3.5.9 | Local execution inside job containers; extraction, transforms, gates and maintenance |
 | **Orchestration** | Apache Airflow | 3.3.2 | API server/UI, scheduler, standalone DAG processor; LocalExecutor |
 | **Metadata DB** | PostgreSQL | 16.8 | Polaris and Airflow metadata |
