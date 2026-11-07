@@ -27,7 +27,6 @@ Bộ tài liệu lấy phần Data Engineering làm trọng tâm, được đố
 | Tài liệu | Nội dung |
 |---|---|
 | [refactor_v2](project/refactor_v2.md) | Quyết định kiến trúc, 12 kịch bản nguồn, bao phủ 18 mart và lộ trình chuyển đổi |
-| [API_TRANSITION_SCOPE](project/API_TRANSITION_SCOPE.csv) | 86 endpoint đã đối chiếu source/OpenAPI; quyết định giữ, rà soát hoặc bỏ sau khi có thay thế |
 | [DATA_BASELINE](project/DATA_BASELINE.md) | Số dòng nguồn/Silver, tài chính, kho, HTTP và snapshot ID phục vụ đối chiếu |
 | [GENERATOR_REFERENCE_PROFILE](project/GENERATOR_REFERENCE_PROFILE.md) | Đặc tả bốn đặc trưng, audit UCI, profile tham chiếu đã đo và giới hạn trước khi áp dụng vào generator |
 | [GENERATOR_CONSOLE](project/GENERATOR_CONSOLE.md) | Thiết kế Streamlit console, job nền, validate, lưu trạng thái và phạm vi đợt 3 |

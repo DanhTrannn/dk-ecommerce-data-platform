@@ -326,7 +326,6 @@ CI uses `--env-file .env.example` because `.env` is not committed and Compose re
 | **Documentation Map** | [docs/README.md](docs/README.md) | Current implementation references and retained thesis documents |
 | **System Scope** | [SCOPE.md](docs/project/SCOPE.md) | DE goals, data boundaries, and implementation limits |
 | **Transition Plan** | [refactor_v2.md](docs/project/refactor_v2.md) | Target responsibilities, retained scenarios, mart coverage, and phased acceptance criteria |
-| **API Transition Scope** | [API_TRANSITION_SCOPE.csv](docs/project/API_TRANSITION_SCOPE.csv) | Inventory of 86 registered endpoints and proposed retention decisions; no endpoints removed |
 | **Local Data Baseline** | [DATA_BASELINE.md](docs/project/DATA_BASELINE.md) | Read-only source observations, published snapshot IDs, and comparison limits |
 | **System Architecture** | [SYSTEM_ARCHITECTURE_VISUAL.md](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) | Components, batch/CDC/log flows, serving, and deployment |
 | **Repository Layout** | [PROJECT_STRUCTURE.md](docs/architecture/PROJECT_STRUCTURE.md) | Source directories and pipeline entry points |

@@ -50,7 +50,7 @@ API trong bảng có tiền tố `/api/v1`, trừ health và đường internal 
 | Tổng quan admin | mart_admin_overview; tổng tài chính vẫn lấy order mart |
 | Log | mart_hourly_route_metrics, mart_daily_product_demand, mart_marketing_funnel_daily |
 
-CSV [API_TRANSITION_SCOPE.csv](API_TRANSITION_SCOPE.csv) liệt kê đủ **86 endpoint** từ router đăng ký và khớp OpenAPI của image API đang chạy. SQL exporter hiện có 23 đích INSERT; không trực tiếp sinh `cities`, `stores`, `store_inventory`, `inbound_receipts`, `inbound_receipt_items`. Không coi preset lịch sử hiện có là đã bao phủ đủ các nguồn này.
+Phạm vi endpoint được đối chiếu từ [router đăng ký](../../services/platform-app/src/platform_app/api/routes/router.py). SQL exporter hiện có 23 đích INSERT; không trực tiếp sinh `cities`, `stores`, `store_inventory`, `inbound_receipts`, `inbound_receipt_items`. Không coi preset lịch sử hiện có là đã bao phủ đủ các nguồn này.
 
 Cơ sở đối chiếu: [router đăng ký](../../services/platform-app/src/platform_app/api/routes/router.py), [SQL exporter](../../generator/src/generator/sql_export.py), simulator cũ `scripts/simulate_web_traffic.py` (đã loại khỏi repo), [API kho](../../services/platform-app/src/platform_app/api/modules/admin/router.py), [publication reader](../../services/platform-app/src/platform_app/api/modules/analytics/reader.py) và [định nghĩa KPI](../architecture/METRICS_CATALOG.md).
 
