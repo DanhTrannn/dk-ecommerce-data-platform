@@ -1,24 +1,6 @@
 # OLTP & Access Log Data Generator
 
-The Data Generator (`data-generator` package, v0.8.0) creates deterministic synthetic datasets with configured Vietnamese retail seasonality and purchase patterns. It exports relational SQL inserts for MySQL OLTP and synthetic HTTP access logs using the runtime log contract. These are modeled distributions, not calibration results from a measured customer dataset.
-
----
-
-## Automated Backfill (Zero-Footprint on Host)
-
-To backfill data without leaving temporary SQL or log files on your host filesystem, use [`scripts/backfill_data.sh`](../scripts/backfill_data.sh):
-
-```bash
-# Backfill both OLTP SQL into MySQL and Access Logs to MinIO S3
-./scripts/backfill_data.sh
-
-# Or backfill individually
-./scripts/backfill_data.sh --mode oltp  # MySQL database only
-./scripts/backfill_data.sh --mode logs  # MinIO Landing Zone only
-
-# With a specific scale configuration
-./scripts/backfill_data.sh --config generator/configs/medium.yml
-```
+The Data Generator (`data-generator` package, v0.9.0) creates deterministic synthetic datasets with configured Vietnamese retail seasonality and purchase patterns. It exports relational SQL inserts for PostgreSQL 16 OLTP and synthetic HTTP access logs using the runtime log contract. These are modeled distributions, not calibration results from a measured customer dataset.
 
 ---
 
@@ -45,23 +27,28 @@ uv run --locked --package data-generator -- generator export-sql \
 
 The output file is written to `data/generator/small.sql`.
 
-### 2. Import into MySQL
+### 2. Import into PostgreSQL
 
-Once MySQL is running and its 28-table schema has been initialized from `database/schema.sql`:
+Apply the [28-table source schema](../database/README.md) to an empty source database first. Configure host-reachable `API_DATABASE_URL` (`postgresql+psycopg2`) and `API_SECRET_KEY` using `.env.example`, then run from the repository root:
 
 ```bash
-./scripts/import_generated_sql.sh data/generator/small.sql
+uv run --locked --package platform-app -- \
+  python -m platform_app.api.db.import_dataset data/generator/small.sql
+make seed
 ```
 
-> [!IMPORTANT]
-> The generated SQL runs within a single atomic transaction without disabling foreign key checks. Do not import the same SQL file twice into the same database.
+The importer accepts **trusted SQL emitted by this generator**, not arbitrary uploads. It checks the source schema, rejects an existing generation run, inserts with FK/CHECK enforcement, verifies counts/payment/return/stock consistency, and restarts identity sequences above loaded IDs without moving them backwards. All writes and sequence restarts share one transaction; a failure rolls them back. The JSON receipt includes SQL SHA-256, expected schema SHA-256, dataset identity, customer/order counts and placed order value (not realized revenue). Configured customers exclude the extra synthetic review moderator.
+
+Imports are serialized and take write-blocking locks on generated tables. Run bulk imports before concurrent application writers; the DB role must own the affected tables/sequences. Seeds may run before or after import, each in its own transaction. Rerunning a seed repairs missing reference rows without resetting existing credentials or inventory. Rerunning an import is rejected rather than merged. Existing ID/key collisions also fail; there is no destructive reset or data migration.
+
+Streamlit creates artifacts only; run this command explicitly to load a selected SQL artifact. SQL format is `postgresql-v1`, also recorded in CLI JSON and manifests. Regenerate legacy MySQL SQL; it cannot be loaded into PostgreSQL. Historical SQL/logs from 0.8 have different dataset identities.
 
 ### Synthetic Customer Accounts
 Generated active accounts use `customer.<index>.<logical-prefix>@web.local` and the synthetic-data password `Synthetic@12345`. The traffic generator uses the same mapping. No featured customer receives a reserved order quota or a special timeline; order allocation follows the configured customer classes.
 
 These are development data-source accounts. SQL and access logs are generated data, not measurements of real customer activity.
 
-Version 0.8 changes the generator logical identity because payment, return and stock semantics changed. Generate/import matching SQL before running traffic for that configuration. Existing datasets are not migrated or repaired automatically; exporting a new version does not modify MySQL.
+Version 0.9 changes the logical identity for the PostgreSQL artifact contract; the retail sampling assumptions from 0.8 are retained. Export SQL and access logs with the same version/configuration. Existing databases and exported artifacts are not migrated or repaired automatically.
 
 ### Business consistency in 0.8
 
@@ -93,13 +80,7 @@ landing/logs/ingest_date=YYYY-MM-DD/ingest_hour=HH/service=ecommerce-api/<uuid>.
 - **Format:** Gzip-compressed newline-delimited JSON (`.jsonl.gz`).
 - **Telemetry Standards:** Standardized to OpenTelemetry-compatible fields (`service.name=ecommerce-api`, `data_origin=synthetic`, 12-character hex container IDs).
 
-### 4. Upload to MinIO Landing Zone
-
-When MinIO and Docker services are active, upload generated logs to the S3 Landing Zone:
-
-```bash
-./scripts/upload_generated_logs.sh data/generator/access-logs
-```
+Historical files are local Landing artifacts; this command does not upload them to MinIO or send them to Kafka. The old backfill/import/upload helper scripts have been removed. Provisioning and pipeline conversion remain separate steps.
 
 ---
 
@@ -133,20 +114,13 @@ The generator uses the following retail scenario assumptions:
 
 ## 7. Deterministic Identity Strategy
 
-- **Surrogate PKs:** Uses `BIGINT UNSIGNED` keys for internal joins and performant bulk imports.
+- **Surrogate PKs:** Uses nonnegative PostgreSQL `BIGINT` keys (maximum 2^63−1) for internal joins and performant bulk imports.
 - **Public Identifiers:** Uses deterministic UUIDv5 for `public_id`, `logical_identity`, `generation_run_id`, and transaction idempotency keys.
 - **Business Keys:** Keeps human-readable `order_number`, SKU, slug, and coupon code identifiers.
 
 ## Live Access Log Source
 
-After importing the matching SQL dataset, create API traffic with:
-
-```bash
-uv run --locked --package data-generator -- python scripts/simulate_web_traffic.py \
-  --config generator/configs/small.yml --duration 300 --concurrency 5
-```
-
-The API publishes these access events to Kafka for the Flink stream. Historical `.jsonl.gz` files uploaded to MinIO remain raw Landing files; the current Flink job reads Kafka and does not automatically process those uploaded files into Gold.
+Runtime middleware publishes observed HTTP events to Kafka. The old traffic-simulator script has been removed; API workflows and downstream readers still need PostgreSQL verification before an end-to-end run. Historical `.jsonl.gz` files are synthetic Landing artifacts. The current Flink log job reads Kafka and does not automatically process those files into Gold.
 
 ## Reference Profiling
 
@@ -172,4 +146,6 @@ Run from the repository root, using Python's standard-library unittest runner:
 uv run --locked --package data-generator -- python -m unittest discover -s generator/tests -v
 ```
 
-The checks generate temporary datasets without contacting MySQL, Kafka or external APIs. They cover payment/paid timestamps, return lineage/refunds, stock balances and nonnegative stock history, status continuity, single-variant/free-item edges, multiple seeds and INSERT batches, preset loading, deterministic SQL output and historical-log provenance. Generated SQL/log files are removed with their temporary directories.
+The checks generate temporary datasets without contacting databases, Kafka or external APIs. They cover payment/paid timestamps, return lineage/refunds, stock balances and nonnegative stock history, status continuity, single-variant/free-item edges, multiple seeds and INSERT batches, preset loading, deterministic SQL output and historical-log provenance. Generated SQL/log files are removed with their temporary directories.
+
+PostgreSQL import/seed integration checks are opt-in under [the database guide](../database/README.md#kiểm-tra); they use disposable Docker containers, not an existing source database.

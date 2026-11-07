@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import random
 import uuid
 from bisect import bisect_left, bisect_right
@@ -24,6 +25,7 @@ from generator.config import (
     TetWindow,
 )
 from generator.validation import COLORS, SIZES, validate_scale
+from generator.postgres_sql import SQL_FORMAT, lock_sql, verification_sql, restart_identities_sql
 
 SYNTHETIC_CUSTOMER_PASSWORD = "Synthetic@12345"
 PRODUCT_IMAGE_URL = "https://sixdo.vn/modules/uniform/assets/image/aotruoc.webp"
@@ -235,12 +237,7 @@ PRODUCT_DESCRIPTION_BY_CATEGORY = {
 }
 
 
-@dataclass(frozen=True)
-class SqlExpression:
-    value: str
-
-
-SqlValue: TypeAlias = str | int | bool | datetime | None | SqlExpression
+SqlValue: TypeAlias = str | int | bool | datetime | None | uuid.UUID
 
 
 @dataclass(frozen=True)
@@ -325,23 +322,23 @@ class DatasetSummary:
 
 
 def _sql_literal(value: SqlValue) -> str:
-    if isinstance(value, SqlExpression):
-        return value.value
+    if isinstance(value, uuid.UUID):
+        return f"'{value}'::uuid"
     if value is None:
         return "NULL"
     if isinstance(value, bool):
-        return "1" if value else "0"
+        return "TRUE" if value else "FALSE"
     if isinstance(value, int):
         return str(value)
     if isinstance(value, datetime):
-        normalized = value.astimezone(UTC).replace(tzinfo=None)
+        normalized = (value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)).replace(tzinfo=None)
         return f"'{normalized.strftime('%Y-%m-%d %H:%M:%S.%f')}'"
-    escaped = value.replace("\\", "\\\\").replace("'", "''")
-    return f"'{escaped}'"
-
-
-def _binary_uuid(value: uuid.UUID) -> SqlExpression:
-    return SqlExpression(f"UUID_TO_BIN('{value}')")
+    if "\x00" in value:
+        raise ValueError("PostgreSQL text cannot contain NUL")
+    escaped = (
+        value.replace("\\", "\\\\").replace("'", "''").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    )
+    return f"E'{escaped}'"
 
 
 def _vietnamese_name(name_randomizer: random.Random) -> str:
@@ -375,8 +372,8 @@ def _write_insert(
 ) -> None:
     if not rows:
         return
-    column_sql = ", ".join(f"`{column}`" for column in columns)
-    stream.write(f"INSERT INTO `{table}` ({column_sql}) VALUES\n")
+    column_sql = ", ".join(f'"{column}"' for column in columns)
+    stream.write(f'INSERT INTO public."{table}" ({column_sql}) VALUES\n')
     for index, row in enumerate(rows):
         suffix = ";\n\n" if index == len(rows) - 1 else ",\n"
         stream.write("  (" + ", ".join(_sql_literal(value) for value in row) + ")" + suffix)
@@ -748,27 +745,28 @@ def _pick_category(randomizer: random.Random, categories: Sequence[tuple[str, fl
     return categories[_weighted_index(randomizer, [weight for _, weight in categories])][0]
 
 
-def _write_header(
-    stream: TextIO, config: GeneratorConfig, generation_run_id: str
-) -> None:
+def _write_header(stream: TextIO, config: GeneratorConfig, generation_run_id: str) -> None:
+    metadata = {
+        "sql_format": SQL_FORMAT,
+        "generator_version": __version__,
+        "logical_identity": config.logical_identity,
+        "generation_run_id": generation_run_id,
+        "counts": {key: config.scale[key] for key in ("customers", "products", "variants", "orders")},
+    }
     stream.write(
-        "-- TLCN deterministic MySQL dataset\n"
-        f"-- generator_version: {__version__}\n"
+        "-- TLCN deterministic PostgreSQL dataset\n"
+        f"-- import_metadata: {json.dumps(metadata, sort_keys=True)}\n"
         f"-- scenario_id: {config.scenario_id}\n"
-        f"-- logical_identity: {config.logical_identity}\n"
-        f"-- generation_run_id: {generation_run_id}\n"
-        "-- identifier_strategy: uuid5-deterministic-v1\n"
         f"-- seed: {config.seed}\n"
         f"-- anchor_time: {config.anchor_time.isoformat()}\n"
-        "-- synthetic_archive_policy: every 20th sampled product at anchor time; "
-        "expired campaign/midnight coupons at ends_at.\n"
-        "-- Prerequisite: initialize the MySQL database with database/schema.sql.\n"
-        "-- Import is fail-fast; importing the same dataset twice is rejected by unique keys.\n\n"
-        "SET NAMES utf8mb4;\n"
-        "SET time_zone = '+00:00';\n"
-        "SET autocommit = 0;\n"
-        "START TRANSACTION;\n\n"
+        "-- Prerequisite: PostgreSQL source schema from database/schema.sql.\n"
+        "-- Trusted generated SQL only; import is fail-fast and rejects duplicate datasets.\n"
+        "BEGIN;\n"
+        "SET LOCAL search_path TO public;\n"
+        "SET LOCAL TIME ZONE 'UTC';\n"
+        "SET LOCAL standard_conforming_strings=on;\n"
     )
+    stream.write(lock_sql() + "\n")
 
 
 def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
@@ -829,7 +827,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
         customer_rows.append(
             (
                 customer_id,
-                _binary_uuid(_entity_uuid(namespace, "customer", customer_index)),
+                _entity_uuid(namespace, "customer", customer_index),
                 "customer",
                 display_name,
                 "active" if is_active else "inactive",
@@ -847,7 +845,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
     customer_rows.append(
         (
             moderator_customer_id,
-            _binary_uuid(_entity_uuid(namespace, "review-moderator", 0)),
+            _entity_uuid(namespace, "review-moderator", 0),
             "admin",
             "Kiểm duyệt viên dữ liệu tổng hợp",
             "active",
@@ -883,7 +881,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
     category_rows: list[Sequence[SqlValue]] = [
         (
             root_category.category_id,
-            _binary_uuid(_entity_uuid(namespace, "category", 0)),
+            _entity_uuid(namespace, "category", 0),
             None,
             root_category.code,
             root_category.name,
@@ -895,7 +893,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
     category_rows.extend(
         (
             category.category_id,
-            _binary_uuid(_entity_uuid(namespace, "category", index + 1)),
+            _entity_uuid(namespace, "category", index + 1),
             root_category.category_id,
             category.code,
             category.name,
@@ -945,7 +943,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
         product_rows.append(
             (
                 product.product_id,
-                _binary_uuid(product.public_id),
+                product.public_id,
                 category.category_id,
                 product.slug,
                 product.name,
@@ -976,7 +974,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
             variant_rows.append(
                 (
                     variant.variant_id,
-                    _binary_uuid(variant.public_id),
+                    variant.public_id,
                     product.product_id,
                     variant.sku,
                     size_code,
@@ -1141,7 +1139,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
             staff_rows.append(
                 (
                     staff_base + staff_index + 1,
-                    _binary_uuid(_entity_uuid(namespace, "delivery-staff", staff_index)),
+                    _entity_uuid(namespace, "delivery-staff", staff_index),
                     full_name,
                     staff_phone,
                     plate,
@@ -1166,7 +1164,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
             coupon_rows.append(
                 (
                     coupon.coupon_id,
-                    _binary_uuid(_entity_uuid(namespace, "coupon", coupon_index)),
+                    _entity_uuid(namespace, "coupon", coupon_index),
                     coupon.code,
                     coupon.discount_type,
                     coupon.discount_value,
@@ -1246,7 +1244,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
             order_inv_tx_rows.append(
                 (
                     inv_tx_base + inv_tx_index,
-                    _binary_uuid(_entity_uuid(namespace, "inv-tx", inv_tx_index)),
+                    _entity_uuid(namespace, "inv-tx", inv_tx_index),
                     variant.variant_id, "central_warehouse", None, movement_type,
                     quantity_delta, reference, None, occurred_at,
                 )
@@ -1306,7 +1304,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                 (
                     "refund_id", "public_id", "payment_id", "refund_idempotency_key", "status",
                     "currency_code", "amount_vnd", "reason", "requested_by_customer_id",
-                    "created_at", "completed_at",
+                    "created_at", "completed_at", "updated_at",
                 ),
                 refund_rows,
             )
@@ -1581,7 +1579,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                 cart_rows.append(
                     (
                         cart_id,
-                        _binary_uuid(_entity_uuid(namespace, "cart", order_index)),
+                        _entity_uuid(namespace, "cart", order_index),
                         customer_id,
                         "checked_out",
                         cart_created_at,
@@ -1608,16 +1606,14 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                     order_item_rows.append(
                         (
                             order_item_base + order_item_index,
-                            _binary_uuid(
-                                _entity_uuid(
+                            _entity_uuid(
                                     namespace,
                                     "order-item",
                                     order_item_index,
-                                )
-                            ),
+                                ),
                             order_id,
                             variant.variant_id,
-                            _binary_uuid(variant.product.public_id),
+                            variant.product.public_id,
                             variant.product.category.code,
                             variant.product.category.name,
                             variant.product.name,
@@ -1682,13 +1678,11 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                             review_rows.append(
                                 (
                                     review_base + review_index,
-                                    _binary_uuid(
-                                        _entity_uuid(
+                                    _entity_uuid(
                                             namespace,
                                             "review",
                                             review_index,
-                                        )
-                                    ),
+                                        ),
                                     order_item_base + order_item_index,
                                     customer_id,
                                     variant.product.product_id,
@@ -1802,13 +1796,11 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                         refund_rows.append(
                             (
                                 refund_base + order_index + 1,
-                                _binary_uuid(
-                                    _entity_uuid(
+                                _entity_uuid(
                                         namespace,
                                         "refund",
                                         order_index,
-                                    )
-                                ),
+                                    ),
                                 payment_base + order_index + 1,
                                 _identifier_uuid(
                                     namespace, "refund-idempotency", order_index
@@ -1818,6 +1810,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                                 total_vnd,
                                 cancellation_reason,
                                 customer_id,
+                                cancelled_at,
                                 cancelled_at,
                                 cancelled_at,
                             )
@@ -1871,7 +1864,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                     shipment_rows.append(
                         (
                             shipment_base + shipment_index,
-                            _binary_uuid(_entity_uuid(namespace, "shipment", shipment_index)),
+                            _entity_uuid(namespace, "shipment", shipment_index),
                             shipment_code,
                             order_id,
                             staff_id,
@@ -1895,13 +1888,13 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                         shipment_attempt_rows.append(
                             (
                                 shipment_attempt_base + shipment_attempt_index,
-                                _binary_uuid(_entity_uuid(namespace, "shipment_attempt", shipment_attempt_index)),
+                                _entity_uuid(namespace, "shipment_attempt", shipment_attempt_index),
                                 cur_shipment_id,
                                 1,
                                 staff_id,
                                 "attempted_success",
                                 None,
-                                0,
+                                False,
                                 f"idemp:shp-att:{cur_shipment_id}:1",
                                 deliv_at or disp_at,
                                 disp_at,
@@ -1921,13 +1914,13 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                             shipment_attempt_rows.append(
                                 (
                                     shipment_attempt_base + shipment_attempt_index,
-                                    _binary_uuid(_entity_uuid(namespace, "shipment_attempt", shipment_attempt_index)),
+                                    _entity_uuid(namespace, "shipment_attempt", shipment_attempt_index),
                                     cur_shipment_id,
                                     att_num,
                                     staff_id,
                                     "attempted_failed",
                                     reason,
-                                    1,
+                                    True,
                                     f"idemp:shp-att:{cur_shipment_id}:{att_num}",
                                     att_time,
                                     att_time,
@@ -1960,7 +1953,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                     return_request_rows.append(
                         (
                             return_base + return_index,
-                            _binary_uuid(_entity_uuid(namespace, "return-req", return_index)),
+                            _entity_uuid(namespace, "return-req", return_index),
                             ret_code,
                             order_id,
                             customer_id,
@@ -1977,7 +1970,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                     return_item_rows.append(
                         (
                             return_item_base + return_index,
-                            _binary_uuid(_entity_uuid(namespace, "return-item", return_index)),
+                            _entity_uuid(namespace, "return-item", return_index),
                             return_base + return_index,
                             first_order_item_id,
                             item_to_return.variant_id,
@@ -1996,11 +1989,11 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
                     else:
                         refund_rows.append(
                             (refund_base + order_index + 1,
-                             _binary_uuid(_entity_uuid(namespace, "refund", order_index)),
+                             _entity_uuid(namespace, "refund", order_index),
                              payment_base + order_index + 1,
                              _identifier_uuid(namespace, "return-refund-idempotency", order_index),
                              "succeeded", "VND", refund_amt, ret_reason, customer_id,
-                             resolved_time, resolved_time)
+                             resolved_time, resolved_time, resolved_time)
                         )
                         if sum(quantity for _, quantity, _ in item_details) == 1:
                             status = "returned"
@@ -2066,12 +2059,12 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
         flush_orders()
         for coupon in coupon_records:
             stream.write(
-                "UPDATE `coupons` SET `used_count` = "
-                "(SELECT COUNT(*) FROM `coupon_redemptions` "
-                f"WHERE `coupon_id` = {coupon.coupon_id} "
-                "AND `status` = 'redeemed'), "
-                f"`updated_at` = {_sql_literal(history_end)} "
-                f"WHERE `coupon_id` = {coupon.coupon_id};\n"
+                "UPDATE public.coupons SET used_count = "
+                "(SELECT COUNT(*) FROM public.coupon_redemptions "
+                f"WHERE coupon_id = {coupon.coupon_id} "
+                "AND status = 'redeemed'), "
+                f"updated_at = {_sql_literal(history_end)} "
+                f"WHERE coupon_id = {coupon.coupon_id};\n"
             )
         stream.write("\n")
 
@@ -2182,7 +2175,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
             active_cart_rows.append(
                 (
                     cart_id,
-                    _binary_uuid(_entity_uuid(namespace, "active-cart", active_cart_index)),
+                    _entity_uuid(namespace, "active-cart", active_cart_index),
                     customer_ids[customer_index],
                     "active",
                     created_at,
@@ -2234,19 +2227,15 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
         for c_idx, b_count in enumerate(customer_booms[:customer_count]):
             if b_count > 0:
                 cid = customer_ids[c_idx]
-                blocked = 1 if b_count >= 3 else 0
+                blocked = b_count >= 3
                 stream.write(
-                    f"UPDATE `customers` SET `boom_count` = {b_count}, `is_cod_blocked` = {blocked} "
-                    f"WHERE `customer_id` = {cid};\n"
+                    f"UPDATE public.customers SET boom_count = {b_count}, is_cod_blocked = {_sql_literal(blocked)}, "
+                    f"updated_at = {_sql_literal(history_end)} WHERE customer_id = {cid};\n"
                 )
 
-        stream.write(
-            "COMMIT;\n\n"
-            "-- Verification summary for the imported generation run.\n"
-            f"SELECT '{generation_run_id}' AS generation_run_id,\n"
-            f"       (SELECT COUNT(*) FROM customers WHERE generation_run_id = '{generation_run_id}') AS customers,\n"
-            f"       (SELECT COUNT(*) FROM orders WHERE generation_run_id = '{generation_run_id}') AS orders;\n"
-        )
+        stream.write(verification_sql(generation_run_id, block, config.scale))
+        stream.write(restart_identities_sql())
+        stream.write("COMMIT;\n")
 
     temporary_path.replace(output_path)
 
