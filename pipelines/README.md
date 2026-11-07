@@ -1,5 +1,39 @@
 # Lakehouse Pipelines
 
+## PostgreSQL batch source — 07/11/2026
+
+Batch now reads the 27 analytical source tables from PostgreSQL `public` through `org.postgresql.Driver`. The existing Spark/Airflow Dockerfiles already pin and install pgJDBC; rebuild older images that still contain only the MySQL connector. Native UUIDs, booleans and UTC timestamps pass through JDBC into staging; Silver keeps its existing explicit analytical types and PII rules. Credentials are JDBC properties, not part of the JDBC URL.
+
+Before running jobs:
+
+1. Bootstrap the PostgreSQL business schema and load data using the [database guide](../database/README.md).
+2. Set `POSTGRES_ECOMMERCE_READER_USER` and a nonempty `POSTGRES_ECOMMERCE_READER_PASSWORD` in `.env`. Recreate the PostgreSQL service to pick up these environment variables and the script mount, then run `make source-reader` explicitly.
+3. Configure a stable nonempty `SILVER_PSEUDONYMIZE_SALT`, MinIO Spark credentials/bucket and Polaris catalog/credential files. Storage/catalog provisioning is still a separate pending workflow; startup alone does not configure it.
+4. Rebuild/recreate Spark and Airflow services before using the init or interval DAGs below. Compose supplies a local `spark_default` connection from `SPARK_MASTER_URL` so SparkSubmit does not fall back to YARN, and injects `postgres:5432`; host-side invocations use `POSTGRES_SOURCE_HOST`/`POSTGRES_SOURCE_PORT` and must export the configured environment (pipeline helpers do not load `.env` themselves).
+
+The reader script runs transactionally, requires all 27 source tables, refuses privileged/owner/member roles, grants SELECT on an explicit whitelist and excludes `customer_credentials`. It revokes that dedicated role's direct table/sequence permissions before regranting SELECT; it does not change PUBLIC permissions or other accounts. Future tables are not automatically granted. Re-running applies the configured password again. Do not point the reader settings at an application or administrative role. Database-level read-only defaults and JDBC read-only settings supplement the actual privilege restrictions.
+
+PostgreSQL source SQL has its own double-quoted identifiers in `sql_templates/postgres/`; Spark SQL retains backticks. Interval bounds are explicit UTC `TIMESTAMPTZ` values and remain half-open. Full init still has no timestamp predicate. Lineage is `_source_system=postgresql_ecommerce`, `_source_schema=public`; this is not a migration of older MySQL analytical history. Bronze rejects existing non-PostgreSQL/unclassified source rows before merging configured targets. Provision a separate catalog/warehouse for the PostgreSQL source or plan an explicit migration; do not reset old volumes or reuse historical PKs implicitly.
+
+### Isolated checks
+
+```bash
+# Pure source SQL/config tests; no services or credentials
+PYTHONPATH=pipelines/src uv run --locked --all-packages -- \
+  python -m unittest discover -s pipelines/tests -p test_postgres.py -v
+
+# Build the existing pinned runtime under a separate local test tag
+# Integration needs the cached postgres:16.8-alpine and MinIO images as well.
+docker build -f infrastructure/spark/Dockerfile -t tlcn-batch-postgres-check:local .
+RUN_POSTGRES_BATCH_TESTS=1 PYTHONPATH=pipelines/src \
+  uv run --locked --all-packages -- \
+  python -m unittest discover -s pipelines/tests -p test_postgres_batch.py -v
+```
+
+The integration fixture uses an internal Docker network, temporary PostgreSQL/MinIO data and random credentials; no project data volumes or host ports. It tests reader provisioning/denials, paged full extraction, UUID/boolean/timestamp ingestion, offset-aware interval boundaries, empty staging replacement, replay, source-to-Silver reconciliation and existing Gold/quality/publication logic. The test uses an isolated local Iceberg Hadoop catalog rather than production Polaris; it does not establish Airflow scheduling, Polaris authorization, Trino/Superset serving or CDC delivery. `SPARK_TEST_IMAGE` and `POSTGRES_TEST_IMAGE` can select equivalent cached test images. Containers/network/temp files are cleaned on normal completion and test failures.
+
+Reference behavior: [Spark 3.5.9 JDBC options](https://spark.apache.org/docs/3.5.9/sql-data-sources-jdbc.html), [pgJDBC connection properties](https://jdbc.postgresql.org/documentation/use/).
+
 ## OLTP batch
 
 `lakehouse_oltp_pipeline` is the interval-only DAG, catchup disabled, one active run. Its schedule is configured in the DAG file; it is independent of the manual init DAG. Airflow supplies its own run ID and fixed `data_interval_start`/`data_interval_end` to Spark local jobs.
@@ -45,7 +79,7 @@ There is no `full_extract` option on the interval DAG or extraction CLI. The ini
 
 Ordinary scheduled or manual runs use their Airflow interval. An extract retry starts again at the first source key and replaces staging. Downstream task retries read their existing inputs from the beginning; they do not fetch source again or resume from a checkpoint. Business rows are merged without duplicates; quarantine records and same-run publication retries are also deduplicated. Airflow run IDs remain for quality/publication audit only. If historical intervals were missed while the local stack was off, run those intervals deliberately or run the init DAG again; catchup is not automatic. Init does not propagate source hard deletes.
 
-Staging is shared and overwritten, so run jobs through the DAG's single-active-run boundary. Do not run standalone extraction concurrently. There is no global transaction across MySQL tables or Gold tables. Fixed intervals intentionally do not cover late commits with older timestamps; the project has opted out of lookback.
+Staging is shared and overwritten, so run jobs through the DAG's single-active-run boundary. Do not run standalone extraction concurrently. There is no global transaction across PostgreSQL tables or Gold tables. Fixed intervals intentionally do not cover late commits with older timestamps; the project has opted out of lookback.
 
 ## CDC and access logs
 
@@ -102,7 +136,7 @@ src/lakehouse/
 │   └── quality/   # gate, inventory/operations/marketing checks, manual reconciliation
 ├── logs/          # raw Landing adapter, parser, medallion builders/ingestion, marts/publication
 ├── streaming/     # shared Flink runtime, catalog and sink setup
-└── sql_templates/ # shared SQL resources for Spark, Flink and MySQL
+└── sql_templates/ # shared SQL resources for Spark, Flink and PostgreSQL
 ```
 
 `jobs/` retains thin executable CLIs grouped into `oltp`, `logs`, `cdc` and `maintenance`. DAGs import `gold/schema.py` without loading Spark builders. Flink jobs import the shared `streaming` modules directly; no forwarding `flink.py` or single-file `orchestration` package remains. Maintenance healthcheck lives with its DAG and no longer creates unused context/XCom tasks.
@@ -110,3 +144,7 @@ src/lakehouse/
 Retired parallel Flink Bronze/Silver/fact writers and their SQL resources have been removed; Spark now owns those access-log layers. The generic `ingest_bronze.py`, obsolete fact builder and format fallbacks remain removed. Current source ingestion uses `merge_source_versions`; Silver writes Iceberg only, with deduplication/region metadata inline in its writer. Sales and inventory mart builders live with their respective `*_marts.py` modules. Short operational queries remain inline. Existing large SQL/DDL resources remain under `src/lakehouse/sql_templates/`; moving these to shared repo-level SQL is outside this batch change.
 
 Local verification scripts and Spark/Iceberg fixtures are kept outside Git. Compile/lint and Compose configuration checks remain in CI. Maintenance schedules and retention are unchanged in this change; conversion to manual maintenance is still tracked in the refactor note.
+
+### Verification evidence — 07/11/2026
+
+The disposable integration check passed with 27 PostgreSQL source tables, all 30 source-to-Silver comparisons at zero tolerance, all 27 OLTP Gold tables, 55 Gold quality checks and an Iceberg publication. It also verified paged extraction, empty intervals, replay, interval boundaries and legacy-source rejection. The check exposed and fixed Silver rejecting the valid `order_cancellation` inventory movement; unknown movement types remain quarantined. Eight pure PostgreSQL SQL/config checks also passed. These observations apply to the small synthetic fixture and local test catalog, not an existing deployment or all scenario distributions.

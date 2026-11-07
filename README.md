@@ -142,10 +142,10 @@ The retained policy templates describe five scoped MinIO identities and three Po
                               |
                            FastAPI
                               |
-                       MySQL (28 tables)
+                       PostgreSQL (28 tables)
 
 OLTP batch:
-  MySQL interval -> Spark -> reusable staging -> Bronze source versions -> Silver MERGE -> Gold/marts
+  PostgreSQL interval -> Spark -> reusable staging -> Bronze source versions -> Silver MERGE -> Gold/marts
   Validated Gold -> published Iceberg snapshots -> Trino/API
 
 MySQL CDC:
@@ -174,7 +174,7 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 | **Presentation** | Next.js / React | 15.5.21 / 19.1.8 | Storefront, POS, administration, BI Hub |
 | **Visualization** | Apache ECharts | 6.1.0 | Dashboard charts |
 | **Application** | FastAPI / SQLAlchemy | 0.116.1 / 2.0.41 | Transactions, auth/RBAC, logging, analytics API |
-| **Operational DB** | MySQL | 8.4.5 | 28 OLTP tables; 27 analytical source tables |
+| **Operational DB** | PostgreSQL | 16.8 | 28 OLTP tables; 27 analytical source tables |
 | **Change Capture** | Debezium | 3.0.8 | Initial snapshot and row-binlog capture |
 | **Event Streaming** | Apache Kafka | 3.8.0 | CDC and access-log topics |
 | **Stream Processing** | Apache Flink | 1.19 | Raw access-log Landing and Bronze CDC ingestion |
@@ -188,9 +188,9 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 
 The OLTP Gold model defines **6 dimensions, 6 facts (including current inventory), and 15 marts**. The log model defines **1 fact and 3 marts**. Row counts depend on the loaded dataset and completed pipeline runs.
 
-The OLTP batch DAG is scheduled daily at 02:00 Asia/Ho_Chi_Minh; OLTP maintenance runs at 03:00 and streaming maintenance every two hours. The independent `lakehouse_logs_marts` DAG processes Landing → Bronze → Silver → Gold fact, then validates and publishes all three log marts hourly; maintenance failures do not block that DAG. Raw payloads, including malformed events, stay in Landing/Bronze. Missing-key inserts make each layer retryable without rewriting existing Silver/fact history. DAGs are paused at creation and must be enabled in Airflow. Flink runs continuously with a configured 10-second checkpoint interval. That interval is not a measured end-to-end latency guarantee.
+The OLTP batch DAG is scheduled daily at 03:00 Asia/Ho_Chi_Minh; OLTP maintenance runs at 03:00 and streaming maintenance every two hours. The independent `lakehouse_logs_marts` DAG processes Landing → Bronze → Silver → Gold fact, then validates and publishes all three log marts hourly; maintenance failures do not block that DAG. Raw payloads, including malformed events, stay in Landing/Bronze. Missing-key inserts make each layer retryable without rewriting existing Silver/fact history. DAGs are paused at creation and must be enabled in Airflow. Flink runs continuously with a configured 10-second checkpoint interval. That interval is not a measured end-to-end latency guarantee.
 
-Source–Silver reconciliation runs before Gold processing; a second gate checks Gold counts, monetary parity, keys, references, lineage, and PII tokens. Failures mark the task/DAG unsuccessful and results are recorded in `lakehouse.system.data_quality_results`. These runtime gates remain part of data processing.
+Source–Silver reconciliation is an explicit diagnostic for a quiescent source. The scheduled publication gate checks Gold counts, monetary parity, keys, references, lineage, and PII tokens. Failures mark the task/DAG unsuccessful and results are recorded in `lakehouse.system.data_quality_results`. These runtime gates remain part of data processing.
 
 OLTP batch is the only Silver/Gold writer. Airflow supplies a fixed interval, Spark overwrites staging, Bronze retains each run, and Silver MERGEs only that delta. Gold is rebuilt and validated before publication. CDC remains Bronze audit only. Maintenance targets an explicit subset of tables. Current limits and recovery commands are in [scope](docs/project/SCOPE.md), [pipelines](pipelines/README.md) and [setup](docs/runbook/SETUP.md).
 
@@ -242,11 +242,11 @@ uv run --locked --package data-generator -- generator export-logs \
   --expected-requests 60000
 ```
 
-The importer checks schema and dataset counts, rejects duplicate runs, reconciles payment/return/inventory records and synchronizes identity sequences in one transaction. It accepts trusted generator SQL only and takes write-blocking table locks; see the [database guide](database/README.md). Old backfill/import/upload shell helpers have been removed. Exporting logs does not upload them or send them to Kafka; the Flink log job reads Kafka. PostgreSQL ingestion into the Lakehouse is still pending conversion.
+The importer checks schema and dataset counts, rejects duplicate runs, reconciles payment/return/inventory records and synchronizes identity sequences in one transaction. It accepts trusted generator SQL only and takes write-blocking table locks; see the [database guide](database/README.md). Old backfill/import/upload shell helpers have been removed. Exporting logs does not upload them or send them to Kafka; the Flink log job reads Kafka. The batch source reader now supports PostgreSQL; configure its dedicated reader and storage/catalog prerequisites before running jobs. CDC conversion remains pending.
 
 ### Run the OLTP Batch Pipeline
 
-DAGs start paused by default. The commands below remain available, but source readers still need PostgreSQL conversion and connection/provisioning setup before a business run:
+DAGs start paused by default. The commands below remain available, but PostgreSQL reader credentials, storage/catalog provisioning and connection setup are required before a business run:
 
 ```bash
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_pipeline
@@ -332,3 +332,7 @@ CI uses `--env-file .env.example` because `.env` is not committed and Compose re
 | **Object-Oriented Analysis (A)** | [OOSAD_ANALYSIS.md](docs/design-analysis/OOSAD_ANALYSIS.md) | Actors, Use Cases, Activity, and Sequence analysis |
 | **Web Design (D)** | [WEB_DESIGN_PLAN.md](docs/project/WEB_DESIGN_PLAN.md) | Source application design |
 | **Local Setup** | [SETUP.md](docs/runbook/SETUP.md) | Startup dependencies, identities, data operations, catalog inspection, and troubleshooting |
+
+### PostgreSQL batch configuration
+
+Use a separate `POSTGRES_ECOMMERCE_READER_USER` / `POSTGRES_ECOMMERCE_READER_PASSWORD`, then run `make source-reader` after the business schema exists and the PostgreSQL container has the updated environment/mount. Spark and Airflow use this SELECT-only role for 27 source tables; credentials are excluded from the JDBC URL and `customer_credentials` is not granted. Set a stable nonempty `SILVER_PSEUDONYMIZE_SALT` before Silver processing. Rebuild legacy Spark/Airflow images to include the already-pinned PostgreSQL JDBC driver. See the [pipeline guide](pipelines/README.md#postgresql-batch-source--07112026) for configuration, isolated checks and migration boundaries. MinIO/Polaris provisioning and PostgreSQL CDC are separate pending work; batch changes do not rewrite existing MySQL analytical history.

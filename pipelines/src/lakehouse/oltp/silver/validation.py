@@ -113,6 +113,7 @@ def _validate_rows(df: DataFrame, table_name: str) -> tuple[DataFrame, DataFrame
             "transfer_to_store",
             "transfer_received",
             "return_boom",
+            "order_cancellation",
             "return_customer",
             "exchange_out",
             "adjustment",

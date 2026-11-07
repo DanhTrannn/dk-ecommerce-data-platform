@@ -12,6 +12,19 @@ log = logging.getLogger(__name__)
 
 def ingest_bronze_tables(spark, cfg):
     spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.bronze")
+    # Never overwrite retained MySQL history by reusing its source PK/timestamp.
+    # A deliberate source migration must choose its catalog/storage boundaries.
+    for table in cfg.tables:
+        target = f"lakehouse.bronze.{table.name}"
+        if spark.catalog.tableExists(target):
+            existing = spark.table(target)
+            if "_source_system" not in existing.columns or existing.filter(
+                F.col("_source_system").isNull() | (F.col("_source_system") != "postgresql_ecommerce")
+            ).head(1):
+                raise ValueError(
+                    "Bronze contains legacy or unclassified source data; provision a separate PostgreSQL "
+                    "catalog/warehouse or perform an explicit reviewed migration. History was not rewritten."
+                )
     for table in cfg.tables:
         target = f"lakehouse.bronze.{table.name}"
         staging = f"s3a://{cfg.bucket}/{cfg.landing.oltp_prefix}/staging/{table.name}"

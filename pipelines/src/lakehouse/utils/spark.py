@@ -4,8 +4,9 @@ from pathlib import Path
 
 from pyspark.sql import SparkSession
 
+from lakehouse.utils.postgres import JDBC_JAR
+
 REALM = "POLARIS"
-JAR = "/opt/spark/jars/mysql-connector-j.jar"
 
 def _polaris_credentials() -> tuple[str, str]:
     cred_file = Path(os.environ.get("POLARIS_CREDENTIAL_FILE", "/run/polaris/clients.env"))
@@ -55,7 +56,7 @@ def spark_session(job_name: str):
     client_id, secret = _polaris_credentials()
     builder = SparkSession.builder.appName(job_name) \
         .master(os.environ.get("SPARK_MASTER_URL", "local[2]")) \
-        .config("spark.jars", JAR) \
+        .config("spark.jars", JDBC_JAR) \
         .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions") \
         .config("spark.sql.catalog.lakehouse", "org.apache.iceberg.spark.SparkCatalog") \
         .config("spark.sql.catalog.lakehouse.type", "rest") \
@@ -73,9 +74,3 @@ def spark_session(job_name: str):
         .config("spark.sql.defaultCatalog", os.environ["POLARIS_CATALOG_NAME"]) \
         .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     return configure_s3a(builder).getOrCreate()
-
-
-def jdbc_url() -> str:
-    # mysql+pymysql://user:pass@host:3306/db -> jdbc:mysql://user:pass@host:3306/db
-    url = os.environ["MYSQL_ECOMMERCE_READER_URL"]
-    return url.replace("mysql+pymysql://", "jdbc:mysql://", 1)

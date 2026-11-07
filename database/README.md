@@ -1,6 +1,6 @@
 # PostgreSQL source schema
 
-`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; phần 2 bổ sung generator/seed/importer PostgreSQL; generator hiện ở 0.10 và đã tích hợp địa điểm vào SQL, được kiểm tra bằng database biệt lập. Các luồng API nghiệp vụ chính đã kiểm chứng trên PostgreSQL biệt lập; pipeline còn chờ chuyển đổi. Xem [phạm vi API nguồn](../docs/project/API_SOURCE_SCOPE.md). Không nạp SQL MySQL cũ vào schema này.
+`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; phần 2 bổ sung generator/seed/importer PostgreSQL; generator hiện ở 0.10 và đã tích hợp địa điểm vào SQL, được kiểm tra bằng database biệt lập. Các luồng API nghiệp vụ chính đã kiểm chứng trên PostgreSQL biệt lập; batch reader đã chuyển PostgreSQL; CDC và provisioning Lakehouse vẫn còn bước riêng. Xem [phạm vi API nguồn](../docs/project/API_SOURCE_SCOPE.md). Không nạp SQL MySQL cũ vào schema này.
 
 ## Định nghĩa và tái lập
 
@@ -82,3 +82,9 @@ RUN_POSTGRES_SCHEMA_TESTS=1 uv run --locked --package platform-app -- \
 Integration tests tự tạo PostgreSQL 16.8 biệt lập với `--network none`, dữ liệu tmpfs và Unix socket riêng; không publish port, không dùng database/volume thật và không tự pull image. Container và thư mục tạm được dọn sau khi chạy. Có thể chọn image PostgreSQL 16 đã có bằng `POSTGRES_TEST_IMAGE`.
 
 Đã kiểm tra DDL/ORM reflection, identity cả cột không phải PK, UUID/JSON roundtrip, CHECK số/boolean/tiền/tồn, FK, unique hoa-thường, giỏ active và timestamp. Phần 2 kiểm tra nạp `small`/`month-test`, rollback dữ liệu và sequence khi lỗi cuối file/thiếu COMMIT, từ chối trùng, đối soát nghiệp vụ, seed trước/sau import và seed chạy lại. Phần 3 bổ sung HTTP workflow test checkout/POS/nhập–xuất–hoàn kho và ledger, retry, quyền store và tranh tồn. Chưa kiểm chứng pipeline đầu cuối hoặc dữ liệu thật.
+
+## Tài khoản đọc cho batch PostgreSQL
+
+Sau bootstrap đủ bảng, đặt `POSTGRES_ECOMMERCE_READER_USER=ecommerce_reader` và password riêng trong `.env`; Compose truyền chúng vào PostgreSQL/Spark/Airflow. Cập nhật container PostgreSQL để nhận biến/mount mới rồi chạy `make source-reader`. Lệnh gọi `infrastructure/postgres/configure-source-reader.sh` bằng tài khoản quản trị PostgreSQL trong container, tạo/cấu hình role chuyên dụng trong một transaction; không tự chạy khi startup và không thay schema hay dữ liệu nghiệp vụ.
+
+Role chỉ SELECT 27 bảng nguồn của batch, không có quyền đọc `customer_credentials` hoặc quyền ghi bảng/sequence. Không dùng role ứng dụng/admin; script từ chối role có đặc quyền, membership hoặc sở hữu database/schema/relation. Mặc định phiên là UTC/read-only. Không grant mặc định cho bảng mới; khi whitelist thay đổi phải review và chạy lại. Script có thể áp lại password cấu hình khi chạy lại; đây không phải công cụ migrate database cũ. Hướng dẫn kết nối và kiểm chứng tại [pipeline guide](../pipelines/README.md#postgresql-batch-source--07112026).

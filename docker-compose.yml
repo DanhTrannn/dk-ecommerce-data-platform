@@ -19,6 +19,22 @@ x-airflow-common: &airflow-common
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-change-me-airflow-secret}
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-change-me-airflow-jwt-secret}
     PYTHONPATH: /opt/project/pipelines/src
+    POSTGRES_SOURCE_HOST: postgres
+    POSTGRES_SOURCE_PORT: "5432"
+    POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
+    POSTGRES_ECOMMERCE_READER_USER: ${POSTGRES_ECOMMERCE_READER_USER:-ecommerce_reader}
+    POSTGRES_ECOMMERCE_READER_PASSWORD: ${POSTGRES_ECOMMERCE_READER_PASSWORD:-}
+    SPARK_MASTER_URL: ${SPARK_MASTER_URL:-local[2]}
+    AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type":"spark","host":"${SPARK_MASTER_URL:-local[2]}"}'
+    MINIO_ENDPOINT: http://minio:9000
+    MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
+    MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
+    MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
+    POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
+    POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
+    POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
+    SILVER_PSEUDONYMIZE_SALT: ${SILVER_PSEUDONYMIZE_SALT:-}
+    AWS_REGION: ${AWS_REGION:-us-east-1}
   volumes:
     - ./airflow/dags:/opt/airflow/dags:ro
     - ./pipelines:/opt/project/pipelines:ro
@@ -87,6 +103,8 @@ services:
       POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
       POSTGRES_ECOMMERCE_USER: ${POSTGRES_ECOMMERCE_USER:-ecommerce_app}
       POSTGRES_ECOMMERCE_PASSWORD: ${POSTGRES_ECOMMERCE_PASSWORD:-password}
+      POSTGRES_ECOMMERCE_READER_USER: ${POSTGRES_ECOMMERCE_READER_USER:-ecommerce_reader}
+      POSTGRES_ECOMMERCE_READER_PASSWORD: ${POSTGRES_ECOMMERCE_READER_PASSWORD:-}
       POSTGRES_CDC_USER: ${POSTGRES_CDC_USER:-debezium}
       POSTGRES_CDC_PASSWORD: ${POSTGRES_CDC_PASSWORD:-password}
       POLARIS_DB_NAME: ${POLARIS_DB_NAME:-polaris}
@@ -101,6 +119,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./infrastructure/postgres/configure-source-reader.sh:/opt/project/configure-source-reader.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres}"]
       interval: 5s
@@ -183,6 +202,17 @@ services:
     entrypoint: ["/opt/project/spark/with-polaris-credentials.sh"]
     environment:
       SPARK_MASTER_URL: ${SPARK_MASTER_URL:-local[2]}
+      POSTGRES_SOURCE_HOST: postgres
+      POSTGRES_SOURCE_PORT: "5432"
+      POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
+      POSTGRES_ECOMMERCE_READER_USER: ${POSTGRES_ECOMMERCE_READER_USER:-ecommerce_reader}
+      POSTGRES_ECOMMERCE_READER_PASSWORD: ${POSTGRES_ECOMMERCE_READER_PASSWORD:-}
+      MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
+      POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
+      POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
+      SILVER_PSEUDONYMIZE_SALT: ${SILVER_PSEUDONYMIZE_SALT:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      PYTHONPATH: /opt/project/pipelines/src
       MINIO_ENDPOINT: http://minio:9000
       MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
       MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
@@ -190,6 +220,7 @@ services:
     command: ["sleep", "infinity"]
     volumes:
       - polaris-spark-client-credentials:/run/polaris:ro
+      - ./pipelines:/opt/project/pipelines:ro
     depends_on:
       polaris:
         condition: service_healthy

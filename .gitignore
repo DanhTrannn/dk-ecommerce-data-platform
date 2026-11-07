@@ -44,6 +44,8 @@ tests/
 **/tests/
 !generator/tests/
 !generator/tests/*.py
+!pipelines/tests/
+!pipelines/tests/**/*.py
 !services/platform-app/tests/
 !services/platform-app/tests/**/
 !services/platform-app/tests/**/*.py

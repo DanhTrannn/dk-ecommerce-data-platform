@@ -1,18 +1,19 @@
 """OLTP to Silver Reconciliation Gate.
 
-Verifies data correctness and parity between Source MySQL tables and Iceberg Silver tables
-prior to publishing into Gold Dimensions, Facts, and Data Marts.
+Explicit diagnostic for parity between quiescent PostgreSQL source tables and Iceberg Silver.
+The scheduled DAG does not invoke this live-source comparison; Gold has its own publication gate.
 
 Acceptance criteria:
 - Row counts for critical transactional tables (orders, order_items, payments, etc.)
   must match within the allowed variance tolerance (default: 0.05%).
-- Gross revenue totals must reconcile between MySQL orders/payments and Silver facts.
-- If variance exceeds the threshold, ReconciliationGateError is raised, halting Gold publishing.
+- Gross revenue totals must reconcile between PostgreSQL orders/payments and Silver facts.
+- If variance exceeds the threshold, ReconciliationGateError is raised, failing this diagnostic.
 """
 
 from __future__ import annotations
 
-from lakehouse.utils.sql import identifier, load_sql, render_sql
+from lakehouse.utils.sql import load_sql, render_sql
+from lakehouse.utils.postgres import identifier
 
 import logging
 from dataclasses import dataclass
@@ -76,13 +77,12 @@ def check_table_counts(
         if not table_spec:
             continue
 
-        # 1. Source MySQL count
+        # 1. Source PostgreSQL count
         source_df = (
             spark.read.format("jdbc")
-            .option("driver", "com.mysql.cj.jdbc.Driver")
+            .options(**cfg.jdbc_options)
             .options(
-                url=cfg.jdbc_url,
-                query=render_sql("mysql/table_count.sql", table_spec_name=identifier(table_spec.name)),
+                query=render_sql("postgres/table_count.sql", table_spec_name=identifier(table_spec.name)),
             )
             .load()
         )
@@ -140,7 +140,7 @@ def check_financial_metrics(
         (
             "gross_revenue_vnd",
             "orders",
-            load_sql("mysql/order_revenue.sql"),
+            load_sql("postgres/order_revenue.sql"),
             "lakehouse.silver.silver_orders",
             "total_vnd",
             "status != 'cancelled'",
@@ -148,7 +148,7 @@ def check_financial_metrics(
         (
             "successful_payments_vnd",
             "payments",
-            load_sql("mysql/successful_payments.sql"),
+            load_sql("postgres/successful_payments.sql"),
             "lakehouse.silver.silver_payments",
             "amount_vnd",
             "status = 'succeeded'",
@@ -156,7 +156,7 @@ def check_financial_metrics(
         (
             "successful_refunds_vnd",
             "refunds",
-            load_sql("mysql/successful_refunds.sql"),
+            load_sql("postgres/successful_refunds.sql"),
             "lakehouse.silver.silver_refunds",
             "amount_vnd",
             "status = 'succeeded'",
@@ -166,9 +166,8 @@ def check_financial_metrics(
     for metric_name, table_name, source_query, silver_table, amount_column, predicate in metric_specs:
         source_df = (
             spark.read.format("jdbc")
-            .option("driver", "com.mysql.cj.jdbc.Driver")
+            .options(**cfg.jdbc_options)
             .options(
-                url=cfg.jdbc_url,
                 query=source_query,
             )
             .load()

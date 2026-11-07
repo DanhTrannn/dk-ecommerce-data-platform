@@ -1,4 +1,4 @@
-.PHONY: all up start build down stop restart ps logs status seed typecheck help
+.PHONY: all up start build down stop restart ps logs status seed source-reader typecheck help
 
 PROFILES ?= core
 export COMPOSE_PROFILES := $(PROFILES)
@@ -14,6 +14,7 @@ help:
 	@echo "  make down                      Stop all groups; retain volumes"
 	@echo "  make restart PROFILES=core     Restart selected existing containers"
 	@echo "  make ps / make logs            Inspect all groups"
+	@echo "  make source-reader             Configure the dedicated PostgreSQL batch reader"
 	@echo "  make seed                      Run source seeds (business schema required)"
 	@echo "  make typecheck                 Check frontend TypeScript"
 
@@ -46,6 +47,9 @@ logs:
 
 seed:
 	@uv run --locked --package platform-app -- python -m database.seeds.seed_catalog
+
+source-reader:
+	@docker compose exec -T postgres sh /opt/project/configure-source-reader.sh
 
 typecheck:
 	@npm --prefix services/storefront run typecheck

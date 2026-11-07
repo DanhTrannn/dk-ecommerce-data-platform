@@ -133,10 +133,10 @@ class Config:
         return os.environ["MINIO_LAKEHOUSE_BUCKET"]
 
     @property
-    def jdbc_url(self) -> str:
-        from lakehouse.utils.spark import jdbc_url
+    def jdbc_options(self) -> dict[str, str]:
+        from lakehouse.utils.postgres import jdbc_options
 
-        return jdbc_url()
+        return jdbc_options()
 
 
 def config_path() -> Path:
