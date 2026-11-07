@@ -1,7 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, text
-from sqlalchemy.dialects.mysql import BIGINT, DATETIME
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, FetchedValue, ForeignKey, Identity, Index, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from platform_app.api.db.base import Base
@@ -11,37 +10,42 @@ class WishlistItem(Base):
     __tablename__ = "wishlist_items"
 
     wishlist_item_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), primary_key=True, autoincrement=True
+        BigInteger,
+        Identity(),
+        CheckConstraint("wishlist_item_id >= 0", name="wishlist_item_id_non_negative"),
+        primary_key=True,
+        autoincrement=True,
     )
     customer_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True),
+        BigInteger,
+        CheckConstraint("customer_id >= 0", name="customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         nullable=False,
     )
     product_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True),
+        BigInteger,
+        CheckConstraint("product_id >= 0", name="product_id_non_negative"),
         ForeignKey("products.product_id", ondelete="RESTRICT"),
         nullable=False,
     )
-    is_present: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_present: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     first_added_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
     last_added_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
-    removed_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
+        DateTime(timezone=False),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP(6)"),
-        server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_onupdate=FetchedValue(),
     )
 
     __table_args__ = (
         CheckConstraint(
-            "(is_present = 1 and removed_at is null) "
-            "or (is_present = 0 and removed_at is not null)",
+            "(is_present IS TRUE and removed_at is null) or (is_present IS FALSE and removed_at is not null)",
             name="presence_removed_consistency",
         ),
         CheckConstraint("last_added_at >= first_added_at", name="last_added_after_first"),

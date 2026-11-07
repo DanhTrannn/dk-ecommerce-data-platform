@@ -1,23 +1,21 @@
 import uuid
 
-from sqlalchemy import BINARY
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.types import TypeDecorator
 
 
 class GUID(TypeDecorator):
-    """Store UUID as BINARY(16); expose as uuid.UUID / canonical string."""
+    """Store PostgreSQL UUID; accept canonical strings and uuid.UUID values."""
 
-    impl = BINARY(16)
+    impl = UUID(as_uuid=True)
     cache_ok = True
 
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
-        if isinstance(value, uuid.UUID):
-            return value.bytes
-        return uuid.UUID(str(value)).bytes
+        return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
 
     def process_result_value(self, value, dialect):
         if value is None:
             return None
-        return uuid.UUID(bytes=bytes(value))
+        return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))

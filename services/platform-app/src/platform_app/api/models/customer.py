@@ -1,7 +1,18 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, String, text
-from sqlalchemy.dialects.mysql import BIGINT, DATETIME, INTEGER
+from sqlalchemy import (
+    func,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    FetchedValue,
+    ForeignKey,
+    Identity,
+    Index,
+    String,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from platform_app.api.db.base import Base
@@ -11,43 +22,59 @@ from platform_app.api.db.types import GUID
 class Customer(Base):
     __tablename__ = "customers"
 
-    customer_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(),
+        CheckConstraint("customer_id >= 0", name="customer_id_non_negative"),
+        primary_key=True,
+        autoincrement=True,
+    )
     public_id: Mapped[str] = mapped_column(GUID(), nullable=False)
-    role: Mapped[str] = mapped_column(String(32), nullable=False, default="customer")
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="customer", server_default=text("'customer'"))
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", server_default=text("'active'"))
     city_id: Mapped[int | None] = mapped_column(
-        BIGINT(unsigned=True),
+        BigInteger,
+        CheckConstraint("city_id >= 0", name="city_id_non_negative"),
         ForeignKey("cities.city_id", ondelete="SET NULL"),
         nullable=True,
     )
     store_id: Mapped[int | None] = mapped_column(
-        BIGINT(unsigned=True),
+        BigInteger,
+        CheckConstraint("store_id >= 0", name="store_id_non_negative"),
         ForeignKey("stores.store_id", ondelete="SET NULL"),
         nullable=True,
     )
-    is_cod_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("0"))
+    is_cod_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     boom_count: Mapped[int] = mapped_column(
-        INTEGER(unsigned=True), nullable=False, default=0, server_default=text("0")
+        BigInteger,
+        CheckConstraint("boom_count <= 4294967295", name="boom_count_uint32_max"),
+        CheckConstraint("boom_count >= 0", name="boom_count_non_negative"),
+        nullable=False,
+        default=0,
+        server_default=text("0"),
     )
-    cod_reinstated_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    cod_reinstated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
     cod_reinstated_by: Mapped[int | None] = mapped_column(
-        BIGINT(unsigned=True),
+        BigInteger,
+        CheckConstraint("cod_reinstated_by >= 0", name="cod_reinstated_by_non_negative"),
         ForeignKey("customers.customer_id", ondelete="SET NULL"),
         nullable=True,
     )
     cod_reinstatement_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    data_origin: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+    data_origin: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="manual", server_default=text("'manual'")
+    )
     generation_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    anonymized_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    anonymized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
+        DateTime(timezone=False),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP(6)"),
-        server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_onupdate=FetchedValue(),
     )
 
     credential: Mapped["CustomerCredential"] = relationship(back_populates="customer", uselist=False)
@@ -69,28 +96,27 @@ class CustomerCredential(Base):
     __tablename__ = "customer_credentials"
 
     customer_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True),
+        BigInteger,
+        CheckConstraint("customer_id >= 0", name="customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         primary_key=True,
     )
     email_normalized: Mapped[str] = mapped_column(String(320), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     password_changed_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
     created_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
+        DateTime(timezone=False),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP(6)"),
-        server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_onupdate=FetchedValue(),
     )
 
     customer: Mapped["Customer"] = relationship(back_populates="credential")
 
-    __table_args__ = (
-        Index("uq_customer_credentials_email_normalized", "email_normalized", unique=True),
-    )
+    __table_args__ = (Index("uq_customer_credentials_email_normalized", func.lower(email_normalized), unique=True),)

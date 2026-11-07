@@ -1,8 +1,20 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, CheckConstraint, ForeignKey, Index, String, Text, text
-from sqlalchemy.dialects.mysql import BIGINT, DATETIME, INTEGER
+from sqlalchemy import (
+    func,
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    FetchedValue,
+    ForeignKey,
+    Identity,
+    Index,
+    JSON,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from platform_app.api.db.base import Base
@@ -12,30 +24,44 @@ from platform_app.api.db.types import GUID
 class ReturnRequest(Base):
     __tablename__ = "return_requests"
 
-    return_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    return_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(),
+        CheckConstraint("return_id >= 0", name="return_id_non_negative"),
+        primary_key=True,
+        autoincrement=True,
+    )
     public_id: Mapped[UUID] = mapped_column(GUID(), nullable=False)
     return_code: Mapped[str] = mapped_column(String(64), nullable=False)
     order_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), ForeignKey("orders.order_id", ondelete="RESTRICT"), nullable=False
+        BigInteger,
+        CheckConstraint("order_id >= 0", name="order_id_non_negative"),
+        ForeignKey("orders.order_id", ondelete="RESTRICT"),
+        nullable=False,
     )
     customer_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), ForeignKey("customers.customer_id", ondelete="RESTRICT"), nullable=False
+        BigInteger,
+        CheckConstraint("customer_id >= 0", name="customer_id_non_negative"),
+        ForeignKey("customers.customer_id", ondelete="RESTRICT"),
+        nullable=False,
     )
     action_type: Mapped[str] = mapped_column(String(16), nullable=False)  # 'exchange' | 'refund'
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending_review")
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="pending_review", server_default=text("'pending_review'")
+    )
     customer_reason: Mapped[str] = mapped_column(Text, nullable=False)
     image_urls: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
     admin_note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    reviewed_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
-    resolved_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
+        DateTime(timezone=False),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP(6)"),
-        server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_onupdate=FetchedValue(),
     )
 
     items: Mapped[list["ReturnItem"]] = relationship(back_populates="return_request", cascade="all, delete-orphan")
@@ -47,7 +73,7 @@ class ReturnRequest(Base):
             name="ck_return_requests_status",
         ),
         Index("uq_return_requests_public_id", "public_id", unique=True),
-        Index("uq_return_requests_code", "return_code", unique=True),
+        Index("uq_return_requests_code", func.lower(return_code), unique=True),
         Index("ix_return_requests_order_id", "order_id"),
         Index("ix_return_requests_customer_id", "customer_id"),
         Index("ix_return_requests_status", "status"),
@@ -58,43 +84,70 @@ class ReturnRequest(Base):
 class ReturnItem(Base):
     __tablename__ = "return_items"
 
-    return_item_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    return_item_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(),
+        CheckConstraint("return_item_id >= 0", name="return_item_id_non_negative"),
+        primary_key=True,
+        autoincrement=True,
+    )
     public_id: Mapped[UUID] = mapped_column(GUID(), nullable=False)
     return_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), ForeignKey("return_requests.return_id", ondelete="CASCADE"), nullable=False
+        BigInteger,
+        CheckConstraint("return_id >= 0", name="return_id_non_negative"),
+        ForeignKey("return_requests.return_id", ondelete="CASCADE"),
+        nullable=False,
     )
     order_item_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), ForeignKey("order_items.order_item_id", ondelete="RESTRICT"), nullable=False
+        BigInteger,
+        CheckConstraint("order_item_id >= 0", name="order_item_id_non_negative"),
+        ForeignKey("order_items.order_item_id", ondelete="RESTRICT"),
+        nullable=False,
     )
     variant_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), ForeignKey("product_variants.variant_id", ondelete="RESTRICT"), nullable=False
+        BigInteger,
+        CheckConstraint("variant_id >= 0", name="variant_id_non_negative"),
+        ForeignKey("product_variants.variant_id", ondelete="RESTRICT"),
+        nullable=False,
     )
     quantity: Mapped[int] = mapped_column(
-        INTEGER(unsigned=True), nullable=False, default=1, server_default=text("1")
+        BigInteger,
+        CheckConstraint("quantity <= 4294967295", name="quantity_uint32_max"),
+        CheckConstraint("quantity >= 0", name="quantity_non_negative"),
+        nullable=False,
+        default=1,
+        server_default=text("1"),
     )
     exchange_variant_id: Mapped[int | None] = mapped_column(
-        BIGINT(unsigned=True), ForeignKey("product_variants.variant_id", ondelete="RESTRICT"), nullable=True
+        BigInteger,
+        CheckConstraint("exchange_variant_id >= 0", name="exchange_variant_id_non_negative"),
+        ForeignKey("product_variants.variant_id", ondelete="RESTRICT"),
+        nullable=True,
     )
     refund_amount_vnd: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), nullable=False, default=0, server_default=text("0")
+        BigInteger,
+        CheckConstraint("refund_amount_vnd >= 0", name="refund_amount_vnd_non_negative"),
+        nullable=False,
+        default=0,
+        server_default=text("0"),
     )
-    inspection_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    inspection_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default=text("'pending'")
+    )
     created_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
+        DateTime(timezone=False),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP(6)"),
-        server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_onupdate=FetchedValue(),
     )
 
     return_request: Mapped["ReturnRequest"] = relationship(back_populates="items")
 
     __table_args__ = (
-        CheckConstraint(
-            "inspection_status in ('pending','passed','failed')", name="ck_return_items_inspection_status"
-        ),
+        CheckConstraint("inspection_status in ('pending','passed','failed')", name="ck_return_items_inspection_status"),
         Index("uq_return_items_public_id", "public_id", unique=True),
         Index("ix_return_items_return_id", "return_id"),
         Index("ix_return_items_variant_id", "variant_id"),

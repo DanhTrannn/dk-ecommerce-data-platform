@@ -1,74 +1,61 @@
-# Schema MySQL và dữ liệu khởi tạo
+# PostgreSQL source schema
 
-`database/schema.sql` là file DDL vật lý duy nhất của hệ thống nguồn, dành cho MySQL 8.4. File tạo 28 bảng cùng khóa chính, khóa ngoại, index, CHECK, cột sinh tự động và timestamp mặc định/`ON UPDATE`.
+`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; generator 0.8 vẫn xuất SQL MySQL, seed và các luồng API/pipeline chưa được nghiệm thu trên PostgreSQL. Không nạp SQL generator hiện tại vào schema này.
 
-Schema chỉ chứa định nghĩa cấu trúc. Catalog/admin do seed tạo; lịch sử giao dịch tổng hợp do generator nạp.
+## Định nghĩa và tái lập
 
-## Cấu trúc thư mục
+- [ORM](../services/platform-app/src/platform_app/api/models/) định nghĩa cột, default, CHECK, FK và index.
+- [schema.sql](schema.sql) là bản SQL bootstrap được render từ ORM, bổ sung trigger `updated_at`. `Base.metadata.create_all()` riêng lẻ không cài các trigger này.
+- [OLTP_SCHEMA](../docs/architecture/OLTP_SCHEMA.md) mô tả hợp đồng dữ liệu, cursor và giới hạn chuyển đổi.
+- [seeds/](seeds/) còn chờ chuyển đổi/kiểm chứng ở phần tiếp theo; không tự chạy khi API khởi động.
 
-| Đường dẫn | Vai trò |
-|---|---|
-| [schema.sql](schema.sql) | Tạo schema cuối cùng trên database trống |
-| [seeds/](seeds/) | Catalog, tồn mở đầu và bootstrap admin |
-| [OLTP_SCHEMA.md](../docs/architecture/OLTP_SCHEMA.md) | Tham chiếu cột, quan hệ và quy tắc nghiệp vụ |
-| [ORM models](../services/platform-app/src/platform_app/api/models/) | Ánh xạ SQLAlchemy dùng trong API |
-
-## Khởi tạo bằng Docker Compose
-
-Từ thư mục gốc repo, trong lần cài đặt đầu tiên:
+Render hoặc kiểm tra file SQL từ thư mục gốc:
 
 ```bash
-cp .env.example .env
-docker compose --profile core up -d --wait mysql
+uv run --locked --package platform-app -- \
+  python -m platform_app.api.db.schema --output database/schema.sql
+uv run --locked --package platform-app -- \
+  python -m platform_app.api.db.schema --output database/schema.sql --check
 ```
 
-Compose mount file SQL read-only tại:
+Hai lệnh này chỉ đọc ORM và ghi/so sánh file, không kết nối database. Sau khi đổi ORM phải render lại và review diff. Cột/constraint/index được sắp xếp ổn định để kết quả tái lập qua process.
 
-```text
-database/schema.sql
-  → /docker-entrypoint-initdb.d/10-ecommerce-schema.sql
-```
+## Bootstrap database trống
 
-MySQL tự tạo database/user theo `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, rồi chạy SQL khi data directory trống. File không cố định tên database bằng lệnh `USE`.
-
-Sau khi MySQL sẵn sàng, API chạy `database.seeds.seed_catalog` rồi khởi động FastAPI. Seed có thể chạy lại bằng:
+Compose init chỉ tạo database/user `ecommerce`, `airflow`, `polaris` và role replication; không tự tạo bảng nghiệp vụ. Để nạp schema vào database nguồn trống của Compose:
 
 ```bash
-docker compose exec -T platform-app python -m database.seeds.seed_catalog
-```
-
-Seed không tạo bảng. Schema phải tồn tại trước khi chạy seed. `make seed` chạy bằng uv trên host; cần API_DATABASE_URL tới port MySQL trên host và API_SECRET_KEY hợp lệ, không dùng hostname mysql của mạng Docker từ host.
-
-## Nạp SQL thủ công
-
-Chỉ dùng với database trống đã được tạo. Với MySQL chạy trong Compose:
-
-```bash
-docker compose exec -T mysql sh -c \
-  'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql --user="$MYSQL_USER" --database="$MYSQL_DATABASE"' \
+docker compose exec -T postgres sh -c \
+  'PGPASSWORD="$POSTGRES_ECOMMERCE_PASSWORD" exec psql -X -v ON_ERROR_STOP=1 --host=127.0.0.1 --username="$POSTGRES_ECOMMERCE_USER" --dbname="$POSTGRES_ECOMMERCE_DB"' \
   < database/schema.sql
 ```
 
-File dùng `CREATE TABLE` và không có `DROP TABLE` hoặc dữ liệu mẫu. Nó tạm tắt kiểm tra FK trong session để tạo các bảng có tham chiếu vòng, rồi khôi phục cấu hình FK.
+DDL chạy trong một transaction: tạo đủ bảng trước, thêm FK sau để xử lý quan hệ vòng, rồi tạo index/function/trigger. Không tắt FK, không DROP bảng, không seed hoặc chạy pipeline. File không phải migration và không dùng để nâng cấp database đã có dữ liệu. Với database khác, dùng psql chọn đúng database/user tương ứng.
 
-## Database đang có dữ liệu
+`API_DATABASE_URL` là cấu hình bắt buộc, dùng `postgresql+psycopg2`. `.env.example` có URL cho host; Compose inject URL riêng dùng hostname `postgres`. Session API đặt UTC và search_path public. Không chạy script nâng cấp timestamp MySQL cũ trên PostgreSQL.
 
-- Docker chỉ chạy thư mục init khi data directory trống. Restart container hoặc sửa file SQL không tự cập nhật volume đã có.
-- Database đã khớp schema hiện tại tiếp tục dùng được; dữ liệu và bảng quản lý phiên bản cũ, nếu có, được giữ nguyên.
-- Với database khác cấu trúc, so sánh `SHOW CREATE TABLE` với file SQL và áp dụng các câu `ALTER TABLE` phù hợp.
-- API không tự nâng cấp schema. Không import file bootstrap lên database đã có bảng.
+## Hợp đồng dữ liệu
 
-## Khi thay đổi schema
+- UUID native, nhận `uuid.UUID` hoặc chuỗi UUID qua ORM; không lưu binary 16 byte.
+- Thời gian `TIMESTAMP WITHOUT TIME ZONE` chứa UTC, tương thích cách API hiện tạo datetime UTC không tzinfo. Default/trigger dùng `timezone('UTC', statement_timestamp())`, không phụ thuộc timezone session.
+- Identity dùng `GENERATED BY DEFAULT`: nhận ID tường minh khi nạp lịch sử. Importer ở phần sau phải đồng bộ sequence sau khi nạp ID; phần này chưa có importer PostgreSQL.
+- Trường unsigned-32 cũ dùng BIGINT kèm CHECK 0..4294967295; các PK/tiền/unsigned-64 cũ dùng BIGINT không âm, giới hạn tối đa 2^63−1. VND vẫn là số nguyên.
+- Giữ computed column và unique guard cho mỗi khách chỉ một giỏ active. Khóa chuỗi unique dùng lower để giữ không phân biệt hoa/thường; không mô phỏng toàn bộ collation accent-insensitive của MySQL. Hành vi tra cứu/tìm kiếm thuộc phần nghiệm thu API sau.
+- `updated_at` tự tăng khi dữ liệu đổi mà timestamp không được đổi tường minh; timestamp lịch sử khác giá trị cũ được giữ. No-op không tăng, kể cả bảng có cột generated. Trigger timestamp không tự tạo ledger/history nghiệp vụ.
+- Có 316 cột và 51 FK, gồm `orders.staff_id` đã có trong ORM nhưng thiếu ở DDL MySQL cũ; `refunds.updated_at` cũng được đồng bộ từ ORM. Batch/CDC vẫn loại customer_credentials khỏi 27 nguồn phân tích; chuyển reader/consumer còn chờ.
 
-1. Cập nhật `database/schema.sql`.
-2. Cập nhật các SQLAlchemy model tương ứng.
-3. Áp dụng `ALTER TABLE` riêng cho database hiện có cần thay đổi.
-4. Cập nhật tài liệu schema và ERD.
+## Kiểm tra
 
-DDL hiện có 28 bảng, 315 cột, 50 FK, 49 UNIQUE key và 79 CHECK. [ERD hiện tại](../docs/diagram/13-erd-mysql-physical.drawio) dùng FK vật lý; quan hệ `orders.staff_id → customers.customer_id` hiện chỉ có trong ORM, chưa được cưỡng chế bởi FK trong SQL.
+```bash
+# Contract tests; PostgreSQL integration tests được skip mặc định
+uv run --locked --package platform-app -- \
+  python -m unittest discover -s services/platform-app/tests -v
 
-## Biên giới Data Engineering
+# Có Docker và image postgres:16.8-alpine đã được tải
+RUN_POSTGRES_SCHEMA_TESTS=1 uv run --locked --package platform-app -- \
+  python -m unittest discover -s services/platform-app/tests -v
+```
 
-Batch/CDC lấy 27 trong 28 bảng; `customer_credentials` bị loại vì chứa thông tin xác thực. Các bảng fact/dimension/mart nằm ở Iceberg, không được tạo bởi file MySQL này.
+Integration tests tự tạo PostgreSQL 16.8 biệt lập với `--network none`, dữ liệu tmpfs và Unix socket riêng; không publish port, không dùng database/volume thật và không tự pull image. Container và thư mục tạm được dọn sau khi chạy. Có thể chọn image PostgreSQL 16 đã có bằng `POSTGRES_TEST_IMAGE`.
 
-Metadata của Airflow và Polaris nằm ở PostgreSQL và vẫn do các dịch vụ tương ứng quản lý.
+Đã kiểm tra DDL/ORM reflection, identity cả cột không phải PK, UUID/JSON roundtrip, CHECK số/boolean/tiền/tồn, FK, unique hoa-thường, giỏ active và timestamp. Đây chưa phải bằng chứng API checkout/POS, seed, generator PostgreSQL hoặc pipeline đã chạy toàn luồng.
