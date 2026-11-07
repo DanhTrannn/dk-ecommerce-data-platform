@@ -31,6 +31,8 @@ def run(config: GeneratorConfig, output_directory: Path) -> Path:
         "history_months": config.history_months,
         "modes": list(config.modes),
         "scale": config.scale,
+        "locations": {"store_codes": list(config.locations.store_codes)},
+        "location_counts": config.locations.counts,
         "generator_version": __version__,
         "sql_format": SQL_FORMAT,
         "data_origin": "synthetic",

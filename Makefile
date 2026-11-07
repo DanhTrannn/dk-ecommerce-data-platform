@@ -46,7 +46,6 @@ logs:
 
 seed:
 	@uv run --locked --package platform-app -- python -m database.seeds.seed_catalog
-	@uv run --locked --package platform-app -- python -m database.seeds.0010_multi_city_stores
 
 typecheck:
 	@npm --prefix services/storefront run typecheck

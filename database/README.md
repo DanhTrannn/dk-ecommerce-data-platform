@@ -1,6 +1,6 @@
 # PostgreSQL source schema
 
-`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; phần 2 bổ sung generator 0.9, seed và importer PostgreSQL, được kiểm tra bằng database biệt lập. Các luồng API nghiệp vụ và pipeline còn chờ nghiệm thu/chuyển đổi. Không nạp SQL MySQL cũ vào schema này.
+`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; phần 2 bổ sung generator/seed/importer PostgreSQL; generator hiện ở 0.10 và đã tích hợp địa điểm vào SQL, được kiểm tra bằng database biệt lập. Các luồng API nghiệp vụ và pipeline còn chờ nghiệm thu/chuyển đổi. Không nạp SQL MySQL cũ vào schema này.
 
 ## Định nghĩa và tái lập
 
@@ -39,7 +39,7 @@ DDL chạy trong một transaction: tạo đủ bảng trước, thêm FK sau đ
 Từ root repo, cấu hình `.env` cho `API_DATABASE_URL` host và `API_SECRET_KEY` như `.env.example`. Sau bootstrap schema:
 
 ```bash
-# Mỗi seed là một transaction riêng; có thể chạy trước hoặc sau SQL lịch sử
+# Seed catalog/admin trong một transaction; địa điểm nằm trong SQL generator
 make seed
 uv run --locked --package data-generator -- generator export-sql \
   --config generator/configs/small.yml --output data/generator/small.sql
@@ -47,11 +47,11 @@ uv run --locked --package platform-app -- \
   python -m platform_app.api.db.import_dataset data/generator/small.sql
 ```
 
-Trong container đã build mới, có thể dùng `docker compose exec -T platform-app python -m database.seeds.seed_catalog`, rồi `python -m database.seeds.0010_multi_city_stores` với cùng prefix exec. Nạp SQL từ container cần đường dẫn artifact bên trong container; job console ở `/data/generator/jobs/<job_id>/outputs/sql/`.
+Trong container đã build mới, có thể dùng `docker compose exec -T platform-app python -m database.seeds.seed_catalog`. Seed địa điểm cũ đã được loại bỏ; `cities` và `stores` do generator xuất, mặc định 5 thành phố/6 cửa hàng. Chọn danh sách bằng `locations.store_codes` trong YAML hoặc trường Cửa hàng tham chiếu trên Streamlit; xem [generator guide](../generator/README.md#cities-and-stores). Nạp SQL từ container cần đường dẫn artifact bên trong container; job console ở `/data/generator/jobs/<job_id>/outputs/sql/`.
 
 Importer chỉ nhận SQL tin cậy do generator xuất, không phải sandbox hay công cụ chạy SQL tùy ý. Kiểm tra table/cột/type/nullability/identity, index, FK/CHECK và trigger đang bật trước khi ghi. Sau đó khóa nạp, từ chối generation run đã có, thực thi và đối soát trong một transaction. JSON receipt ghi SHA-256 artifact, SHA-256 schema **kỳ vọng từ ORM**, identity, số khách/đơn và tổng giá trị đơn đã đặt; đây không phải doanh thu thực thu. Khách được đếm theo generation run, không gồm moderator tổng hợp phụ trợ.
 
-Identity của 23 bảng được generator sử dụng được khởi động lại ít nhất ở MAX(id)+1, giữ mức sequence cao hơn nếu đã dùng trước đó. Dùng [`ALTER SEQUENCE RESTART`](https://www.postgresql.org/docs/16/sql-altersequence.html) vì rollback được cùng transaction; `setval` không có đặc tính đó. Bulk import chặn writer trên các bảng này và cần quyền sở hữu sequence; nên nạp trước khi chạy tác vụ ghi đồng thời. Lỗi SQL/đối soát hoặc file thiếu COMMIT sẽ rollback. Không đổi/xóa volume, sửa dữ liệu cũ hay tự chạy DAG. Import lần hai bị từ chối, không upsert hoặc ghi đè.
+Các cột identity thuộc 25 bảng được generator sử dụng được khởi động lại ít nhất ở MAX(id)+1, giữ mức sequence cao hơn nếu đã dùng trước đó. Dùng [`ALTER SEQUENCE RESTART`](https://www.postgresql.org/docs/16/sql-altersequence.html) vì rollback được cùng transaction; `setval` không có đặc tính đó. Bulk import chặn writer trên các bảng này và cần quyền sở hữu sequence; nên nạp trước khi chạy tác vụ ghi đồng thời. Lỗi SQL/đối soát hoặc file thiếu COMMIT sẽ rollback. Không đổi/xóa volume, sửa dữ liệu cũ hay tự chạy DAG. Import lại cùng generation run bị từ chối. Các dataset khác dùng chung địa điểm theo code, bổ sung bản ghi thiếu và giữ thông tin cũ; sai quan hệ store/city sẽ rollback. Địa điểm không được đếm là bản ghi mới: receipt ghi số địa điểm được chọn và xác minh. SQL 0.9 cũ vẫn nạp được nhưng không tự thêm địa điểm.
 
 ## Hợp đồng dữ liệu
 

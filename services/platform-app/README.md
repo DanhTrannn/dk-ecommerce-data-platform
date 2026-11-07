@@ -2,11 +2,11 @@
 
 Package Python `platform_app` tách `api/` (FastAPI) và `ui/` (Streamlit), cùng dùng một `pyproject.toml`.
 
-Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và Streamlit (`PLATFORM_APP_PORT`, mặc định 8501). Chuẩn bị thư mục `data/generator/jobs` với quyền ghi cho `PLATFORM_APP_UID`/`PLATFORM_APP_GID`. Khởi động bằng `bash /app/start.sh`; nếu một process thoát thì process còn lại cũng dừng. Healthcheck kiểm tra cả `/health/live` của FastAPI và `/_stcore/health` của Streamlit. Schema/ORM đã chuyển PostgreSQL và được kiểm tra biệt lập, xem [database guide](../../database/README.md). Startup không tự tạo schema hoặc seed; generator 0.9, seed và importer PostgreSQL đã được kiểm tra biệt lập; nghiệm thu API nghiệp vụ vẫn còn ở phần sau.
+Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và Streamlit (`PLATFORM_APP_PORT`, mặc định 8501). Chuẩn bị thư mục `data/generator/jobs` với quyền ghi cho `PLATFORM_APP_UID`/`PLATFORM_APP_GID`. Khởi động bằng `bash /app/start.sh`; nếu một process thoát thì process còn lại cũng dừng. Healthcheck kiểm tra cả `/health/live` của FastAPI và `/_stcore/health` của Streamlit. Schema/ORM đã chuyển PostgreSQL và được kiểm tra biệt lập, xem [database guide](../../database/README.md). Startup không tự tạo schema hoặc seed; generator 0.10, seed và importer PostgreSQL đã được kiểm tra biệt lập; nghiệm thu API nghiệp vụ vẫn còn ở phần sau.
 
 `API_DATABASE_URL` bắt buộc khi chạy API, dùng `postgresql+psycopg2`. Không còn fallback URL/mật khẩu MySQL trong code. Session dùng UTC và schema public; `/health/ready` hiện chỉ kiểm tra kết nối, chưa kiểm tra schema nghiệp vụ.
 
-Streamlit console điều khiển generator 0.9: chọn preset, chỉnh cấu hình, tạo job sinh SQL/access log chạy nền, theo dõi theo công đoạn và tải kết quả. Console chỉ đọc/ghi file; không import database, không chạy traffic, không upload log, không kích hoạt Airflow và không thay đổi sampler 2c.
+Streamlit console điều khiển generator 0.10: chọn preset, chỉnh cấu hình, tạo job sinh SQL/access log chạy nền, theo dõi theo công đoạn và tải kết quả. Console chỉ đọc/ghi file; không import database, không chạy traffic, không upload log, không kích hoạt Airflow và không thay đổi sampler 2c.
 
 Thiết kế và quyết định kỹ thuật: [docs/project/GENERATOR_CONSOLE.md](../../docs/project/GENERATOR_CONSOLE.md).
 
@@ -53,7 +53,7 @@ Healthcheck dùng `http://localhost:8501/_stcore/health`.
 ## Cấu hình và validate
 
 - Preset lấy từ `generator/configs/*.yml`.
-- Các trường thường dùng: scenario, seed, anchor time, số tháng lịch sử, customers, products, variants, orders, output mode, expected requests.
+- Các trường thường dùng: scenario, seed, anchor time, số tháng lịch sử, customers, products, variants, orders, cửa hàng tham chiếu, output mode, expected requests. Chọn cửa hàng để SQL bổ sung địa điểm còn thiếu; danh sách rỗng không sinh địa điểm. Cấu hình `locations.store_codes` được đóng băng cùng job và tham gia dataset identity.
 - Phân phối nâng cao sửa trong expander YAML. Chỉ khối `distributions` được thay; các trường khác lấy từ preset và form.
 - Submit mới đọc form. Cấu hình cuối được ghi nguyên văn vào `config.yml` của job và là file được generator thực thi.
 - Validation dùng chung `generator.config.config_from_dict` và `generator.validation.validate_scale`: timezone bắt buộc, scale hợp lệ, `variants >= products`, giới hạn tổ hợp size/color, phân phối/trọng số/tỷ lệ.

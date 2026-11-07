@@ -10,6 +10,7 @@ import uuid
 from typing import Any, Iterator, TextIO
 
 from generator.postgres_sql import SQL_FORMAT
+from generator.locations import parse_locations
 
 
 def read_metadata(stream: TextIO) -> dict[str, Any]:
@@ -33,6 +34,11 @@ def read_metadata(stream: TextIO) -> dict[str, Any]:
         value = metadata["counts"][name]
         if type(value) is not int or value < (0 if name == "orders" else 1):
             raise ValueError("Invalid generated row counts")
+    if "locations" in metadata:
+        locations = parse_locations(metadata["locations"])
+        for name, expected in locations.counts.items():
+            if type(metadata["counts"].get(name)) is not int or metadata["counts"][name] != expected:
+                raise ValueError("Location counts do not match selected stores")
     for line in stream:
         if line.strip() == "BEGIN;":
             return metadata

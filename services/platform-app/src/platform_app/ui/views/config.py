@@ -6,6 +6,7 @@ from typing import Any
 import streamlit as st
 import yaml
 from generator import __version__ as GENERATOR_VERSION
+from generator.locations import DEFAULT_STORE_CODES, parse_locations
 
 from platform_app.ui.config_builder import (
     OUTPUT_MODES,
@@ -123,6 +124,13 @@ def render(store: JobStore) -> None:
         with scale_columns[3]:
             st.number_input("Orders", key="orders", min_value=0, step=1)
 
+        st.multiselect(
+            "Cửa hàng tham chiếu",
+            list(DEFAULT_STORE_CODES),
+            key="store_codes",
+            help="SQL sẽ bổ sung thành phố/cửa hàng còn thiếu. Để trống để không sinh địa điểm.",
+        )
+
         with st.expander("Phân phối nâng cao (YAML)"):
             st.caption(
                 "Chỉ sửa khối distributions. Các trường còn lại lấy từ preset và form; "
@@ -191,6 +199,7 @@ def _values_from_state() -> FormValues:
         output_mode=str(st.session_state["output_mode"]),
         expected_requests=int(st.session_state["expected_requests"]),
         distributions_yaml=str(st.session_state["distributions_yaml"]),
+        store_codes=tuple(st.session_state["store_codes"]),
     )
 
 
@@ -216,6 +225,7 @@ def _defaults(preset: dict[str, Any]) -> dict[str, Any]:
         "products": int(scale.get("products", 1)),
         "variants": int(scale.get("variants", 1)),
         "orders": orders,
+        "store_codes": list(parse_locations(preset.get("locations", {})).store_codes),
         "expected_requests": max(1_000, orders * 20),
         "distributions_yaml": yaml.safe_dump(
             preset.get("distributions", {}),

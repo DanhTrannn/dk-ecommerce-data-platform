@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import yaml
 
 from generator import __version__
+from generator.locations import LocationConfig, parse_locations
 from generator.validation import validate_scale
 
 _LOGICAL_IDENTITY_NAMESPACE = uuid.uuid5(
@@ -484,6 +485,7 @@ class GeneratorConfig:
     modes: tuple[str, ...]
     scale: dict[str, int]
     distributions: DistributionConfig = DEFAULT_DISTRIBUTIONS
+    locations: LocationConfig = LocationConfig()
 
     @property
     def logical_identity(self) -> str:
@@ -498,6 +500,7 @@ class GeneratorConfig:
                 "modes": self.modes,
                 "scale": self.scale,
                 "distributions": asdict(self.distributions),
+                "locations": asdict(self.locations),
             },
             sort_keys=True,
         )
@@ -528,6 +531,7 @@ def config_from_dict(raw: dict[str, Any]) -> GeneratorConfig:
         modes=tuple(str(mode) for mode in raw["modes"]),
         scale={str(key): int(value) for key, value in raw["scale"].items()},
         distributions=distributions,
+        locations=parse_locations(raw.get("locations", {})),
     )
     validate_scale(config.scale)
     return config

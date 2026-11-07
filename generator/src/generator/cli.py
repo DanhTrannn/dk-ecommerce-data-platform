@@ -84,6 +84,8 @@ def main() -> None:
                 "sql_format": SQL_FORMAT,
                 "scenario_id": config.scenario_id,
                 "scale": config.scale,
+                "locations": {"store_codes": list(config.locations.store_codes)},
+                "location_counts": config.locations.counts,
                 "modes": list(config.modes),
             },
             [str(output_path)],
@@ -133,10 +135,13 @@ def main() -> None:
             "products": summary.products,
             "variants": summary.variants,
             "orders": summary.orders,
+            "cities": summary.cities,
+            "stores": summary.stores,
         },
         [
             f"SQL file: {summary.sql_path}",
             f"Generation run: {summary.generation_run_id}",
+            f"Locations: {summary.cities} cities, {summary.stores} stores (selected reference records)",
             (
                 f"Rows: {summary.customers} customers, {summary.products} products, "
                 f"{summary.variants} variants, {summary.orders} orders"

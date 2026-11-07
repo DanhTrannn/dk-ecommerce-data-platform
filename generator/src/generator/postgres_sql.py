@@ -5,6 +5,7 @@ GENERATED_TABLES = (
     "cart_items",
     "carts",
     "categories",
+    "cities",
     "coupon_redemptions",
     "coupons",
     "customer_credentials",
@@ -24,6 +25,7 @@ GENERATED_TABLES = (
     "return_requests",
     "shipment_attempts",
     "shipments",
+    "stores",
     "wishlist_items",
 )
 

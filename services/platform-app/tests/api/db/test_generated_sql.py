@@ -7,6 +7,15 @@ from platform_app.api.db.generated_sql import iter_statements, read_metadata
 
 
 class GeneratedSQLTests(unittest.TestCase):
+    def test_location_metadata_checks_counts_but_legacy_metadata_remains_valid(self):
+        self.assertNotIn("locations", read_metadata(self.artifact()))
+        counts = dict(customers=2, products=1, variants=1, orders=0, cities=1, stores=1)
+        valid = self.artifact(counts=counts, locations={"store_codes": ["HN-CENTRE"]})
+        self.assertEqual(read_metadata(valid)["counts"]["cities"], 1)
+        for override in (dict(cities=0), dict(stores=True)):
+            with self.assertRaises(ValueError):
+                read_metadata(self.artifact(counts={**counts, **override}, locations={"store_codes": ["HN-CENTRE"]}))
+
     def artifact(self, **changes):
         metadata = dict(
             sql_format="postgresql-v1",

@@ -27,10 +27,13 @@ class CliJsonTests(unittest.TestCase):
             ):
                 main()
             payload = json.loads(stdout.getvalue())
-            self.assertEqual(payload["generator_version"], "0.9.0")
+            self.assertEqual(payload["generator_version"], "0.10.0")
             self.assertTrue(Path(payload["manifest_path"]).is_file())
             self.assertIn("logical_identity", payload)
             self.assertEqual(payload["sql_format"], "postgresql-v1")
+            self.assertEqual(payload["location_counts"], {"cities": 5, "stores": 6})
+            manifest = json.loads(Path(payload["manifest_path"]).read_text())
+            self.assertEqual(manifest["locations"], payload["locations"])
 
     def test_export_sql_json_prints_summary(self):
         summary = DatasetSummary(
@@ -40,6 +43,8 @@ class CliJsonTests(unittest.TestCase):
             products=2,
             variants=3,
             orders=4,
+            cities=2,
+            stores=3,
         )
         stdout = io.StringIO()
         with (
@@ -54,8 +59,9 @@ class CliJsonTests(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         self.assertEqual(payload["sql_path"], "/tmp/test.sql")
         self.assertEqual(payload["orders"], 4)
+        self.assertEqual((payload["cities"], payload["stores"]), (2, 3))
         self.assertEqual(payload["sql_format"], "postgresql-v1")
-        self.assertEqual(payload["generator_version"], "0.9.0")
+        self.assertEqual(payload["generator_version"], "0.10.0")
         self.assertIn("logical_identity", payload)
 
     def test_export_logs_json_prints_summary(self):

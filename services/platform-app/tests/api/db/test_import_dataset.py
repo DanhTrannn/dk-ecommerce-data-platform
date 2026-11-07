@@ -1,6 +1,5 @@
 """Exercise real generated artifacts and seeds in a disposable PostgreSQL only."""
 
-import importlib
 import os
 import tempfile
 import unittest
@@ -10,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from generator.config import load_config
+from generator.locations import LocationConfig
 from generator.sql_export import export_sql
 from psycopg2 import Error as DriverError
 from sqlalchemy import text
@@ -49,6 +49,7 @@ class ImportDatasetTests(PostgresFixture):
             self.assertEqual(receipt["orders"], config.scale["orders"])
             self.assertEqual(receipt["customers"], config.scale["customers"])
             self.assertEqual(receipt["sql_format"], "postgresql-v1")
+            self.assertEqual((receipt["cities"], receipt["stores"]), (5, 6))
             self.assertGreater(receipt["placed_order_value_vnd"], 0)
         maximum = self.scalar("SELECT MAX(customer_id) FROM customers")
         with self.engine.begin() as connection:
@@ -57,6 +58,8 @@ class ImportDatasetTests(PostgresFixture):
                 {"id": str(uuid.uuid4())},
             )
         self.assertGreater(new_id, maximum)
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM cities"), 5)
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM stores"), 6)
         self.assertGreater(self.scalar("SELECT COUNT(*) FROM refunds"), 0)
         self.assertEqual(self.scalar("SELECT COUNT(*) FROM refunds WHERE updated_at>timestamp '2026-07-01'"), 0)
 
@@ -99,6 +102,10 @@ class ImportDatasetTests(PostgresFixture):
                 if error is DriverError:
                     self.assertEqual(failure.exception.pgcode, "22012")
                 self.assertEqual(self.scalar("SELECT COUNT(*) FROM customers"), 0)
+                self.assertEqual(self.scalar("SELECT COUNT(*) FROM cities"), 0)
+                self.assertEqual(self.scalar("SELECT COUNT(*) FROM stores"), 0)
+                self.assertEqual(self.scalar("SELECT last_value FROM cities_city_id_seq"), 1)
+                self.assertEqual(self.scalar("SELECT last_value FROM stores_store_id_seq"), 1)
                 self.assertEqual(self.scalar("SELECT last_value FROM customers_customer_id_seq"), before)
 
     def test_validation_failure_rolls_back_and_missing_trigger_rejects_import(self):
@@ -123,7 +130,6 @@ class ImportDatasetTests(PostgresFixture):
     def test_seeds_before_and_after_import_preserve_existing_data_and_repair_partial_seed(self):
         from database.seeds import seed_catalog
 
-        city_seed = importlib.import_module("database.seeds.0010_multi_city_stores")
         factory = sessionmaker(self.engine)
         settings = SimpleNamespace(
             bootstrap_admin_email="fixture@example.invalid",
@@ -132,7 +138,6 @@ class ImportDatasetTests(PostgresFixture):
         )
         with self.engine.begin() as connection:
             connection.exec_driver_sql("INSERT INTO cities(code,name) VALUES('hcm','Preserved')")
-        city_seed.seed(factory)
         seed_catalog.seed(factory, settings)
         export_sql(self.config, self.path)
         import_dataset(self.engine, self.path)
@@ -145,7 +150,6 @@ class ImportDatasetTests(PostgresFixture):
             )
         stock = self.scalar("SELECT SUM(on_hand) FROM inventory")
         counts = {table: self.scalar(f'SELECT COUNT(*) FROM "{table}"') for table in Base.metadata.tables}
-        city_seed.seed(factory)
         seed_catalog.seed(factory, settings)
         self.assertEqual(
             counts, {table: self.scalar(f'SELECT COUNT(*) FROM "{table}"') for table in Base.metadata.tables}
@@ -180,3 +184,56 @@ class ImportDatasetTests(PostgresFixture):
             1,
         )
         self.assertIsNotNone(self.scalar("SELECT product_id FROM products WHERE slug='ao-thun-basic'"))
+
+    def test_locations_reuse_existing_codes_and_preserve_store_details(self):
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("INSERT INTO cities(city_id,code,name) VALUES(42,'hcm','Existing city')")
+            connection.exec_driver_sql("""INSERT INTO stores(store_id,city_id,code,name,address,phone,is_active,created_at,updated_at)
+                VALUES(77,42,'hcm-centre','Existing store','Existing address','000',false,'2001-01-01','2001-01-01')""")
+        config = replace(self.config, locations=LocationConfig(("HCM-CENTRE", "HN-CENTRE")))
+        export_sql(config, self.path)
+        receipt = import_dataset(self.engine, self.path)
+        self.assertEqual((receipt["cities"], receipt["stores"]), (2, 2))
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM stores"), 2)
+        self.assertEqual(self.scalar("SELECT address FROM stores WHERE store_id=77"), "Existing address")
+        self.assertFalse(self.scalar("SELECT is_active FROM stores WHERE store_id=77"))
+        self.assertEqual(self.scalar("SELECT EXTRACT(YEAR FROM updated_at) FROM stores WHERE store_id=77"), 2001)
+        self.assertEqual(self.scalar("SELECT name FROM cities WHERE city_id=42"), "Existing city")
+        self.assertGreater(
+            self.scalar("SELECT nextval('cities_city_id_seq')"), self.scalar("SELECT MAX(city_id) FROM cities")
+        )
+        self.assertGreater(
+            self.scalar("SELECT nextval('stores_store_id_seq')"), self.scalar("SELECT MAX(store_id) FROM stores")
+        )
+
+    def test_wrong_existing_store_city_aborts_import_without_reassignment(self):
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("INSERT INTO cities(city_id,code,name) VALUES(42,'DN','Existing city')")
+            connection.exec_driver_sql("""INSERT INTO stores(store_id,city_id,code,name,address,phone)
+                VALUES(77,42,'HCM-CENTRE','Wrong city fixture','Existing','000')""")
+        export_sql(self.config, self.path)
+        with self.assertRaisesRegex(DriverError, "store/city references"):
+            import_dataset(self.engine, self.path)
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM customers"), 0)
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM cities"), 1)
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM stores"), 1)
+        self.assertEqual(self.scalar("SELECT city_id FROM stores WHERE store_id=77"), 42)
+
+    def test_empty_selection_imports_without_locations(self):
+        config = replace(self.config, locations=LocationConfig(()))
+        export_sql(config, self.path)
+        receipt = import_dataset(self.engine, self.path)
+        self.assertEqual((receipt["cities"], receipt["stores"]), (0, 0))
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM cities"), 0)
+
+    def test_importer_rejects_missing_location_rows_even_without_embedded_gate(self):
+        import re
+
+        export_sql(self.config, self.path)
+        sql = self.path.read_text()
+        sql = re.sub(r"INSERT INTO public.cities.*?\$tlcn_locations\$;\n", "", sql, count=1, flags=re.S)
+        self.assertNotIn("INSERT INTO public.cities", sql)
+        self.path.write_text(sql)
+        with self.assertRaisesRegex(ValueError, "store/city references"):
+            import_dataset(self.engine, self.path)
+        self.assertEqual(self.scalar("SELECT COUNT(*) FROM customers"), 0)
