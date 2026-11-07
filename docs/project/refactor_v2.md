@@ -4,7 +4,7 @@ Cập nhật **05/11/2026**. Quyết định đã chốt: thay toàn bộ Next.j
 
 ## 1. Quyết định kiến trúc và ranh giới
 
-**Trạng thái chuyển PostgreSQL ngày 07/11/2026:** phần 1 đã chuyển schema/ORM (28 bảng, UUID native, identity, CHECK và trigger UTC), có kiểm tra PostgreSQL biệt lập; xem [database guide](../../database/README.md) và [OLTP reference](../architecture/OLTP_SCHEMA.md). Phần 2 còn chuyển generator/seed và công cụ nạp; phần 3 còn nghiệm thu API/nghiệp vụ. JDBC/CDC và provisioning Lakehouse chưa đồng bộ. Streamlit đã có trong platform-app; Superset chưa triển khai. Hiệu chỉnh sampler 2c được để cuối theo quyết định sau kế hoạch gốc, không chặn các bước này. Không dùng baseline MySQL cũ để khẳng định trạng thái PostgreSQL hiện tại.
+**Trạng thái chuyển PostgreSQL ngày 07/11/2026:** phần 1 đã chuyển schema/ORM (28 bảng, UUID native, identity, CHECK và trigger UTC), có kiểm tra PostgreSQL biệt lập; xem [database guide](../../database/README.md) và [OLTP reference](../architecture/OLTP_SCHEMA.md). Phần 2 đã chuyển generator 0.9 sang SQL PostgreSQL, seed bổ sung bản ghi an toàn và importer có transaction/đối soát/identity restart; nạp preset small và month-test được kiểm tra trên PostgreSQL biệt lập. Không nạp hoặc migrate database hiện có. Phần 3 còn nghiệm thu API/nghiệp vụ. JDBC/CDC và provisioning Lakehouse chưa đồng bộ. Streamlit đã có trong platform-app; Superset chưa triển khai. Hiệu chỉnh sampler 2c được để cuối theo quyết định sau kế hoạch gốc, không chặn các bước này. Không dùng baseline MySQL cũ để khẳng định trạng thái PostgreSQL hiện tại.
 
 Giữ bài toán **retail thời trang Việt Nam**, VND, ngày nghiệp vụ Asia/Ho_Chi_Minh. Tập trung vào nguồn dữ liệu giải thích được, nghiệp vụ nhất quán và kết quả phân tích có thể đối soát.
 

@@ -31,7 +31,7 @@ def main() -> None:
     if flash := st.session_state.pop("flash", None):
         st.success(str(flash))
     st.title("Generator Console")
-    st.caption("Điều khiển generator 0.8 · job nền · SQL và access log")
+    st.caption(f"Điều khiển generator {GENERATOR_VERSION} · job nền · SQL và access log")
 
     if section == "Cấu hình":
         config.render(store)

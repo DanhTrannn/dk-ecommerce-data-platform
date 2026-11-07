@@ -4,6 +4,7 @@ from pathlib import Path
 
 from generator import __version__
 from generator.config import GeneratorConfig
+from generator.postgres_sql import SQL_FORMAT
 
 SUPPORTED_MODES = {
     "seed_master",
@@ -31,6 +32,7 @@ def run(config: GeneratorConfig, output_directory: Path) -> Path:
         "modes": list(config.modes),
         "scale": config.scale,
         "generator_version": __version__,
+        "sql_format": SQL_FORMAT,
         "data_origin": "synthetic",
         "generated_at": datetime.now(UTC).isoformat(),
         "implementation_status": "sql_export_available",

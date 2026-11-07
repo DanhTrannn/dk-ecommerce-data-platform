@@ -7,6 +7,7 @@ from generator import __version__
 from generator.config import load_config
 from generator.log_export import export_logs
 from generator.reference_profile import write_reference_profile
+from generator.postgres_sql import SQL_FORMAT
 from generator.runner import run
 from generator.sql_export import export_sql
 
@@ -33,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--output", type=Path, default=Path("/data/generator"))
     run_parser.add_argument("--json", action="store_true", help="Print a machine-readable summary")
 
-    sql_parser = subparsers.add_parser("export-sql", help="Generate an importable MySQL dataset")
+    sql_parser = subparsers.add_parser("export-sql", help="Generate an importable PostgreSQL dataset")
     sql_parser.add_argument("--config", type=Path, required=True)
     sql_parser.add_argument("--output", type=Path)
     sql_parser.add_argument("--json", action="store_true", help="Print a machine-readable summary")
@@ -80,6 +81,7 @@ def main() -> None:
                 "generation_run_id": config.generation_run_id,
                 "logical_identity": config.logical_identity,
                 "generator_version": __version__,
+                "sql_format": SQL_FORMAT,
                 "scenario_id": config.scenario_id,
                 "scale": config.scale,
                 "modes": list(config.modes),
@@ -123,6 +125,8 @@ def main() -> None:
         arguments.json,
         {
             "sql_path": str(summary.sql_path),
+            "sql_format": SQL_FORMAT,
+            "generator_version": __version__,
             "generation_run_id": summary.generation_run_id,
             "logical_identity": config.logical_identity,
             "customers": summary.customers,
