@@ -1,6 +1,6 @@
 # OLTP & Access Log Data Generator
 
-The Data Generator (`data-generator` package, v0.9.0) creates deterministic synthetic datasets with configured Vietnamese retail seasonality and purchase patterns. It exports relational SQL inserts for PostgreSQL 16 OLTP and synthetic HTTP access logs using the runtime log contract. These are modeled distributions, not calibration results from a measured customer dataset.
+The Data Generator (`data-generator` package, v0.10.0) creates deterministic synthetic datasets with configured Vietnamese retail seasonality and purchase patterns. It exports relational SQL inserts for PostgreSQL 16 OLTP and synthetic HTTP access logs using the runtime log contract. These are modeled distributions, not calibration results from a measured customer dataset.
 
 ---
 
@@ -43,12 +43,29 @@ Imports are serialized and take write-blocking locks on generated tables. Run bu
 
 Streamlit creates artifacts only; run this command explicitly to load a selected SQL artifact. SQL format is `postgresql-v1`, also recorded in CLI JSON and manifests. Regenerate legacy MySQL SQL; it cannot be loaded into PostgreSQL. Historical SQL/logs from 0.8 have different dataset identities.
 
+### Cities and stores
+
+Locations now belong to the generator. Default SQL includes the same five cities and six sample retail stores previously maintained by the location seed. To select a subset in a YAML configuration:
+
+```yaml
+locations:
+  store_codes:
+    - HCM-CENTRE
+    - HN-CENTRE
+```
+
+Available codes: `HCM-CENTRE`, `HCM-NORTHEAST`, `HN-CENTRE`, `DN-CENTRE`, `CT-CENTRE`, `HP-CENTRE`. Only cities used by the selected stores are included. Omit `locations` to select all six stores, or use `locations: {store_codes: []}` to generate none. Codes are case-insensitive and normalized; unknown/duplicate codes are rejected. Streamlit exposes the same selection as **Cửa hàng tham chiếu**.
+
+SQL ensures cities before stores and resolves shared references by code. Later datasets reuse existing locations without changing IDs, names, addresses, active flags or timestamps. A store code already linked to another city aborts the transaction. New rows use the historical master-data timestamp. Location IDs depend on the target database; the SQL artifact and code selection remain deterministic. The generator takes table locks, allocates explicit IDs and restarts identity sequences transactionally; existing database records are not reset.
+
+SQL metadata, manifest, CLI summary and import receipt report selected city/store counts, including reused records, not the number newly inserted. Selection participates in dataset identity, so SQL and matching access logs must be exported with the same version/configuration. Location selection does not assign orders/customers to cities or generate POS sales, store inventory, staff assignments or receipts. Those workflows remain separate. `make seed` continues to initialize application catalog/admin data; it no longer creates locations.
+
 ### Synthetic Customer Accounts
 Generated active accounts use `customer.<index>.<logical-prefix>@web.local` and the synthetic-data password `Synthetic@12345`. The traffic generator uses the same mapping. No featured customer receives a reserved order quota or a special timeline; order allocation follows the configured customer classes.
 
 These are development data-source accounts. SQL and access logs are generated data, not measurements of real customer activity.
 
-Version 0.9 changes the logical identity for the PostgreSQL artifact contract; the retail sampling assumptions from 0.8 are retained. Export SQL and access logs with the same version/configuration. Existing databases and exported artifacts are not migrated or repaired automatically.
+Version 0.10 adds location selection to dataset identity and SQL artifacts; the retail sampling assumptions from 0.8 are retained. PostgreSQL SQL format remains postgresql-v1; the importer also accepts older 0.9 artifacts, which do not supply locations. Export SQL and access logs with the same version/configuration. Existing databases and exported artifacts are not migrated or repaired automatically.
 
 ### Business consistency in 0.8
 

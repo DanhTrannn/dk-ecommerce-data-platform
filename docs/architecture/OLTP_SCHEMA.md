@@ -6,7 +6,7 @@ Cập nhật **07/11/2026** cho schema và bước nạp PostgreSQL. [schema.sql
 
 PostgreSQL có **28 bảng, 316 cột và 51 FK**. DDL hiện gồm 26 identity, 110 index tường minh (48 unique), một unique constraint bổ sung và 187 CHECK kể cả miền unsigned cũ. Có 24 trigger updated_at. Các số này là định nghĩa cấu trúc, không phải số bản ghi đã nạp.
 
-Compose tạo database/user, không tự tạo bảng hoặc seed. Dùng bootstrap và kiểm tra tái lập theo [database guide](../../database/README.md). Schema/ORM đã được kiểm tra trên PostgreSQL 16.8 biệt lập; generator 0.9, seed và importer đã được kiểm tra nạp trên PostgreSQL biệt lập; các API nghiệp vụ/pipeline còn chờ chuyển đổi/kiểm chứng, không kết luận toàn hệ thống đã hoạt động.
+Compose tạo database/user, không tự tạo bảng hoặc seed. Dùng bootstrap và kiểm tra tái lập theo [database guide](../../database/README.md). Schema/ORM đã được kiểm tra trên PostgreSQL 16.8 biệt lập; generator 0.10 (gồm địa điểm), seed catalog/admin và importer đã được kiểm tra nạp trên PostgreSQL biệt lập; các API nghiệp vụ/pipeline còn chờ chuyển đổi/kiểm chứng, không kết luận toàn hệ thống đã hoạt động.
 
 DDL mới cưỡng chế `orders.staff_id → customers.customer_id` và chứa `refunds.updated_at` theo ORM, bổ sung hai chỗ lệch ở DDL MySQL cũ. [ERD MySQL cũ](../diagram/13-erd-mysql-physical.drawio) chưa cập nhật kiểu/constraint PostgreSQL; dùng tài liệu và SQL hiện tại khi đối chiếu vật lý.
 

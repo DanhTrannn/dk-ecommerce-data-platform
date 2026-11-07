@@ -21,7 +21,7 @@
 
 </div>
 
-> **PostgreSQL transition:** Compose uses one PostgreSQL service with separate `ecommerce`, `airflow` and `polaris` databases. FastAPI and Streamlit share platform-app. The 28-table source schema and ORM now target PostgreSQL and have been checked in isolation. Generator 0.9 SQL, seeds and transactional import also pass isolated PostgreSQL checks. Business API verification, JDBC/source handling and CDC consumer conversion remain pending. Existing data is not migrated; service health checks do not verify business pipelines.
+> **PostgreSQL transition:** Compose uses one PostgreSQL service with separate `ecommerce`, `airflow` and `polaris` databases. FastAPI and Streamlit share platform-app. The 28-table source schema and ORM now target PostgreSQL and have been checked in isolation. Generator 0.10 SQL, seeds and transactional import also pass isolated PostgreSQL checks. Business API verification, JDBC/source handling and CDC consumer conversion remain pending. Existing data is not migrated; service health checks do not verify business pipelines.
 
 **Current infrastructure-only scope:** Compose excludes standalone API/frontend services. FastAPI and the Streamlit Generator Console run together in the platform-app Python slim image. The `core` profile starts PostgreSQL, MinIO, Polaris, Airflow, Trino and platform-app. Airflow has service startup configuration and the Python path required to parse mounted DAGs; source credentials, Spark connections, pipeline configuration and PII salt must be supplied later before running business DAGs. Existing application/startup instructions below describe the broader project and are outside this temporary scope.
 
@@ -29,7 +29,7 @@ Application code is grouped under `services/`: `services/platform-app` owns the 
 
 `platform-app` builds from `services/platform-app/Dockerfile` and uses the `PLATFORM_APP_*` host port/user settings. The Python distribution and UI command are named `platform-app`. Make starts services only; it no longer initializes Gold tables. CDC registration and Flink submission jobs belong to streaming with `scale: 0`; run them manually with Compose run.
 
-The shared container exposes Streamlit on `PLATFORM_APP_PORT` (8501) and FastAPI on `API_PORT` (8000). Both use `PLATFORM_APP_BIND_ADDRESS`. Its healthcheck verifies both HTTP processes; PostgreSQL connectivity is checked separately at `/health/ready`. No source schema or seed is applied automatically. The [database guide](database/README.md) describes the PostgreSQL bootstrap and ORM checks; generator 0.9 exports PostgreSQL SQL, loaded explicitly with `python -m platform_app.api.db.import_dataset <sql_file>` in the platform-app environment. Both processes shut down when either exits.
+The shared container exposes Streamlit on `PLATFORM_APP_PORT` (8501) and FastAPI on `API_PORT` (8000). Both use `PLATFORM_APP_BIND_ADDRESS`. Its healthcheck verifies both HTTP processes; PostgreSQL connectivity is checked separately at `/health/ready`. No source schema or seed is applied automatically. The [database guide](database/README.md) describes the PostgreSQL bootstrap and ORM checks; generator 0.10 exports PostgreSQL SQL, loaded explicitly with `python -m platform_app.api.db.import_dataset <sql_file>` in the platform-app environment. Both processes shut down when either exits.
 
 MinIO runs only its storage server image; there is no separate Python init image/container. FastAPI and Streamlit run in `platform-app`; future bootstrap tools will use the same container. MinIO policies remain as reference files; bootstrap will be redesigned separately. Airflow and PyFlink retain their engine runtimes.
 
@@ -57,7 +57,7 @@ Published reports for all seven analytics roles, admin overview, store overview,
 - **Open Lakehouse Storage:** MinIO object storage, Iceberg tables/snapshots, Polaris catalog, and scheduled maintenance.
 - **Role-Based Analytics:** Seven dashboard views with API-level role and store filtering, Trino/Iceberg publications, bounded last-good OLAP cache, and API-level role/store filtering.
 - **Access-Log Analytics:** Request volume, duration percentiles, error rates, product interactions, and event-based marketing funnels.
-- **Synthetic Data Generation:** Version 0.9 generates deterministic PostgreSQL SQL history with corrected payment/return/stock consistency and synthetic-labelled historical access logs from YAML configurations; live API traffic can feed the Kafka stream. The reference-profiling CLI records measured UCI distributions and audit counts; applying them to generation remains pending.
+- **Synthetic Data Generation:** Version 0.10 generates deterministic PostgreSQL SQL history with corrected payment/return/stock consistency and synthetic-labelled historical access logs from YAML configurations; live API traffic can feed the Kafka stream. The reference-profiling CLI records measured UCI distributions and audit counts; applying them to generation remains pending.
 - **Operational Source Application:** Storefront, cart/checkout, POS, store inventory, in-house delivery, COD failure tracking, returns/refunds, and product reviews.
 - **Inventory Costing:** Inbound receipts, Moving Weighted Average costs, and order-item cost snapshots for analytical COGS calculations.
 
@@ -230,7 +230,7 @@ uv run --locked --package data-generator -- generator export-sql \
   --output data/generator/small.sql
 uv run --locked --package platform-app -- \
   python -m platform_app.api.db.import_dataset data/generator/small.sql
-make seed
+make seed  # application catalog/admin; locations are included in generator SQL
 
 # 2. Export local historical log files
 uv run --locked --package data-generator -- generator export-logs \

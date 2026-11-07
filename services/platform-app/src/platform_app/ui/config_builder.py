@@ -27,6 +27,7 @@ class FormValues:
     output_mode: str
     expected_requests: int
     distributions_yaml: str
+    store_codes: tuple[str, ...] | None = None
 
 
 def list_presets(configs_directory: Path | None = None) -> list[Path]:
@@ -53,6 +54,8 @@ def build_config_document(preset: dict[str, Any], values: FormValues) -> dict[st
         "variants": int(values.variants),
         "orders": int(values.orders),
     }
+    if values.store_codes is not None:
+        document["locations"] = {"store_codes": list(values.store_codes)}
     if values.distributions_yaml.strip():
         distributions = yaml.safe_load(values.distributions_yaml)
         if not isinstance(distributions, dict):

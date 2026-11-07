@@ -25,6 +25,7 @@ from generator.config import (
     TetWindow,
 )
 from generator.validation import COLORS, SIZES, validate_scale
+from generator.locations import locations_sql
 from generator.postgres_sql import SQL_FORMAT, lock_sql, verification_sql, restart_identities_sql
 
 SYNTHETIC_CUSTOMER_PASSWORD = "Synthetic@12345"
@@ -319,6 +320,8 @@ class DatasetSummary:
     products: int
     variants: int
     orders: int
+    cities: int = 0
+    stores: int = 0
 
 
 def _sql_literal(value: SqlValue) -> str:
@@ -751,7 +754,11 @@ def _write_header(stream: TextIO, config: GeneratorConfig, generation_run_id: st
         "generator_version": __version__,
         "logical_identity": config.logical_identity,
         "generation_run_id": generation_run_id,
-        "counts": {key: config.scale[key] for key in ("customers", "products", "variants", "orders")},
+        "counts": {
+            **{key: config.scale[key] for key in ("customers", "products", "variants", "orders")},
+            **config.locations.counts,
+        },
+        "locations": {"store_codes": list(config.locations.store_codes)},
     }
     stream.write(
         "-- TLCN deterministic PostgreSQL dataset\n"
@@ -1067,6 +1074,7 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
     temporary_path = output_path.with_suffix(output_path.suffix + ".tmp")
     with temporary_path.open("w", encoding="utf-8", newline="\n") as stream:
         _write_header(stream, config, generation_run_id)
+        stream.write(locations_sql(config.locations, master_created_at, _sql_literal))
         _write_batched(
             stream,
             "customers",
@@ -2246,4 +2254,5 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
         products=product_count,
         variants=variant_count,
         orders=order_count,
+        **config.locations.counts,
     )

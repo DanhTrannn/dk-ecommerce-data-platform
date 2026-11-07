@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from generator.locations import parse_locations
 from psycopg2 import Error as DriverError
 from sqlalchemy import CheckConstraint, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -91,6 +92,19 @@ def import_dataset(engine: Engine, path: Path) -> dict[str, Any]:
             )
             if totals["orders"] != metadata["counts"]["orders"] or customers != metadata["counts"]["customers"]:
                 raise ValueError("Imported dataset does not match its expected counts")
+            location_counts = {}
+            if "locations" in metadata:
+                locations = parse_locations(metadata["locations"])
+                for store in locations.stores:
+                    matches = connection.scalar(
+                        text("""SELECT COUNT(*) FROM public.stores s
+                        JOIN public.cities c ON c.city_id=s.city_id
+                        WHERE lower(s.code)=lower(:store) AND lower(c.code)=lower(:city)"""),
+                        {"store": store["code"], "city": store["city_code"]},
+                    )
+                    if matches != 1:
+                        raise ValueError("Imported store/city references do not match configuration")
+                location_counts = locations.counts
     return {
         "sql_sha256": checksum,
         "expected_schema_sha256": schema_checksum,
@@ -101,6 +115,7 @@ def import_dataset(engine: Engine, path: Path) -> dict[str, Any]:
         "customers": customers,
         "orders": totals["orders"],
         "placed_order_value_vnd": int(totals["placed_order_value_vnd"]),
+        **location_counts,
     }
 
 
