@@ -23,6 +23,8 @@ def sha256_file(path: Path) -> str:
 def artifact_files(job_dir: Path) -> list[Path]:
     result = []
     for path in sorted(job_dir.rglob("*")):
+        if path.relative_to(job_dir).parts[0] == "imports":
+            continue
         if not path.is_file() or path.is_symlink():
             continue
         if path.name in EXCLUDED_NAMES or path.name.endswith(".tmp"):

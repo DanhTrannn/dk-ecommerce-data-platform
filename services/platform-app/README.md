@@ -6,7 +6,7 @@ Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và 
 
 `API_DATABASE_URL` bắt buộc khi chạy API, dùng `postgresql+psycopg2`. Không còn fallback URL/mật khẩu MySQL trong code. Session dùng UTC và schema public; `/health/ready` hiện chỉ kiểm tra kết nối, chưa kiểm tra schema nghiệp vụ.
 
-Streamlit console điều khiển generator 0.10: chọn preset, chỉnh cấu hình, tạo job sinh SQL/access log chạy nền, theo dõi theo công đoạn và tải kết quả. Console chỉ đọc/ghi file; không import database, không chạy traffic, không upload log, không kích hoạt Airflow và không thay đổi sampler 2c.
+Streamlit console điều khiển generator 0.10: chọn preset, chỉnh cấu hình, tạo job sinh SQL/access log chạy nền, theo dõi theo công đoạn và tải kết quả. Console sinh file và cho nạp SQL của job vào PostgreSQL bằng thao tác riêng tại Kết quả & lịch sử. Không tự nạp khi sinh file, chưa chạy traffic, upload log hoặc kích hoạt Airflow; sampler 2c giữ nguyên.
 
 Thiết kế và quyết định kỹ thuật: [docs/project/GENERATOR_CONSOLE.md](../../docs/project/GENERATOR_CONSOLE.md).
 
@@ -75,6 +75,21 @@ Job status: `queued`, `running`, `succeeded`, `partial`, `failed`, `interrupted`
 
 Công đoạn: `validate` (ghi manifest), `sql`, `logs`. SQL và log chạy độc lập sau khi validate thành công.
 
+## Nạp SQL vào PostgreSQL
+
+1. Bootstrap schema nguồn trống theo [database guide](../../database/README.md), cấu hình `API_DATABASE_URL` và `API_SECRET_KEY` như `.env.example`. Container dùng URL nội bộ đã inject; chạy host dùng URL host.
+2. Sinh job có đầu ra SQL hoặc cả hai, chờ job hoàn tất. Job partial vẫn nạp được nếu bước SQL thành công.
+3. Mở **Kết quả & lịch sử**, chọn job, xem đích database và bấm **Nạp vào PostgreSQL**.
+4. Worker kiểm tra đường dẫn/checksum/dataset identity trên bản sao SQL riêng rồi gọi importer có sẵn. Xem số khách, số đơn, giá trị đơn đã đặt (VND), checksum và receipt sau commit.
+
+Một import chạy tại một thời điểm trên thư mục console dùng chung; generation có thể chạy độc lập. Lần nạp có lịch sử riêng `imports/<attempt_id>.json`, không đổi generation state, manifest hoặc checksum sinh file. Refresh/đổi tab không tạo tác vụ nạp; đóng tab không dừng worker. Lịch sử nạp tự cập nhật mỗi 2 giây trên màn hình kết quả.
+
+Trạng thái: `queued`, `running`, `succeeded`, `failed`, `already_present`, `unknown`. `failed` có thể thử lại bằng nút nạp sau khi sửa nguyên nhân. Dataset đã nạp thành công hoặc đã có được chặn; đổi mật khẩu/user cùng database không xóa nhận diện đích. `already_present` nghĩa là database đã có generation run, không phải lần này đã ghi thành công hoặc đã đối soát lại toàn bộ dữ liệu.
+
+Nếu worker mất, kết nối lỗi lúc commit hoặc không lưu được receipt sau commit, trạng thái `unknown` chặn nạp lại cùng dataset/đích để người vận hành xác minh. Chưa có nút tự giải quyết trạng thái này. Lỗi kết nối trước commit cho phép thử lại; không tự retry tác vụ ghi. Thông báo không lưu SQL, credential hoặc chi tiết lỗi driver. Receipt thành công là kết quả lúc nạp, không phải đếm database realtime.
+
+Chỉ nhận SQL trong artifact của job, không có upload SQL hoặc nhập URL database tùy ý. Bản sao tạm cần dung lượng xấp xỉ file SQL và được dọn khi worker kết thúc bình thường. Không tự tạo/sửa schema, seed, xóa dữ liệu hoặc chạy DAG. Import cần quyền bảng/sequence và chặn writer theo hợp đồng importer. CLI nạp độc lập vẫn dùng được; nếu CLI đã nạp dataset, console ghi `already_present`.
+
 ## Thư mục job
 
 ```text
@@ -82,6 +97,7 @@ data/generator/jobs/
 ├── .lock
 ├── .active.json
 └── <job_id>/
+    ├── imports/<attempt_id>.json  # lịch sử nạp riêng, không nằm trong checksum generation
     ├── config.yml
     ├── request.json
     ├── state.json
@@ -127,10 +143,10 @@ uv run --locked --package platform-app -- \
 uvx ruff check .
 ```
 
-CLI nạp SQL PostgreSQL chạy riêng: `uv run --locked --package platform-app -- python -m platform_app.api.db.import_dataset <sql_file>`. Xem [hướng dẫn bootstrap và nạp](../../database/README.md); chưa có nút import trên console.
+CLI nạp SQL PostgreSQL vẫn có thể chạy riêng: `uv run --locked --package platform-app -- python -m platform_app.api.db.import_dataset <sql_file>`. Xem [hướng dẫn bootstrap và nạp](../../database/README.md); console dùng lại cùng importer.
 
 ## Giới hạn
 
-- Không nạp SQL vào database, không chạy traffic, không upload log, không trigger Airflow/Superset.
-- Không hỗ trợ nhiều job song song hoặc queue phân tán (không Celery/Redis).
+- Chỉ nạp PostgreSQL bằng thao tác riêng cho job SQL đã hoàn tất; chưa mô phỏng API, upload log hoặc trigger Airflow/Superset.
+- Mỗi thư mục console có tối đa một job sinh file và một tác vụ nạp đồng thời; không có queue phân tán (không Celery/Redis).
 - Không áp profile UCI vào sampler trong phiên bản này; profile chỉ để xem tham chiếu.

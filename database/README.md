@@ -55,6 +55,8 @@ Các cột identity thuộc 25 bảng được generator sử dụng được kh
 
 Schema hiện bỏ hai CHECK tồn hiện tại không vượt tồn đầu: `opening_on_hand` là mốc cố định, nhập/nhận/trả hàng đi qua ledger. Database đã có schema cũ cần được cập nhật và đối soát riêng; bootstrap không tự nâng cấp hay sửa dữ liệu.
 
+Console cũng có thể nạp artifact của job: mở **Kết quả & lịch sử → Nạp vào PostgreSQL** sau khi sinh SQL thành công và job hoàn tất. Worker kiểm tra bản sao SQL theo checksum/dataset identity rồi gọi chính importer này; lưu receipt/lịch sử riêng, không ghi credential. Xem [hướng dẫn console](../services/platform-app/README.md#nạp-sql-vào-postgresql). Không tự tạo schema/seed hoặc tự nạp khi sinh file; trạng thái kết quả chưa xác định chặn tự nạp lại cùng dataset/đích.
+
 ## Hợp đồng dữ liệu
 
 - UUID native, nhận `uuid.UUID` hoặc chuỗi UUID qua ORM; không lưu binary 16 byte.

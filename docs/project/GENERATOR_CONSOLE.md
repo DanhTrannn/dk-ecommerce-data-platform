@@ -1,10 +1,10 @@
 # Generator Console — thiết kế đợt 3
 
-Cập nhật **05/11/2026**. Tài liệu này chốt cách triển khai Streamlit Generator Console trên generator 0.8 hiện tại. Phạm vi và lý do chuyển đổi nằm trong [refactor_v2](refactor_v2.md); profile tham chiếu nằm trong [GENERATOR_REFERENCE_PROFILE](GENERATOR_REFERENCE_PROFILE.md).
+Cập nhật **07/11/2026**. Streamlit Generator Console dùng generator 0.10 và có bước nạp SQL PostgreSQL riêng; phần thiết kế sinh file ban đầu được giữ bên dưới. Phạm vi và lý do chuyển đổi nằm trong [refactor_v2](refactor_v2.md); profile tham chiếu nằm trong [GENERATOR_REFERENCE_PROFILE](GENERATOR_REFERENCE_PROFILE.md).
 
 ## 1. Mục tiêu
 
-Cho người dùng chọn preset, chỉnh các tham số thường dùng, kiểm tra cấu hình, tạo job sinh dữ liệu chạy nền, theo dõi job và tải kết quả SQL/access log. Console chỉ điều khiển generator; không nạp MySQL, không chạy traffic, không upload log, không kích hoạt Airflow và không thay đổi sampler 2c.
+Cho người dùng chọn preset, chỉnh các tham số thường dùng, kiểm tra cấu hình, tạo job sinh dữ liệu chạy nền, theo dõi job và tải kết quả SQL/access log. Console điều khiển generator và nạp SQL của job đã hoàn tất vào PostgreSQL bằng importer hiện có. Không tự nạp khi sinh file, không chạy traffic, upload log hoặc kích hoạt Airflow; sampler 2c giữ nguyên.
 
 ## 2. Ranh giới
 
@@ -12,7 +12,7 @@ Cho người dùng chọn preset, chỉnh các tham số thường dùng, kiểm
 
 - Preset `generator/configs/*.yml`, chỉnh tham số thường dùng và sửa YAML phân phối nâng cao.
 - Validate bằng đúng logic generator: thời gian có timezone, scale, quan hệ products/variants, phân phối/trọng số/tỷ lệ.
-- Xuất SQL, access log hoặc cả hai.
+- Xuất SQL, access log hoặc cả hai; nạp SQL PostgreSQL bằng tác vụ riêng tại kết quả job.
 - Một job nền tại một thời điểm trên một console; Job ID riêng cho từng lần chạy.
 - Lưu trạng thái, log, cấu hình đóng băng và artifact dưới `data/generator/jobs/<job_id>/`.
 - Theo dõi theo công đoạn; không hiển thị phần trăm giả.
@@ -21,9 +21,9 @@ Cho người dùng chọn preset, chỉnh các tham số thường dùng, kiểm
 
 **Không có trong đợt này**
 
-- Import SQL vào MySQL, chạy traffic API, upload log, kích hoạt Airflow, Superset.
+- Import MySQL, upload SQL tùy ý, chạy traffic API, upload log, kích hoạt Airflow hoặc Superset.
 - Áp profile/reference vào sampler hoặc hiệu chỉnh sampler 2c.
-- Celery/Redis/hàng đợi phân tán; nhiều job song song.
+- Celery/Redis/hàng đợi phân tán; nhiều job sinh file song song.
 - Xóa `FINAL_REPORT.md` hoặc thay Next.js.
 
 ## 3. Cách tiếp cận
@@ -75,11 +75,14 @@ services/platform-app/
 │   ├── config_builder.py   # preset -> cấu hình cuối, validate
 │   ├── job_store.py        # thư mục job, state, lock, reconcile
 │   ├── worker.py           # process nền, gọi CLI, cập nhật state
+│   ├── import_store.py     # journal, khóa và chống nạp trùng
+│   ├── import_worker.py    # kiểm tra snapshot SQL và gọi importer
 │   ├── artifacts.py        # file, size, sha256, checksum, log archive
 │   ├── reference_profile.py# đọc profile UCI
 │   └── views/
 │       ├── config.py
 │       ├── jobs.py
+│       ├── imports.py
 │       └── profile.py
 └── tests/
 ```
@@ -97,6 +100,7 @@ data/generator/jobs/
     ├── request.json         # preset, output mode, expected_requests
     ├── state.json           # nguồn sự thật cho UI
     ├── checksums.sha256
+    ├── imports/<attempt_id>.json # journal nạp, không thuộc checksum generation
     ├── <scenario>-<identity>.manifest.json
     ├── logs/
     │   ├── worker.log
@@ -130,3 +134,13 @@ data/generator/jobs/
 - Unit test console: build cấu hình, từ chối cấu hình sai, job store/lock/reconcile, artifact/checksum, worker với command runner giả.
 - Kiểm chứng tay: chạy preset small qua console, so sánh SQL với CLI cùng cấu hình; chạy cấu hình chỉ SQL, chỉ log, cả hai; kiểm tra refresh/restart và job gián đoạn.
 - `ruff`, test generator, test console, Compose config; Next.js và `FINAL_REPORT.md` không bị sửa.
+
+## 8. Quyết định mở rộng: nạp SQL PostgreSQL từ console
+
+Nạp là tác vụ nền độc lập với sinh file, không thêm stage tự chạy vào pipeline generation. Chỉ job terminal succeeded/partial với SQL succeeded và artifact hợp lệ được chọn; kiểm tra checksum trên bản sao riêng và identity trước khi gọi `platform_app.api.db.import_dataset.import_dataset`. Giữ nguyên transaction, schema gate, đối soát và identity restart của importer; không tạo một cơ chế nạp SQL thứ hai.
+
+`ui/import_store.py` quản lý khóa, chống khởi chạy trùng, nhận diện đích không chứa password và journal `job/imports/<attempt_id>.json`. `ui/import_worker.py` thực thi nạp ngoài tiến trình Streamlit; `ui/views/imports.py` hiển thị nút và receipt trong kết quả job. Dùng hai flock riêng: khóa ngắn cho journal và khóa execution cho toàn tác vụ; tối đa một import trên một thư mục jobs. Import không sửa generation state hoặc checksum, và artifact collector bỏ qua thư mục imports.
+
+Trạng thái bền vững: queued/running/succeeded/failed/already_present/unknown. Thành công chỉ ghi sau khi importer trả về từ commit. Lỗi driver được rút gọn, không ghi raw SQL/credential. Nếu commit chưa rõ kết quả hoặc worker mất, không giả định rollback: ghi unknown và chặn tự nạp lại cùng dataset/đích. Database đã có generation run được ghi already_present, không nhận là một lần import mới thành công. Thay đổi đích sau khi queue được phát hiện trước khi ghi. Trạng thái failed có thể thử lại bằng thao tác rõ ràng; không auto retry.
+
+Đích lấy từ API_DATABASE_URL hiện có, không nhận connection string qua form và không lưu credential vào state/command. Mật khẩu/user thay đổi không làm mất nhận diện cùng host/port/database; alias host vẫn có thể khác, nên chống trùng trong PostgreSQL của importer là lớp quyết định cuối. Không tự sửa schema/seed, xóa volume, chạy pipeline hoặc thay API nghiệp vụ. Xem [hướng dẫn sử dụng và giới hạn](../../services/platform-app/README.md#nạp-sql-vào-postgresql).

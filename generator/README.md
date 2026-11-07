@@ -41,7 +41,7 @@ The importer accepts **trusted SQL emitted by this generator**, not arbitrary up
 
 Imports are serialized and take write-blocking locks on generated tables. Run bulk imports before concurrent application writers; the DB role must own the affected tables/sequences. Seeds may run before or after import, each in its own transaction. Rerunning a seed repairs missing reference rows without resetting existing credentials or inventory. Rerunning an import is rejected rather than merged. Existing ID/key collisions also fail; there is no destructive reset or data migration.
 
-Streamlit creates artifacts only; run this command explicitly to load a selected SQL artifact. SQL format is `postgresql-v1`, also recorded in CLI JSON and manifests. Regenerate legacy MySQL SQL; it cannot be loaded into PostgreSQL. Historical SQL/logs from 0.8 have different dataset identities.
+Streamlit can explicitly load a completed SQL job from **Kết quả & lịch sử → Nạp vào PostgreSQL**, using this same importer with artifact checksum/identity verification and a separate import journal. Generating a job never imports it automatically. The command above remains available for trusted artifacts outside the console. SQL format is `postgresql-v1`, also recorded in CLI JSON and manifests. Regenerate legacy MySQL SQL; it cannot be loaded into PostgreSQL. Historical SQL/logs from 0.8 have different dataset identities.
 
 ### Cities and stores
 

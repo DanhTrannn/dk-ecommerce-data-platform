@@ -154,6 +154,9 @@ def _result_panel(store: JobStore, job: JobRecord) -> None:
                 st.caption(str(stage_state["message"]))
             if stage_state.get("summary"):
                 st.json(stage_state["summary"])
+    from platform_app.ui.views.imports import render as render_import
+
+    render_import(store, job.job_id)
     _render_frozen_config(job)
     _render_manifest(job)
     _render_artifacts(job)

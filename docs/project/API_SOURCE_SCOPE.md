@@ -21,7 +21,7 @@ Giữ toàn bộ 41 khai báo route ghi POST/PUT/PATCH/DELETE có trong bản tr
 - Generator SQL tạo dữ liệu nền và lịch sử số lượng lớn.
 - FastAPI thực hiện giao dịch và thay đổi trạng thái qua logic nghiệp vụ: add-to-cart, checkout, POS, nhập hàng, giao/hủy đơn, return/refund, review và thay đổi dữ liệu tham chiếu.
 
-Streamlit hiện chạy generator SQL/access log; chưa có runner gọi API để mô phỏng nghiệp vụ. Bộ kiểm tra đã gọi các luồng này qua HTTP trên database biệt lập, không đồng nghĩa runner mô phỏng đã triển khai. Bỏ storefront không làm mất API nghiệp vụ hoặc các GET sản phẩm/giỏ/đơn phía khách.
+Streamlit hiện chạy generator SQL/access log và có thao tác nạp SQL job vào PostgreSQL; chưa có runner gọi API để mô phỏng nghiệp vụ. Bộ kiểm tra đã gọi các luồng này qua HTTP trên database biệt lập, không đồng nghĩa runner mô phỏng đã triển khai. Bỏ storefront không làm mất API nghiệp vụ hoặc các GET sản phẩm/giỏ/đơn phía khách.
 
 ## Lookup còn giữ và ID dùng cho bước ghi
 

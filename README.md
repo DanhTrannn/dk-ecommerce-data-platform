@@ -212,7 +212,7 @@ make build
 make up PROFILES=core
 ```
 
-Open `http://localhost:8501`, choose SQL, access log or both, then monitor the per-stage results and download outputs. The console does not import SQL, run traffic, upload logs or trigger Airflow. See [services/platform-app/README.md](services/platform-app/README.md) for job layout and recovery behavior.
+Open `http://localhost:8501`, choose SQL, access log or both, then monitor the per-stage results and download outputs. Completed SQL jobs can be loaded explicitly with **Nạp vào PostgreSQL** in **Kết quả & lịch sử**, with checksum validation, a background worker and durable attempt receipts. Generation never loads data automatically. The console does not run API traffic, upload logs or trigger Airflow. See [services/platform-app/README.md](services/platform-app/README.md) for job layout and recovery behavior.
 
 ### Real-Time Traffic Simulation
 
