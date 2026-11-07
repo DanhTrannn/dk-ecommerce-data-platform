@@ -26,6 +26,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY services/platform-app/src services/platform-app/src
 COPY database database
 COPY services/platform-app/start.sh /app/start.sh
+COPY infrastructure/polaris/rbac.yml /app/infrastructure/polaris/rbac.yml
 COPY generator/src generator/src
 COPY generator/configs generator/configs
 COPY generator/profiles generator/profiles

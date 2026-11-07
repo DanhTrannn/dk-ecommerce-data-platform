@@ -6,7 +6,7 @@ FastAPI and Streamlit now share the `platform-app` Python slim image. Start with
 >
 > No old data migration or runtime reset is performed in this change. Build alone does not empty Docker volumes: database init scripts run only on a fresh PostgreSQL volume. At that infrastructure-only stage the application and ingestion conversions were deferred; the PostgreSQL batch update below records subsequent work; do not treat the older MySQL application/ingestion instructions below as working against the new infrastructure. Source tables and their replica identity must be prepared before enabling CDC. Airflow 3.3.2 build/migration verification is still paused.
 
-> **PostgreSQL batch update — 07/11/2026:** schema/ORM, generator, importer and API purchase runner have already been converted. Batch extraction and manual source reconciliation now use PostgreSQL JDBC and a dedicated reader. Configure `POSTGRES_ECOMMERCE_READER_USER`/`POSTGRES_ECOMMERCE_READER_PASSWORD`, recreate PostgreSQL to receive the new script mount/environment, then run `make source-reader` after schema bootstrap. Configure a stable `SILVER_PSEUDONYMIZE_SALT` and existing MinIO/Polaris prerequisites, then rebuild/recreate Spark/Airflow. See the [pipeline guide](../../pipelines/README.md#postgresql-batch-source--07112026). Older MySQL operational commands below are historical and do not configure this reader. MinIO/Polaris provisioning and PostgreSQL CDC remain pending; service startup does not initialize them.
+> **PostgreSQL batch update — 07/11/2026:** schema/ORM, generator, importer and API purchase runner have already been converted. Batch extraction and manual source reconciliation now use PostgreSQL JDBC and a dedicated reader. Configure `POSTGRES_ECOMMERCE_READER_USER`/`POSTGRES_ECOMMERCE_READER_PASSWORD`, recreate PostgreSQL to receive the new script mount/environment, then run `make source-reader` after schema bootstrap. Configure a stable `SILVER_PSEUDONYMIZE_SALT` and existing MinIO/Polaris prerequisites, then rebuild/recreate Spark/Airflow. See the [pipeline guide](../../pipelines/README.md#postgresql-batch-source--07112026). Older MySQL operational commands below are historical and do not configure this reader. MinIO/Polaris provisioning is now explicit via `make provision-lakehouse`; PostgreSQL CDC and full-stack validation remain pending. Service startup does not provision accounts/catalogs.
 
 This runbook covers local startup dependencies, data operations, RBAC bootstrapping, catalog inspection, and troubleshooting. Run commands from the repository root. See the [root README](../../README.md#development-commands) for development commands and CI.
 
@@ -40,7 +40,7 @@ If exposing services beyond `localhost`, update the following variables to avoid
 
 Review browser-facing NEXT_PUBLIC_API_BASE_URL and API_CORS_ORIGINS together. NEXT_PUBLIC_* values are frontend build arguments; rebuild the image after changing them. Compose forwards only the listed API variables; adding API_COOKIE_SECURE or API_INTERNAL_SECRET to the root .env alone does not inject them into the API container.
 
-MinIO starts its server directly. Policy JSON files are retained for future bootstrap tools in `platform-app`; there is no separate MinIO Python init image or automatic user/policy provisioning in the current Compose configuration.
+MinIO starts its server directly. Policy JSON files are applied to missing MinIO policies/accounts by the explicit bundled-mc tool; there is no separate MinIO Python init image or automatic user/policy provisioning on startup.
 
 Validate interpolation without displaying rendered secrets:
 
@@ -105,14 +105,14 @@ On an empty MySQL volume, the official entrypoint creates the configured databas
 
 The current shared `platform-app` container starts FastAPI and Streamlit after PostgreSQL becomes healthy. It does not apply business schema or seeds. The MySQL initialization description above applies to the legacy source design, pending conversion.
 
-### Infrastructure startup and deferred bootstrap
+### Infrastructure startup and explicit provisioning
 
 `core` starts PostgreSQL, MinIO, Polaris, Airflow, Trino and platform-app. The other infrastructure profiles start service runtimes without submitting data jobs. `platform-app` builds from `services/platform-app/Dockerfile`; its Python package/CLI is named `platform-app`, and its host settings use `PLATFORM_APP_*`.
 
 1. On a fresh PostgreSQL volume, its entrypoint creates `ecommerce`, `airflow` and `polaris` databases and the Debezium replication account. Business tables remain pending.
 2. `polaris-bootstrap` is the native Java tool that creates the Polaris realm; `polaris` then waits for that tool and MinIO server readiness.
-3. Old MinIO/Polaris Python init services are removed. Bucket, IAM, catalog, namespaces and client credential provisioning will be redesigned in `platform-app`; no replacement bootstrap is implemented in this change.
-4. Existing data and credential volumes are retained. Starting compute/query consumers on new empty volumes still requires the deferred bootstrap. Airflow startup depends only on its PostgreSQL metadata database.
+3. Old MinIO/Polaris init images remain removed. `make provision-lakehouse` runs MinIO bundled-mc setup followed by the Polaris CLI in platform-app; the one-off service has scale 0 and runs only explicitly.
+4. Existing data and credential volumes are retained. Starting compute/query consumers on new empty volumes requires the explicit provisioning step below. Airflow startup depends only on its PostgreSQL metadata database.
 
 There are only three profiles: core, batch and streaming. CDC registration (`debezium-init`) and Flink submissions (`flink-submit`, `flink-cdc-submit`) belong to streaming with `scale: 0`, so normal startup creates no data jobs. After source/schema/bootstrap configuration is ready and core/streaming engines are running, invoke each manually:
 
@@ -126,7 +126,7 @@ Register CDC successfully before submitting the CDC job. Spark remains a local S
 
 ### MinIO initialization
 
-MinIO no longer builds or runs a dedicated Python init image. Keep policy templates in `infrastructure/minio/policies/`; future Python bootstrap and administration tools will run in `platform-app`. This change does not delete existing users, policies, buckets or data. Fresh account/policy provisioning and the historical upload helper that depended on `minio-init` are deferred until that tooling is redesigned.
+MinIO uses its already-bundled `mc` through `infrastructure/minio/provision.sh`, invoked by `make provision-minio`. Templates remain in `infrastructure/minio/policies/`. Only missing users/policies are created; existing credentials, grants, buckets and objects are retained. Historical log upload remains a separate unimplemented workflow.
 
 ### Service Dependencies and Profiles
 
@@ -141,7 +141,7 @@ Compose waits for health checks or successful completion of initialization jobs 
 | Streaming | Core PostgreSQL + Kafka → Debezium Connect; Kafka + core Polaris → Flink JobManager → TaskManager |
 | Streaming manual jobs | Connector registration and job submissions use scale 0; explicit Compose run only |
 
-Use `make up`, `make up PROFILES=core,batch`, `make up PROFILES=core,streaming` or `make up PROFILES=core,batch,streaming`. Include core when selecting batch or streaming because their dependencies belong to core. Existing credentials/metadata are retained; fresh bootstrap is still pending redesign.
+Use `make up`, `make up PROFILES=core,batch`, `make up PROFILES=core,streaming` or `make up PROFILES=core,batch,streaming`. Include core when selecting batch or streaming because their dependencies belong to core. Existing credentials/metadata are retained; fresh installations must run the explicit provisioning step before starting credential-dependent consumers.
 
 ### Trino query engine
 
@@ -217,17 +217,58 @@ CDC appends Bronze audit events only; batch owns Silver/Gold publication. No per
 
 ---
 
-## 6. Polaris bootstrap pending redesign
+## 6. Explicit MinIO and Polaris provisioning
 
-Server and native admin tool both use tag `1.8.0`. PostgreSQL's first-init script creates `polaris_schema` owned by the configured Polaris user before realm bootstrap, as required by [Polaris 1.8](https://polaris.apache.org/downloads/1.8.0/). This init change applies only to empty PostgreSQL volumes.
+Native `polaris-bootstrap` initializes only the realm in PostgreSQL; catalog/IAM provisioning is a separate, explicit operation. Keep existing root credentials on retained metadata volumes. This tooling does not migrate older Polaris metadata schemas or reset storage.
 
-For an existing 1.6 installation, preserve metadata, credentials and the existing schema. The current JDBC URL has no `currentSchema` override, so it retains the default schema. Polaris does not run automatic schema migrations: schema-v6 index improvements require a separate operator-reviewed upgrade; see the release notes above. Changing the image tag does not reset volumes, migrate metadata or verify runtime compatibility.
+### Startup order
 
-The old Python `polaris-init` service, image and entrypoint are removed. `infrastructure/polaris/rbac.yml` remains a reference template for the three service principals and four private consumer credential outputs. Provisioning will be implemented later in `platform-app`; this refactor does not recreate credentials, alter grants or implement YAML synchronization.
+Choose the existing `MINIO_*` workload credentials and `POLARIS_ROOT_CLIENT_*` settings in `.env` before first initialization. Workload keys must be distinct and must not reuse MinIO root credentials. Build the updated platform-app image and start storage/catalog first:
 
-Existing PostgreSQL metadata and private credential volumes remain on Docker. The four consumer credential volumes are still mounted into Spark, Airflow, Flink and Trino. Their clients require valid credential files; a fresh installation is not fully provisioned until the replacement bootstrap is implemented. The native Java `polaris-bootstrap` only initializes the realm, not the analytical catalog or IAM accounts.
+```bash
+docker compose --profile core build platform-app
+docker compose --profile core up -d --wait postgres minio polaris
+make provision-lakehouse
+make up PROFILES=core,batch
+```
 
----
+MinIO provisioning runs first; Polaris then uses its scoped storage account. The two independent steps can also be invoked as `make provision-minio` and `make provision-polaris`. Both expect their target services already running. Recreate MinIO after deploying the new script mount/environment. Compute/query startup alone does not initialize IAM or credentials. Business schema, source-reader grants, generator data and DAG execution remain separate operations.
+
+### Resources and ownership
+
+MinIO creates the configured bucket and four missing identities/policies: Polaris, Spark, Flink and Trino. Spark can access the configured Landing/warehouse/state prefixes; Flink and Polaris can access warehouse; Trino has read-only warehouse access. The uploader template is reserved and does not create an account. Existing users/policies are not overwritten or reconciled: the tool validates supplied credentials and warehouse list access but does not certify all existing IAM grants. Review existing permissions separately when adopting an old deployment.
+
+Polaris creates the internal catalog, Landing/Bronze/Silver/Gold/quarantine/system namespaces and three service principals using `infrastructure/polaris/rbac.yml`. Writer roles use the existing template's catalog-manage-content scope; reader grants remain read/list only. Clients use direct scoped MinIO credentials; this catalog disables credential vending/STS and KMS integration for the local S3-compatible setup.
+
+| Consumer | Credential volume | UID:GID |
+|---|---|---|
+| Spark client | `polaris-spark-client-credentials` | 185:185 |
+| Airflow Spark jobs | `polaris-spark-airflow-credentials` | `AIRFLOW_UID`:0 |
+| Flink | `polaris-flink-credentials` | 9999:9999 |
+| Trino | `polaris-trino-reader-credentials` | 1000:1000 |
+
+Each volume receives a private `clients.env` (0600) inside a private directory (0700), owned by that consumer. Spark client/Airflow share the same logical Spark principal but receive separate files/mounts. `polaris-provision-state` stores the root-only bootstrap plan and saved principal credentials; back it up securely with the consumer volumes and Polaris metadata. The normal API/UI does not mount these private administration volumes. The scale-zero `lakehouse-provision` service uses the existing platform-app image and runs as root solely for writing/chowning private output files; it does not start a server.
+
+### Rerun and recovery contract
+
+- Successful reruns retain existing MinIO passwords/policies and completed Polaris RBAC. YAML grants/bindings are first-initialization inputs; later Console/API edits, including revocations, are not reverted.
+- Polaris records its initialization plan before creating resources. Interrupted initialization resumes only its recorded new-role bindings/grants; template changes during a partial run are rejected. After completion, changing YAML is not an IAM synchronization mechanism.
+- New principal credentials are saved immediately to private state, then copied to each consumer output. A missing journal can be recovered from a matching valid consumer copy. A principal with no recoverable secret causes a controlled failure; there is no automatic rotate/reset. Restore a secure backup or perform an explicit manual rotation and update the matching private files.
+- Different existing catalog locations/configuration or mismatched consumer credentials fail rather than overwrite. Root secrets remain those stored by the native realm bootstrap; editing `.env` alone does not rotate any existing identity.
+- MinIO preserves existing account policy bindings. If initial account creation was interrupted before policy attachment, inspect/complete that account manually rather than deleting it or assuming rerun repairs IAM. Its per-container provisioning lock prevents simultaneous invocations; after a forced kill, inspect and remove a stale `/tmp/lakehouse-provision.lock` before retrying.
+- Operations are not one distributed transaction. A later failure retains resources already created, and logs omit credentials/raw server error bodies. No object, table, metadata database or retained volume is removed. Initializers are not service-health or full-pipeline checks.
+
+### Isolated verification
+
+```bash
+docker build -f services/platform-app/Dockerfile -t tlcn-provision-check:local .
+RUN_PROVISION_TESTS=1 uv run --locked --package platform-app -- \
+  python -m unittest discover -s services/platform-app/tests -p test_live.py -v
+uv run --locked --package platform-app -- \
+  python -m unittest discover -s services/platform-app/tests -p test_polaris.py -v
+```
+
+Integration requires cached PostgreSQL 16.8-alpine, MinIO, Polaris/server/admin-tool 1.8.0 and the test image. It uses an internal network, temporary data and random credentials, with no published ports/project volumes; resources are cleaned after normal success/failure. It verifies repeat setup, wrong-secret rejection without reset, S3 writer/read-only boundaries, real catalog table creation/read/denials, consumer ownership, recovery and preservation of manual grant revocation. It does not verify Spark/Flink job submission, Airflow DAG execution, Trino HTTP serving, CDC or Superset. Runtime API contracts follow the [Polaris 1.8 management specification](https://github.com/apache/polaris/blob/apache-polaris-1.8.0/spec/polaris-management-service.yml).
 
 ## 7. Troubleshooting
 
@@ -251,7 +292,7 @@ docker compose logs --tail=200 trino
 ### Common Issues
 
 - **CORS Errors in Polaris Console:** Ensure `POLARIS_CONSOLE_ORIGIN` matches the exact browser URL origin.
-- **Authentication Failures in Spark/Trino:** Until bootstrap is redesigned, provision valid credentials and check that your consumer mounts its own private credential volume (`polaris-spark-client-credentials`, `polaris-spark-airflow-credentials`, `polaris-flink-credentials`, or `polaris-trino-reader-credentials`) — there is no shared credential volume. Each `clients.env` is written `0600` and owned by the consumer UID; a service that cannot read its file **fails startup** rather than falling back, so a startup failure usually means a UID/permission mismatch, not missing data.
+- **Authentication Failures in Spark/Trino:** Run explicit provisioning, then check that your consumer mounts its own private credential volume (`polaris-spark-client-credentials`, `polaris-spark-airflow-credentials`, `polaris-flink-credentials`, or `polaris-trino-reader-credentials`) — there is no shared credential volume. Each `clients.env` is written `0600` and owned by the consumer UID; a service that cannot read its file **fails startup** rather than falling back, so a startup failure usually means a UID/permission mismatch, not missing data.
 - **Upgrading an Existing Deployment (Polaris root secret):** The Polaris `root` client secret is baked into the Polaris metadata database at first bootstrap. On an existing `postgres-data` volume, keep your current `POLARIS_ROOT_CLIENT_SECRET` in `.env` even if `.env.example` now ships a new default — the native realm bootstrap does not auto-rotate the root secret, and using the new default against an existing realm fails `root` authentication and blocks startup. Only brand-new installs (no `postgres-data` volume) pick up the `.env.example` value.
 - **S3 Connectivity Errors:** Ensure container network connectivity to `http://minio:9000`. Each consumer must use its own dedicated MinIO service user (`lakehouse-*`); MinIO root credentials are not mounted into any workload.
 - **UI/API role mismatch:** operations_manager can open order/logistics/return UI routes but those APIs require admin. A 403 is not a Trino/Iceberg failure. Store confirm/cancel routes also lack the explicit CSRF dependency.

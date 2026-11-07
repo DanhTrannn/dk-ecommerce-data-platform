@@ -1,4 +1,4 @@
-.PHONY: all up start build down stop restart ps logs status seed source-reader typecheck help
+.PHONY: all up start build down stop restart ps logs status seed source-reader provision-minio provision-polaris provision-lakehouse typecheck help
 
 PROFILES ?= core
 export COMPOSE_PROFILES := $(PROFILES)
@@ -14,6 +14,7 @@ help:
 	@echo "  make down                      Stop all groups; retain volumes"
 	@echo "  make restart PROFILES=core     Restart selected existing containers"
 	@echo "  make ps / make logs            Inspect all groups"
+	@echo "  make provision-lakehouse        Initialize missing MinIO/Polaris resources explicitly"
 	@echo "  make source-reader             Configure the dedicated PostgreSQL batch reader"
 	@echo "  make seed                      Run source seeds (business schema required)"
 	@echo "  make typecheck                 Check frontend TypeScript"
@@ -50,6 +51,16 @@ seed:
 
 source-reader:
 	@docker compose exec -T postgres sh /opt/project/configure-source-reader.sh
+
+provision-minio:
+	@docker compose exec -T --user 0:0 minio sh /opt/project/minio/provision.sh
+
+provision-polaris:
+	@docker compose run --rm --no-deps -T lakehouse-provision
+
+provision-lakehouse:
+	@$(MAKE) provision-minio
+	@$(MAKE) provision-polaris
 
 typecheck:
 	@npm --prefix services/storefront run typecheck

@@ -81,11 +81,21 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
+      MINIO_POLARIS_ACCESS_KEY: ${MINIO_POLARIS_ACCESS_KEY:?set MINIO_POLARIS_ACCESS_KEY}
+      MINIO_POLARIS_SECRET_KEY: ${MINIO_POLARIS_SECRET_KEY:?set MINIO_POLARIS_SECRET_KEY}
+      MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
+      MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
+      MINIO_FLINK_ACCESS_KEY: ${MINIO_FLINK_ACCESS_KEY:?set MINIO_FLINK_ACCESS_KEY}
+      MINIO_FLINK_SECRET_KEY: ${MINIO_FLINK_SECRET_KEY:?set MINIO_FLINK_SECRET_KEY}
+      MINIO_TRINO_ACCESS_KEY: ${MINIO_TRINO_ACCESS_KEY:?set MINIO_TRINO_ACCESS_KEY}
+      MINIO_TRINO_SECRET_KEY: ${MINIO_TRINO_SECRET_KEY:?set MINIO_TRINO_SECRET_KEY}
     ports:
       - "${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000"
       - "${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
+      - ./infrastructure/minio:/opt/project/minio:ro
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9000/minio/health/live"]
       interval: 5s
@@ -312,6 +322,30 @@ services:
       start_period: 30s
     networks: ["lakehouse-network"]
 
+
+  lakehouse-provision:
+    image: lakehouse-platform-app:0.1.0
+    profiles: ["core"]
+    scale: 0
+    user: "0:0"
+    entrypoint: ["python", "-m", "platform_app.provisioning.polaris"]
+    environment:
+      POLARIS_PROVISION_URL: http://polaris:8181
+      POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
+      POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
+      POLARIS_ROOT_CLIENT_ID: ${POLARIS_ROOT_CLIENT_ID:-root}
+      POLARIS_ROOT_CLIENT_SECRET: ${POLARIS_ROOT_CLIENT_SECRET:?set POLARIS_ROOT_CLIENT_SECRET}
+      MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AIRFLOW_UID: ${AIRFLOW_UID:-50000}
+    volumes:
+      - polaris-provision-state:/run/polaris-state
+      - polaris-spark-client-credentials:/run/polaris-output/spark-client
+      - polaris-spark-airflow-credentials:/run/polaris-output/spark-airflow
+      - polaris-flink-credentials:/run/polaris-output/flink
+      - polaris-trino-reader-credentials:/run/polaris-output/trino-reader
+    networks: ["lakehouse-network"]
+
   platform-app:
     build:
       context: .
@@ -527,6 +561,7 @@ networks:
 volumes:
   minio-data:
   postgres-data:
+  polaris-provision-state:
   polaris-spark-client-credentials:
   polaris-spark-airflow-credentials:
   polaris-flink-credentials:

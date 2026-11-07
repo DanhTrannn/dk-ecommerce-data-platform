@@ -1,5 +1,5 @@
-# Reference template for future bootstrap tools in platform-app.
-# No Python initializer currently applies this template.
+# First-initialization template for platform_app.provisioning.polaris.
+# Completed initialization never reapplies YAML over manual RBAC changes.
 
 version: "1"
 
@@ -98,7 +98,7 @@ credential_outputs:
     gid: 185
   - principal: spark_writer
     directory: /run/polaris-output/spark-airflow
-    uid: 50000
+    uid: "${AIRFLOW_UID:-50000}"
     gid: 0
   - principal: flink_writer
     directory: /run/polaris-output/flink

@@ -101,7 +101,7 @@ make down
 
 `make up` reports Compose failures directly. `make down` stops all groups and retains data volumes. Starting fewer profiles does not stop containers from other groups; stop the stack first when switching to a smaller selection. Make overrides `COMPOSE_PROFILES` from `.env` with the selected `PROFILES` value.
 
-Image builds and service readiness do not initialize business schemas, seed data, run DAGs or verify analytical results. Fresh MinIO/Polaris provisioning remains pending redesign. See the [setup guide](docs/runbook/SETUP.md).
+Image builds and service readiness do not initialize business schemas, seed data, run DAGs or verify analytical results. After storage/catalog services are ready, run `make provision-lakehouse` explicitly to create missing resources and private workload credentials. See the [setup guide](docs/runbook/SETUP.md).
 
 #### 3. Service Access Endpoints
 
@@ -127,7 +127,9 @@ Additional staff accounts and store assignments are managed through the applicat
 
 ### Service Identities
 
-The retained policy templates describe five scoped MinIO identities and three Polaris principals: `spark_writer`, `flink_writer`, and `trino_reader`. The standalone `trino-admin` service and its seed identity/credential output are removed, as is the unused MinIO Airflow identity. Polaris uses YAML only for first-run bootstrap; later access changes are managed through Console/API and preserved when init runs again. The old MinIO Python initializer has been removed; account/policy initialization is pending redesign in `platform-app`. This configuration cleanup does not delete existing remote identities or Docker volumes. Details are in the [setup guide](docs/runbook/SETUP.md).
+Explicit provisioning creates four scoped MinIO accounts (Polaris, Spark, Flink and Trino) and three Polaris principals (`spark_writer`, `flink_writer`, `trino_reader`). The uploader policy is retained as a reference; no uploader account is provisioned. Workloads do not use MinIO root credentials. `make provision-lakehouse` uses the MinIO image's bundled `mc` and a one-off command in the existing platform-app image; it never starts automatically.
+
+Polaris grants/bindings are initialized from YAML once; subsequent Console/API changes and credentials are preserved. Four consumer-specific credential volumes have private files and ownership; a separate root-only state volume supports rerun/recovery. Existing MinIO users/policies are preserved rather than reconciled. See the [provisioning guide](docs/runbook/SETUP.md#6-explicit-minio-and-polaris-provisioning) for startup order, recovery and verification limits.
 
 ---
 
@@ -335,4 +337,4 @@ CI uses `--env-file .env.example` because `.env` is not committed and Compose re
 
 ### PostgreSQL batch configuration
 
-Use a separate `POSTGRES_ECOMMERCE_READER_USER` / `POSTGRES_ECOMMERCE_READER_PASSWORD`, then run `make source-reader` after the business schema exists and the PostgreSQL container has the updated environment/mount. Spark and Airflow use this SELECT-only role for 27 source tables; credentials are excluded from the JDBC URL and `customer_credentials` is not granted. Set a stable nonempty `SILVER_PSEUDONYMIZE_SALT` before Silver processing. Rebuild legacy Spark/Airflow images to include the already-pinned PostgreSQL JDBC driver. See the [pipeline guide](pipelines/README.md#postgresql-batch-source--07112026) for configuration, isolated checks and migration boundaries. MinIO/Polaris provisioning and PostgreSQL CDC are separate pending work; batch changes do not rewrite existing MySQL analytical history.
+Use a separate `POSTGRES_ECOMMERCE_READER_USER` / `POSTGRES_ECOMMERCE_READER_PASSWORD`, then run `make source-reader` after the business schema exists and the PostgreSQL container has the updated environment/mount. Spark and Airflow use this SELECT-only role for 27 source tables; credentials are excluded from the JDBC URL and `customer_credentials` is not granted. Set a stable nonempty `SILVER_PSEUDONYMIZE_SALT` before Silver processing. Rebuild legacy Spark/Airflow images to include the already-pinned PostgreSQL JDBC driver. See the [pipeline guide](pipelines/README.md#postgresql-batch-source--07112026) for configuration, isolated checks and migration boundaries. MinIO/Polaris provisioning now has an explicit command; PostgreSQL CDC and full-stack verification remain separate work; batch changes do not rewrite existing MySQL analytical history.

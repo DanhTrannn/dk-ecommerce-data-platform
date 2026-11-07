@@ -1,6 +1,6 @@
 # PostgreSQL source schema
 
-`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; phần 2 bổ sung generator/seed/importer PostgreSQL; generator hiện ở 0.10 và đã tích hợp địa điểm vào SQL, được kiểm tra bằng database biệt lập. Các luồng API nghiệp vụ chính đã kiểm chứng trên PostgreSQL biệt lập; batch reader đã chuyển PostgreSQL; CDC và provisioning Lakehouse vẫn còn bước riêng. Xem [phạm vi API nguồn](../docs/project/API_SOURCE_SCOPE.md). Không nạp SQL MySQL cũ vào schema này.
+`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; phần 2 bổ sung generator/seed/importer PostgreSQL; generator hiện ở 0.10 và đã tích hợp địa điểm vào SQL, được kiểm tra bằng database biệt lập. Các luồng API nghiệp vụ chính đã kiểm chứng trên PostgreSQL biệt lập; batch reader đã chuyển PostgreSQL; CDC và nghiệm thu toàn luồng vẫn còn; provisioning Lakehouse chạy chủ động bằng `make provision-lakehouse`. Xem [phạm vi API nguồn](../docs/project/API_SOURCE_SCOPE.md). Không nạp SQL MySQL cũ vào schema này.
 
 ## Định nghĩa và tái lập
 
