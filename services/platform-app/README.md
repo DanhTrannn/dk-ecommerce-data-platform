@@ -6,7 +6,7 @@ Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và 
 
 `API_DATABASE_URL` bắt buộc khi chạy API, dùng `postgresql+psycopg2`. Không còn fallback URL/mật khẩu MySQL trong code. Session dùng UTC và schema public; `/health/ready` hiện chỉ kiểm tra kết nối, chưa kiểm tra schema nghiệp vụ.
 
-Streamlit console điều khiển generator 0.10: chọn preset, chỉnh cấu hình, tạo job sinh SQL/access log chạy nền, theo dõi theo công đoạn và tải kết quả. Console sinh file và cho nạp SQL của job vào PostgreSQL bằng thao tác riêng tại Kết quả & lịch sử. Không tự nạp khi sinh file, chưa chạy traffic, upload log hoặc kích hoạt Airflow; sampler 2c giữ nguyên.
+Streamlit console điều khiển generator 0.10: chọn preset, chỉnh cấu hình, tạo job sinh SQL/access log chạy nền, theo dõi theo công đoạn và tải kết quả. Console sinh file và cho nạp SQL của job vào PostgreSQL bằng thao tác riêng tại Kết quả & lịch sử. Không tự nạp khi sinh file, có màn hình Mô phỏng API cho mua online; chưa upload log hoặc kích hoạt Airflow; sampler 2c giữ nguyên.
 
 Thiết kế và quyết định kỹ thuật: [docs/project/GENERATOR_CONSOLE.md](../../docs/project/GENERATOR_CONSOLE.md).
 
@@ -147,6 +147,29 @@ CLI nạp SQL PostgreSQL vẫn có thể chạy riêng: `uv run --locked --packa
 
 ## Giới hạn
 
-- Chỉ nạp PostgreSQL bằng thao tác riêng cho job SQL đã hoàn tất; chưa mô phỏng API, upload log hoặc trigger Airflow/Superset.
-- Mỗi thư mục console có tối đa một job sinh file và một tác vụ nạp đồng thời; không có queue phân tán (không Celery/Redis).
+- Chỉ nạp PostgreSQL bằng thao tác riêng cho job SQL đã hoàn tất; mô phỏng API chỉ gồm mua online, chưa upload log hoặc trigger Airflow/Superset.
+- Mỗi thư mục console có tối đa một job sinh file, một tác vụ nạp và một run API đồng thời; không có queue phân tán (không Celery/Redis).
 - Không áp profile UCI vào sampler trong phiên bản này; profile chỉ để xem tham chiếu.
+
+## Mô phỏng mua online qua API
+
+Mở **Mô phỏng API**, chọn số lượt mua (1–1.000), số lượng mỗi đơn (1 SKU, 1–20 sản phẩm), thời gian nghỉ giữa các lượt, COD/VietQR và thông tin người nhận mô phỏng. Bấm **Bắt đầu mô phỏng**; đây là thao tác ghi dữ liệu vào API đích, độc lập với job SQL và bước nạp database.
+
+Điều kiện: API đã chạy, schema đã khởi tạo, catalog có sản phẩm active và đủ tồn kho trung tâm. Khi chạy cục bộ, khởi động API ở terminal riêng bằng `uv run --locked --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --no-access-log`; cấu hình `API_DATABASE_URL` và `API_SECRET_KEY` như phần API. Compose chạy sẵn API và console trong cùng container.
+
+- `SCENARIO_API_BASE_URL`: origin API, mặc định `http://127.0.0.1:8000`; không có credential, query hoặc path. Không chỉnh đích trên form. Nếu API chạy cổng khác trên host, sửa biến này; Compose dùng cổng nội bộ 8000.
+- `SCENARIO_HTTP_TIMEOUT_SECONDS`: timeout HTTP mặc định 15 giây (1–120). Không tự retry request; không dùng proxy môi trường hoặc tự theo redirect.
+- Cookie name lấy từ cấu hình `API_CSRF_COOKIE_NAME` của API; origin/domain/Secure phải cho phép cookie hoạt động. API từ xa cần cùng cấu hình cookie ở worker.
+- Run JSON lưu tại thư mục `scenarios/` cùng cấp với `GENERATOR_CONSOLE_DATA_DIR` (mặc định `data/generator/scenarios/<run_id>.json`), tách khỏi checksum/artifact của job generator.
+
+Mỗi lượt có email riêng `scenario-<run_id>-<index>@example.com`, tạo tài khoản rồi đăng nhập bằng API. Mật khẩu ngẫu nhiên, cookie và token chỉ ở bộ nhớ; không ghi journal. Runner đọc catalog qua API, chọn variant đầu tiên đủ tồn trong tối đa 20 trang sản phẩm, PUT giỏ hàng, quote và checkout với idempotency key riêng đã lưu trước khi gọi. Một client/cookie jar riêng cho mỗi lượt. Khoảng nghỉ áp dụng giữa hai lượt hoàn tất, không phải giới hạn request/giây.
+
+Sau checkout, runner lưu mã đơn rồi đọc lại đơn và giỏ. Chỉ ghi `succeeded` khi mã đơn/tổng tiền khớp quote, SKU/số lượng khớp giỏ, payment amount/status đúng và giỏ rỗng. COD tạo đơn `confirmed`/payment `pending`; VietQR theo logic API hiện có tạo `paid`/`succeeded`, không xác minh thanh toán ngân hàng thực và không tương đương đơn đã giao hay doanh thu thuần.
+
+Mỗi thư mục chỉ một run API active. Nút **Yêu cầu dừng** chờ lượt hiện tại xong rồi dừng trước lượt sau; không rollback hoặc xóa khách/giỏ/đơn đã tạo. Đóng tab không dừng worker. Refresh không tạo run mới. Các trạng thái run: `queued`, `running`, `succeeded`, `partial`, `failed`, `stopped`, `unknown`.
+
+HTTP 4xx là lượt thất bại (408 được coi chưa xác định); runner có thể chuyển sang lượt mới nhưng không retry lượt lỗi. Lỗi kết nối hoặc HTTP 5xx khi ghi, lỗi xác minh sau checkout hay worker mất đều có thể để lại thay đổi: đánh dấu `unknown`, dừng các lượt tiếp theo và giữ email/mã đơn/idempotency key để tra cứu. Không có chức năng resume hoặc tự gửi lại checkout; bắt đầu lần nữa tạo run mới, không giải quyết kết quả cũ. Lỗi chỉ lưu endpoint/mã HTTP, không lưu response body hay credential.
+
+Runner hiện là kịch bản kiểm chứng nghiệp vụ, không phải sampler đã hiệu chỉnh: mỗi lượt là khách mới, một SKU và chọn hàng theo thứ tự catalog. API vẫn ghi `data_origin=manual`/`generation_run_id=NULL`; HTTP middleware ghi `observed` cho request thực sự nhận, không chứng minh hành vi người dùng thật. Run journal liên kết các giao dịch mô phỏng bằng email và idempotency key; chưa bổ sung lineage mô phỏng vào schema/API. Không suy tỷ lệ mua lại, độ phổ biến sản phẩm hay conversion tự nhiên từ kịch bản này.
+
+Compose hiện đặt `KAFKA_ENABLED=false` cho platform-app. Runner phát sinh HTTP thật nhưng không tự bật producer, tải log lịch sử, gửi trực tiếp Kafka hoặc kích hoạt DAG. Cần bước kiểm chứng log/pipeline riêng. Chưa có fulfillment, hủy đơn, coupon, POS, nhập kho, đổi trả hoặc tự khôi phục mật khẩu tài khoản mô phỏng.

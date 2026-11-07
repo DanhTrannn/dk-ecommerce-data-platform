@@ -4,7 +4,7 @@ Cập nhật **07/11/2026**. Streamlit Generator Console dùng generator 0.10 v�
 
 ## 1. Mục tiêu
 
-Cho người dùng chọn preset, chỉnh các tham số thường dùng, kiểm tra cấu hình, tạo job sinh dữ liệu chạy nền, theo dõi job và tải kết quả SQL/access log. Console điều khiển generator và nạp SQL của job đã hoàn tất vào PostgreSQL bằng importer hiện có. Không tự nạp khi sinh file, không chạy traffic, upload log hoặc kích hoạt Airflow; sampler 2c giữ nguyên.
+Cho người dùng chọn preset, chỉnh các tham số thường dùng, kiểm tra cấu hình, tạo job sinh dữ liệu chạy nền, theo dõi job và tải kết quả SQL/access log. Console điều khiển generator và nạp SQL của job đã hoàn tất vào PostgreSQL bằng importer hiện có. Không tự nạp khi sinh file; chạy kịch bản mua online qua màn hình riêng, chưa upload log hoặc kích hoạt Airflow; sampler 2c giữ nguyên.
 
 ## 2. Ranh giới
 
@@ -18,10 +18,11 @@ Cho người dùng chọn preset, chỉnh các tham số thường dùng, kiểm
 - Theo dõi theo công đoạn; không hiển thị phần trăm giả.
 - Lịch sử bền vững qua refresh/restart; job không xác minh được tiến trình bị đánh dấu gián đoạn.
 - Xem profile tham chiếu UCI đã đo ở đợt 2b.
+- Màn hình Mô phỏng API chạy mua online theo phần 9, độc lập với job sinh file.
 
 **Không có trong đợt này**
 
-- Import MySQL, upload SQL tùy ý, chạy traffic API, upload log, kích hoạt Airflow hoặc Superset.
+- Import MySQL, upload SQL tùy ý, traffic ngoài kịch bản mua online, upload log, kích hoạt Airflow hoặc Superset.
 - Áp profile/reference vào sampler hoặc hiệu chỉnh sampler 2c.
 - Celery/Redis/hàng đợi phân tán; nhiều job sinh file song song.
 - Xóa `FINAL_REPORT.md` hoặc thay Next.js.
@@ -144,3 +145,11 @@ Nạp là tác vụ nền độc lập với sinh file, không thêm stage tự 
 Trạng thái bền vững: queued/running/succeeded/failed/already_present/unknown. Thành công chỉ ghi sau khi importer trả về từ commit. Lỗi driver được rút gọn, không ghi raw SQL/credential. Nếu commit chưa rõ kết quả hoặc worker mất, không giả định rollback: ghi unknown và chặn tự nạp lại cùng dataset/đích. Database đã có generation run được ghi already_present, không nhận là một lần import mới thành công. Thay đổi đích sau khi queue được phát hiện trước khi ghi. Trạng thái failed có thể thử lại bằng thao tác rõ ràng; không auto retry.
 
 Đích lấy từ API_DATABASE_URL hiện có, không nhận connection string qua form và không lưu credential vào state/command. Mật khẩu/user thay đổi không làm mất nhận diện cùng host/port/database; alias host vẫn có thể khác, nên chống trùng trong PostgreSQL của importer là lớp quyết định cuối. Không tự sửa schema/seed, xóa volume, chạy pipeline hoặc thay API nghiệp vụ. Xem [hướng dẫn sử dụng và giới hạn](../../services/platform-app/README.md#nạp-sql-vào-postgresql).
+
+## 9. Runner API mua online
+
+Quyết định: giữ runner trong `ui/scenarios/` với cấu hình, journal store, luồng HTTP purchase và worker riêng; view tại `ui/views/scenarios.py`. Dùng HTTP qua API nguồn, không import service nghiệp vụ hoặc ghi DB trực tiếp. Dùng lại httpx đã có, không thêm dependency/hàng đợi. Một run API active theo thư mục `data/generator/scenarios/`; generation và import là tác vụ độc lập, không tự nối chuỗi.
+
+Mỗi lượt tạo khách mới, đăng nhập, khám phá variant đủ tồn, PUT giỏ, quote và checkout. Worker ghi key trước khi gọi, lưu mã đơn trước đọc kiểm chứng; lỗi ghi không rõ kết quả hoặc mất worker chuyển unknown và không tự replay. Password/cookie không lưu; email/key/mã đơn đủ truy vết cục bộ. Nút dừng chỉ ngăn lượt tiếp theo, không hủy giao dịch đang chạy. HTTP 4xx giữ failed riêng, thành công/thất bại hỗn hợp là partial. Khoá file chỉ phù hợp worker cục bộ dùng chung filesystem.
+
+Cấu hình HTTP server qua `SCENARIO_API_BASE_URL` và `SCENARIO_HTTP_TIMEOUT_SECONDS`; form chỉ điều chỉnh kịch bản. Không tự cập nhật lineage API hoặc triển khai nguồn đa khách mua lại; mỗi lượt một khách/một SKU, chọn variant đầu đủ tồn nên không coi là phân phối bán hàng thực. Chưa tự động hóa fulfillment/POS/đổi trả, chưa chứng minh Kafka/Lakehouse delivery. Hướng dẫn đầy đủ tại [platform guide](../../services/platform-app/README.md#mô-phỏng-mua-online-qua-api).

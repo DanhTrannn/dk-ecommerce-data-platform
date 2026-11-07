@@ -212,11 +212,13 @@ make build
 make up PROFILES=core
 ```
 
-Open `http://localhost:8501`, choose SQL, access log or both, then monitor the per-stage results and download outputs. Completed SQL jobs can be loaded explicitly with **Nạp vào PostgreSQL** in **Kết quả & lịch sử**, with checksum validation, a background worker and durable attempt receipts. Generation never loads data automatically. The console does not run API traffic, upload logs or trigger Airflow. See [services/platform-app/README.md](services/platform-app/README.md) for job layout and recovery behavior.
+Open `http://localhost:8501`, choose SQL, access log or both, then monitor the per-stage results and download outputs. Completed SQL jobs can be loaded explicitly with **Nạp vào PostgreSQL** in **Kết quả & lịch sử**, with checksum validation, a background worker and durable attempt receipts. Generation never loads data automatically. The **Mô phỏng API** section runs sequential online purchase scenarios through the source API; it does not upload logs or trigger Airflow. See [services/platform-app/README.md](services/platform-app/README.md) for job layout and recovery behavior.
 
 ### Real-Time Traffic Simulation
 
-The legacy traffic simulator has been removed. PostgreSQL business API workflows still require verification before live traffic is reintroduced. Runtime middleware retains Kafka access logging; exported historical logs are synthetic files.
+The legacy traffic simulator has been removed. The Streamlit **Mô phỏng API** section now creates a fresh simulated customer per attempt, logs in, discovers available stock, fills a one-SKU cart and checks out using COD or VietQR. A detached worker saves run history, idempotency keys, order numbers and verification results; stopping takes effect between attempts. Configure `SCENARIO_API_BASE_URL` (default `http://127.0.0.1:8000`) and `SCENARIO_HTTP_TIMEOUT_SECONDS` (default 15). Start the API separately for local console use; Compose runs both processes. See the [platform guide](services/platform-app/README.md#mô-phỏng-mua-online-qua-api) for setup and outcome handling.
+
+Scenarios write to the target API and do not replay uncertain writes. Their distribution is not calibrated user behavior. Existing API lineage remains `manual`; runtime HTTP logs are `observed`. Compose currently disables the Kafka producer for platform-app, so generating requests does not establish delivery to Kafka/Lakehouse. Exported historical logs remain synthetic files.
 
 ### Historical Data Backfill
 

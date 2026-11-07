@@ -21,7 +21,7 @@ Giữ toàn bộ 41 khai báo route ghi POST/PUT/PATCH/DELETE có trong bản tr
 - Generator SQL tạo dữ liệu nền và lịch sử số lượng lớn.
 - FastAPI thực hiện giao dịch và thay đổi trạng thái qua logic nghiệp vụ: add-to-cart, checkout, POS, nhập hàng, giao/hủy đơn, return/refund, review và thay đổi dữ liệu tham chiếu.
 
-Streamlit hiện chạy generator SQL/access log và có thao tác nạp SQL job vào PostgreSQL; chưa có runner gọi API để mô phỏng nghiệp vụ. Bộ kiểm tra đã gọi các luồng này qua HTTP trên database biệt lập, không đồng nghĩa runner mô phỏng đã triển khai. Bỏ storefront không làm mất API nghiệp vụ hoặc các GET sản phẩm/giỏ/đơn phía khách.
+Streamlit chạy generator SQL/access log, nạp SQL job vào PostgreSQL và có runner mua online qua API (khách mới → giỏ → checkout → xác minh). Các scenario mở rộng như fulfillment/POS/đổi trả chưa tự động hóa; kiểm chứng nghiệp vụ biệt lập không đồng nghĩa pipeline Lakehouse đã chạy toàn luồng. Bỏ storefront không làm mất API nghiệp vụ hoặc các GET sản phẩm/giỏ/đơn phía khách.
 
 ## Lookup còn giữ và ID dùng cho bước ghi
 
@@ -100,3 +100,9 @@ Bộ kiểm tra gọi router HTTP thật với cookie đăng nhập/CSRF, servic
 Đây là bằng chứng cục bộ cho các kịch bản đã kiểm tra, không phải benchmark, kiểm chứng toàn bộ endpoint hoặc kiểm chứng production. Test không khởi động Kafka lifespan, không xác nhận access log đã tới Kafka/Flink/MinIO; HTTP quan sát chỉ kiểm tra RBAC/contract, chưa gọi Trino thật. Batch JDBC/CDC/provisioning và Superset còn ở bước tiếp theo.
 
 Giữ semantics idempotency hiện có: checkout, một số transition, nhập hàng và hoàn tiền có cơ chế riêng; POS và refill không có bảo đảm dedup request toàn cục. Không tự retry chúng khi chưa biết request trước đã commit hay chưa. Idempotency nhập hàng hiện dùng digest ngắn theo code cũ, chưa phải cơ chế chống xung đột key/payload đầy đủ. Luồng exchange API chưa được kiểm chứng tương đương kịch bản exchange SQL của generator.
+
+## Runner API mua online — 07/11/2026
+
+Streamlit có màn hình **Mô phỏng API**, chạy worker riêng theo chuỗi register/login → catalog → cart → quote → checkout → đọc đơn/giỏ để xác minh. Mỗi lượt dùng khách mô phỏng mới và idempotency key riêng; không sửa hợp đồng endpoint. Chọn COD/VietQR, số lượt, số lượng một SKU và khoảng nghỉ. Journal bền vững lưu email/mã đơn/key và trạng thái; không lưu mật khẩu/cookie. Dừng hợp tác giữa các lượt; kết quả ghi chưa rõ hoặc kiểm chứng không đạt sau checkout chuyển `unknown`, không retry và dừng run.
+
+Phạm vi đầu tiên chỉ mua online; không đồng nghĩa S01 đã có toàn bộ fulfillment hay S02–S09 đã được tự động hóa. API vẫn giữ lineage `manual`, log HTTP `observed`; chưa phân loại synthetic API traffic trong schema. Kafka producer đang tắt trong Compose và chưa chứng minh log tới Lakehouse. Chi tiết cấu hình/giới hạn: [platform guide](../../services/platform-app/README.md#mô-phỏng-mua-online-qua-api).
