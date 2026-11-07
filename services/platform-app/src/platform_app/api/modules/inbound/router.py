@@ -1,19 +1,11 @@
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
 
 from platform_app.api.core.errors import VALIDATION_ERROR, AppError
 from platform_app.api.db.deps import get_current_inventory_staff, get_db, verify_csrf
 from platform_app.api.models.customer import Customer
-from platform_app.api.modules.inbound.schemas import (
-    CreateInboundReceiptPayload,
-    InboundReceiptDetailResponse,
-    InboundReceiptListResponse,
-)
-from platform_app.api.modules.inbound.service import (
-    create_inbound_receipt,
-    get_inbound_receipt_detail,
-    list_inbound_receipts,
-)
+from platform_app.api.modules.inbound.schemas import CreateInboundReceiptPayload, InboundReceiptDetailResponse
+from platform_app.api.modules.inbound.service import create_inbound_receipt, get_inbound_receipt_detail
 
 router = APIRouter(prefix="/admin/inbound", tags=["admin-inbound"])
 
@@ -46,15 +38,6 @@ def create_receipt(
     )
 
 
-@router.get("/receipts", response_model=InboundReceiptListResponse)
-def list_receipts(
-    search: str | None = Query(default=None, max_length=200),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    _: Customer = Depends(get_current_inventory_staff),
-    db: Session = Depends(get_db),
-) -> InboundReceiptListResponse:
-    return list_inbound_receipts(db, search=search, limit=limit, offset=offset)
 
 
 @router.get("/receipts/{receipt_code}", response_model=InboundReceiptDetailResponse)

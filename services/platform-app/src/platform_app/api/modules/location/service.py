@@ -22,6 +22,7 @@ def list_active_cities(db: Session) -> list[CityResponse]:
     )
     rows = db.execute(
         select(
+            City.city_id,
             City.code,
             City.name,
             func.coalesce(store_count.c.store_count, 0).label("store_count"),
@@ -31,7 +32,7 @@ def list_active_cities(db: Session) -> list[CityResponse]:
         .order_by(City.name)
     ).all()
     return [
-        CityResponse(code=row.code, name=row.name, store_count=int(row.store_count))
+        CityResponse(city_id=row.city_id, code=row.code, name=row.name, store_count=int(row.store_count))
         for row in rows
     ]
 
@@ -48,7 +49,7 @@ def list_stores_by_city(db: Session, city_code: str) -> list[StoreResponse]:
         .order_by(Store.name)
     ).scalars().all()
     return [
-        StoreResponse(code=s.code, name=s.name, address=s.address, phone=s.phone)
+        StoreResponse(store_id=s.store_id, city_id=s.city_id, code=s.code, name=s.name, address=s.address, phone=s.phone)
         for s in rows
     ]
 

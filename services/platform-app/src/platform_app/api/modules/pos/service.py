@@ -42,7 +42,7 @@ def search_products(db: Session, store_id: int, query: str) -> list[dict]:
             | (Product.name.ilike(f"%{q}%"))
         )
         .order_by(
-            func.bin(ProductVariant.sku).desc(),
+            (func.lower(ProductVariant.sku) == q.lower()).desc(),
             ProductVariant.sku.asc(),
         )
         .limit(8)
@@ -66,7 +66,7 @@ def create_pos_transaction(
                 status_code=404,
             )
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         order_number = new_order_number()
 
         # Build order items and validate stock

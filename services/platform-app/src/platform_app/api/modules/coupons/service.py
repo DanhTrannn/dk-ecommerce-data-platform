@@ -194,11 +194,6 @@ def _coupon_response(coupon: Coupon) -> CouponResponse:
     )
 
 
-def list_coupons(db: Session) -> list[CouponResponse]:
-    rows = db.execute(
-        select(Coupon).order_by(Coupon.created_at.desc(), Coupon.coupon_id.desc())
-    ).scalars().all()
-    return [_coupon_response(coupon) for coupon in rows]
 
 
 def create_coupon(payload: CreateCouponRequest) -> CouponResponse:

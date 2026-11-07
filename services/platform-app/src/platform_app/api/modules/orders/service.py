@@ -547,12 +547,6 @@ def cancel_order(
         for item in item_rows:
             inventory_row = inventory[item.variant_id]
             restored_on_hand = inventory_row.on_hand + item.quantity
-            if restored_on_hand > inventory_row.opening_on_hand:
-                raise AppError(
-                    INTERNAL_ERROR,
-                    "Hoàn tồn kho vượt số lượng mở đầu.",
-                    status_code=500,
-                )
             inventory_row.on_hand = restored_on_hand
             inventory_row.version += 1
             inventory_row.updated_at = now

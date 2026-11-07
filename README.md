@@ -21,7 +21,7 @@
 
 </div>
 
-> **PostgreSQL transition:** Compose uses one PostgreSQL service with separate `ecommerce`, `airflow` and `polaris` databases. FastAPI and Streamlit share platform-app. The 28-table source schema and ORM now target PostgreSQL and have been checked in isolation. Generator 0.10 SQL, seeds and transactional import also pass isolated PostgreSQL checks. Business API verification, JDBC/source handling and CDC consumer conversion remain pending. Existing data is not migrated; service health checks do not verify business pipelines.
+> **PostgreSQL transition:** Compose uses one PostgreSQL service with separate `ecommerce`, `airflow` and `polaris` databases. FastAPI and Streamlit share platform-app. The 28-table source schema and ORM now target PostgreSQL and have been checked in isolation. Generator 0.10 SQL, seeds and transactional import also pass isolated PostgreSQL checks. Core business API workflows now pass isolated PostgreSQL checks; six legacy BI aggregation endpoints and ten admin GET list/duplicate endpoints are retired; all write routes remain. JDBC/source handling and CDC consumer conversion remain pending. See [source API scope](docs/project/API_SOURCE_SCOPE.md). Existing data is not migrated; service health checks do not verify business pipelines.
 
 **Current infrastructure-only scope:** Compose excludes standalone API/frontend services. FastAPI and the Streamlit Generator Console run together in the platform-app Python slim image. The `core` profile starts PostgreSQL, MinIO, Polaris, Airflow, Trino and platform-app. Airflow has service startup configuration and the Python path required to parse mounted DAGs; source credentials, Spark connections, pipeline configuration and PII salt must be supplied later before running business DAGs. Existing application/startup instructions below describe the broader project and are outside this temporary scope.
 
@@ -46,7 +46,8 @@ The planned transition replaces Next.js with a Streamlit generator console and A
 
 The project covers data collection, incremental extraction, Medallion transformations, data quality, reconciliation, and SQL analytics. The website and POS provide transactional source data; the generator supplies configurable synthetic datasets and simulated API traffic.
 
-Published reports for all seven analytics roles, admin overview, store overview, and sales trends query Trino over pinned Iceberg publications. System HTTP Realtime separately observes a current Landing snapshot. Marketing has independent log and OLTP publications, with separate availability and cache metadata. MySQL remains the transactional source for checkout, POS, inventory operations, authentication, RBAC, and source reconciliation. If Trino is unavailable, the API serves a bounded last-good OLAP response or returns 503; it does not switch analytical aggregates to MySQL. Machine learning training and scoring remain outside the implemented scope.
+FastAPI now serves transactional data generation/lookup and HTTP observability. Six legacy BI aggregation endpoints and ten admin GET list/duplicate endpoints are removed with unused services/schemas; all 41 write route declarations remain. Lookup responses provide numeric customer/store IDs for scenario inputs; old Next.js overview/BI pages will receive 404. Superset remains planned. The 18 Lakehouse marts and publication infrastructure are retained. Auth, store permissions, checkout/POS, inventory, shipping, returns and reviews remain source workflows; their main paths are tested against isolated PostgreSQL. Machine learning remains outside scope.
+
 
 ## Features
 
@@ -55,7 +56,7 @@ Published reports for all seven analytics roles, admin overview, store overview,
 - **Medallion Processing:** Bronze source history, Silver typing/deduplication/MERGE and PII pseudonymization, and Gold dimensions/facts/marts.
 - **Data Quality and Reconciliation:** Source-to-Silver reconciliation and post-Gold checks, with audit results in `lakehouse.system.data_quality_results`.
 - **Open Lakehouse Storage:** MinIO object storage, Iceberg tables/snapshots, Polaris catalog, and scheduled maintenance.
-- **Role-Based Analytics:** Seven dashboard views with API-level role and store filtering, Trino/Iceberg publications, bounded last-good OLAP cache, and API-level role/store filtering.
+- **Analytical Data:** 18 Lakehouse marts and publications retained for future Superset BI; legacy business-dashboard API serving is retired. HTTP reports retain their independent publication/cache and RBAC.
 - **Access-Log Analytics:** Request volume, duration percentiles, error rates, product interactions, and event-based marketing funnels.
 - **Synthetic Data Generation:** Version 0.10 generates deterministic PostgreSQL SQL history with corrected payment/return/stock consistency and synthetic-labelled historical access logs from YAML configurations; live API traffic can feed the Kafka stream. The reference-profiling CLI records measured UCI distributions and audit counts; applying them to generation remains pending.
 - **Operational Source Application:** Storefront, cart/checkout, POS, store inventory, in-house delivery, COD failure tracking, returns/refunds, and product reviews.
@@ -256,29 +257,14 @@ Importing the same SQL dataset twice is rejected by unique keys. See the [genera
 
 ### Operational Signals and Analytical Metrics
 
-The BI Hub reads a pinned Iceberg snapshot set through Trino. Responses identify the publication ID/time and whether the bounded last-good cache is serving stale data. System reconciliation compares published order-mart counts/placed value with a single current MySQL observation.
+The 18 marts and KPI definitions remain in the Lakehouse code and [Metrics Catalog](docs/architecture/METRICS_CATALOG.md); the six legacy business BI API endpoints are removed. Superset dashboards are not implemented yet. Historical dashboard design documents describe the previous UI.
 
-| Role | Implemented Indicators | Primary Source | Interpretation |
-|---|---|---|---|
-| **Executive** | Order totals, revenue, COGS, profit, AOV, COD in transit | Published order mart | Financial recognition follows the documented Gold formula |
-| **Sales** | Store/channel contributions, top products, category shares | Published order, product-sales and category-sales marts | Order totals use the order mart; category order counts are not additive |
-| **Store** | Today's revenue/orders, low stock, stockout SKUs | Published store/order/current-inventory marts, restricted by store | Today's boundary uses Asia/Ho_Chi_Minh |
-| **Inventory** | On-hand units/value, inbound batches, stock alerts and daily history | Published current/summary/history inventory marts | Current balances are separate from daily observations |
-| **Operations** | Pending orders at observation time, shipment performance, COD regions, return requests and successful refunds | Published operations/COD/logistics/return marts | Requests, lines, units and paid refunds use separate definitions |
-| **Marketing** | 30-day event funnel, product interest, coupon usage, recent approved negative reviews | Two published log marts and three published OLTP marketing marts | Independent source timestamps/cache; request events are not unique people/orders |
-| **System** | Batch publication age, order-count/value variance; HTTP request/errors/latency | Published order mart compared with current MySQL; hourly HTTP mart and separate realtime Landing snapshot | Source may lead batch; published and realtime HTTP windows/availability are independent |
+HTTP observability remains available to admin/system_admin:
 
-Dashboard refresh reads the latest complete publication; new OLTP data appears after a successful batch extraction, Silver MERGE, Gold refresh and publication. Definitions, windows, denominators, and current limitations are detailed in the [Metrics Catalog](docs/architecture/METRICS_CATALOG.md).
+- `/api/v1/admin/analytics/http-metrics`: published hourly HTTP mart, bounded cached fallback, 1–30 UTC dates.
+- `/api/v1/admin/analytics/http-realtime`: provisional Landing snapshot, 5–60-minute event-time window, deduplication/quality metadata and no raw event payloads.
 
-Executive, Sales and sales trends read only published Data Marts. `mart_order_daily` groups by Vietnam order date, channel and store so order counts are additive; `mart_product_sales_daily` supplies product rankings, while `mart_sales_daily` retains category detail. Missing Executive data and undefined ratios return `null`; a verified zero amount remains zero. Store, Inventory, store overview and store selection also use published marts. `mart_inventory_current` stores one current SKU/location balance; `mart_inventory_summary` holds the overall counts/amounts and inbound count; `mart_store_overview` holds store totals/staff and stock coverage. The existing `mart_inventory_health` supplies daily history. Undefined stock coverage is null, and SKU stockouts are counted distinctly across locations. Depletion/runway estimates have been removed. Operations uses `mart_operations_summary`, `mart_cod_region_daily`, `mart_logistics_performance` and `mart_product_returns`. Waiting time is frozen at the declared observation timestamp. Missing shipment deadlines produce unknown on-time rates. Return counts distinguish unique requests and lines; requested refund amounts are separate from successful refund payments. Marketing uses `mart_marketing_funnel_daily` and `mart_daily_product_demand` through a separate log publication, and `mart_marketing_summary`, `mart_coupon_usage` and `mart_product_review_summary` through the OLTP publication. Its 15/45-minute commerce windows freeze at the observation time; the log window covers 30 UTC dates ending at the log observation date. Each source has independent availability/cache metadata. Admin overview reads `mart_admin_overview` for independent domain/status counters and `mart_order_daily` for finance. Its counts freeze at `admin_observed_at`; missing domains remain null. System reads only the order mart on the Lakehouse side, observing current MySQL count/value together for reconciliation. It reports matched/mismatch/unavailable/cached with source observation time and publication age, rather than inferring pipeline health or an SLA. A zero source denominator leaves percentage null while absolute differences still identify mismatches.
-
-System adds **HTTP Realtime** from `landing.access_logs` through Trino, with a rolling 5–60-minute event-time window (UI: 5/15/60), request/error trends by minute, approximate p95 and a Top 20 route table. Admin/System Admin only. Each read pins one Landing snapshot, deduplicates replayed event IDs, excludes conflicting payloads and reports invalid/late/future observations separately. It returns aggregates without raw payloads and does not require an hourly publication. The view refreshes every 10 seconds while visible; failures return 503 and the UI labels the retained previous observation. Landing figures are provisional; refresh/checkpoint intervals are not latency guarantees. Business-event realtime remains pending.
-
-System also has an independent HTTP Metrics report backed by `mart_hourly_route_metrics` and the hourly log publication. Admin and System Admin can select 1/7/30 UTC calendar dates, inspect request/error trends and route breakdowns, and view approximate percentiles only at their original hour/route/method grain. HTTP availability and cache metadata are independent of order reconciliation.
-
-Dashboard presentation prioritizes KPI summaries and charts, with collapsed detail tables and separate views for independent sources/windows. All 18 built marts are mapped to visible measures or drill-downs in the [dashboard design](docs/design-analysis/DASHBOARD_DESIGN.md), based on official Power BI, Tableau and W3C guidance.
-
-System reconciliation renders one chart per metric so order counts and VND use independent scales. Cached OLAP responses are marked degraded and are not presented as a new source comparison.
+See [API source scope](docs/project/API_SOURCE_SCOPE.md) for retained/removed endpoints, the fixed opening-stock/ledger contract, verified PostgreSQL workflows and remaining limitations. Existing databases are not automatically upgraded or reconciled.
 
 ---
 

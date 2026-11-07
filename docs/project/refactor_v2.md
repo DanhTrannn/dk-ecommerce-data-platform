@@ -4,7 +4,7 @@ Cập nhật **05/11/2026**. Quyết định đã chốt: thay toàn bộ Next.j
 
 ## 1. Quyết định kiến trúc và ranh giới
 
-**Trạng thái chuyển PostgreSQL ngày 07/11/2026:** phần 1 đã chuyển schema/ORM (28 bảng, UUID native, identity, CHECK và trigger UTC), có kiểm tra PostgreSQL biệt lập; xem [database guide](../../database/README.md) và [OLTP reference](../architecture/OLTP_SCHEMA.md). Phần 2 đã chuyển generator sang SQL PostgreSQL, seed bổ sung bản ghi an toàn và importer có transaction/đối soát/identity restart; generator 0.10 đã đưa thành phố/cửa hàng vào SQL và cho chọn qua YAML/Streamlit; nạp preset small và month-test được kiểm tra trên PostgreSQL biệt lập. Không nạp hoặc migrate database hiện có. Phần 3 còn nghiệm thu API/nghiệp vụ. JDBC/CDC và provisioning Lakehouse chưa đồng bộ. Streamlit đã có trong platform-app; Superset chưa triển khai. Hiệu chỉnh sampler 2c được để cuối theo quyết định sau kế hoạch gốc, không chặn các bước này. Không dùng baseline MySQL cũ để khẳng định trạng thái PostgreSQL hiện tại.
+**Trạng thái chuyển PostgreSQL ngày 07/11/2026:** phần 1 đã chuyển schema/ORM (28 bảng, UUID native, identity, CHECK và trigger UTC), có kiểm tra PostgreSQL biệt lập; xem [database guide](../../database/README.md) và [OLTP reference](../architecture/OLTP_SCHEMA.md). Phần 2 đã chuyển generator sang SQL PostgreSQL, seed bổ sung bản ghi an toàn và importer có transaction/đối soát/identity restart; generator 0.10 đã đưa thành phố/cửa hàng vào SQL và cho chọn qua YAML/Streamlit; nạp preset small và month-test được kiểm tra trên PostgreSQL biệt lập. Không nạp hoặc migrate database hiện có. Phần 3 đã kiểm chứng các luồng nghiệp vụ chính trên PostgreSQL biệt lập và sửa transaction/ledger; phạm vi và giới hạn tại [API nguồn](API_SOURCE_SCOPE.md). Sáu API BI và mười GET quản trị danh sách/trùng lặp đã bỏ theo quyết định thu gọn mới; giữ toàn bộ API ghi và lookup cần cho mô phỏng, Superset chưa thay thế. JDBC/CDC và provisioning Lakehouse chưa đồng bộ. Streamlit đã có trong platform-app; Superset chưa triển khai. Hiệu chỉnh sampler 2c được để cuối theo quyết định sau kế hoạch gốc, không chặn các bước này. Không dùng baseline MySQL cũ để khẳng định trạng thái PostgreSQL hiện tại.
 
 Giữ bài toán **retail thời trang Việt Nam**, VND, ngày nghiệp vụ Asia/Ho_Chi_Minh. Tập trung vào nguồn dữ liệu giải thích được, nghiệp vụ nhất quán và kết quả phân tích có thể đối soát.
 
@@ -12,13 +12,13 @@ Giữ bài toán **retail thời trang Việt Nam**, VND, ngày nghiệp vụ As
 |---|---|
 | Streamlit | Chọn preset/profile, chỉnh cấu hình, chạy generator, xem/tải kết quả; tác vụ nạp và traffic là bước riêng |
 | Generator CLI | Sinh SQL lịch sử và access log tổng hợp; là logic dùng chung cho CLI/console |
-| FastAPI + MySQL | Nghiệp vụ nguồn và tra cứu phục vụ mô phỏng; giữ auth, quyền, CSRF/idempotency cần thiết |
+| FastAPI + PostgreSQL | Nghiệp vụ nguồn và tra cứu phục vụ mô phỏng; giữ auth, quyền, CSRF/idempotency cần thiết |
 | Spark/Airflow | Batch, Silver/Gold/mart, quality gate và publication |
 | Debezium/Kafka/Flink | CDC Bronze audit và access log tới Landing; không tự cập nhật OLTP Silver/Gold |
 | Trino + Superset | Đọc đầu ra phân tích đã công bố; Superset thay giao diện BI tự viết |
 | MinIO/Iceberg/Polaris | Giữ dữ liệu, snapshot, catalog và quyền workload hiện có |
 
-Bối cảnh: BI đang nằm chung trong `services/storefront`, còn nguồn nghiệp vụ và pipeline hoạt động độc lập với Next.js. Hệ quả của quyết định: cần nguồn gọi API thay thao tác UI, dựng lại dashboard và chuyển quyền/phạm vi cửa hàng cùng cơ chế publication; không tự kế thừa các kiểm tra ở FastAPI khi BI truy vấn thẳng Trino. Next.js và API cũ được giữ tới khi có đầu ra thay thế đã kiểm chứng. Volume, checkpoint, bảng nguồn và lịch sử được giữ; ML, marketplace và API/scraping ngoài phạm vi chuyển đổi này.
+Bối cảnh: BI đang nằm chung trong `services/storefront`, còn nguồn nghiệp vụ và pipeline hoạt động độc lập với Next.js. Hệ quả của quyết định: cần nguồn gọi API thay thao tác UI, dựng lại dashboard và chuyển quyền/phạm vi cửa hàng cùng cơ chế publication; không tự kế thừa các kiểm tra ở FastAPI khi BI truy vấn thẳng Trino. Quyết định thu gọn mới đã bỏ sáu API BI cũ trước Superset; các trang Next.js gọi chúng không còn hoạt động. API nghiệp vụ/lookup vẫn giữ. Volume, checkpoint, bảng nguồn và lịch sử được giữ; ML, marketplace và API/scraping ngoài phạm vi chuyển đổi này.
 
 ## 2. Kịch bản dữ liệu phải giữ
 
@@ -32,7 +32,7 @@ API trong bảng có tiền tố `/api/v1`, trừ health và đường internal 
 | S03 — COD/giao thất bại | Payment method, dispatch/deliver/failed-delivery; lookup nhân sự/shipment | orders, payments, shipments, shipment_attempts, customers, inventory_transactions | Logistics/COD/operations; chưa có hạn giao dự kiến nên không kết luận on-time SLA |
 | S04 — POS | GET pos/products và POST pos/transactions với store/staff hợp lệ | orders, order_items, payments, order_status_history, store_inventory, inventory_transactions | Doanh số kênh/cửa hàng, tồn; generator SQL hiện không ghi channel/store_id và nhận mặc định online |
 | S05 — Nhập hàng và giá vốn | POST admin/inbound/receipts; đọc phiếu để kiểm tra | inbound_receipts, inbound_receipt_items, inventory, inventory_transactions, product_variants | Tồn/phiếu nhập và COGS snapshot của lần bán sau; simulator chưa tạo nhập hàng |
-| S06 — Điều chuyển/điều chỉnh tồn | admin/inventory/refill, admin/branch-inventory; kiểm tra số dư trước/sau | inventory, store_inventory, inventory_transactions | Current/summary/history/store marts; hai route ghi hiện chỉ flush, chưa commit, là điểm chặn cần sửa trước khi dùng |
+| S06 — Điều chuyển/điều chỉnh tồn | admin/inventory/refill, admin/branch-inventory; kiểm tra số dư trước/sau | inventory, store_inventory, inventory_transactions | Current/summary/history/store marts; hai route đã chuyển sang transaction có commit/rollback và ledger; mốc tồn đầu cố định |
 | S07 — Trả/đổi/hoàn tiền | Tạo/cancel yêu cầu; admin review, receive, inspect-and-resolve; đọc kết quả | return_requests, return_items, refunds, payments, orders, order_items, inventory, inventory_transactions | Returns, operations và tài chính. Trả hàng online là kịch bản đầu; không mặc định POS walk-in dùng được luồng khách đăng nhập |
 | S08 — Coupon | Available; tạo/sửa/archive; redeem/release qua checkout/cancel | coupons, coupon_redemptions, orders, order_items | Coupon/marketing summary, tài chính; chưa suy hiệu quả nhân quả từ tỷ lệ do generator đặt |
 | S09 — Review | Tạo sau mua đủ điều kiện; admin moderation | product_reviews, order_items, products, customers | Review/marketing summary; ngưỡng approved 1–2 sao tại mốc đo, không suy nguyên nhân từ số lượng |
@@ -56,15 +56,7 @@ Cơ sở đối chiếu: [router đăng ký](../../services/platform-app/src/pla
 
 ## 3. Phạm vi backend và điều kiện bỏ endpoint
 
-| Nhãn trong CSV | Số endpoint | Quyết định cho đợt chuyển đổi |
-|---|---:|---|
-| keep | 65 | Giữ trong hợp đồng nguồn/mô phỏng dự kiến, kể cả GET lookup và auth; không đồng nghĩa đã có automation |
-| keep_blocked | 2 | Giữ mục tiêu nghiệp vụ, sửa/kiểm chứng transaction trước khi đưa vào kịch bản |
-| review | 12 | Lookup/list hoặc route cửa hàng có thể dư; chỉ bỏ sau khi console/simulator có thay thế và giữ quyền store |
-| keep_until_replacement | 2 | HTTP Metrics/Realtime: giữ tới khi có quan sát tương đương đã kiểm chứng |
-| retire_after_replacement | 5 | Hai overview, role metrics, sales trend và analytics store selector: dự kiến bỏ sau khi chuyển BI/quyền/publication |
-
-Không xóa endpoint, schema, service hay bảng trong đợt 1. Lúc thu gọn phải kiểm tra consumer và kiểm tra nghiệp vụ; không xóa logic tiền/tồn/permission chỉ vì bỏ response trình bày. GET catalog/cart/order và auth đang được `scripts/simulate_web_traffic.py` dùng. Prefix `/internal/v1/orders/.../confirm` vẫn thuộc mô phỏng fulfillment hiện có.
+Phạm vi mới tại [API_SOURCE_SCOPE](API_SOURCE_SCOPE.md): bỏ sáu endpoint BI và mười GET quản trị danh sách/trùng lặp cùng service/schema không còn dùng; giữ toàn bộ API ghi và các lookup cần thiết, health và HTTP observability. Lookup customer cần email và trả ID số; lookup thành phố/cửa hàng trả ID cho POS/điều chuyển. Không bỏ auth, CSRF, idempotency hoặc quyền cửa hàng. Simulator cũ đã bị xóa; không coi nó là consumer đang chạy. Các trang Next.js cũ còn trong repo nhưng không còn dùng được các endpoint đã bỏ. Không xóa mart hoặc hạ tầng vì thu gọn lớp phục vụ BI.
 
 ## 4. Baseline đã ghi nhận và giới hạn
 

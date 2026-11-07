@@ -2,7 +2,7 @@ import hashlib
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -12,13 +12,7 @@ from platform_app.api.models.customer import Customer
 from platform_app.api.models.inbound import InboundReceipt, InboundReceiptItem
 from platform_app.api.models.inventory import Inventory
 from platform_app.api.models.inventory_tx import InventoryTransaction
-from platform_app.api.modules.inbound.schemas import (
-    CreateInboundReceiptPayload,
-    InboundReceiptDetailResponse,
-    InboundReceiptItemDetailResponse,
-    InboundReceiptListResponse,
-    InboundReceiptSummaryResponse,
-)
+from platform_app.api.modules.inbound.schemas import CreateInboundReceiptPayload, InboundReceiptDetailResponse, InboundReceiptItemDetailResponse
 
 
 def _extract_digest(idempotency_key: str | None) -> str:
@@ -116,9 +110,8 @@ def create_inbound_receipt(
             variant.cost_price_vnd = new_cost_int
             variant.updated_at = now
 
-            # Update inventory on_hand and opening_on_hand
+            # Opening balance is fixed; inbound is represented by the ledger.
             inv.on_hand += item.quantity
-            inv.opening_on_hand += item.quantity
             inv.version += 1
             inv.updated_at = now
 
@@ -219,62 +212,4 @@ def get_inbound_receipt_detail(db: Session, receipt_code: str) -> InboundReceipt
         created_by_name=created_by_name,
         created_at=receipt.created_at,
         items=items,
-    )
-
-
-def list_inbound_receipts(
-    db: Session,
-    search: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> InboundReceiptListResponse:
-    stmt = (
-        select(InboundReceipt, Customer.display_name)
-        .outerjoin(Customer, Customer.customer_id == InboundReceipt.created_by_customer_id)
-    )
-    agg_stmt = select(
-        func.count(),
-        func.coalesce(func.sum(InboundReceipt.total_items_count), 0),
-        func.coalesce(func.sum(InboundReceipt.total_cost_vnd), 0),
-    ).select_from(InboundReceipt)
-
-    if search and search.strip():
-        kw = f"%{search.strip()}%"
-        filter_clause = or_(
-            InboundReceipt.receipt_code.ilike(kw),
-            InboundReceipt.batch_name.ilike(kw),
-        )
-        stmt = stmt.where(filter_clause)
-        agg_stmt = agg_stmt.where(filter_clause)
-
-    agg_res = db.execute(agg_stmt).first()
-    total = int(agg_res[0]) if agg_res else 0
-    total_items_count = int(agg_res[1]) if agg_res else 0
-    total_cost_vnd = int(agg_res[2]) if agg_res else 0
-
-    rows = db.execute(
-        stmt.order_by(InboundReceipt.created_at.desc(), InboundReceipt.receipt_id.desc())
-        .offset(offset)
-        .limit(limit)
-    ).all()
-
-    items = [
-        InboundReceiptSummaryResponse(
-            receipt_id=r.receipt_id,
-            receipt_code=r.receipt_code,
-            batch_name=r.batch_name,
-            status=r.status,
-            total_items_count=r.total_items_count,
-            total_cost_vnd=r.total_cost_vnd,
-            created_by_name=c_name,
-            created_at=r.created_at,
-        )
-        for r, c_name in rows
-    ]
-
-    return InboundReceiptListResponse(
-        items=items,
-        total=total,
-        total_items_count=total_items_count,
-        total_cost_vnd=total_cost_vnd,
     )

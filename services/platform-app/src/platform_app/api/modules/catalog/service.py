@@ -186,8 +186,8 @@ def list_products(
         pattern = _search_pattern(normalized_query)
         stmt = stmt.where(
             or_(
-                Product.name.like(pattern, escape="\\"),
-                Product.description.like(pattern, escape="\\"),
+                Product.name.ilike(pattern, escape="\\"),
+                Product.description.ilike(pattern, escape="\\"),
             )
         )
 

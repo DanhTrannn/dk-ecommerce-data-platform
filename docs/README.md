@@ -31,6 +31,8 @@ Bộ tài liệu lấy phần Data Engineering làm trọng tâm, được đố
 | [GENERATOR_REFERENCE_PROFILE](project/GENERATOR_REFERENCE_PROFILE.md) | Đặc tả bốn đặc trưng, audit UCI, profile tham chiếu đã đo và giới hạn trước khi áp dụng vào generator |
 | [GENERATOR_CONSOLE](project/GENERATOR_CONSOLE.md) | Thiết kế Streamlit console, job nền, validate, lưu trạng thái và phạm vi đợt 3 |
 
+| [API_SOURCE_SCOPE](project/API_SOURCE_SCOPE.md) | 16 GET BI/quản trị đã bỏ, API ghi và lookup nguồn giữ lại, transaction/ledger và kiểm chứng PostgreSQL |
+
 ## Tài liệu giữ để phân tích và viết tiểu luận
 
 Các tài liệu A–D mô tả phân tích, nghiệp vụ và thiết kế theo code hiện tại. Các phần chưa triển khai và khác biệt UI/API được ghi rõ; định nghĩa công thức chi tiết dùng Metrics Catalog để tránh lặp lại.

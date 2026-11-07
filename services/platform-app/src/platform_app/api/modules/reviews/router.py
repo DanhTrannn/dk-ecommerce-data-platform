@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from platform_app.api.db.deps import (
@@ -10,18 +10,12 @@ from platform_app.api.db.deps import (
 )
 from platform_app.api.models.customer import Customer
 from platform_app.api.modules.reviews.schemas import (
-    AdminReviewResponse,
     CreateReviewRequest,
     CustomerReviewResponse,
     ModerateReviewRequest,
     ReviewListResponse,
 )
-from platform_app.api.modules.reviews.service import (
-    create_review,
-    list_admin_reviews,
-    list_approved_reviews,
-    moderate_review,
-)
+from platform_app.api.modules.reviews.service import create_review, list_approved_reviews, moderate_review
 
 router = APIRouter(tags=["reviews"])
 admin_router = APIRouter(prefix="/admin/reviews", tags=["admin-reviews"])
@@ -56,13 +50,6 @@ def add_review(
     )
 
 
-@admin_router.get("", response_model=list[AdminReviewResponse])
-def admin_reviews(
-    status: str | None = Query(default=None, pattern=r"^(approved|rejected)$"),
-    _: Customer = Depends(get_current_marketing_staff),
-    db: Session = Depends(get_db),
-) -> list[AdminReviewResponse]:
-    return list_admin_reviews(db, status)
 
 
 @admin_router.patch("/{public_id}", response_model=CustomerReviewResponse)

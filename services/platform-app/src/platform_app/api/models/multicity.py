@@ -126,7 +126,6 @@ class StoreInventory(Base):
     __table_args__ = (
         CheckConstraint("opening_on_hand >= 0", name="opening_on_hand_non_negative"),
         CheckConstraint("on_hand >= 0", name="on_hand_non_negative"),
-        CheckConstraint("on_hand <= opening_on_hand", name="on_hand_within_opening"),
         Index("uq_store_inventory_store_id_variant_id", "store_id", "variant_id", unique=True),
         Index("ix_store_inventory_updated_at_store_id", "updated_at", "store_id"),
     )

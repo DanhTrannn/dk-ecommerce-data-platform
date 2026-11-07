@@ -172,7 +172,8 @@ class PostgreSQLSchemaTests(PostgresFixture):
             StoreInventory, store_id=store["store_id"], variant_id=variant["variant_id"], on_hand=2, opening_on_hand=3
         )
         self.assertGreater(balance["store_inventory_id"], 0)
-        self.reject(update(StoreInventory).values(on_hand=4))
+        self.connection.execute(update(StoreInventory).values(on_hand=4))
+        self.reject(update(StoreInventory).values(on_hand=-1))
 
     def test_defaults_are_utc_and_raw_updates_preserve_explicit_history(self):
         self.connection.execute(text("SET LOCAL TIME ZONE 'Asia/Ho_Chi_Minh'"))

@@ -14,13 +14,7 @@ from platform_app.api.modules.coupons.schemas import (
     CreateCouponRequest,
     UpdateCouponRequest,
 )
-from platform_app.api.modules.coupons.service import (
-    archive_coupon,
-    create_coupon,
-    list_available_coupons,
-    list_coupons,
-    set_coupon_active,
-)
+from platform_app.api.modules.coupons.service import archive_coupon, create_coupon, list_available_coupons, set_coupon_active
 
 router = APIRouter(prefix="/coupons", tags=["coupons"])
 admin_router = APIRouter(prefix="/admin/coupons", tags=["admin-coupons"])
@@ -39,12 +33,6 @@ def available_coupons(
     )
 
 
-@admin_router.get("", response_model=list[CouponResponse])
-def admin_coupons(
-    _: Customer = Depends(get_current_marketing_staff),
-    db: Session = Depends(get_db),
-) -> list[CouponResponse]:
-    return list_coupons(db)
 
 
 @admin_router.post("", response_model=CouponResponse, status_code=201)

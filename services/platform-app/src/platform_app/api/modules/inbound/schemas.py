@@ -48,21 +48,3 @@ class InboundReceiptDetailResponse(BaseModel):
     created_by_name: str | None = None
     created_at: datetime
     items: list[InboundReceiptItemDetailResponse]
-
-
-class InboundReceiptSummaryResponse(BaseModel):
-    receipt_id: int
-    receipt_code: str
-    batch_name: str
-    status: str
-    total_items_count: int
-    total_cost_vnd: int
-    created_by_name: str | None = None
-    created_at: datetime
-
-
-class InboundReceiptListResponse(BaseModel):
-    items: list[InboundReceiptSummaryResponse]
-    total: int
-    total_items_count: int = 0
-    total_cost_vnd: int = 0

@@ -191,8 +191,7 @@ CREATE TABLE inventory (
 	updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('UTC', statement_timestamp()) NOT NULL,
 	CONSTRAINT pk_inventory PRIMARY KEY (variant_id),
 	CONSTRAINT ck_inventory_opening_on_hand_non_negative CHECK (opening_on_hand >= 0),
-	CONSTRAINT ck_inventory_on_hand_non_negative CHECK (on_hand >= 0),
-	CONSTRAINT ck_inventory_on_hand_within_opening CHECK (on_hand <= opening_on_hand)
+	CONSTRAINT ck_inventory_on_hand_non_negative CHECK (on_hand >= 0)
 );
 
 CREATE TABLE inventory_transactions (
@@ -484,7 +483,6 @@ CREATE TABLE store_inventory (
 	CONSTRAINT pk_store_inventory PRIMARY KEY (store_id, variant_id),
 	CONSTRAINT ck_store_inventory_opening_on_hand_non_negative CHECK (opening_on_hand >= 0),
 	CONSTRAINT ck_store_inventory_on_hand_non_negative CHECK (on_hand >= 0),
-	CONSTRAINT ck_store_inventory_on_hand_within_opening CHECK (on_hand <= opening_on_hand),
 	CONSTRAINT uq_store_inventory_store_inventory_id UNIQUE (store_inventory_id)
 );
 

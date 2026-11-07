@@ -16,14 +16,7 @@ from platform_app.api.models.catalog import Product, ProductVariant
 from platform_app.api.models.customer import Customer
 from platform_app.api.models.order import Order, OrderItem
 from platform_app.api.models.review import ProductReview
-from platform_app.api.modules.reviews.schemas import (
-    AdminReviewResponse,
-    CreateReviewRequest,
-    CustomerReviewResponse,
-    ModerateReviewRequest,
-    ReviewListResponse,
-    ReviewResponse,
-)
+from platform_app.api.modules.reviews.schemas import CreateReviewRequest, CustomerReviewResponse, ModerateReviewRequest, ReviewListResponse, ReviewResponse
 
 
 def _utc_now() -> datetime:
@@ -136,40 +129,6 @@ def create_review(
     return run_in_transaction(_work)
 
 
-def list_admin_reviews(
-    db: Session, status: str | None
-) -> list[AdminReviewResponse]:
-    stmt = (
-        select(
-            ProductReview,
-            Order.order_number,
-            OrderItem.product_name_snapshot,
-            Customer.display_name,
-        )
-        .join(OrderItem, OrderItem.order_item_id == ProductReview.order_item_id)
-        .join(Order, Order.order_id == OrderItem.order_id)
-        .join(Customer, Customer.customer_id == ProductReview.customer_id)
-    )
-    if status:
-        stmt = stmt.where(ProductReview.status == status)
-    rows = db.execute(
-        stmt.order_by(ProductReview.created_at.desc(), ProductReview.review_id.desc()).limit(300)
-    ).all()
-    return [
-        AdminReviewResponse(
-            public_id=str(review.public_id),
-            order_number=order_number,
-            product_name=product_name,
-            customer_name=customer_name,
-            rating=review.rating,
-            content=review.content,
-            status=review.status,
-            moderation_reason=review.moderation_reason,
-            created_at=review.created_at,
-            updated_at=review.updated_at,
-        )
-        for review, order_number, product_name, customer_name in rows
-    ]
 
 
 def moderate_review(

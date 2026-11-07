@@ -34,6 +34,5 @@ class Inventory(Base):
     __table_args__ = (
         CheckConstraint("opening_on_hand >= 0", name="opening_on_hand_non_negative"),
         CheckConstraint("on_hand >= 0", name="on_hand_non_negative"),
-        CheckConstraint("on_hand <= opening_on_hand", name="on_hand_within_opening"),
         Index("ix_inventory_updated_at_variant_id", "updated_at", "variant_id"),
     )

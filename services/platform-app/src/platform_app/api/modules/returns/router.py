@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
 
 from platform_app.api.core.errors import VALIDATION_ERROR, AppError
@@ -6,23 +6,12 @@ from platform_app.api.db.deps import get_current_admin, get_current_customer, ge
 from platform_app.api.models.customer import Customer
 from platform_app.api.modules.returns.schemas import (
     AdminInspectAndResolvePayload,
-    AdminReturnListResponse,
     AdminReviewReturnPayload,
     CreateReturnRequestPayload,
     ReturnRequestDetailResponse,
     ReturnRequestListResponse,
 )
-from platform_app.api.modules.returns.service import (
-    cancel_customer_return_request,
-    create_customer_return_request,
-    get_admin_return_detail,
-    get_customer_return,
-    inspect_and_resolve_admin_return,
-    list_admin_returns,
-    list_customer_returns,
-    receive_admin_return,
-    review_admin_return,
-)
+from platform_app.api.modules.returns.service import cancel_customer_return_request, create_customer_return_request, get_admin_return_detail, get_customer_return, inspect_and_resolve_admin_return, list_customer_returns, receive_admin_return, review_admin_return
 
 
 def _require_idempotency_key(value: str | None) -> str:
@@ -87,16 +76,6 @@ def cancel_return_request(
 admin_router = APIRouter(prefix="/admin/returns", tags=["admin-returns"])
 
 
-@admin_router.get("", response_model=AdminReturnListResponse)
-def admin_list_returns(
-    status: str | None = Query(default=None),
-    search: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    _: Customer = Depends(get_current_admin),
-    db: Session = Depends(get_db),
-) -> AdminReturnListResponse:
-    return list_admin_returns(db, status=status, search=search, limit=limit, offset=offset)
 
 
 @admin_router.get("/{return_code}", response_model=ReturnRequestDetailResponse)

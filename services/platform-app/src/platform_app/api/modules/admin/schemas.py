@@ -1,33 +1,6 @@
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
-from platform_app.api.modules.analytics.schemas import AnalyticsDataStatus
-
-
-class AdminOverviewResponse(AnalyticsDataStatus):
-    active_products: int | None = None
-    active_variants: int | None = None
-    low_stock_variants: int | None = None
-    customers: int | None = None
-    total_orders: int | None = None
-    pending_payment_orders: int | None = None
-    paid_orders: int | None = None
-    confirmed_orders: int | None = None
-    completed_orders: int | None = None
-    cancelled_orders: int | None = None
-    total_reviews: int | None = None
-    active_coupons: int | None = None
-    gross_revenue_vnd: int | None = None
-    refunded_amount_vnd: int | None = None
-    net_revenue_vnd: int | None = None
-    cogs_vnd: int | None = None
-    gross_profit_vnd: int | None = None
-    boom_orders_count: int | None = None
-    return_orders_count: int | None = None
-    shipping_orders: int | None = None
-    delivered_orders: int | None = None
-    gross_margin_percent: float | None = None
-    admin_observed_at: str | None = None
 
 
 class AdminVariantResponse(BaseModel):
@@ -124,20 +97,11 @@ class UpdateVariantRequest(BaseModel):
         return self
 
 
-class AdminOrderResponse(BaseModel):
-    order_number: str
-    customer_name: str
-    customer_email: str
-    status: str
-    total_vnd: int
-    item_count: int
-    created_at: datetime
-    channel: str = "online"
-    payment_method: str = "vietqr"
 
 
 
 class AdminCustomerResponse(BaseModel):
+    customer_id: int
     public_id: str
     display_name: str
     email: str
@@ -175,6 +139,8 @@ class ReinstateCodResponse(BaseModel):
 
 
 class RefillInventoryRequest(BaseModel):
-    variant_id: int
-    store_id: int
-    quantity: int
+    model_config = ConfigDict(extra="forbid")
+
+    variant_id: int = Field(gt=0)
+    store_id: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=2147483647)

@@ -2,12 +2,15 @@ from pydantic import BaseModel
 
 
 class CityResponse(BaseModel):
+    city_id: int
     code: str
     name: str
     store_count: int
 
 
 class StoreResponse(BaseModel):
+    store_id: int
+    city_id: int
     code: str
     name: str
     address: str

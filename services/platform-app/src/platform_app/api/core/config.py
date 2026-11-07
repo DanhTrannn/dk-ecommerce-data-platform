@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     order_page_size: int = 10
 
     # Concurrency
-    checkout_max_retries: int = 3
+    checkout_max_retries: int = Field(default=3, ge=1)
 
     @property
     def cors_origin_list(self) -> list[str]:

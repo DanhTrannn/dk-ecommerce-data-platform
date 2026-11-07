@@ -1,11 +1,8 @@
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, Header, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from platform_app.api.core.errors import OUT_OF_STOCK, VALIDATION_ERROR, AppError, not_found
-from platform_app.api.core.ids import uuid7
+from platform_app.api.core.errors import VALIDATION_ERROR, AppError
 from platform_app.api.db.deps import (
     get_current_admin,
     get_current_inventory_staff,
@@ -15,15 +12,15 @@ from platform_app.api.db.deps import (
 )
 from platform_app.api.models.catalog import ProductVariant
 from platform_app.api.models.customer import Customer
-from platform_app.api.models.inventory import Inventory
-from platform_app.api.models.inventory_tx import InventoryTransaction
 from platform_app.api.models.multicity import Store, StoreInventory
 from platform_app.api.modules.admin.branch_inventory_schemas import BranchInventoryItem, UpdateStockRequest
-from platform_app.api.modules.admin.branch_inventory_service import check_store_inventory_permission
+from platform_app.api.modules.admin.branch_inventory_service import (
+    adjust_branch_stock,
+    check_store_inventory_permission,
+    transfer_to_store,
+)
 from platform_app.api.modules.admin.schemas import (
     AdminCustomerResponse,
-    AdminOrderResponse,
-    AdminOverviewResponse,
     AdminProductResponse,
     ArchiveRequest,
     CreateProductRequest,
@@ -34,19 +31,7 @@ from platform_app.api.modules.admin.schemas import (
     UpdateProductRequest,
     UpdateVariantRequest,
 )
-from platform_app.api.modules.admin.service import (
-    archive_product,
-    create_product,
-    get_admin_order_detail,
-    get_overview,
-    list_customers,
-    list_orders,
-    list_products,
-    reinstate_customer_cod,
-    update_customer_status,
-    update_product,
-    update_variant,
-)
+from platform_app.api.modules.admin.service import archive_product, create_product, get_admin_order_detail, list_customers, list_products, reinstate_customer_cod, update_customer_status, update_product, update_variant
 from platform_app.api.modules.orders.schemas import (
     CancelOrderRequest,
     DispatchOrderRequest,
@@ -76,12 +61,6 @@ def _require_idempotency_key(value: str | None) -> str:
     return key
 
 
-@router.get("/overview", response_model=AdminOverviewResponse)
-def overview(
-    _: Customer = Depends(get_current_admin),
-    db: Session = Depends(get_db),
-) -> AdminOverviewResponse:
-    return get_overview(db)
 
 
 @router.get("/products", response_model=list[AdminProductResponse])
@@ -135,16 +114,6 @@ def patch_variant(
     return Response(status_code=204)
 
 
-@router.get("/orders", response_model=list[AdminOrderResponse])
-def orders(
-    status: str | None = Query(
-        default=None,
-        pattern=r"^(pending_payment|paid|payment_failed|confirmed|shipping|delivered|completed|cancelled|failed_delivery|returned)$",
-    ),
-    _: Customer = Depends(get_current_admin),
-    db: Session = Depends(get_db),
-) -> list[AdminOrderResponse]:
-    return list_orders(db, status)
 
 
 @router.get("/orders/{order_number}", response_model=OrderDetailResponse)
@@ -246,10 +215,11 @@ def fail_delivery_admin_order(
 
 @router.get("/customers", response_model=list[AdminCustomerResponse])
 def customers(
+    email: str = Query(min_length=3, max_length=320, description="Exact customer email for scenario lookup"),
     _: Customer = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ) -> list[AdminCustomerResponse]:
-    return list_customers(db)
+    return list_customers(db, email)
 
 
 @router.patch("/customers/{public_id}", status_code=204)
@@ -333,28 +303,8 @@ def update_branch_stock(
     payload: UpdateStockRequest,
     actor: Customer = Depends(get_current_staff),
     _: None = Depends(verify_csrf),
-    db: Session = Depends(get_db),
 ) -> Response:
-    inventory = db.execute(
-        select(StoreInventory).where(
-            StoreInventory.store_id == payload.store_id,
-            StoreInventory.variant_id == payload.variant_id,
-        )
-    ).scalar_one_or_none()
-    if inventory is None:
-        raise not_found("Không tìm thấy tồn kho cho store và variant này.")
-
-    store = db.execute(
-        select(Store).where(Store.store_id == payload.store_id)
-    ).scalar_one_or_none()
-    if store is None:
-        raise not_found("Không tìm thấy cửa hàng.")
-
-    check_store_inventory_permission(actor, payload.store_id, store.city_id)
-
-    inventory.on_hand = payload.on_hand
-    inventory.version += 1
-    db.flush()
+    adjust_branch_stock(actor, payload)
     return Response(status_code=204)
 
 
@@ -363,81 +313,6 @@ def refill_inventory(
     payload: RefillInventoryRequest,
     _: Customer = Depends(get_current_admin),
     __: None = Depends(verify_csrf),
-    db: Session = Depends(get_db),
 ) -> Response:
-    if payload.quantity <= 0:
-        raise AppError(VALIDATION_ERROR, "Số lượng phải lớn hơn 0.", status_code=400)
-
-    store = db.execute(
-        select(Store).where(Store.store_id == payload.store_id)
-    ).scalar_one_or_none()
-    if store is None:
-        raise not_found("Không tìm thấy cửa hàng.")
-
-    now = datetime.now(UTC).replace(tzinfo=None)
-
-    inv = db.execute(
-        select(Inventory)
-        .where(Inventory.variant_id == payload.variant_id)
-        .with_for_update()
-    ).scalar_one_or_none()
-    if inv is None or inv.on_hand < payload.quantity:
-        raise AppError(OUT_OF_STOCK, "Kho tổng không đủ tồn kho.", status_code=409)
-
-    store_inv = db.execute(
-        select(StoreInventory).where(
-            StoreInventory.store_id == payload.store_id,
-            StoreInventory.variant_id == payload.variant_id,
-        ).with_for_update()
-    ).scalar_one_or_none()
-
-    inv.on_hand -= payload.quantity
-    inv.version += 1
-    inv.updated_at = now
-
-    if store_inv:
-        store_inv.on_hand += payload.quantity
-        store_inv.opening_on_hand += payload.quantity
-        store_inv.version += 1
-        store_inv.updated_at = now
-    else:
-        store_inv = StoreInventory(
-            store_id=payload.store_id,
-            variant_id=payload.variant_id,
-            on_hand=payload.quantity,
-            opening_on_hand=payload.quantity,
-            version=1,
-            updated_at=now,
-        )
-        db.add(store_inv)
-
-    reference_code = f"TRANSFER-{payload.store_id}-{payload.variant_id}-{uuid7()}"[:64]
-    db.add_all(
-        [
-            InventoryTransaction(
-                public_id=uuid7(),
-                variant_id=payload.variant_id,
-                location_type="central_warehouse",
-                store_id=None,
-                movement_type="transfer_to_store",
-                quantity_delta=-payload.quantity,
-                reference_code=reference_code,
-                notes=f"Chuyển hàng đến cửa hàng {store.code}",
-                created_at=now,
-            ),
-            InventoryTransaction(
-                public_id=uuid7(),
-                variant_id=payload.variant_id,
-                location_type="store",
-                store_id=payload.store_id,
-                movement_type="transfer_received",
-                quantity_delta=payload.quantity,
-                reference_code=reference_code,
-                notes=f"Cửa hàng {store.code} nhận hàng từ kho tổng",
-                created_at=now,
-            ),
-        ]
-    )
-
-    db.flush()
+    transfer_to_store(payload)
     return Response(status_code=204)

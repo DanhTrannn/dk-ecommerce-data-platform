@@ -34,17 +34,6 @@ class CustomerReviewResponse(BaseModel):
     updated_at: datetime
 
 
-class AdminReviewResponse(BaseModel):
-    public_id: str
-    order_number: str
-    product_name: str
-    customer_name: str
-    rating: int
-    content: str | None
-    status: str
-    moderation_reason: str | None
-    created_at: datetime
-    updated_at: datetime
 
 
 class ModerateReviewRequest(BaseModel):

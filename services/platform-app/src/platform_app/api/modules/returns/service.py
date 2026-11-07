@@ -2,7 +2,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from platform_app.api.core.errors import INVALID_STATE_TRANSITION, VALIDATION_ERROR, AppError, not_found
@@ -11,15 +11,7 @@ from platform_app.api.models.inventory import Inventory
 from platform_app.api.models.inventory_tx import InventoryTransaction
 from platform_app.api.models.order import Order, OrderItem, OrderStatusHistory, Payment, Refund
 from platform_app.api.models.returns import ReturnItem, ReturnRequest
-from platform_app.api.modules.returns.schemas import (
-    AdminInspectAndResolvePayload,
-    AdminReturnListResponse,
-    CreateReturnRequestPayload,
-    ReturnItemDetailResponse,
-    ReturnRequestDetailResponse,
-    ReturnRequestListResponse,
-    ReturnRequestSummaryResponse,
-)
+from platform_app.api.modules.returns.schemas import AdminInspectAndResolvePayload, CreateReturnRequestPayload, ReturnItemDetailResponse, ReturnRequestDetailResponse, ReturnRequestListResponse, ReturnRequestSummaryResponse
 
 RETURN_WINDOW_DAYS = 7
 ACTIVE_RETURN_STATUSES = ("pending_review", "approved", "goods_received")
@@ -303,37 +295,6 @@ def _get_admin_return(
     return return_req, order_number
 
 
-def list_admin_returns(
-    db: Session,
-    status: str | None = None,
-    search: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> AdminReturnListResponse:
-    query = (
-        select(ReturnRequest, Order.order_number)
-        .join(Order, Order.order_id == ReturnRequest.order_id)
-    )
-    if status:
-        query = query.where(ReturnRequest.status == status)
-    if search:
-        pattern = f"%{search.strip()}%"
-        query = query.where(
-            or_(
-                ReturnRequest.return_code.ilike(pattern),
-                Order.order_number.ilike(pattern),
-                Order.receiver_phone.ilike(pattern),
-                Order.receiver_name.ilike(pattern),
-            )
-        )
-    rows = db.execute(
-        query.order_by(ReturnRequest.created_at.desc(), ReturnRequest.return_id.desc())
-    ).all()
-    items = [
-        _build_detail_response(db, order_number, return_req)
-        for return_req, order_number in rows[offset : offset + limit]
-    ]
-    return AdminReturnListResponse(items=items, total=len(rows))
 
 
 def get_admin_return_detail(db: Session, return_code: str) -> ReturnRequestDetailResponse:
@@ -415,8 +376,7 @@ def inspect_and_resolve_admin_return(
         ).scalar_one_or_none()
         if inv is not None:
             inv.on_hand = inv.on_hand + item.quantity
-            if inv.on_hand > inv.opening_on_hand:
-                inv.opening_on_hand = inv.on_hand
+            inv.version += 1
         db.add(
             InventoryTransaction(
                 public_id=uuid4(),

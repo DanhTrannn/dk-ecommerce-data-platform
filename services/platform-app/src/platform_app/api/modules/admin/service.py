@@ -11,18 +11,8 @@ from platform_app.api.db.uow import run_in_transaction
 from platform_app.api.models.catalog import Category, Product, ProductVariant
 from platform_app.api.models.customer import Customer, CustomerCredential
 from platform_app.api.models.inventory import Inventory
-from platform_app.api.models.order import Order, OrderItem
-from platform_app.api.modules.admin.schemas import (
-    AdminCustomerResponse,
-    AdminOrderResponse,
-    AdminOverviewResponse,
-    AdminProductResponse,
-    AdminVariantResponse,
-    CreateProductRequest,
-    ReinstateCodResponse,
-    UpdateProductRequest,
-    UpdateVariantRequest,
-)
+from platform_app.api.models.order import Order
+from platform_app.api.modules.admin.schemas import AdminCustomerResponse, AdminProductResponse, AdminVariantResponse, CreateProductRequest, ReinstateCodResponse, UpdateProductRequest, UpdateVariantRequest
 from platform_app.api.modules.orders.schemas import OrderDetailResponse
 from platform_app.api.modules.orders.service import get_order_detail
 
@@ -34,9 +24,6 @@ def _parse_public_id(value: str, label: str) -> UUID:
         raise not_found(f"Không tìm thấy {label}.") from error
 
 
-def get_overview(db: Session) -> AdminOverviewResponse:
-    from platform_app.api.modules.analytics.service import get_admin_overview
-    return get_admin_overview()
 
 
 def list_products(db: Session, search: str | None = None) -> list[AdminProductResponse]:
@@ -240,40 +227,6 @@ def update_variant(public_id: str, payload: UpdateVariantRequest) -> None:
     run_in_transaction(_work)
 
 
-def list_orders(db: Session, status: str | None) -> list[AdminOrderResponse]:
-    item_count = (
-        select(OrderItem.order_id, func.sum(OrderItem.quantity).label("item_count"))
-        .group_by(OrderItem.order_id)
-        .subquery()
-    )
-    stmt = (
-        select(
-            Order,
-            Customer.display_name,
-            CustomerCredential.email_normalized,
-            func.coalesce(item_count.c.item_count, 0),
-        )
-        .outerjoin(Customer, Customer.customer_id == Order.customer_id)
-        .outerjoin(CustomerCredential, CustomerCredential.customer_id == Customer.customer_id)
-        .outerjoin(item_count, item_count.c.order_id == Order.order_id)
-    )
-    if status:
-        stmt = stmt.where(Order.status == status)
-    rows = db.execute(stmt.order_by(Order.created_at.desc(), Order.order_id.desc()).limit(200)).all()
-    return [
-        AdminOrderResponse(
-            order_number=order.order_number,
-            customer_name=customer_name or order.receiver_name or "Khách tại quầy",
-            customer_email=email or "",
-            status=order.status,
-            total_vnd=order.total_vnd,
-            item_count=int(item_count_value),
-            created_at=order.created_at,
-            channel=order.channel or "online",
-            payment_method=order.payment_method or "vietqr",
-        )
-        for order, customer_name, email, item_count_value in rows
-    ]
 
 
 
@@ -286,15 +239,16 @@ def get_admin_order_detail(db: Session, order_number: str) -> OrderDetailRespons
     return get_order_detail(db, None, order_number)
 
 
-def list_customers(db: Session) -> list[AdminCustomerResponse]:
+def list_customers(db: Session, email: str) -> list[AdminCustomerResponse]:
     rows = db.execute(
         select(Customer, CustomerCredential.email_normalized)
         .join(CustomerCredential, CustomerCredential.customer_id == Customer.customer_id)
-        .order_by(Customer.created_at.desc(), Customer.customer_id.desc())
-        .limit(200)
+        .where(func.lower(CustomerCredential.email_normalized) == email.strip().lower())
+        .limit(1)
     ).all()
     return [
         AdminCustomerResponse(
+            customer_id=customer.customer_id,
             public_id=str(customer.public_id),
             display_name=customer.display_name,
             email=email,

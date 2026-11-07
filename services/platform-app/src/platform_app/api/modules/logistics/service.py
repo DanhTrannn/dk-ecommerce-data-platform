@@ -3,8 +3,7 @@ from sqlalchemy.orm import Session
 
 from platform_app.api.core.errors import not_found
 from platform_app.api.core.ids import uuid7
-from platform_app.api.models.logistics import DeliveryStaff, Shipment
-from platform_app.api.models.order import Order
+from platform_app.api.models.logistics import DeliveryStaff
 from platform_app.api.modules.logistics.schemas import DeliveryStaffCreateRequest, DeliveryStaffUpdateRequest
 
 
@@ -38,42 +37,3 @@ def update_delivery_staff(db: Session, staff_id: int, payload: DeliveryStaffUpda
     if payload.is_active is not None:
         staff.is_active = payload.is_active
     db.flush()
-
-
-def list_shipments(
-    db: Session, status: str | None = None
-) -> list[tuple[Shipment, str, str | None, str | None]]:
-    stmt = (
-        select(
-            Shipment,
-            Order.order_number,
-            DeliveryStaff.full_name,
-            DeliveryStaff.phone,
-        )
-        .join(Order, Order.order_id == Shipment.order_id)
-        .outerjoin(DeliveryStaff, DeliveryStaff.staff_id == Shipment.delivery_staff_id)
-        .order_by(Shipment.shipment_id.desc())
-    )
-    if status:
-        stmt = stmt.where(Shipment.status == status)
-    return db.execute(stmt).all()
-
-
-def get_shipment_by_order_number(
-    db: Session, order_number: str
-) -> tuple[Shipment, str, str | None, str | None]:
-    stmt = (
-        select(
-            Shipment,
-            Order.order_number,
-            DeliveryStaff.full_name,
-            DeliveryStaff.phone,
-        )
-        .join(Order, Order.order_id == Shipment.order_id)
-        .outerjoin(DeliveryStaff, DeliveryStaff.staff_id == Shipment.delivery_staff_id)
-        .where(Order.order_number == order_number)
-    )
-    row = db.execute(stmt).first()
-    if not row:
-        raise not_found("Không tìm thấy thông tin giao hàng cho đơn hàng này.")
-    return row

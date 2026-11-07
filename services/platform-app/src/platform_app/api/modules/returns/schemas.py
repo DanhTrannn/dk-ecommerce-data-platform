@@ -104,8 +104,3 @@ class AdminInspectAndResolvePayload(BaseModel):
                 raise ValueError(f"Trùng lặp return_item_id: {item.return_item_id}")
             seen.add(item.return_item_id)
         return items
-
-
-class AdminReturnListResponse(BaseModel):
-    items: list[ReturnRequestDetailResponse]
-    total: int

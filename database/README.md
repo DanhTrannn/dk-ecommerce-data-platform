@@ -1,6 +1,6 @@
 # PostgreSQL source schema
 
-`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; phần 2 bổ sung generator/seed/importer PostgreSQL; generator hiện ở 0.10 và đã tích hợp địa điểm vào SQL, được kiểm tra bằng database biệt lập. Các luồng API nghiệp vụ và pipeline còn chờ nghiệm thu/chuyển đổi. Không nạp SQL MySQL cũ vào schema này.
+`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; phần 2 bổ sung generator/seed/importer PostgreSQL; generator hiện ở 0.10 và đã tích hợp địa điểm vào SQL, được kiểm tra bằng database biệt lập. Các luồng API nghiệp vụ chính đã kiểm chứng trên PostgreSQL biệt lập; pipeline còn chờ chuyển đổi. Xem [phạm vi API nguồn](../docs/project/API_SOURCE_SCOPE.md). Không nạp SQL MySQL cũ vào schema này.
 
 ## Định nghĩa và tái lập
 
@@ -53,6 +53,8 @@ Importer chỉ nhận SQL tin cậy do generator xuất, không phải sandbox h
 
 Các cột identity thuộc 25 bảng được generator sử dụng được khởi động lại ít nhất ở MAX(id)+1, giữ mức sequence cao hơn nếu đã dùng trước đó. Dùng [`ALTER SEQUENCE RESTART`](https://www.postgresql.org/docs/16/sql-altersequence.html) vì rollback được cùng transaction; `setval` không có đặc tính đó. Bulk import chặn writer trên các bảng này và cần quyền sở hữu sequence; nên nạp trước khi chạy tác vụ ghi đồng thời. Lỗi SQL/đối soát hoặc file thiếu COMMIT sẽ rollback. Không đổi/xóa volume, sửa dữ liệu cũ hay tự chạy DAG. Import lại cùng generation run bị từ chối. Các dataset khác dùng chung địa điểm theo code, bổ sung bản ghi thiếu và giữ thông tin cũ; sai quan hệ store/city sẽ rollback. Địa điểm không được đếm là bản ghi mới: receipt ghi số địa điểm được chọn và xác minh. SQL 0.9 cũ vẫn nạp được nhưng không tự thêm địa điểm.
 
+Schema hiện bỏ hai CHECK tồn hiện tại không vượt tồn đầu: `opening_on_hand` là mốc cố định, nhập/nhận/trả hàng đi qua ledger. Database đã có schema cũ cần được cập nhật và đối soát riêng; bootstrap không tự nâng cấp hay sửa dữ liệu.
+
 ## Hợp đồng dữ liệu
 
 - UUID native, nhận `uuid.UUID` hoặc chuỗi UUID qua ORM; không lưu binary 16 byte.
@@ -77,4 +79,4 @@ RUN_POSTGRES_SCHEMA_TESTS=1 uv run --locked --package platform-app -- \
 
 Integration tests tự tạo PostgreSQL 16.8 biệt lập với `--network none`, dữ liệu tmpfs và Unix socket riêng; không publish port, không dùng database/volume thật và không tự pull image. Container và thư mục tạm được dọn sau khi chạy. Có thể chọn image PostgreSQL 16 đã có bằng `POSTGRES_TEST_IMAGE`.
 
-Đã kiểm tra DDL/ORM reflection, identity cả cột không phải PK, UUID/JSON roundtrip, CHECK số/boolean/tiền/tồn, FK, unique hoa-thường, giỏ active và timestamp. Phần 2 kiểm tra nạp `small`/`month-test`, rollback dữ liệu và sequence khi lỗi cuối file/thiếu COMMIT, từ chối trùng, đối soát nghiệp vụ, seed trước/sau import và seed chạy lại. Đây chưa phải bằng chứng API checkout/POS hoặc pipeline đã chạy toàn luồng.
+Đã kiểm tra DDL/ORM reflection, identity cả cột không phải PK, UUID/JSON roundtrip, CHECK số/boolean/tiền/tồn, FK, unique hoa-thường, giỏ active và timestamp. Phần 2 kiểm tra nạp `small`/`month-test`, rollback dữ liệu và sequence khi lỗi cuối file/thiếu COMMIT, từ chối trùng, đối soát nghiệp vụ, seed trước/sau import và seed chạy lại. Phần 3 bổ sung HTTP workflow test checkout/POS/nhập–xuất–hoàn kho và ledger, retry, quyền store và tranh tồn. Chưa kiểm chứng pipeline đầu cuối hoặc dữ liệu thật.

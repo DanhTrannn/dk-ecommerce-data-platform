@@ -7,15 +7,8 @@ from platform_app.api.modules.logistics.schemas import (
     DeliveryStaffCreateRequest,
     DeliveryStaffResponse,
     DeliveryStaffUpdateRequest,
-    ShipmentResponse,
 )
-from platform_app.api.modules.logistics.service import (
-    create_delivery_staff,
-    get_shipment_by_order_number,
-    list_delivery_staff,
-    list_shipments,
-    update_delivery_staff,
-)
+from platform_app.api.modules.logistics.service import create_delivery_staff, list_delivery_staff, update_delivery_staff
 
 
 def _format_uuid(val) -> str:
@@ -77,60 +70,3 @@ def patch_staff(
     update_delivery_staff(db, staff_id, payload)
     db.commit()
     return Response(status_code=204)
-
-
-@admin_logistics_router.get("/shipments", response_model=list[ShipmentResponse])
-def get_shipments(
-    status: str | None = None,
-    _: Customer = Depends(get_current_admin),
-    db: Session = Depends(get_db),
-):
-    rows = list_shipments(db, status)
-    return [
-        ShipmentResponse(
-            shipment_id=shipment.shipment_id,
-            shipment_code=shipment.shipment_code,
-            order_id=shipment.order_id,
-            order_number=order_number,
-            delivery_staff_id=shipment.delivery_staff_id,
-            delivery_staff_name=staff_name,
-            delivery_staff_phone=staff_phone,
-            status=shipment.status,
-            attempt_count=shipment.attempt_count,
-            cod_amount_vnd=shipment.cod_amount_vnd,
-            cod_collected_vnd=shipment.cod_collected_vnd,
-            dispatched_at=shipment.dispatched_at,
-            delivered_at=shipment.delivered_at,
-            failed_at=shipment.failed_at,
-            failure_reason=shipment.failure_reason,
-            notes=shipment.notes,
-        )
-        for shipment, order_number, staff_name, staff_phone in rows
-    ]
-
-
-@admin_logistics_router.get("/shipments/{order_number}", response_model=ShipmentResponse)
-def get_shipment_detail(
-    order_number: str,
-    _: Customer = Depends(get_current_admin),
-    db: Session = Depends(get_db),
-):
-    shipment, ord_num, staff_name, staff_phone = get_shipment_by_order_number(db, order_number)
-    return ShipmentResponse(
-        shipment_id=shipment.shipment_id,
-        shipment_code=shipment.shipment_code,
-        order_id=shipment.order_id,
-        order_number=ord_num,
-        delivery_staff_id=shipment.delivery_staff_id,
-        delivery_staff_name=staff_name,
-        delivery_staff_phone=staff_phone,
-        status=shipment.status,
-        attempt_count=shipment.attempt_count,
-        cod_amount_vnd=shipment.cod_amount_vnd,
-        cod_collected_vnd=shipment.cod_collected_vnd,
-        dispatched_at=shipment.dispatched_at,
-        delivered_at=shipment.delivered_at,
-        failed_at=shipment.failed_at,
-        failure_reason=shipment.failure_reason,
-        notes=shipment.notes,
-    )
