@@ -52,41 +52,21 @@ This validates the example configuration, not running services or production sec
 
 ## 3. Startup Sequence
 
-The launcher defaults to `core`, regardless of an older `COMPOSE_PROFILES` value in `.env`:
+Makefile calls Compose directly. `PROFILES` defaults to `core` and overrides `COMPOSE_PROFILES` from `.env`. Build all images separately, then start the selected groups:
 
 ```bash
-# MySQL + API + storefront
-make up START_FLAGS=--build
-
-# Website with batch/query services
-make up PROFILES=core,batch
-
-# Full processing platform, without optional management interfaces
-make up PROFILES=core,batch,streaming
-
-# Include Generator Console and Polaris Console
-make up PROFILES=core,tools
-# Or the full stack
-./scripts/start_all.sh --all
+make build
+make up                                  # PostgreSQL only
+make up PROFILES=core,tools               # Shared FastAPI/Streamlit application
+make up PROFILES=core,batch,streaming,tools
 make ps
+make logs
+make down                                # All profiles; retain volumes
 ```
 
-`--profiles core,batch` selects an exact list. The launcher enables Kafka access logging only when `streaming` is selected. It uses Compose readiness checks for selected services and resolves published endpoint ports from the running Compose model. `--no-wait` skips readiness and Gold checks; `--allow-degraded` reports failed readiness/schema checks as warnings rather than proving platform health.
+`make up` waits for readiness with a 180-second timeout and returns Compose errors directly. It creates `.env` from the example only when absent, preserving existing settings. There is no shell argument parser, degraded-success mode, automatic Gold initialization or dynamic endpoint listing. `services/platform-app/start.sh` remains the container entrypoint that manages its two Python processes.
 
-Selecting fewer profiles does not stop existing containers from other groups. To switch to a smaller running stack, use `make down` followed by the desired `make up` command. Stop/start retains named volumes; do not pass `-v` when keeping data.
-
-Direct Compose startup is also available. Override `COMPOSE_PROFILES` explicitly because `--profile` flags otherwise add to the value in `.env`:
-
-```bash
-COMPOSE_PROFILES=core KAFKA_ENABLED=false docker compose up -d --build
-COMPOSE_PROFILES=core,batch,streaming KAFKA_ENABLED=true docker compose up -d
-```
-
-Core-only startup does not launch MinIO, Polaris, Airflow, Kafka or Trino. Transactional features remain available; BI queries require the analytical platform and a completed publication. The launcher initializes missing Gold schemas only for `batch`/`streaming`; creating tables does not populate analytical results or execute a DAG.
-
-OLTP analytics now has one writer: the batch DAG. Starting `core,batch` does not itself extract or publish data. CDC is audit-only; there is no writer-mode environment switch.
-
-Spark runs with `SPARK_MASTER_URL=local[2]` inside the container executing each job. Airflow's `spark_default` connection uses the same value, including an environment-backed connection that overrides legacy metadata pointing at the retired cluster. Ad hoc Spark SQL also runs locally. There is no Spark master/worker service or persistent Spark cluster UI. Adjust the local thread count in `.env` if required.
+To switch to fewer running groups, use `make down` before the new `make up`. Compose can also be called directly with an explicit `COMPOSE_PROFILES` selection. Source schema, MinIO/Polaris provisioning, Spark task settings and pipeline readiness remain separate from service startup.
 
 ### Airflow 3.3.2 upgrade
 
@@ -111,7 +91,7 @@ Rebuild the Spark utility/CDC image and recreate the changed execution services.
 
 ```bash
 docker compose build spark-client
-./scripts/start_all.sh --profiles core,batch,streaming
+make up PROFILES=core,batch,streaming
 ```
 
 Old `SPARK_MASTER_UI_PORT`, `SPARK_WORKER_UI_PORT`, `SPARK_WORKER_CORES` and `SPARK_WORKER_MEMORY` entries are unused and can be removed from existing `.env` files. Old master/worker containers are now orphans; after stopping old jobs, remove only those two stateless containers. Their old `spark-work` volume is unused; database, object-store, broker and credential volumes must be retained. An older `.env` with `COMPOSE_PROFILES=core,batch,streaming` still starts those groups when calling Compose directly; the launcher overrides it.
@@ -131,7 +111,7 @@ The current shared `platform-app` container starts FastAPI and Streamlit after P
 3. Old MinIO/Polaris Python init services are removed. Bucket, IAM, catalog, namespaces and client credential provisioning will be redesigned in `platform-app`; no replacement bootstrap is implemented in this change.
 4. Existing data and credential volumes are retained. Starting compute/query consumers on new empty volumes still requires the deferred bootstrap. Airflow startup depends only on its PostgreSQL metadata database.
 
-The `pipeline` profile contains Debezium connector registration and Flink job submission services. It is intentionally excluded from the launcher's infrastructure profiles; business source/consumer configuration must be completed before using it. The launcher no longer creates Gold tables or references the deleted Gold init SQL.
+The `pipeline` profile contains Debezium connector registration and Flink job submission services. It is intentionally excluded from the default infrastructure profiles; business source/consumer configuration must be completed before using it. Make does not create Gold tables or references the deleted Gold init SQL.
 
 ### MinIO initialization
 

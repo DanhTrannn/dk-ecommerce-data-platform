@@ -37,7 +37,8 @@ Console nằm trong profile `tools`:
 
 ```bash
 # Cùng các dịch vụ core
-make up PROFILES=core,tools START_FLAGS=--build
+make build
+make up PROFILES=core,tools
 
 # Hoặc chỉ console
 docker compose --profile tools up -d --build platform-app

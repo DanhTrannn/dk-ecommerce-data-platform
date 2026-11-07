@@ -27,7 +27,7 @@
 
 Application code is grouped under `services/`: `services/platform-app` owns the shared Python package `platform_app` (`api/` and `ui/`), Dockerfile and startup script; `services/storefront` retains Next.js. `generator/` stays a separate reusable CLI/package. Compose service and image are named `platform-app`; host settings use `PLATFORM_APP_*`.
 
-`platform-app` builds from `services/platform-app/Dockerfile` and uses the `PLATFORM_APP_*` host port/user settings. The Python distribution and UI command are named `platform-app`. The launcher starts services only; it no longer initializes Gold tables. CDC connector registration and Flink job submissions are reserved for the explicit `pipeline` profile, outside infrastructure startup.
+`platform-app` builds from `services/platform-app/Dockerfile` and uses the `PLATFORM_APP_*` host port/user settings. The Python distribution and UI command are named `platform-app`. Make starts services only; it no longer initializes Gold tables. CDC connector registration and Flink job submissions are reserved for the explicit `pipeline` profile, outside infrastructure startup.
 
 The shared container exposes Streamlit on `PLATFORM_APP_PORT` (8501) and FastAPI on `API_PORT` (8000). Both use `PLATFORM_APP_BIND_ADDRESS`. Its healthcheck verifies both HTTP processes; PostgreSQL readiness is checked separately at `/health/ready`. No source schema or seed is applied automatically. The PostgreSQL driver is available, but migration of business schema/SQL remains pending. Both processes shut down when either exits.
 
@@ -69,58 +69,31 @@ Published reports for all seven analytics roles, admin overview, store overview,
 - [Python 3.11](https://www.python.org/downloads/) and [uv](https://docs.astral.sh/uv/) for host-side data generation and Python development.
 - [Node.js 22.x](https://nodejs.org/) and npm 10+ for host-side frontend development.
 
-### Quick Start (One Command)
+### Quick Start
 
-The launcher creates `.env` from `.env.example` if needed, starts the selected profiles (`core` by default), waits for their readiness, and initializes missing Gold schemas when analytical services are selected:
+Makefile is the entrypoint for Compose. `make up` creates `.env` from `.env.example` only when missing, selects `PROFILES` (`core` by default), and waits for service readiness. Existing `.env` files are preserved.
 
 ```bash
+# Build all project images
+make build
+
+# PostgreSQL only
 make up
-# or
-./scripts/start_all.sh
-```
 
-Use `./scripts/start_all.sh --build` when rebuilding images. On a new MySQL volume, `database/schema.sql` creates all 28 source tables. The API initializes the catalog/admin; transactional history and populated Gold results require ingestion and a pipeline run. Existing volumes keep their schema and data; see the [database guide](database/README.md).
+# FastAPI and Streamlit with PostgreSQL
+make up PROFILES=core,tools
 
-To stop the platform:
-
-```bash
-make down
-# or
-./scripts/stop_all.sh
-```
-
----
-
-### Step-by-Step Startup (Alternative)
-
-#### 1. Prepare the Environment
-
-```bash
-cp .env.example .env
-```
-
-The example sets `COMPOSE_PROFILES=core`, starting only MySQL, FastAPI and Next.js. The launcher selects an exact profile list, overriding older `.env` values. Direct Compose `--profile` flags add to `COMPOSE_PROFILES`; use an explicit environment override when selecting a smaller stack.
-
-#### 2. Start and Inspect the Services
-
-```bash
-# Website/API/MySQL only
-make up START_FLAGS=--build
-
-# Add batch processing and analytical queries
-make up PROFILES=core,batch
-
-# Add Kafka, CDC and access-log streaming
-make up PROFILES=core,batch,streaming
-
-# Optional management interfaces (Generator Console and Polaris Console)
+# Full infrastructure; data job submission remains in the separate pipeline profile
 make up PROFILES=core,batch,streaming,tools
 
 make ps
-curl -fsS http://localhost:8000/health/ready
+make logs
+make down
 ```
 
-The launcher waits for selected services and initializes missing Gold schemas only for data groups. It enables Kafka access logging when `streaming` is selected. Existing containers from other groups remain running; `make down` stops all groups while retaining data volumes. Core-only startup serves transactional features; analytical dashboards require the data platform and a completed publication. See the [setup guide](docs/runbook/SETUP.md) for profile boundaries and direct Compose commands.
+`make up` reports Compose failures directly. `make down` stops all groups and retains data volumes. Starting fewer profiles does not stop containers from other groups; stop the stack first when switching to a smaller selection. Make overrides `COMPOSE_PROFILES` from `.env` with the selected `PROFILES` value.
+
+Image builds and service readiness do not initialize business schemas, seed data, run DAGs or verify analytical results. Fresh MinIO/Polaris provisioning remains pending redesign. See the [setup guide](docs/runbook/SETUP.md).
 
 #### 3. Service Access Endpoints
 
@@ -227,7 +200,8 @@ The optional console drives the same generator CLI in a detached worker, keeps o
 # Local process
 uv run --locked --package platform-app platform-app
 # Or with the tools profile
-make up PROFILES=core,tools START_FLAGS=--build
+make build
+make up PROFILES=core,tools
 ```
 
 Open `http://localhost:8501`, choose SQL, access log or both, then monitor the per-stage results and download outputs. The console does not import SQL, run traffic, upload logs or trigger Airflow. See [services/platform-app/README.md](services/platform-app/README.md) for job layout and recovery behavior.

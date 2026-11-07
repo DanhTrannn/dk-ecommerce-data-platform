@@ -23,7 +23,7 @@
 | `pipelines/src/lakehouse/` | Thư viện schema, transform, DQ và session; không manifest/cursor riêng |
 | `airflow/dags/` | Batch/init OLTP, hard delete thủ công, log mart và hai DAG maintenance |
 | `infrastructure/` | Docker images, MinIO policy, Polaris RBAC, Kafka/Flink/Trino |
-| `scripts/` | Start/stop hạ tầng |
+| `Makefile` | Build/start/stop và kiểm tra hạ tầng qua Compose |
 | `docs/` | Kiến trúc, chỉ số, contract, vận hành và tài liệu tiểu luận |
 | `docs/diagram/` | Sơ đồ Chương 3: draw.io, SVG và trang xem HTML |
 
@@ -31,7 +31,7 @@
 
 | Thành phần | File |
 |---|---|
-| Launcher | [start_all.sh](../../scripts/start_all.sh) |
+| Lệnh vận hành | [Makefile](../../Makefile) |
 | Batch DAG | [lakehouse_oltp_pipeline.py](../../airflow/dags/lakehouse_oltp_pipeline.py) |
 | OLTP Bronze | [writer.py](../../pipelines/src/lakehouse/oltp/bronze/writer.py) |
 | Shared utilities | [utils/](../../pipelines/src/lakehouse/utils/) — config, Spark, SQL loader và maintenance |
@@ -47,7 +47,7 @@
 
 Python workspace có `platform-app`, `data-generator`, `batch-pipeline` dùng chung `uv.lock`. Package `platform_app` chứa `api/` và `ui/`; generator vẫn là CLI/thư viện riêng. Spark/Flink runtime nằm trong các Docker image xử lý dữ liệu.
 
-Profile `core` chỉ chứa PostgreSQL. `batch` chứa Airflow cùng storage/catalog/query; `streaming` chứa Kafka/Debezium Connect/Flink và storage/catalog/query. `tools` chứa `platform-app` và các thành phần storage/query dùng chung. Profile `pipeline` riêng chứa đăng ký connector và submit job Flink; `lakehouse-tools` cung cấp Spark SQL client. Spark chạy `local[2]`; không có master/worker. `.env.example` và launcher mặc định chọn `core`.
+Profile `core` chỉ chứa PostgreSQL. `batch` chứa Airflow cùng storage/catalog/query; `streaming` chứa Kafka/Debezium Connect/Flink và storage/catalog/query. `tools` chứa `platform-app` và các thành phần storage/query dùng chung. Profile `pipeline` riêng chứa đăng ký connector và submit job Flink; `lakehouse-tools` cung cấp Spark SQL client. Spark chạy `local[2]`; không có master/worker. `.env.example` và Makefile mặc định chọn `core`.
 
 Bootstrap MinIO/Polaris mới và chuyển schema/SQL nghiệp vụ từ MySQL sang PostgreSQL còn chờ triển khai. Build/healthcheck của service không xác nhận pipeline nghiệp vụ chạy đầu cuối.
 
