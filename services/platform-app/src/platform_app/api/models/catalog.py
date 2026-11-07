@@ -1,7 +1,19 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, String, Text, text
-from sqlalchemy.dialects.mysql import BIGINT, DATETIME
+from sqlalchemy import (
+    func,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    FetchedValue,
+    ForeignKey,
+    Identity,
+    Index,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from platform_app.api.db.base import Base
@@ -11,26 +23,35 @@ from platform_app.api.db.types import GUID
 class Category(Base):
     __tablename__ = "categories"
 
-    category_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    category_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(),
+        CheckConstraint("category_id >= 0", name="category_id_non_negative"),
+        primary_key=True,
+        autoincrement=True,
+    )
     public_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     parent_category_id: Mapped[int | None] = mapped_column(
-        BIGINT(unsigned=True), ForeignKey("categories.category_id", ondelete="RESTRICT"), nullable=True
+        BigInteger,
+        CheckConstraint("parent_category_id >= 0", name="parent_category_id_non_negative"),
+        ForeignKey("categories.category_id", ondelete="RESTRICT"),
+        nullable=True,
     )
     code: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
+        DateTime(timezone=False),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP(6)"),
-        server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_onupdate=FetchedValue(),
     )
 
     __table_args__ = (
-        Index("uq_categories_code", "code", unique=True),
+        Index("uq_categories_code", func.lower(code), unique=True),
         Index("uq_categories_public_id", "public_id", unique=True),
         Index(
             "ix_categories_parent_is_active_id",
@@ -45,31 +66,41 @@ class Category(Base):
 class Product(Base):
     __tablename__ = "products"
 
-    product_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    product_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(),
+        CheckConstraint("product_id >= 0", name="product_id_non_negative"),
+        primary_key=True,
+        autoincrement=True,
+    )
     public_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     category_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), ForeignKey("categories.category_id", ondelete="RESTRICT"), nullable=False
+        BigInteger,
+        CheckConstraint("category_id >= 0", name="category_id_non_negative"),
+        ForeignKey("categories.category_id", ondelete="RESTRICT"),
+        nullable=False,
     )
     slug: Mapped[str] = mapped_column(String(180), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    archived_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
     archived_by_customer_id: Mapped[int | None] = mapped_column(
-        BIGINT(unsigned=True),
+        BigInteger,
+        CheckConstraint("archived_by_customer_id >= 0", name="archived_by_customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         nullable=True,
     )
     archive_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
+        DateTime(timezone=False),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP(6)"),
-        server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_onupdate=FetchedValue(),
     )
 
     __table_args__ = (
@@ -80,10 +111,10 @@ class Product(Base):
             name="archive_metadata_consistency",
         ),
         CheckConstraint(
-            "archived_at is null or is_active = 0",
+            "archived_at is null or is_active IS FALSE",
             name="archived_not_active",
         ),
-        Index("uq_products_slug", "slug", unique=True),
+        Index("uq_products_slug", func.lower(slug), unique=True),
         Index("uq_products_public_id", "public_id", unique=True),
         Index("ix_products_category_id_is_active_product_id", "category_id", "is_active", "product_id"),
         Index("ix_products_is_active_product_id", "is_active", "product_id"),
@@ -95,34 +126,53 @@ class Product(Base):
 class ProductVariant(Base):
     __tablename__ = "product_variants"
 
-    variant_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    variant_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(),
+        CheckConstraint("variant_id >= 0", name="variant_id_non_negative"),
+        primary_key=True,
+        autoincrement=True,
+    )
     public_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     product_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), ForeignKey("products.product_id", ondelete="RESTRICT"), nullable=False
+        BigInteger,
+        CheckConstraint("product_id >= 0", name="product_id_non_negative"),
+        ForeignKey("products.product_id", ondelete="RESTRICT"),
+        nullable=False,
     )
     sku: Mapped[str] = mapped_column(String(64), nullable=False)
     size_code: Mapped[str] = mapped_column(String(32), nullable=False)
     color_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    price_vnd: Mapped[int] = mapped_column(BIGINT(unsigned=True), nullable=False)
+    price_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     cost_price_vnd: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), nullable=False, default=0, server_default=text("0")
+        BigInteger,
+        CheckConstraint("cost_price_vnd >= 0", name="cost_price_vnd_non_negative"),
+        nullable=False,
+        default=0,
+        server_default=text("0"),
     )
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
+        DateTime(timezone=False),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP(6)"),
-        server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_onupdate=FetchedValue(),
     )
 
     __table_args__ = (
         CheckConstraint("price_vnd >= 0", name="price_non_negative"),
-        Index("uq_product_variants_sku", "sku", unique=True),
+        Index("uq_product_variants_sku", func.lower(sku), unique=True),
         Index("uq_product_variants_public_id", "public_id", unique=True),
-        Index("uq_product_variants_product_size_color", "product_id", "size_code", "color_code", unique=True),
+        Index(
+            "uq_product_variants_product_size_color",
+            "product_id",
+            func.lower(size_code),
+            func.lower(color_code),
+            unique=True,
+        ),
         Index("ix_product_variants_product_id_is_active_variant_id", "product_id", "is_active", "variant_id"),
         Index("ix_product_variants_updated_at_variant_id", "updated_at", "variant_id"),
     )

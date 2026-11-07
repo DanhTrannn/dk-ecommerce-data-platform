@@ -21,7 +21,7 @@
 
 </div>
 
-> **Infrastructure transition:** Compose uses one PostgreSQL service with separate `ecommerce`, `airflow` and `polaris` databases. The standalone API/frontend containers and old Python bootstrap services are excluded. FastAPI and Streamlit share platform-app. Application schema/ORM, generator source integration, JDBC/source handling and CDC consumer conversion remain pending. Existing data is not migrated; infrastructure image builds and service health checks do not verify business pipelines.
+> **PostgreSQL transition:** Compose uses one PostgreSQL service with separate `ecommerce`, `airflow` and `polaris` databases. FastAPI and Streamlit share platform-app. The 28-table source schema and ORM now target PostgreSQL and have been checked in isolation. Generator SQL, seeds, business API verification, JDBC/source handling and CDC consumer conversion remain pending. Existing data is not migrated; service health checks do not verify business pipelines.
 
 **Current infrastructure-only scope:** Compose excludes standalone API/frontend services. FastAPI and the Streamlit Generator Console run together in the platform-app Python slim image. The `core` profile starts PostgreSQL, MinIO, Polaris, Airflow, Trino and platform-app. Airflow has service startup configuration and the Python path required to parse mounted DAGs; source credentials, Spark connections, pipeline configuration and PII salt must be supplied later before running business DAGs. Existing application/startup instructions below describe the broader project and are outside this temporary scope.
 
@@ -29,7 +29,7 @@ Application code is grouped under `services/`: `services/platform-app` owns the 
 
 `platform-app` builds from `services/platform-app/Dockerfile` and uses the `PLATFORM_APP_*` host port/user settings. The Python distribution and UI command are named `platform-app`. Make starts services only; it no longer initializes Gold tables. CDC registration and Flink submission jobs belong to streaming with `scale: 0`; run them manually with Compose run.
 
-The shared container exposes Streamlit on `PLATFORM_APP_PORT` (8501) and FastAPI on `API_PORT` (8000). Both use `PLATFORM_APP_BIND_ADDRESS`. Its healthcheck verifies both HTTP processes; PostgreSQL readiness is checked separately at `/health/ready`. No source schema or seed is applied automatically. The PostgreSQL driver is available, but migration of business schema/SQL remains pending. Both processes shut down when either exits.
+The shared container exposes Streamlit on `PLATFORM_APP_PORT` (8501) and FastAPI on `API_PORT` (8000). Both use `PLATFORM_APP_BIND_ADDRESS`. Its healthcheck verifies both HTTP processes; PostgreSQL connectivity is checked separately at `/health/ready`. No source schema or seed is applied automatically. The [database guide](database/README.md) describes the PostgreSQL bootstrap and ORM checks; generated SQL is still MySQL-only. Both processes shut down when either exits.
 
 MinIO runs only its storage server image; there is no separate Python init image/container. FastAPI and Streamlit run in `platform-app`; future bootstrap tools will use the same container. MinIO policies remain as reference files; bootstrap will be redesigned separately. Airflow and PyFlink retain their engine runtimes.
 
@@ -351,7 +351,7 @@ CI uses `--env-file .env.example` because `.env` is not committed and Compose re
 | **Lakehouse Model** | [LAKEHOUSE_DESIGN_PLAN.md](docs/project/LAKEHOUSE_DESIGN_PLAN.md) | Storage layout and dimension/fact/mart grains |
 | **Metric Definitions** | [METRICS_CATALOG.md](docs/architecture/METRICS_CATALOG.md) | Formulas, sources, windows, and interpretation limits |
 | **OLTP Schema** | [OLTP_SCHEMA.md](docs/architecture/OLTP_SCHEMA.md) | 28 source tables, relationships, and invariants |
-| **Physical SQL Schema** | [database/schema.sql](database/schema.sql) | MySQL table definitions for empty-database initialization |
+| **Physical SQL Schema** | [database/schema.sql](database/schema.sql) | PostgreSQL bootstrap rendered from ORM; fresh databases only |
 | **CDC** | [CDC_DASHBOARD_DATA_SPEC.md](docs/architecture/CDC_DASHBOARD_DATA_SPEC.md) | Capture contract, replay metadata, and recovery |
 | **Access Logs** | [ACCESS_LOG_DESIGN.md](docs/architecture/ACCESS_LOG_DESIGN.md) | Event contract, privacy rules, and streaming/raw-file boundaries |
 | **Data Generator** | [generator/README.md](generator/README.md) | Synthetic SQL/log generation and live traffic |

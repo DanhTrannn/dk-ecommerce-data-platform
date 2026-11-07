@@ -1,7 +1,18 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, String, text
-from sqlalchemy.dialects.mysql import BIGINT, DATETIME
+from sqlalchemy import (
+    func,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    FetchedValue,
+    ForeignKey,
+    Identity,
+    Index,
+    String,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from platform_app.api.db.base import Base
@@ -10,22 +21,28 @@ from platform_app.api.db.base import Base
 class City(Base):
     __tablename__ = "cities"
 
-    city_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    city_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(),
+        CheckConstraint("city_id >= 0", name="city_id_non_negative"),
+        primary_key=True,
+        autoincrement=True,
+    )
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
+        DateTime(timezone=False),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP(6)"),
-        server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_onupdate=FetchedValue(),
     )
 
     __table_args__ = (
-        Index("uq_cities_code", "code", unique=True),
+        Index("uq_cities_code", func.lower(code), unique=True),
         Index("ix_cities_updated_at_city_id", "updated_at", "city_id"),
     )
 
@@ -33,9 +50,16 @@ class City(Base):
 class Store(Base):
     __tablename__ = "stores"
 
-    store_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    store_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(),
+        CheckConstraint("store_id >= 0", name="store_id_non_negative"),
+        primary_key=True,
+        autoincrement=True,
+    )
     city_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True),
+        BigInteger,
+        CheckConstraint("city_id >= 0", name="city_id_non_negative"),
         ForeignKey("cities.city_id", ondelete="RESTRICT"),
         nullable=False,
     )
@@ -43,19 +67,19 @@ class Store(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     address: Mapped[str] = mapped_column(String(500), nullable=False)
     phone: Mapped[str] = mapped_column(String(32), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
+        DateTime(timezone=False),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP(6)"),
-        server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_onupdate=FetchedValue(),
     )
 
     __table_args__ = (
-        Index("uq_stores_code", "code", unique=True),
+        Index("uq_stores_code", func.lower(code), unique=True),
         Index("ix_stores_city_id_store_id", "city_id", "store_id"),
         Index("ix_stores_updated_at_store_id", "updated_at", "store_id"),
     )
@@ -64,25 +88,39 @@ class Store(Base):
 class StoreInventory(Base):
     __tablename__ = "store_inventory"
 
-    store_inventory_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), autoincrement=True, unique=True)
+    store_inventory_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(),
+        CheckConstraint("store_inventory_id >= 0", name="store_inventory_id_non_negative"),
+        autoincrement=True,
+        unique=True,
+    )
     store_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True),
+        BigInteger,
+        CheckConstraint("store_id >= 0", name="store_id_non_negative"),
         ForeignKey("stores.store_id", ondelete="RESTRICT"),
         primary_key=True,
     )
     variant_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True),
+        BigInteger,
+        CheckConstraint("variant_id >= 0", name="variant_id_non_negative"),
         ForeignKey("product_variants.variant_id", ondelete="RESTRICT"),
         primary_key=True,
     )
-    on_hand: Mapped[int] = mapped_column(BIGINT(unsigned=True), nullable=False)
-    opening_on_hand: Mapped[int] = mapped_column(BIGINT(unsigned=True), nullable=False)
-    version: Mapped[int] = mapped_column(BIGINT(unsigned=True), nullable=False, default=0)
-    updated_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6),
+    on_hand: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    opening_on_hand: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    version: Mapped[int] = mapped_column(
+        BigInteger,
+        CheckConstraint("version >= 0", name="version_non_negative"),
         nullable=False,
-        server_default=text("CURRENT_TIMESTAMP(6)"),
-        server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+        default=0,
+        server_default=text("'0'"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        nullable=False,
+        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_onupdate=FetchedValue(),
     )
 
     __table_args__ = (

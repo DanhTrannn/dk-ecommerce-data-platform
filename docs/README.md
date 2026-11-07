@@ -10,8 +10,8 @@ Bộ tài liệu lấy phần Data Engineering làm trọng tâm, được đố
 | [SYSTEM_ARCHITECTURE_VISUAL](architecture/SYSTEM_ARCHITECTURE_VISUAL.md) | Thành phần, ba luồng dữ liệu, vai trò/API dashboard, RBAC, lịch chạy và triển khai |
 | [LAKEHOUSE_DESIGN_PLAN](project/LAKEHOUSE_DESIGN_PLAN.md) | Namespace, lưu trữ, dimension/fact/mart và nhóm log |
 | [METRICS_CATALOG](architecture/METRICS_CATALOG.md) | Công thức, grain, nguồn, cửa sổ thời gian và giới hạn chỉ số |
-| [OLTP_SCHEMA](architecture/OLTP_SCHEMA.md) | 28 bảng MySQL, quan hệ, ràng buộc và giao dịch |
-| [schema.sql](../database/schema.sql) | File DDL vật lý duy nhất để khởi tạo MySQL trống |
+| [OLTP_SCHEMA](architecture/OLTP_SCHEMA.md) | 28 bảng nguồn PostgreSQL, kiểu/ràng buộc đã chuyển và giới hạn nghiệm thu nghiệp vụ |
+| [schema.sql](../database/schema.sql) | Bootstrap PostgreSQL được render từ ORM; chỉ dùng database trống |
 | [ACCESS_LOG_DESIGN](architecture/ACCESS_LOG_DESIGN.md) | JSON contract, quyền riêng tư và xử lý log |
 | [CDC_DASHBOARD_DATA_SPEC](architecture/CDC_DASHBOARD_DATA_SPEC.md) | Binlog, Debezium, Kafka, Bronze CDC và phục hồi |
 | [PROJECT_STRUCTURE](architecture/PROJECT_STRUCTURE.md) | Thư mục và điểm vào của mã nguồn |

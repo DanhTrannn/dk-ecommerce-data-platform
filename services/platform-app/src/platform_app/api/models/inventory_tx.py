@@ -1,8 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, text
-from sqlalchemy.dialects.mysql import BIGINT, DATETIME
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Identity, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from platform_app.api.db.base import Base
@@ -12,21 +11,33 @@ from platform_app.api.db.types import GUID
 class InventoryTransaction(Base):
     __tablename__ = "inventory_transactions"
 
-    transaction_id: Mapped[int] = mapped_column(BIGINT(unsigned=True), primary_key=True, autoincrement=True)
+    transaction_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(),
+        CheckConstraint("transaction_id >= 0", name="transaction_id_non_negative"),
+        primary_key=True,
+        autoincrement=True,
+    )
     public_id: Mapped[UUID] = mapped_column(GUID(), nullable=False)
     variant_id: Mapped[int] = mapped_column(
-        BIGINT(unsigned=True), ForeignKey("product_variants.variant_id", ondelete="RESTRICT"), nullable=False
+        BigInteger,
+        CheckConstraint("variant_id >= 0", name="variant_id_non_negative"),
+        ForeignKey("product_variants.variant_id", ondelete="RESTRICT"),
+        nullable=False,
     )
     location_type: Mapped[str] = mapped_column(String(24), nullable=False)  # 'central_warehouse' | 'store'
     store_id: Mapped[int | None] = mapped_column(
-        BIGINT(unsigned=True), ForeignKey("stores.store_id", ondelete="RESTRICT"), nullable=True
+        BigInteger,
+        CheckConstraint("store_id >= 0", name="store_id_non_negative"),
+        ForeignKey("stores.store_id", ondelete="RESTRICT"),
+        nullable=True,
     )
     movement_type: Mapped[str] = mapped_column(String(32), nullable=False)
     quantity_delta: Mapped[int] = mapped_column(Integer, nullable=False)
     reference_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DATETIME(fsp=6), nullable=False, server_default=text("CURRENT_TIMESTAMP(6)")
+        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
     )
 
     __table_args__ = (
