@@ -107,7 +107,7 @@ Giao diện ưu tiên KPI/biểu đồ và metadata ngắn về mốc đo/công 
 
 Đối soát system vẽ từng metric thành biểu đồ riêng, so sánh MySQL/Gold: số đơn có đơn vị đơn, các trường tiền có đơn vị VND và trục độc lập. Tooltip tiền giữ giá trị đầy đủ, badge dùng variance_percent từ API. Chỉ hiển thị cặp so sánh khi nguồn là lakehouse và có dữ liệu; cache OLAP được đánh dấu degraded, không dùng để kết luận đối soát mới.
 
-Nguồn serving: [router](../../services/ecommerce-api/app/modules/analytics/router.py), [service](../../services/ecommerce-api/app/modules/analytics/service.py), [schemas](../../services/ecommerce-api/app/modules/analytics/schemas.py), [BI Hub](../../apps/storefront/src/app/admin/analytics/page.tsx).
+Nguồn serving: [router](../../services/platform-app/src/platform_app/api/modules/analytics/router.py), [service](../../services/platform-app/src/platform_app/api/modules/analytics/service.py), [schemas](../../services/platform-app/src/platform_app/api/modules/analytics/schemas.py), [BI Hub](../../services/storefront/src/app/admin/analytics/page.tsx).
 
 ### Quyền truy cập storage và catalog
 

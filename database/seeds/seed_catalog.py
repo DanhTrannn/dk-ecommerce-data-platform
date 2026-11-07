@@ -8,14 +8,14 @@ manual catalog + opening balance; historical data is produced by the generator (
 import uuid
 from datetime import datetime
 
-from app.core.config import get_settings
-from app.core.ids import uuid7
-from app.core.security import hash_password
-from app.db.session import SessionLocal
-from app.models.catalog import Category, Product, ProductVariant
-from app.models.customer import Customer, CustomerCredential
-from app.models.inventory import Inventory
-from app.models.promotion import Coupon
+from platform_app.api.core.config import get_settings
+from platform_app.api.core.ids import uuid7
+from platform_app.api.core.security import hash_password
+from platform_app.api.db.session import SessionLocal
+from platform_app.api.models.catalog import Category, Product, ProductVariant
+from platform_app.api.models.customer import Customer, CustomerCredential
+from platform_app.api.models.inventory import Inventory
+from platform_app.api.models.promotion import Coupon
 from sqlalchemy import select
 
 _NS = uuid.uuid5(uuid.NAMESPACE_URL, "web:catalog")

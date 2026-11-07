@@ -3,8 +3,8 @@
 Idempotent: skips when cities already exist.
 """
 
-from app.db.session import SessionLocal
-from app.models.multicity import City, Store
+from platform_app.api.db.session import SessionLocal
+from platform_app.api.models.multicity import City, Store
 from sqlalchemy import insert, select
 
 CITIES = [

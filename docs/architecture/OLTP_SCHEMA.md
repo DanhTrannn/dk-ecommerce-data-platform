@@ -1,6 +1,6 @@
 # OLTP Schema Reference
 
-Tài liệu tham chiếu schema vật lý từ [database/schema.sql](../../database/schema.sql), cấu hình extract từ [default.yml](../../pipelines/config/default.yml) và nghiệp vụ từ [API modules](../../services/ecommerce-api/app/modules). DDL là nguồn xác định kiểu cột, khóa và CHECK; model ORM không tự nâng cấp database.
+Tài liệu tham chiếu schema vật lý từ [database/schema.sql](../../database/schema.sql), cấu hình extract từ [default.yml](../../pipelines/config/default.yml) và nghiệp vụ từ [API modules](../../services/platform-app/src/platform_app/api/modules). DDL là nguồn xác định kiểu cột, khóa và CHECK; model ORM không tự nâng cấp database.
 
 ## 1. Phạm vi và khởi tạo
 
@@ -713,7 +713,7 @@ Runtime tạo VietQR/payment thành công bằng mô phỏng nội bộ. `paymen
 
 Giá bán/giá vốn order item giữ ngữ cảnh mua. Các trạng thái schema cho phép không đồng nghĩa đều có API chuyển tới. Cancel hiện chỉ paid; dispatch từ paid hoặc confirmed; review chỉ completed. Trả hàng nhận delivered/completed và kiểm tra 7 ngày từ completed_at hoặc updated_at; order chỉ returned khi đã trả đủ lượng đạt kiểm định.
 
-Chi tiết điều kiện và quyền: [Business Requirements](../project/BUSINESS_REQUIREMENTS.md), [API README](../../services/ecommerce-api/README.md), [orders service](../../services/ecommerce-api/app/modules/orders/service.py), [returns service](../../services/ecommerce-api/app/modules/returns/service.py).
+Chi tiết điều kiện và quyền: [Business Requirements](../project/BUSINESS_REQUIREMENTS.md), [API README](../../services/platform-app/README.md), [orders service](../../services/platform-app/src/platform_app/api/modules/orders/service.py), [returns service](../../services/platform-app/src/platform_app/api/modules/returns/service.py).
 
 ## 6. Biên giới phân tích
 

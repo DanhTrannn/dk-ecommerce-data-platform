@@ -9,10 +9,9 @@ package = false
 
 [tool.uv.workspace]
 members = [
-  "services/ecommerce-api",
   "generator",
   "pipelines",
-  "apps/main-console",
+  "services/platform-app",
 ]
 
 [tool.ruff]

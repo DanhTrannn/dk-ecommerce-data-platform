@@ -19,7 +19,7 @@ Tài liệu đối chiếu với router, service, model, giao diện và pipelin
 
 Nhân viên giao hàng là thực thể trong `delivery_staff`, chưa có cơ chế đăng nhập riêng. Các service account MinIO/Polaris là danh tính kỹ thuật, không phải role đăng nhập website. POS API cho phép staff theo cửa hàng được gán, riêng `admin`/`system_admin` được bỏ qua kiểm tra gán cửa hàng; giao diện `/store` vẫn giới hạn `store_manager`/`admin`.
 
-Nguồn quyền: [dependencies](../../services/ecommerce-api/app/db/deps.py), [store router](../../services/ecommerce-api/app/modules/store/router.py), [POS router](../../services/ecommerce-api/app/modules/pos/router.py), [định tuyến UI](../../apps/storefront/src/lib/role-routes.ts).
+Nguồn quyền: [dependencies](../../services/platform-app/src/platform_app/api/db/deps.py), [store router](../../services/platform-app/src/platform_app/api/modules/store/router.py), [POS router](../../services/platform-app/src/platform_app/api/modules/pos/router.py), [định tuyến UI](../../services/storefront/src/lib/role-routes.ts).
 
 ## 2. Các ca sử dụng của ứng dụng nguồn
 
@@ -42,7 +42,7 @@ Nguồn quyền: [dependencies](../../services/ecommerce-api/app/db/deps.py), [s
 | Xử lý trả hàng | Duyệt/từ chối, nhận hàng, kiểm định và hoàn tiền | `returns` |
 | Quản lý cửa hàng | Đọc dashboard, đơn/tồn/nhân sự theo phạm vi; confirm/cancel theo trạng thái cho phép | `store` |
 
-Danh sách API và phương thức nằm trong [API README](../../services/ecommerce-api/README.md). Tên module là thư mục thực tế tại [app/modules](../../services/ecommerce-api/app/modules).
+Danh sách API và phương thức nằm trong [API README](../../services/platform-app/README.md). Tên module là thư mục thực tế tại [app/modules](../../services/platform-app/src/platform_app/api/modules).
 
 ## 3. Luồng nghiệp vụ tiêu biểu
 

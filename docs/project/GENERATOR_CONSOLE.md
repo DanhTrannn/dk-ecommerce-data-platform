@@ -41,7 +41,7 @@ Thêm `--json` cho `run`, `export-sql`, `export-logs`. Worker đọc JSON cuối
 Console ghi cấu hình đã đóng băng và state ban đầu, sau đó spawn một process nền:
 
 ```text
-python -m generator_console.worker <job_dir>
+python -m platform_app.ui.worker <job_dir>
 ```
 
 Worker gọi CLI generator theo thứ tự:
@@ -64,11 +64,11 @@ Công đoạn: `validate`, `sql`, `logs`; mỗi công đoạn có `pending`, `ru
 ## 4. Tổ chức code
 
 ```text
-apps/generator-console/
+services/platform-app/
 ├── pyproject.toml
 ├── README.md
 ├── Dockerfile
-├── src/generator_console/
+├── src/platform_app/ui/
 │   ├── app.py              # entrypoint Streamlit
 │   ├── launcher.py         # console script gọi streamlit
 │   ├── paths.py            # đường dẫn repo/data, biến môi trường

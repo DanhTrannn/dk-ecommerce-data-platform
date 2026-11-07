@@ -24,7 +24,7 @@ API báo giá tính subtotal, discount, shipping và total. Mỗi đơn áp dụ
 
 Checkout yêu cầu đăng nhập, CSRF và `Idempotency-Key`. Trong transaction, hệ thống kiểm tra lại customer/cart/catalog/giá/coupon/tồn, khóa dữ liệu cần thiết, tạo order/items/payment/history/redemption, trừ kho tổng và ghi ledger `outbound_order`. Tên/SKU/giá bán/giá vốn được lưu vào order item để giữ ngữ cảnh lúc mua.
 
-Địa chỉ giao nhận gồm người nhận, điện thoại, tỉnh/thành, phường/xã và phần địa chỉ; bộ chọn địa chỉ UI dùng dữ liệu trong [vietnam-addresses.ts](../../apps/storefront/src/lib/vietnam-addresses.ts). Không suy ra có tích hợp kiểm chứng địa chỉ với đơn vị bên ngoài.
+Địa chỉ giao nhận gồm người nhận, điện thoại, tỉnh/thành, phường/xã và phần địa chỉ; bộ chọn địa chỉ UI dùng dữ liệu trong [vietnam-addresses.ts](../../services/storefront/src/lib/vietnam-addresses.ts). Không suy ra có tích hợp kiểm chứng địa chỉ với đơn vị bên ngoài.
 
 ### Thanh toán và trạng thái ban đầu
 
@@ -64,7 +64,7 @@ UI có trang POS và dữ liệu hóa đơn. Chưa xác nhận có tích hợp m
 
 ## 5. Nhập và điều phối tồn kho
 
-Kho tổng nằm ở `inventory`, tồn chi nhánh ở `store_inventory`. Checkout/POS/nhập/trả hàng có ledger trong `inventory_transactions`; không phải mọi chỉnh sửa tồn đều được tự động ghi sổ. Admin có route điều chỉnh/cấp hàng chi nhánh, nhưng hai route hiện chỉ flush mà chưa commit trong router hoặc dependency nên không được coi response 204 là xác nhận đã lưu. PATCH điều chỉnh cũng chưa ghi ledger; luồng cấp hàng có tạo cặp transfer_to_store/transfer_received trước flush. Xem [admin router](../../services/ecommerce-api/app/modules/admin/router.py).
+Kho tổng nằm ở `inventory`, tồn chi nhánh ở `store_inventory`. Checkout/POS/nhập/trả hàng có ledger trong `inventory_transactions`; không phải mọi chỉnh sửa tồn đều được tự động ghi sổ. Admin có route điều chỉnh/cấp hàng chi nhánh, nhưng hai route hiện chỉ flush mà chưa commit trong router hoặc dependency nên không được coi response 204 là xác nhận đã lưu. PATCH điều chỉnh cũng chưa ghi ledger; luồng cấp hàng có tạo cặp transfer_to_store/transfer_received trước flush. Xem [admin router](../../services/platform-app/src/platform_app/api/modules/admin/router.py).
 
 Phiếu nhập gồm header và các dòng variant/số lượng/đơn giá. Khi nhận hàng, service cộng tồn kho tổng và tính giá vốn bình quân gia quyền di động:
 
@@ -105,6 +105,6 @@ ML dự báo/tái mua, thanh toán thực, đổi size/màu, target kinh doanh v
 ## Nguồn đối chiếu
 
 - [DDL MySQL](../../database/schema.sql), [tham chiếu schema](../architecture/OLTP_SCHEMA.md).
-- [Checkout](../../services/ecommerce-api/app/modules/checkout/service.py), [orders](../../services/ecommerce-api/app/modules/orders/service.py), [POS](../../services/ecommerce-api/app/modules/pos/service.py).
-- [Returns](../../services/ecommerce-api/app/modules/returns/service.py), [inbound](../../services/ecommerce-api/app/modules/inbound/service.py), [reviews](../../services/ecommerce-api/app/modules/reviews/service.py).
-- [Admin router](../../services/ecommerce-api/app/modules/admin/router.py), [admin service](../../services/ecommerce-api/app/modules/admin/service.py).
+- [Checkout](../../services/platform-app/src/platform_app/api/modules/checkout/service.py), [orders](../../services/platform-app/src/platform_app/api/modules/orders/service.py), [POS](../../services/platform-app/src/platform_app/api/modules/pos/service.py).
+- [Returns](../../services/platform-app/src/platform_app/api/modules/returns/service.py), [inbound](../../services/platform-app/src/platform_app/api/modules/inbound/service.py), [reviews](../../services/platform-app/src/platform_app/api/modules/reviews/service.py).
+- [Admin router](../../services/platform-app/src/platform_app/api/modules/admin/router.py), [admin service](../../services/platform-app/src/platform_app/api/modules/admin/service.py).

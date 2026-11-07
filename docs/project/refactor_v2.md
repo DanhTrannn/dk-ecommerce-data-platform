@@ -16,7 +16,7 @@ Giữ bài toán **retail thời trang Việt Nam**, VND, ngày nghiệp vụ As
 | Trino + Superset | Đọc đầu ra phân tích đã công bố; Superset thay giao diện BI tự viết |
 | MinIO/Iceberg/Polaris | Giữ dữ liệu, snapshot, catalog và quyền workload hiện có |
 
-Bối cảnh: BI đang nằm chung trong `apps/storefront`, còn nguồn nghiệp vụ và pipeline hoạt động độc lập với Next.js. Hệ quả của quyết định: cần nguồn gọi API thay thao tác UI, dựng lại dashboard và chuyển quyền/phạm vi cửa hàng cùng cơ chế publication; không tự kế thừa các kiểm tra ở FastAPI khi BI truy vấn thẳng Trino. Next.js và API cũ được giữ tới khi có đầu ra thay thế đã kiểm chứng. Volume, checkpoint, bảng nguồn và lịch sử được giữ; ML, marketplace và API/scraping ngoài phạm vi chuyển đổi này.
+Bối cảnh: BI đang nằm chung trong `services/storefront`, còn nguồn nghiệp vụ và pipeline hoạt động độc lập với Next.js. Hệ quả của quyết định: cần nguồn gọi API thay thao tác UI, dựng lại dashboard và chuyển quyền/phạm vi cửa hàng cùng cơ chế publication; không tự kế thừa các kiểm tra ở FastAPI khi BI truy vấn thẳng Trino. Next.js và API cũ được giữ tới khi có đầu ra thay thế đã kiểm chứng. Volume, checkpoint, bảng nguồn và lịch sử được giữ; ML, marketplace và API/scraping ngoài phạm vi chuyển đổi này.
 
 ## 2. Kịch bản dữ liệu phải giữ
 
@@ -50,7 +50,7 @@ API trong bảng có tiền tố `/api/v1`, trừ health và đường internal 
 
 CSV [API_TRANSITION_SCOPE.csv](API_TRANSITION_SCOPE.csv) liệt kê đủ **86 endpoint** từ router đăng ký và khớp OpenAPI của image API đang chạy. SQL exporter hiện có 23 đích INSERT; không trực tiếp sinh `cities`, `stores`, `store_inventory`, `inbound_receipts`, `inbound_receipt_items`. Không coi preset lịch sử hiện có là đã bao phủ đủ các nguồn này.
 
-Cơ sở đối chiếu: [router đăng ký](../../services/ecommerce-api/app/api/router.py), [SQL exporter](../../generator/src/generator/sql_export.py), [simulator](../../scripts/simulate_web_traffic.py), [API kho](../../services/ecommerce-api/app/modules/admin/router.py), [publication reader](../../services/ecommerce-api/app/modules/analytics/reader.py) và [định nghĩa KPI](../architecture/METRICS_CATALOG.md).
+Cơ sở đối chiếu: [router đăng ký](../../services/platform-app/src/platform_app/api/api/router.py), [SQL exporter](../../generator/src/generator/sql_export.py), [simulator](../../scripts/simulate_web_traffic.py), [API kho](../../services/platform-app/src/platform_app/api/modules/admin/router.py), [publication reader](../../services/platform-app/src/platform_app/api/modules/analytics/reader.py) và [định nghĩa KPI](../architecture/METRICS_CATALOG.md).
 
 ## 3. Phạm vi backend và điều kiện bỏ endpoint
 

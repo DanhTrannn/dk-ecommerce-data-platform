@@ -1,4 +1,4 @@
-# Reference template for future bootstrap tools in main-console.
+# Reference template for future bootstrap tools in platform-app.
 # No Python initializer currently applies this template.
 
 version: "1"

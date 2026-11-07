@@ -11,7 +11,7 @@ Schema chỉ chứa định nghĩa cấu trúc. Catalog/admin do seed tạo; l�
 | [schema.sql](schema.sql) | Tạo schema cuối cùng trên database trống |
 | [seeds/](seeds/) | Catalog, tồn mở đầu và bootstrap admin |
 | [OLTP_SCHEMA.md](../docs/architecture/OLTP_SCHEMA.md) | Tham chiếu cột, quan hệ và quy tắc nghiệp vụ |
-| [ORM models](../services/ecommerce-api/app/models/) | Ánh xạ SQLAlchemy dùng trong API |
+| [ORM models](../services/platform-app/src/platform_app/api/models/) | Ánh xạ SQLAlchemy dùng trong API |
 
 ## Khởi tạo bằng Docker Compose
 
@@ -34,7 +34,7 @@ MySQL tự tạo database/user theo `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSW
 Sau khi MySQL sẵn sàng, API chạy `database.seeds.seed_catalog` rồi khởi động FastAPI. Seed có thể chạy lại bằng:
 
 ```bash
-docker compose exec -T ecommerce-api python -m database.seeds.seed_catalog
+docker compose exec -T platform-app python -m database.seeds.seed_catalog
 ```
 
 Seed không tạo bảng. Schema phải tồn tại trước khi chạy seed. `make seed` chạy bằng uv trên host; cần API_DATABASE_URL tới port MySQL trên host và API_SECRET_KEY hợp lệ, không dùng hostname mysql của mạng Docker từ host.

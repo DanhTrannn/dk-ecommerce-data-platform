@@ -284,23 +284,31 @@ services:
       start_period: 30s
     networks: ["lakehouse-network"]
 
-  main-console:
+  platform-app:
     build:
       context: .
-      dockerfile: apps/main-console/Dockerfile
-    image: lakehouse-main-console:0.1.0
+      dockerfile: services/platform-app/Dockerfile
+    image: lakehouse-platform-app:0.1.0
     profiles: ["tools"]
-    user: "${MAIN_CONSOLE_UID:-1000}:${MAIN_CONSOLE_GID:-1000}"
+    user: "${PLATFORM_APP_UID:-1000}:${PLATFORM_APP_GID:-1000}"
     environment:
       HOME: /tmp
+      API_DATABASE_URL: postgresql+psycopg2://${POSTGRES_ECOMMERCE_USER:-ecommerce_app}:${POSTGRES_ECOMMERCE_PASSWORD:-password}@postgres:5432/${POSTGRES_ECOMMERCE_DB:-ecommerce}
+      API_SECRET_KEY: ${API_SECRET_KEY:?set API_SECRET_KEY}
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:8501,http://localhost:3000}
+      KAFKA_ENABLED: "false"
       STREAMLIT_SERVER_HEADLESS: "true"
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
     ports:
-      - "${MAIN_CONSOLE_BIND_ADDRESS:-127.0.0.1}:${MAIN_CONSOLE_PORT:-8501}:8501"
+      - "${PLATFORM_APP_BIND_ADDRESS:-127.0.0.1}:${PLATFORM_APP_PORT:-8501}:8501"
+      - "${PLATFORM_APP_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ./data:/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health').read()"]
+      test: ["CMD", "python", "-c", "import urllib.request; [urllib.request.urlopen(url, timeout=5).read() for url in ('http://localhost:8000/health/live', 'http://localhost:8501/_stcore/health')]"]
       interval: 10s
       timeout: 5s
       retries: 12

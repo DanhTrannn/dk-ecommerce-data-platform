@@ -1,5 +1,7 @@
 # Local Lakehouse Setup
 
+FastAPI and Streamlit now share the `platform-app` Python slim image. Start with `docker compose --profile tools up -d --build platform-app`; PostgreSQL is its required dependency. Streamlit uses `PLATFORM_APP_PORT` (8501), FastAPI uses `API_PORT` (8000). Healthchecks cover both processes; business schema migration and bootstrap tooling remain deferred.
+
 > **Infrastructure-only transition (2026-11-06):** PostgreSQL now hosts separate empty databases `ecommerce`, `airflow` and `polaris` on first initialization. MySQL/CDC-user-init services, MySQL JDBC JARs and the MySQL connector plugin are removed from infrastructure. Debezium now targets PostgreSQL `pgoutput` with a filtered publication. Each service keeps its own Dockerfile/image.
 >
 > No old data migration or runtime reset is performed in this change. Build alone does not empty Docker volumes: database init scripts run only on a fresh PostgreSQL volume. The application schema/ORM/drivers, generator, Spark source logic, scripts and Flink CDC consumer still require a separate PostgreSQL port; do not treat the older MySQL application/ingestion instructions below as working against the new infrastructure. Source tables and their replica identity must be prepared before enabling CDC. Airflow 3.3.2 build/migration verification is still paused.
@@ -36,7 +38,7 @@ If exposing services beyond `localhost`, update the following variables to avoid
 
 Review browser-facing NEXT_PUBLIC_API_BASE_URL and API_CORS_ORIGINS together. NEXT_PUBLIC_* values are frontend build arguments; rebuild the image after changing them. Compose forwards only the listed API variables; adding API_COOKIE_SECURE or API_INTERNAL_SECRET to the root .env alone does not inject them into the API container.
 
-MinIO starts its server directly. Policy JSON files are retained for future bootstrap tools in `main-console`; there is no separate MinIO Python init image or automatic user/policy provisioning in the current Compose configuration.
+MinIO starts its server directly. Policy JSON files are retained for future bootstrap tools in `platform-app`; there is no separate MinIO Python init image or automatic user/policy provisioning in the current Compose configuration.
 
 Validate interpolation without displaying rendered secrets:
 
@@ -118,22 +120,22 @@ Old `SPARK_MASTER_UI_PORT`, `SPARK_WORKER_UI_PORT`, `SPARK_WORKER_CORES` and `SP
 
 On an empty MySQL volume, the official entrypoint creates the configured database/user and imports [`database/schema.sql`](../../database/schema.sql) from `/docker-entrypoint-initdb.d/10-ecommerce-schema.sql`. The database uses `utf8mb4_0900_ai_ci` and UTC. Existing volumes keep their schema and records; see the [database guide](../../database/README.md).
 
-After MySQL becomes healthy, `ecommerce-api` initializes the catalog/admin if needed and starts FastAPI. The API expects the schema to exist and does not apply schema upgrades. `storefront` waits for API readiness at `/health/ready`.
+The current shared `platform-app` container starts FastAPI and Streamlit after PostgreSQL becomes healthy. It does not apply business schema or seeds. The MySQL initialization description above applies to the legacy source design, pending conversion.
 
 ### Infrastructure startup and deferred bootstrap
 
-`core` starts PostgreSQL only. The other infrastructure profiles start service runtimes without submitting data jobs. `main-console` builds from `apps/main-console/Dockerfile`; its Python package/CLI is still named `generator-console`, and its host settings use `MAIN_CONSOLE_*`.
+`core` starts PostgreSQL only. The other infrastructure profiles start service runtimes without submitting data jobs. `platform-app` builds from `services/platform-app/Dockerfile`; its Python package/CLI is named `platform-app`, and its host settings use `PLATFORM_APP_*`.
 
 1. On a fresh PostgreSQL volume, its entrypoint creates `ecommerce`, `airflow` and `polaris` databases and the Debezium replication account. Business tables remain pending.
 2. `polaris-bootstrap` is the native Java tool that creates the Polaris realm; `polaris` then waits for that tool and MinIO server readiness.
-3. Old MinIO/Polaris Python init services are removed. Bucket, IAM, catalog, namespaces and client credential provisioning will be redesigned in `main-console`; no replacement bootstrap is implemented in this change.
+3. Old MinIO/Polaris Python init services are removed. Bucket, IAM, catalog, namespaces and client credential provisioning will be redesigned in `platform-app`; no replacement bootstrap is implemented in this change.
 4. Existing data and credential volumes are retained. Starting compute/query consumers on new empty volumes still requires the deferred bootstrap. Airflow startup depends only on its PostgreSQL metadata database.
 
 The `pipeline` profile contains Debezium connector registration and Flink job submission services. It is intentionally excluded from the launcher's infrastructure profiles; business source/consumer configuration must be completed before using it. The launcher no longer creates Gold tables or references the deleted Gold init SQL.
 
 ### MinIO initialization
 
-MinIO no longer builds or runs a dedicated Python init image. Keep policy templates in `infrastructure/minio/policies/`; future Python bootstrap and administration tools will run in `main-console`. This change does not delete existing users, policies, buckets or data. Fresh account/policy provisioning and the historical upload helper that depended on `minio-init` are deferred until that tooling is redesigned.
+MinIO no longer builds or runs a dedicated Python init image. Keep policy templates in `infrastructure/minio/policies/`; future Python bootstrap and administration tools will run in `platform-app`. This change does not delete existing users, policies, buckets or data. Fresh account/policy provisioning and the historical upload helper that depended on `minio-init` are deferred until that tooling is redesigned.
 
 ### Service Dependencies and Profiles
 
@@ -144,7 +146,7 @@ Compose waits for health checks or successful completion of initialization jobs 
 | Shared storage/catalog (`batch`, `streaming`, `tools`, `lakehouse-tools`) | Healthy `postgres` → `polaris-bootstrap`; healthy `minio` plus successful Polaris realm bootstrap → `polaris`; catalog/RBAC initialization is pending redesign |
 | Query serving (`batch`, `streaming`, `tools`) | Healthy `polaris` plus pre-provisioned credentials → read-only `trino` |
 | Airflow (`batch`) | Healthy `postgres`, initialized catalog/credentials → `airflow-init` → webserver/scheduler with `LocalExecutor`; Spark jobs execute locally |
-| Web (`core`) | Healthy `mysql` → `ecommerce-api` → `storefront`; Kafka is optional and used when `streaming` is enabled |
+| Application (`tools`) | Healthy `postgres` → `platform-app` (FastAPI and Streamlit); storefront code is retained outside active Compose |
 | CDC (`streaming`) | Healthy MySQL → `mysql-cdc-init`; healthy Kafka plus successful MySQL CDC init → `debezium-connect` → `debezium-init` |
 | Flink (`streaming`) | Kafka/catalog ready → JobManager/TaskManager → separate access-log and CDC submissions |
 | Management interfaces (`tools`) | Polaris Console and Trino Admin, with their storage/query dependencies; no Airflow or streaming jobs |
@@ -180,16 +182,16 @@ The console runs the existing generator CLI in a detached worker and keeps job s
 ```bash
 make up PROFILES=core,tools
 # or
-docker compose --profile tools up -d --build main-console
+docker compose --profile tools up -d --build platform-app
 ```
 
-Open `http://localhost:8501` (`MAIN_CONSOLE_PORT` overrides the host port). For local development without Compose:
+Open `http://localhost:8501` (`PLATFORM_APP_PORT` overrides the host port). For local development without Compose:
 
 ```bash
-uv run --locked --package generator-console generator-console
+uv run --locked --package platform-app platform-app
 ```
 
-Only one job can be `queued` or `running` per console. Refresh or tab changes do not create jobs; closing the tab does not stop the worker. If a console/worker restart cannot verify the worker PID, the job is marked `interrupted` and existing artifacts are retained. The console does not import SQL into MySQL, run traffic, upload logs, or trigger Airflow. See [apps/main-console/README.md](../../apps/main-console/README.md) for the job layout and download behavior.
+Only one job can be `queued` or `running` per console. Refresh or tab changes do not create jobs; closing the tab does not stop the worker. If a console/worker restart cannot verify the worker PID, the job is marked `interrupted` and existing artifacts are retained. The console does not import SQL into MySQL, run traffic, upload logs, or trigger Airflow. See [services/platform-app/README.md](../../services/platform-app/README.md) for the job layout and download behavior.
 
 ---
 
@@ -245,7 +247,7 @@ CDC appends Bronze audit events only; batch owns Silver/Gold publication. No per
 
 ## 6. Polaris bootstrap pending redesign
 
-The old Python `polaris-init` service, image and entrypoint are removed. `infrastructure/polaris/rbac.yml` remains a reference template for the three service principals and four private consumer credential outputs. Provisioning will be implemented later in `main-console`; this refactor does not recreate credentials, alter grants or implement YAML synchronization.
+The old Python `polaris-init` service, image and entrypoint are removed. `infrastructure/polaris/rbac.yml` remains a reference template for the three service principals and four private consumer credential outputs. Provisioning will be implemented later in `platform-app`; this refactor does not recreate credentials, alter grants or implement YAML synchronization.
 
 Existing PostgreSQL metadata and private credential volumes remain on Docker. The four consumer credential volumes are still mounted into Spark, Airflow, Flink and Trino. Their clients require valid credential files; a fresh installation is not fully provisioned until the replacement bootstrap is implemented. The native Java `polaris-bootstrap` only initializes the realm, not the analytical catalog or IAM accounts.
 
@@ -277,7 +279,7 @@ docker compose logs --tail=200 trino
 - **Upgrading an Existing Deployment (Polaris root secret):** The Polaris `root` client secret is baked into the Polaris metadata database at first bootstrap. On an existing `postgres-data` volume, keep your current `POLARIS_ROOT_CLIENT_SECRET` in `.env` even if `.env.example` now ships a new default — the native realm bootstrap does not auto-rotate the root secret, and using the new default against an existing realm fails `root` authentication and blocks startup. Only brand-new installs (no `postgres-data` volume) pick up the `.env.example` value.
 - **S3 Connectivity Errors:** Ensure container network connectivity to `http://minio:9000`. Each consumer must use its own dedicated MinIO service user (`lakehouse-*`); MinIO root credentials are not mounted into any workload.
 - **UI/API role mismatch:** operations_manager can open order/logistics/return UI routes but those APIs require admin. A 403 is not a Trino/Iceberg failure. Store confirm/cancel routes also lack the explicit CSRF dependency.
-- **Branch stock changes return 204 but do not persist:** branch-inventory PATCH and inventory/refill POST currently only flush; get_db closes the session without committing. This is an application transaction limitation, not a CDC lag symptom. See [API limits](../../services/ecommerce-api/README.md#current-limits).
+- **Branch stock changes return 204 but do not persist:** branch-inventory PATCH and inventory/refill POST currently only flush; get_db closes the session without committing. This is an application transaction limitation, not a CDC lag symptom. See [API limits](../../services/platform-app/README.md#current-limits).
 - **COD payment changes missing in Silver:** payments uses updated_at. Existing databases require the explicit timestamp upgrade and one-time Silver refresh described below. A created_at-only legacy schema cannot capture later COD updates.
 - **Flink recovery/replay:** submission does not automatically pass a checkpoint/savepoint restore path. Access capture and CDC start from their committed group offsets with earliest fallback. Stop the old access graph cleanly before replacing it; keep Kafka retention, offsets and checkpoint/savepoint volumes. See the Landing-first upgrade below. The access producer has a local DLQ without automatic replay.
 - **Dashboard data is behind OLTP:** check the OLTP batch DAG, its `validate_and_publish` task and the latest `system.analytics_publications` row. Browser refresh polls every 15 seconds and never starts a pipeline.
@@ -299,7 +301,7 @@ HTTP success only verifies that the page is served. Sign in with an appropriate 
 
 Pause the old OLTP DAG and finish/cancel any unfinished runs before deploying the changed task graph. Stop the retired `spark-cdc` container before the first batch so it cannot write concurrently. If it is still present after updating Compose, stop the stack with `docker compose --profile '*' down --remove-orphans` (without `-v`), then start `core,batch` and optionally `streaming`. This preserves data volumes; no bootstrap state, source data, Bronze or old publications should be deleted.
 
-Rebuild affected API/Airflow images as needed. Check that the source schema includes `payments.updated_at` (older databases need the explicit migration `python -m app.db.upgrade_payment_timestamp` in the API container; starting the API does not run it automatically). Unpause and trigger `init_lakehouse_oltp`, wait for validation/publication, then enable the interval DAG as needed. The reader contract remains publication schema 3 and dashboard cache/RBAC are preserved. Historical source deletes cannot be inferred by the full extract.
+Rebuild affected API/Airflow images as needed. Check that the source schema includes `payments.updated_at` (older databases need the explicit migration `python -m platform_app.api.db.upgrade_payment_timestamp` in the API container; starting the API does not run it automatically). Unpause and trigger `init_lakehouse_oltp`, wait for validation/publication, then enable the interval DAG as needed. The reader contract remains publication schema 3 and dashboard cache/RBAC are preserved. Historical source deletes cannot be inferred by the full extract.
 
 Do not delete CDC offsets, audit tables or historical inventory snapshots to force an upgrade. Source-to-Silver reconciliation is an optional diagnostic while source writes are paused, not a required stage of every batch.
 

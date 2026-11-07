@@ -106,7 +106,7 @@ if has_profile streaming; then
   show_url 'Debezium Connect' debezium-connect 8083
 fi
 if has_profile tools; then
-  show_url 'Main Console' main-console 8501
+  show_url 'Main Console' platform-app 8501
 fi
 if [[ "$DEGRADED" == true ]]; then
   echo "WARNING: selected stack is degraded; inspect service logs."

@@ -60,7 +60,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: apps/storefront
+        working-directory: services/storefront
     env:
       CI: "true"
       NEXT_TELEMETRY_DISABLED: "1"
@@ -75,7 +75,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: apps/storefront/package-lock.json
+          cache-dependency-path: services/storefront/package-lock.json
 
       - name: Install frontend dependencies
         run: npm ci --no-audit --no-fund

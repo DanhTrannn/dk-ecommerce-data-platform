@@ -39,7 +39,7 @@ logs:
 	@docker compose --profile '*' logs -f
 
 seed:
-	@uv run --locked --package ecommerce-api -- python database/seeds/seed_catalog.py
+	@uv run --locked --package platform-app -- python database/seeds/seed_catalog.py
 
 typecheck:
-	@npm --prefix apps/storefront run typecheck
+	@npm --prefix services/storefront run typecheck

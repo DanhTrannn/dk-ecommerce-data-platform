@@ -1,6 +1,6 @@
 # Structured Access Logs
 
-This document describes the access-event contract and the current Kafka/Flink implementation. Sources: [middleware](../../services/ecommerce-api/app/core/middleware.py), [event builder](../../services/ecommerce-api/app/core/access_logging.py), [producer](../../services/ecommerce-api/app/core/kafka_producer.py), [streaming job](../../pipelines/src/jobs/logs/kafka_to_lakehouse.py).
+This document describes the access-event contract and the current Kafka/Flink implementation. Sources: [middleware](../../services/platform-app/src/platform_app/api/core/middleware.py), [event builder](../../services/platform-app/src/platform_app/api/core/access_logging.py), [producer](../../services/platform-app/src/platform_app/api/core/kafka_producer.py), [streaming job](../../pipelines/src/jobs/logs/kafka_to_lakehouse.py).
 
 ## 1. Capture boundary
 
@@ -92,7 +92,7 @@ These uploaded historical JSONL files are not consumed automatically by the Kafk
 
 `GET /api/v1/admin/analytics/http-realtime?minutes=15` accepts 5–60 minutes. One current Landing snapshot serves all aggregates; UI polling is 10 seconds while visible. The API returns minute request/error counts, rates, direct approximate p95 and Top 20 routes, plus snapshot/query/observation metadata. Only aggregates and projected route/method labels are exposed; raw payloads and actor/request identities are not returned.
 
-The event-time window is UTC `[start, observed_at)` with `ingest_ts <= observed_at`. Reads also include recently ingested observations to count invalid rows and late/future IDs outside the event window. Event IDs deduplicate replay; multiple raw hashes under one ID are excluded and counted as conflicts within that scope. This is provisional projection validation, not the complete Silver pipeline. Missing minutes remain gaps, in-window arrivals can revise earlier minutes, and no eligible events keeps totals null. HTTP monitoring reads themselves are included in recorded API traffic. No server cache/publication fallback: failures return 503; the UI retains its old timestamp with an error label. See [HTTP realtime contract](../../services/ecommerce-api/README.md#http-realtime-contract) and [metrics](METRICS_CATALOG.md#11-http-realtime--landing).
+The event-time window is UTC `[start, observed_at)` with `ingest_ts <= observed_at`. Reads also include recently ingested observations to count invalid rows and late/future IDs outside the event window. Event IDs deduplicate replay; multiple raw hashes under one ID are excluded and counted as conflicts within that scope. This is provisional projection validation, not the complete Silver pipeline. Missing minutes remain gaps, in-window arrivals can revise earlier minutes, and no eligible events keeps totals null. HTTP monitoring reads themselves are included in recorded API traffic. No server cache/publication fallback: failures return 503; the UI retains its old timestamp with an error label. See [HTTP realtime contract](../../services/platform-app/README.md#http-realtime-contract) and [metrics](METRICS_CATALOG.md#11-http-realtime--landing).
 
 ## 7. Inspect and feed the stream
 

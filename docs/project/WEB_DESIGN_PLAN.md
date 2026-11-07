@@ -6,13 +6,13 @@ The Next.js/FastAPI application is the transactional source and dashboard interf
 
 | Component | Responsibility | Source |
 |---|---|---|
-| Next.js App Router | Storefront, admin/store operations, POS, BI Hub | [pages](../../apps/storefront/src/app) |
-| React / Tailwind / ECharts | UI, role dashboards, charts and table interaction | [components](../../apps/storefront/src/components) |
-| FastAPI routers / schemas | HTTP contract, validation, authentication dependencies | [modules](../../services/ecommerce-api/app/modules) |
-| Domain services / Unit of Work | Business rules, transactions and retry | [uow.py](../../services/ecommerce-api/app/db/uow.py) |
-| MySQL / SQLAlchemy | OLTP persistence, 28 tables | [DDL](../../database/schema.sql), [models](../../services/ecommerce-api/app/models) |
-| Trino analytics client | Read historical Gold and expose source/degraded status | [analytics](../../services/ecommerce-api/app/modules/analytics) |
-| Access middleware / Kafka producer | Structured request events for the log stream | [core](../../services/ecommerce-api/app/core) |
+| Next.js App Router | Storefront, admin/store operations, POS, BI Hub | [pages](../../services/storefront/src/app) |
+| React / Tailwind / ECharts | UI, role dashboards, charts and table interaction | [components](../../services/storefront/src/components) |
+| FastAPI routers / schemas | HTTP contract, validation, authentication dependencies | [modules](../../services/platform-app/src/platform_app/api/modules) |
+| Domain services / Unit of Work | Business rules, transactions and retry | [uow.py](../../services/platform-app/src/platform_app/api/db/uow.py) |
+| MySQL / SQLAlchemy | OLTP persistence, 28 tables | [DDL](../../database/schema.sql), [models](../../services/platform-app/src/platform_app/api/models) |
+| Trino analytics client | Read historical Gold and expose source/degraded status | [analytics](../../services/platform-app/src/platform_app/api/modules/analytics) |
+| Access middleware / Kafka producer | Structured request events for the log stream | [core](../../services/platform-app/src/platform_app/api/core) |
 
 Browsers call FastAPI over HTTP/JSON. The UI does not connect directly to MySQL, Trino, Spark or Polaris. FastAPI uses MySQL for operational transactions and Trino for selected analytical views; batch pipelines do not run inside API requests. Compose currently uses the application MySQL user for batch reads, rather than a separate SELECT-only account.
 
@@ -45,7 +45,7 @@ Seven staff roles are defined alongside `customer`: `admin`, `store_manager`, `s
 - POS API: staff assigned to the requested store; admin/system admin bypass this assignment check. UI route permissions are narrower.
 - Branch stock writes: PATCH permits admin/assigned store manager; refill POST requires admin. Both routes currently flush without commit, so persistence is incomplete; see the admin router and database dependency.
 
-The UI currently permits operations managers to open order/logistics/returns routes, while those APIs require admin. This mismatch is a current limitation, not evidence of authorized write access. Delivery staff are records, not separately authenticated website users. Source: [API dependencies](../../services/ecommerce-api/app/db/deps.py), [UI permissions](../../apps/storefront/src/lib/role-routes.ts).
+The UI currently permits operations managers to open order/logistics/returns routes, while those APIs require admin. This mismatch is a current limitation, not evidence of authorized write access. Delivery staff are records, not separately authenticated website users. Source: [API dependencies](../../services/platform-app/src/platform_app/api/db/deps.py), [UI permissions](../../services/storefront/src/lib/role-routes.ts).
 
 ## 4. Transaction design
 
@@ -81,7 +81,7 @@ ML training/scoring, recommendations, forecasts, exchange-size/color processing,
 
 ## References
 
-[API usage](../../services/ecommerce-api/README.md) · [Storefront routes](../../apps/storefront/README.md) · [OLTP schema](../architecture/OLTP_SCHEMA.md) · [architecture](../architecture/SYSTEM_ARCHITECTURE_VISUAL.md) · [setup](../runbook/SETUP.md)
+[API usage](../../services/platform-app/README.md) · [Storefront routes](../../services/storefront/README.md) · [OLTP schema](../architecture/OLTP_SCHEMA.md) · [architecture](../architecture/SYSTEM_ARCHITECTURE_VISUAL.md) · [setup](../runbook/SETUP.md)
 
 ## Dashboard presentation
 

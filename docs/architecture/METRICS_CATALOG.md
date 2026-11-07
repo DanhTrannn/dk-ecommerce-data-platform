@@ -2,7 +2,7 @@
 
 Tài liệu mô tả công thức trong pipeline và API hiện tại. Đây là định nghĩa tính toán, không phải kết quả benchmark hay cam kết SLA. Dữ liệu tổng hợp cần được ghi rõ khi dùng để minh họa kết quả đồ án.
 
-Nguồn chính: [Gold OLTP](../../pipelines/src/lakehouse/oltp/gold/), [Gold logs](../../pipelines/src/lakehouse/logs/gold.py), [analytics service](../../services/ecommerce-api/app/modules/analytics/service.py).
+Nguồn chính: [Gold OLTP](../../pipelines/src/lakehouse/oltp/gold/), [Gold logs](../../pipelines/src/lakehouse/logs/gold.py), [analytics service](../../services/platform-app/src/platform_app/api/modules/analytics/service.py).
 
 Vai trò dashboard, API và phạm vi truy cập được mô tả trong [kiến trúc serving](SYSTEM_ARCHITECTURE_VISUAL.md#5-serving-và-phân-quyền).
 

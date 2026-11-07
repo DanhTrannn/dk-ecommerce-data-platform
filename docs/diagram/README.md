@@ -67,7 +67,7 @@ Response KPI có `data_source`, `is_degraded`, `degraded_reason`. Thời điểm
 ## Nguồn đối chiếu chính
 
 - [Phạm vi](../project/SCOPE.md), [kiến trúc hiện tại](../architecture/SYSTEM_ARCHITECTURE_VISUAL.md), [Lakehouse](../project/LAKEHOUSE_DESIGN_PLAN.md), [OLTP](../architecture/OLTP_SCHEMA.md).
-- [MySQL DDL](../../database/schema.sql), [backend](../../services/ecommerce-api/app/modules), [frontend](../../apps/storefront/src/app).
+- [MySQL DDL](../../database/schema.sql), [backend](../../services/platform-app/src/platform_app/api/modules), [frontend](../../services/storefront/src/app).
 - [DAG batch](../../airflow/dags/lakehouse_oltp_pipeline.py), [cấu hình extract](../../pipelines/config/default.yml), [Gold DDL](../../pipelines/src/lakehouse/oltp/gold/schema.py), [Gold transforms](../../pipelines/src/lakehouse/oltp/gold/), [log marts](../../pipelines/src/lakehouse/logs/gold.py).
 - [Polaris RBAC](../../infrastructure/polaris/rbac.yml), [Compose](../../docker-compose.yml), [CDC](../architecture/CDC_DASHBOARD_DATA_SPEC.md).
 

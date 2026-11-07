@@ -1,0 +1,272 @@
+from datetime import datetime, timezone
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from platform_app.api.core.errors import OUT_OF_STOCK, RESOURCE_NOT_FOUND, VALIDATION_ERROR, AppError
+from platform_app.api.core.ids import new_order_number, new_payment_reference, uuid7
+from platform_app.api.db.uow import run_in_transaction
+from platform_app.api.models.catalog import Category, Product, ProductVariant
+from platform_app.api.models.customer import Customer
+from platform_app.api.models.inventory import Inventory
+from platform_app.api.models.inventory_tx import InventoryTransaction
+from platform_app.api.models.multicity import Store, StoreInventory
+from platform_app.api.models.order import Order, OrderItem, OrderStatusHistory, Payment
+from platform_app.api.modules.pos.schemas import POSTransactionRequest
+
+
+def search_products(db: Session, store_id: int, query: str) -> list[dict]:
+    q = query.strip()
+    stmt = (
+        select(
+            ProductVariant.variant_id,
+            Product.name.label("product_name"),
+            ProductVariant.sku,
+            ProductVariant.size_code,
+            ProductVariant.color_code,
+            ProductVariant.price_vnd,
+            func.coalesce(StoreInventory.on_hand, 0).label("store_stock"),
+            func.coalesce(Inventory.on_hand, 0).label("global_stock"),
+        )
+        .join(Product, Product.product_id == ProductVariant.product_id)
+        .outerjoin(Inventory, Inventory.variant_id == ProductVariant.variant_id)
+        .outerjoin(
+            StoreInventory,
+            (StoreInventory.variant_id == ProductVariant.variant_id)
+            & (StoreInventory.store_id == store_id),
+        )
+        .where(ProductVariant.is_active == True)  # noqa: E712
+        .where(Product.is_active == True)  # noqa: E712
+        .where(
+            (ProductVariant.sku.ilike(f"{q}%"))
+            | (Product.name.ilike(f"%{q}%"))
+        )
+        .order_by(
+            func.bin(ProductVariant.sku).desc(),
+            ProductVariant.sku.asc(),
+        )
+        .limit(8)
+    )
+    rows = db.execute(stmt).all()
+    return [dict(row._mapping) for row in rows]
+
+
+def create_pos_transaction(
+    request: POSTransactionRequest, staff_id: int
+) -> dict:
+    def _work(db: Session) -> dict:
+        # Validate store exists and is active
+        store = db.execute(
+            select(Store).where(Store.store_id == request.store_id, Store.is_active == True)  # noqa: E712
+        ).scalar_one_or_none()
+        if not store:
+            raise AppError(
+                RESOURCE_NOT_FOUND,
+                "Cửa hàng không tồn tại hoặc đã ngừng hoạt động",
+                status_code=404,
+            )
+
+        now = datetime.now(timezone.utc)
+        order_number = new_order_number()
+
+        # Build order items and validate stock
+        order_items = []
+        subtotal = 0
+
+        for item in request.items:
+            # Check variant exists
+            catalog_row = db.execute(
+                select(ProductVariant, Product, Category)
+                .join(Product, Product.product_id == ProductVariant.product_id)
+                .join(Category, Category.category_id == Product.category_id)
+                .where(
+                    ProductVariant.variant_id == item.variant_id,
+                    ProductVariant.is_active == True,  # noqa: E712
+                    Product.is_active == True,  # noqa: E712
+                    Category.is_active == True,  # noqa: E712
+                )
+            ).one_or_none()
+            if not catalog_row:
+                raise AppError(
+                    OUT_OF_STOCK,
+                    f"Variant {item.variant_id} không tồn tại",
+                    status_code=409,
+                )
+            variant, product, category = catalog_row
+
+            # Check store inventory
+            store_inv = db.execute(
+                select(StoreInventory).where(
+                    StoreInventory.store_id == request.store_id,
+                    StoreInventory.variant_id == item.variant_id,
+                ).with_for_update()
+            ).scalar_one_or_none()
+
+            if not store_inv or store_inv.on_hand < item.quantity:
+                raise AppError(
+                    OUT_OF_STOCK,
+                    f"{variant.sku} không đủ hàng tại cửa hàng (còn {store_inv.on_hand if store_inv else 0})",
+                    status_code=409,
+                )
+
+            line_total = variant.price_vnd * item.quantity
+            subtotal += line_total
+
+            order_items.append({
+                "variant_id": variant.variant_id,
+                "product_name": product.name,
+                "sku": variant.sku,
+                "size_code": variant.size_code,
+                "color_code": variant.color_code,
+                "unit_price_vnd": variant.price_vnd,
+                "cost_price_vnd": variant.cost_price_vnd if hasattr(variant, "cost_price_vnd") and variant.cost_price_vnd else 0,
+                "quantity": item.quantity,
+                "line_total_vnd": line_total,
+                "product_public_id": product.public_id,
+                "category_code": category.code,
+                "category_name": category.name,
+            })
+
+            # Deduct store inventory
+            store_inv.on_hand -= item.quantity
+            store_inv.version += 1
+            store_inv.updated_at = now
+
+            db.add(
+                InventoryTransaction(
+                    public_id=uuid7(),
+                    variant_id=variant.variant_id,
+                    location_type="store",
+                    store_id=request.store_id,
+                    movement_type="outbound_pos",
+                    quantity_delta=-item.quantity,
+                    reference_code=order_number,
+                    notes=f"Bán tại quầy {store.code}",
+                    created_at=now,
+                )
+            )
+
+        total = subtotal  # POS: no shipping fee
+
+        if request.payment_method == "cash":
+            if request.amount_received_vnd is not None and request.amount_received_vnd < total:
+                raise AppError(
+                    VALIDATION_ERROR,
+                    "Số tiền khách đưa phải lớn hơn hoặc bằng tổng thanh toán.",
+                    status_code=400,
+                )
+        elif request.amount_received_vnd is not None:
+            raise AppError(
+                VALIDATION_ERROR,
+                "Chỉ giao dịch tiền mặt mới được ghi nhận số tiền khách đưa.",
+                status_code=400,
+            )
+
+        # Resolve customer if provided (walk-in guest by default: customer_id = None)
+        order_customer_id = None
+        receiver_name = "POS Customer"
+        receiver_phone = ""
+        if request.customer_id is not None:
+            matched_cust = db.execute(
+                select(Customer).where(Customer.customer_id == request.customer_id)
+            ).scalar_one_or_none()
+            if matched_cust is None:
+                raise AppError(RESOURCE_NOT_FOUND, "Không tìm thấy khách hàng thành viên.", status_code=404)
+            if matched_cust.role != "customer" or matched_cust.status != "active":
+                raise AppError(
+                    VALIDATION_ERROR,
+                    "Tài khoản được chọn không phải khách hàng đang hoạt động.",
+                    status_code=409,
+                )
+            order_customer_id = matched_cust.customer_id
+            receiver_name = matched_cust.display_name
+
+        # Create order
+        order = Order(
+            order_number=order_number,
+            customer_id=order_customer_id,
+            store_id=request.store_id,
+            channel="pos",
+            staff_id=staff_id,
+            checkout_idempotency_key=f"pos:{order_number}",
+            status="completed",
+            payment_method=request.payment_method,
+            currency_code="VND",
+            subtotal_vnd=subtotal,
+            discount_amount_vnd=0,
+            shipping_fee_vnd=0,
+            total_vnd=total,
+            receiver_name=receiver_name,
+            receiver_phone=receiver_phone,
+            shipping_address_text=store.address or "",
+            data_origin="manual",
+            paid_at=now,
+            confirmed_at=now,
+            completed_at=now,
+        )
+        db.add(order)
+        db.flush()
+
+        # Create order items
+        for item_data in order_items:
+            order_item = OrderItem(
+                public_id=uuid7(),
+                order_id=order.order_id,
+                variant_id=item_data["variant_id"],
+                product_public_id_snapshot=item_data["product_public_id"],
+                category_code_snapshot=item_data["category_code"],
+                category_name_snapshot=item_data["category_name"],
+                product_name_snapshot=item_data["product_name"],
+                sku_snapshot=item_data["sku"],
+                size_code_snapshot=item_data["size_code"],
+                color_code_snapshot=item_data["color_code"],
+                unit_price_vnd=item_data["unit_price_vnd"],
+                cost_price_vnd=item_data.get("cost_price_vnd", 0),
+                quantity=item_data["quantity"],
+                line_total_vnd=item_data["line_total_vnd"],
+                created_at=now,
+            )
+            db.add(order_item)
+
+        # Create payment
+        payment = Payment(
+            order_id=order.order_id,
+            payment_reference=new_payment_reference(),
+            payment_idempotency_key=f"pos:{order.order_number}",
+            status="succeeded",
+            currency_code="VND",
+            amount_vnd=total,
+            attempted_at=now,
+            created_at=now,
+        )
+        db.add(payment)
+
+        # Create status history
+        history = OrderStatusHistory(
+            order_id=order.order_id,
+            from_status=None,
+            to_status="completed",
+            transition_source="pos",
+            transition_idempotency_key=f"pos:{order.order_number}:completed",
+            transitioned_at=now,
+            created_at=now,
+        )
+        db.add(history)
+
+        db.flush()
+
+        return {
+            "order_number": order.order_number,
+            "status": order.status,
+            "channel": order.channel,
+            "store_id": order.store_id,
+            "staff_id": order.staff_id,
+            "customer_id": order.customer_id,
+            "payment_method": request.payment_method,
+            "items": order_items,
+            "subtotal_vnd": subtotal,
+            "total_vnd": total,
+            "created_at": now.isoformat(),
+        }
+
+    return run_in_transaction(_work)

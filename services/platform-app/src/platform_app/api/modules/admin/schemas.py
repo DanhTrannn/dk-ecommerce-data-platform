@@ -1,0 +1,180 @@
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from platform_app.api.modules.analytics.schemas import AnalyticsDataStatus
+
+
+class AdminOverviewResponse(AnalyticsDataStatus):
+    active_products: int | None = None
+    active_variants: int | None = None
+    low_stock_variants: int | None = None
+    customers: int | None = None
+    total_orders: int | None = None
+    pending_payment_orders: int | None = None
+    paid_orders: int | None = None
+    confirmed_orders: int | None = None
+    completed_orders: int | None = None
+    cancelled_orders: int | None = None
+    total_reviews: int | None = None
+    active_coupons: int | None = None
+    gross_revenue_vnd: int | None = None
+    refunded_amount_vnd: int | None = None
+    net_revenue_vnd: int | None = None
+    cogs_vnd: int | None = None
+    gross_profit_vnd: int | None = None
+    boom_orders_count: int | None = None
+    return_orders_count: int | None = None
+    shipping_orders: int | None = None
+    delivered_orders: int | None = None
+    gross_margin_percent: float | None = None
+    admin_observed_at: str | None = None
+
+
+class AdminVariantResponse(BaseModel):
+    variant_id: int
+    public_id: str
+    sku: str
+    size_code: str
+    color_code: str
+    price_vnd: int
+    cost_price_vnd: int = 0
+    is_active: bool
+    on_hand: int
+
+
+class AdminProductResponse(BaseModel):
+    public_id: str
+    category_code: str
+    slug: str
+    name: str
+    description: str | None
+    image_url: str | None
+    is_active: bool
+    archived_at: datetime | None
+    archive_reason: str | None
+    variants: list[AdminVariantResponse]
+
+
+class ArchiveRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class CreateVariantRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    sku: str = Field(min_length=1, max_length=64)
+    size_code: str = Field(min_length=1, max_length=32)
+    color_code: str = Field(min_length=1, max_length=64)
+    price_vnd: int = Field(ge=0)
+    opening_on_hand: int = Field(ge=0)
+
+
+class CreateProductRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    category_code: str = Field(min_length=1, max_length=64)
+    slug: str = Field(min_length=1, max_length=180, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=5000)
+    image_url: HttpUrl | None = None
+    variants: list[CreateVariantRequest] = Field(min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_unique_variants(self) -> "CreateProductRequest":
+        skus = [variant.sku.upper() for variant in self.variants]
+        combinations = [
+            (variant.size_code.lower(), variant.color_code.lower()) for variant in self.variants
+        ]
+        if len(skus) != len(set(skus)):
+            raise ValueError("SKU trong sản phẩm không được trùng nhau.")
+        if len(combinations) != len(set(combinations)):
+            raise ValueError("Tổ hợp size và màu trong sản phẩm không được trùng nhau.")
+        return self
+
+
+class UpdateProductRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    category_code: str | None = Field(default=None, min_length=1, max_length=64)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=5000)
+    image_url: HttpUrl | None = None
+    is_active: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_non_nullable_fields(self) -> "UpdateProductRequest":
+        for field in ("category_code", "name", "is_active"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} không được là null.")
+        return self
+
+
+class UpdateVariantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    price_vnd: int | None = Field(default=None, ge=0)
+    is_active: bool | None = None
+
+    @model_validator(mode="after")
+    def require_change(self) -> "UpdateVariantRequest":
+        if not self.model_fields_set:
+            raise ValueError("Cần ít nhất một thay đổi cho biến thể.")
+        return self
+
+
+class AdminOrderResponse(BaseModel):
+    order_number: str
+    customer_name: str
+    customer_email: str
+    status: str
+    total_vnd: int
+    item_count: int
+    created_at: datetime
+    channel: str = "online"
+    payment_method: str = "vietqr"
+
+
+
+class AdminCustomerResponse(BaseModel):
+    public_id: str
+    display_name: str
+    email: str
+    status: str
+    role: str
+    is_cod_blocked: bool = False
+    boom_count: int = 0
+    cod_reinstated_at: datetime | None = None
+    cod_reinstated_by: int | None = None
+    cod_reinstatement_reason: str | None = None
+    created_at: datetime
+
+
+class UpdateCustomerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = Field(pattern=r"^(active|inactive)$")
+
+
+class ReinstateCodRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    reason: str = Field(min_length=3, max_length=255)
+    probation_failed_count: int = Field(default=2, ge=0, le=2)
+
+
+class ReinstateCodResponse(BaseModel):
+    customer_id: int
+    public_id: str
+    is_cod_blocked: bool
+    boom_count: int
+    cod_reinstated_at: datetime
+    cod_reinstated_by: int
+    cod_reinstatement_reason: str
+
+
+class RefillInventoryRequest(BaseModel):
+    variant_id: int
+    store_id: int
+    quantity: int
