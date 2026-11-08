@@ -57,7 +57,7 @@ Published reports for all seven analytics roles, admin overview, store overview,
 - **Open Lakehouse Storage:** MinIO object storage, Iceberg tables/snapshots, Polaris catalog, and scheduled maintenance.
 - **Role-Based Analytics:** Seven dashboard views with API-level role and store filtering, Trino/Iceberg publications, bounded last-good OLAP cache, and API-level role/store filtering.
 - **Access-Log Analytics:** Request volume, duration percentiles, error rates, product interactions, and event-based marketing funnels.
-- **Synthetic Data Generation:** Version 0.8 generates deterministic SQL history with corrected payment/return/stock consistency from YAML configurations. Synthetic log generation is removed; runtime API access logging remains separate. The reference-profiling CLI records measured UCI distributions and audit counts; applying them to generation remains pending.
+- **Synthetic Data Generation:** The rewritten generator exports deterministic MySQL SQL history from YAML, with H&M product-rank demand weights and consistent payment/return/stock relationships. Other behavioral rates remain documented [scenario assumptions](docs/project/GENERATOR_METRICS.md). Synthetic log generation is removed; runtime API access logging remains separate.
 - **Operational Source Application:** Storefront, cart/checkout, POS, store inventory, in-house delivery, COD failure tracking, returns/refunds, and product reviews.
 - **Inventory Costing:** Inbound receipts, Moving Weighted Average costs, and order-item cost snapshots for analytical COGS calculations.
 
@@ -333,8 +333,7 @@ CI uses `--env-file .env.example` because `.env` is not committed and Compose re
 | **CDC** | [CDC_DASHBOARD_DATA_SPEC.md](docs/architecture/CDC_DASHBOARD_DATA_SPEC.md) | Capture contract, replay metadata, and recovery |
 | **Access Logs** | [ACCESS_LOG_DESIGN.md](docs/architecture/ACCESS_LOG_DESIGN.md) | Event contract, privacy rules, and streaming/raw-file boundaries |
 | **Data Generator** | [generator/README.md](generator/README.md) | Synthetic SQL/log generation and live traffic |
-| **Generator Reference Profile** | [GENERATOR_REFERENCE_PROFILE.md](docs/project/GENERATOR_REFERENCE_PROFILE.md) | Pinned UCI source, feature definitions, cohort/quality policy, measured results and calibration limits |
-| **Generator EDA** | [Notebook](generator/notebooks/reference_datasets_eda.ipynb) · [Plan](docs/project/GENERATOR_EDA_PLAN.md) | Local Polars EDA for H&M, Olist and eCommerce Behavior; describe, missing values and date coverage |
+| **Generator EDA** | [Notebook](generator/notebooks/reference_datasets_eda.ipynb) · [Plan](docs/project/GENERATOR_EDA_PLAN.md) | Local Polars EDA for H&M, Olist, UCI and eCommerce Behavior; empirical distributions and generation rules |
 | **Generator Console** | [GENERATOR_CONSOLE.md](docs/project/GENERATOR_CONSOLE.md) | Streamlit job workflow, validation, persisted job layout, statuses and scope limits |
 | **Diagrams** | [docs/diagram/README.md](docs/diagram/README.md) | Chapter 3 draw.io sources, SVG figures, and offline HTML viewer |
 | **Business Analysis (B)** | [BUSINESS_DOMAIN.md](docs/architecture/BUSINESS_DOMAIN.md) | Implemented role views, business questions, sources, and KPI limits |
