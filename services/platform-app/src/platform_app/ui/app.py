@@ -5,7 +5,7 @@ from generator import __version__ as GENERATOR_VERSION
 
 from platform_app.ui.job_store import JobStore
 from platform_app.ui.paths import jobs_root
-from platform_app.ui.views import config, jobs, profile
+from platform_app.ui.views import config, jobs
 
 SECTIONS = ("Cấu hình", "Theo dõi job", "Kết quả & lịch sử")
 
@@ -35,7 +35,6 @@ def main() -> None:
 
     if section == "Cấu hình":
         config.render(store)
-        profile.render()
     elif section == "Theo dõi job":
         jobs.render_monitor(store)
     else:

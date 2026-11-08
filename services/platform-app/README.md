@@ -4,7 +4,7 @@ Package Python `platform_app` tách `api/` (FastAPI) và `ui/` (Streamlit), cùn
 
 Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và Streamlit (`PLATFORM_APP_PORT`, mặc định 8501). Chuẩn bị thư mục `data/generator/jobs` với quyền ghi cho `PLATFORM_APP_UID`/`PLATFORM_APP_GID`. Khởi động bằng `bash /app/start.sh`; nếu một process thoát thì process còn lại cũng dừng. Healthcheck kiểm tra cả `/health/live` của FastAPI và `/_stcore/health` của Streamlit. Không tự seed hay tạo schema nguồn; chuyển đổi schema/nghiệp vụ sang PostgreSQL còn chờ triển khai.
 
-Streamlit console điều khiển generator 0.8: chọn preset, chỉnh cấu hình, tạo job sinh SQL chạy nền, theo dõi theo công đoạn và tải kết quả. Console chỉ đọc/ghi file; không import MySQL, không chạy traffic, không upload log, không kích hoạt Airflow và không thay đổi sampler 2c.
+Streamlit console điều khiển generator 0.8: chọn preset, chỉnh cấu hình, tạo job sinh SQL chạy nền, theo dõi theo công đoạn và tải kết quả. Console chỉ đọc/ghi file; không import MySQL, không chạy traffic, không upload log, không kích hoạt Airflow.
 
 Thiết kế và quyết định kỹ thuật: [docs/project/GENERATOR_CONSOLE.md](../../docs/project/GENERATOR_CONSOLE.md).
 
@@ -101,7 +101,6 @@ data/generator/jobs/
 |---|---|---|
 | `GENERATOR_CONSOLE_DATA_DIR` | `<repo>/data/generator/jobs` | Thư mục job |
 | `GENERATOR_CONFIGS_DIR` | `<repo>/generator/configs` | Thư mục preset |
-| `GENERATOR_PROFILE_PATH` | `<repo>/generator/profiles/uci-online-retail-uk-v1.json` | Profile tham chiếu |
 | `GENERATOR_CONSOLE_REPO_ROOT` | suy ra từ package | Working directory cho worker |
 
 ## Kiểm tra
@@ -118,4 +117,3 @@ uvx ruff check .
 
 - Không nạp SQL vào MySQL, không chạy traffic, không upload log, không trigger Airflow/Superset.
 - Không hỗ trợ nhiều job song song hoặc queue phân tán (không Celery/Redis).
-- Không áp profile UCI vào sampler trong phiên bản này; profile chỉ để xem tham chiếu.

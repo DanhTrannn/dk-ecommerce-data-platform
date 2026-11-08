@@ -1,10 +1,10 @@
 # Generator Console — thiết kế đợt 3
 
-Cập nhật **07/11/2026**: đã gỡ sinh access log, console chỉ xuất SQL. Tài liệu này chốt cách triển khai Streamlit Generator Console trên generator 0.8 hiện tại. Phạm vi và lý do chuyển đổi nằm trong [refactor_v2](refactor_v2.md); profile tham chiếu nằm trong [GENERATOR_REFERENCE_PROFILE](GENERATOR_REFERENCE_PROFILE.md).
+Cập nhật **07/11/2026**: đã gỡ sinh access log, console chỉ xuất SQL. Tài liệu này chốt cách triển khai Streamlit Generator Console trên generator 0.8 hiện tại. Phạm vi và lý do chuyển đổi nằm trong [refactor_v2](refactor_v2.md).
 
 ## 1. Mục tiêu
 
-Cho người dùng chọn preset, chỉnh các tham số thường dùng, kiểm tra cấu hình, tạo job sinh dữ liệu chạy nền, theo dõi job và tải kết quả SQL. Console chỉ điều khiển generator; không nạp MySQL, không chạy traffic, không upload log, không kích hoạt Airflow và không thay đổi sampler 2c.
+Cho người dùng chọn preset, chỉnh các tham số thường dùng, kiểm tra cấu hình, tạo job sinh dữ liệu chạy nền, theo dõi job và tải kết quả SQL. Console chỉ điều khiển generator; không nạp MySQL, không chạy traffic, không upload log, không kích hoạt Airflow.
 
 ## 2. Ranh giới
 
@@ -17,12 +17,11 @@ Cho người dùng chọn preset, chỉnh các tham số thường dùng, kiểm
 - Lưu trạng thái, log, cấu hình đóng băng và artifact dưới `data/generator/jobs/<job_id>/`.
 - Theo dõi theo công đoạn; không hiển thị phần trăm giả.
 - Lịch sử bền vững qua refresh/restart; job không xác minh được tiến trình bị đánh dấu gián đoạn.
-- Xem profile tham chiếu UCI đã đo ở đợt 2b.
 
 **Không có trong đợt này**
 
 - Import SQL vào MySQL, chạy traffic API, upload log, kích hoạt Airflow, Superset.
-- Áp profile/reference vào sampler hoặc hiệu chỉnh sampler 2c.
+- Hiệu chỉnh quy luật sinh dữ liệu trong console.
 - Celery/Redis/hàng đợi phân tán; nhiều job song song.
 - Xóa `FINAL_REPORT.md` hoặc thay Next.js.
 
@@ -74,7 +73,6 @@ services/platform-app/
 │   ├── job_store.py        # thư mục job, state, lock, reconcile
 │   ├── worker.py           # process nền, gọi CLI, cập nhật state
 │   ├── artifacts.py        # file, size, sha256, checksum
-│   ├── reference_profile.py# đọc profile UCI
 │   └── views/
 │       ├── config.py
 │       ├── jobs.py

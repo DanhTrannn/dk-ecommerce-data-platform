@@ -19,13 +19,6 @@ def configs_dir() -> Path:
     return repo_root() / "generator" / "configs"
 
 
-def profile_path() -> Path:
-    override = os.environ.get("GENERATOR_PROFILE_PATH")
-    if override:
-        return Path(override).expanduser().resolve()
-    return repo_root() / "generator" / "profiles" / "uci-online-retail-uk-v1.json"
-
-
 def jobs_root() -> Path:
     override = os.environ.get("GENERATOR_CONSOLE_DATA_DIR")
     if override:
