@@ -38,10 +38,11 @@ def run(config: GeneratorConfig, output_directory: Path) -> Path:
         "data_origin": "synthetic",
         "generated_at": datetime.now(UTC).isoformat(),
         "implementation_status": "sql_export_available",
+        "empirical_rules": ["hm_2019_product_popularity"],
+        "assumptions_document": "docs/project/GENERATOR_METRICS.md",
     }
     path = output_directory / f"{config.scenario_id}-{config.logical_identity}.manifest.json"
     temporary_path = path.with_suffix(".tmp")
     temporary_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     temporary_path.replace(path)
     return path
-

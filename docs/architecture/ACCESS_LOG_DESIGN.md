@@ -80,13 +80,7 @@ The job pins Landing, Bronze, Silver, then fact snapshots and the published Silv
 
 Marketing and HTTP Metrics continue to read the log mart publication independently from OLTP publication/cache. System HTTP Realtime now reads Landing directly through an admin/system_admin API, independently of mart publications. Business-event realtime remains pending. Counts, mappings and windows are in [Metrics Catalog](METRICS_CATALOG.md). A checkpoint or refresh interval is not a measured end-to-end latency SLA.
 
-Generator output can be uploaded to this raw prefix:
-
-```text
-s3://lakehouse/landing/logs/ingest_date=YYYY-MM-DD/ingest_hour=HH/service=ecommerce-api/<uuid>.jsonl.gz
-```
-
-These uploaded historical JSONL files are not consumed automatically by the Kafka job. A configured 30-day generation window is not a storage deletion/retention policy. Generator 0.8 labels historical exports `data_origin=synthetic`; older exports may carry `observed`. Runtime middleware still emits `observed`, including simulated API traffic, so that label alone does not prove real user activity. Identify export version and traffic source separately when reporting results.
+Synthetic historical log generation is currently removed from the generator. Runtime middleware still emits `observed` events to Kafka. That label identifies runtime capture and does not by itself establish real customer activity.
 
 ### Realtime HTTP serving
 
@@ -104,9 +98,6 @@ docker compose exec trino trino --execute "SELECT count(*) FROM lakehouse.gold.f
 # Exercise actual API requests after importing the matching SQL dataset
 uv run --locked --package data-generator -- python scripts/simulate_web_traffic.py \
   --config generator/configs/small.yml --duration 300 --concurrency 5
-
-# Historical file upload only; does not populate Kafka/Gold
-./scripts/backfill_data.sh --mode logs
 ```
 
-Use [SETUP](../runbook/SETUP.md) for startup/dependencies and [generator guide](../../generator/README.md) for matched SQL/log datasets.
+Use [SETUP](../runbook/SETUP.md) for startup/dependencies and [generator guide](../../generator/README.md) for SQL datasets.

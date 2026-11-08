@@ -9,27 +9,21 @@ from generator import __version__ as GENERATOR_VERSION
 from generator.locations import DEFAULT_STORE_CODES, parse_locations
 
 from platform_app.ui.config_builder import (
-    OUTPUT_MODES,
     FormValues,
     build_config_document,
-    build_request,
     freeze_config,
     list_presets,
     load_preset,
-    resolve_expected_requests,
     validate_config_document,
 )
 from platform_app.ui.job_store import JobAlreadyRunning, JobStore, JobStoreError
 
-OUTPUT_LABELS = {"sql": "SQL", "logs": "Access log", "both": "Cả hai"}
 DEFAULT_PRESET = "small.yml"
 
 
 def render(store: JobStore) -> None:
     st.header("Cấu hình")
-    st.caption(
-        "Chọn preset, chỉnh tham số và bấm Tạo job. Cấu hình chỉ được đọc và đóng băng khi submit."
-    )
+    st.caption("Chọn preset, chỉnh tham số và bấm Tạo job. Cấu hình chỉ được đọc và đóng băng khi submit.")
     presets = list_presets()
     if not presets:
         st.error("Không tìm thấy preset nào trong generator/configs.")
@@ -84,6 +78,7 @@ def render(store: JobStore) -> None:
                 max_value=2_147_483_647,
                 step=1,
             )
+        with right:
             st.text_input(
                 "Anchor time (ISO 8601, có timezone)",
                 key="anchor_time",
@@ -96,23 +91,6 @@ def render(store: JobStore) -> None:
                 max_value=120,
                 step=1,
             )
-        with right:
-            st.radio(
-                "Đầu ra",
-                list(OUTPUT_MODES),
-                format_func=lambda value: OUTPUT_LABELS[value],
-                key="output_mode",
-                horizontal=True,
-            )
-            st.number_input(
-                "Expected requests (0 = tự động)",
-                key="expected_requests",
-                min_value=0,
-                max_value=1_000_000_000,
-                step=1000,
-                help="Chỉ dùng cho access log. 0 = max(1000, orders × 20).",
-            )
-
         st.markdown("**Quy mô**")
         scale_columns = st.columns(4)
         with scale_columns[0]:
@@ -153,10 +131,9 @@ def _submit(store: JobStore, preset_path: Path) -> None:
     try:
         preset = load_preset(preset_path)
         document = build_config_document(preset, values)
-        config = validate_config_document(document, values)
-        expected_requests = resolve_expected_requests(document, values)
+        config = validate_config_document(document)
         config_yaml = freeze_config(document)
-        request = build_request(preset_path.stem, values, expected_requests)
+        request = {"preset": preset_path.stem}
         job = store.create_job(
             document,
             request,
@@ -196,8 +173,6 @@ def _values_from_state() -> FormValues:
         products=int(st.session_state["products"]),
         variants=int(st.session_state["variants"]),
         orders=int(st.session_state["orders"]),
-        output_mode=str(st.session_state["output_mode"]),
-        expected_requests=int(st.session_state["expected_requests"]),
         distributions_yaml=str(st.session_state["distributions_yaml"]),
         store_codes=tuple(st.session_state["store_codes"]),
     )
@@ -208,8 +183,6 @@ def _apply_preset(name: str, preset_paths: dict[str, Path]) -> None:
     defaults = _defaults(preset)
     for key, value in defaults.items():
         st.session_state[key] = value
-    if "output_mode" not in st.session_state:
-        st.session_state["output_mode"] = "both"
     st.session_state["loaded_preset"] = name
 
 
@@ -226,7 +199,6 @@ def _defaults(preset: dict[str, Any]) -> dict[str, Any]:
         "variants": int(scale.get("variants", 1)),
         "orders": orders,
         "store_codes": list(parse_locations(preset.get("locations", {})).store_codes),
-        "expected_requests": max(1_000, orders * 20),
         "distributions_yaml": yaml.safe_dump(
             preset.get("distributions", {}),
             sort_keys=False,

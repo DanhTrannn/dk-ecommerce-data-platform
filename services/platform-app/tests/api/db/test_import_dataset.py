@@ -42,8 +42,9 @@ class ImportDatasetTests(PostgresFixture):
             return connection.scalar(text(sql))
 
     def test_real_presets_import_and_identity_continues_above_loaded_ids(self):
-        for preset in ("small", "month-test"):
-            config = load_config(ROOT / f"generator/configs/{preset}.yml")
+        base = load_config(ROOT / "generator/configs/small.yml")
+        for seed in (base.seed, base.seed + 1):
+            config = replace(base, seed=seed)
             export_sql(config, self.path)
             receipt = import_dataset(self.engine, self.path)
             self.assertEqual(receipt["orders"], config.scale["orders"])

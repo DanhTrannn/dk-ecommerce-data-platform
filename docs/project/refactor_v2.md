@@ -84,7 +84,6 @@ Tăng phiên bản package/identity lên 0.8.0 và cập nhật lock, không th�
 
 ## 5. Hợp đồng cải thiện generator ở đợt kế tiếp
 
-Đợt **2b đã hoàn thành đo nguồn và tạo profile tham chiếu**, xem [GENERATOR_REFERENCE_PROFILE.md](GENERATOR_REFERENCE_PROFILE.md), [spec](../../generator/profiles/uci-reference.yml) và [JSON aggregate](../../generator/profiles/uci-online-retail-uk-v1.json). CLI `profile-reference` đọc artifact được ghim SHA-256, không tự tải hoặc nạp DB. Từ 541.909 dòng raw, chính sách cohort giữ 457.220 dòng trong hai kỳ sáu tháng UK, tương ứng 7.335 invoice fit và 9.783 invoice evaluation. Ghi từng lý do loại, giữ dòng nghi trùng và outlier, cách ly invoice có metadata xung đột; missing CustomerID không bị đưa vào mẫu số mua lại.
 
 Nguồn [UCI Online Retail](https://archive.ics.uci.edu/dataset/352/online+retail) bán quà tặng UK và có khách sỉ, không đại diện thời trang/POS VN. Profile đã đo bốn đặc trưng và quan hệ giỏ/lượng mua, nhưng **chưa áp dụng vào generator**. Ví dụ median giỏ fit là 15 mã hàng so với giới hạn 1–4 SKU của generator hiện tại; cần chốt cách thích nghi, không sao chép nguyên phân phối nguồn. Attribution/license, timezone chưa xác định, exposure/censoring và giới hạn diễn giải được lưu trong tài liệu.
 
@@ -138,3 +137,7 @@ Bổ sung màn hình xem và gán/gỡ liên kết quyền hiện có, qua backe
 Polaris hỗ trợ principal role, catalog role và các grant catalog được chọn; MinIO hỗ trợ direct-policy binding của bốn workload. Không tạo account/role, sửa policy JSON, chỉnh group hoặc xoay secret. Snapshot revision chặn dữ liệu UI cũ, audit ghi trước thao tác và readback xác minh kết quả; không auto retry trạng thái chưa rõ. YAML/provisioning vẫn giữ semantics khởi tạo; không biến thành đồng bộ quyền liên tục. Chi tiết/giới hạn tại [platform guide](../../services/platform-app/README.md#quản-trị-quyền-trên-streamlit).
 
 Kiểm chứng phần quản trị quyền: bộ platform-app 113 tests đạt, gồm auth/CSRF/thu hồi role trên PostgreSQL biệt lập và thao tác thực trên MinIO/Polaris. Live check xác minh 9 thay đổi với 18 audit record, thêm 4 thay đổi dưới UID 1000; không dùng database/volume production. Source API, schema và sampler giữ nguyên; chưa nghiệm thu triển khai public hay toàn bộ pipeline.
+
+## Tích hợp EDA và generator vào dev
+
+Generator giữ đích PostgreSQL 0.10, địa điểm tham chiếu, metadata/import transaction và các chức năng console/API/quản trị quyền của dev. Trọng số sản phẩm R03 từ [notebook EDA](../../generator/notebooks/reference_datasets_eda.ipynb) được tích hợp vào sampler đã chia theo catalog/giao dịch/xuất SQL; các tỷ lệ còn lại giữ thành [giả định có ghi chú](GENERATOR_METRICS.md). Sinh log tổng hợp và profile UCI cũ tiếp tục được loại bỏ.

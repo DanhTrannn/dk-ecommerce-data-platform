@@ -6,7 +6,7 @@ Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và 
 
 `API_DATABASE_URL` bắt buộc khi chạy API, dùng `postgresql+psycopg2`. Không còn fallback URL/mật khẩu MySQL trong code. Session dùng UTC và schema public; `/health/ready` hiện chỉ kiểm tra kết nối, chưa kiểm tra schema nghiệp vụ.
 
-Streamlit console điều khiển generator 0.10: chọn preset, chỉnh cấu hình, tạo job sinh SQL/access log chạy nền, theo dõi theo công đoạn và tải kết quả. Console sinh file và cho nạp SQL của job vào PostgreSQL bằng thao tác riêng tại Kết quả & lịch sử. Không tự nạp khi sinh file, có màn hình Mô phỏng API cho mua online; chưa upload log hoặc kích hoạt Airflow; sampler 2c giữ nguyên.
+Streamlit console điều khiển generator 0.10: chọn preset, chỉnh cấu hình, tạo job sinh SQL chạy nền, theo dõi theo công đoạn và tải kết quả. Console sinh file và cho nạp SQL của job vào PostgreSQL bằng thao tác riêng tại Kết quả & lịch sử. Không tự nạp khi sinh file, có màn hình Mô phỏng API cho mua online; chưa upload log hoặc kích hoạt Airflow; sampler dùng trọng số nhóm thứ hạng sản phẩm H&M, các tỷ lệ khác là giả định.
 
 Thiết kế và quyết định kỹ thuật: [docs/project/GENERATOR_CONSOLE.md](../../docs/project/GENERATOR_CONSOLE.md).
 
@@ -57,28 +57,26 @@ Healthcheck dùng `http://localhost:8501/_stcore/health`.
 ## Cấu hình và validate
 
 - Preset lấy từ `generator/configs/*.yml`.
-- Các trường thường dùng: scenario, seed, anchor time, số tháng lịch sử, customers, products, variants, orders, cửa hàng tham chiếu, output mode, expected requests. Chọn cửa hàng để SQL bổ sung địa điểm còn thiếu; danh sách rỗng không sinh địa điểm. Cấu hình `locations.store_codes` được đóng băng cùng job và tham gia dataset identity.
+- Các trường thường dùng: scenario, seed, anchor time, số tháng lịch sử, customers, products, variants, orders, cửa hàng tham chiếu. Chọn cửa hàng để SQL bổ sung địa điểm còn thiếu; danh sách rỗng không sinh địa điểm. Cấu hình `locations.store_codes` được đóng băng cùng job và tham gia dataset identity.
 - Phân phối nâng cao sửa trong expander YAML. Chỉ khối `distributions` được thay; các trường khác lấy từ preset và form.
 - Submit mới đọc form. Cấu hình cuối được ghi nguyên văn vào `config.yml` của job và là file được generator thực thi.
 - Validation dùng chung `generator.config.config_from_dict` và `generator.validation.validate_scale`: timezone bắt buộc, scale hợp lệ, `variants >= products`, giới hạn tổ hợp size/color, phân phối/trọng số/tỷ lệ.
 - `scenario_id` chỉ nhận chữ, số, `.`, `_`, `-` và tối đa 64 ký tự để tránh ghi ra ngoài thư mục job.
-- `expected_requests = 0` tự động thành `max(1000, orders × 20)`.
 
 ## Job và trạng thái
 
 Mỗi lần bấm Tạo job sinh một Job ID mới dạng `<UTC timestamp>-<8 hex>`. Chỉ một job `queued`/`running` trên một console; submit trùng bị chặn bằng lock và kiểm tra PID. Refresh hoặc chuyển màn hình không tạo job; đóng tab không dừng worker.
 
-Job status: `queued`, `running`, `succeeded`, `partial`, `failed`, `interrupted`.
+Job status: `queued`, `running`, `succeeded`, `failed`, `interrupted`.
 
-- `partial`: ít nhất một công đoạn được chọn thành công và một công đoạn thất bại. SQL thành công nhưng log lỗi vẫn giữ SQL.
 - `interrupted`: console/worker restart nhưng PID hoặc `/proc/<pid>/cmdline` không còn xác minh được. Artifact đã có vẫn được giữ.
 
-Công đoạn: `validate` (ghi manifest), `sql`, `logs`. SQL và log chạy độc lập sau khi validate thành công.
+Công đoạn: `validate` (ghi manifest), sau đó `sql`. Sinh log tổng hợp và profile UCI đã được bỏ; log HTTP thực từ API vẫn là luồng riêng.
 
 ## Nạp SQL vào PostgreSQL
 
 1. Bootstrap schema nguồn trống theo [database guide](../../database/README.md), cấu hình `API_DATABASE_URL` và `API_SECRET_KEY` như `.env.example`. Container dùng URL nội bộ đã inject; chạy host dùng URL host.
-2. Sinh job có đầu ra SQL hoặc cả hai, chờ job hoàn tất. Job partial vẫn nạp được nếu bước SQL thành công.
+2. Sinh job SQL, chờ job hoàn tất. Job cũ có trạng thái partial vẫn nạp được nếu bước SQL thành công.
 3. Mở **Kết quả & lịch sử**, chọn job, xem đích database và bấm **Nạp vào PostgreSQL**.
 4. Worker kiểm tra đường dẫn/checksum/dataset identity trên bản sao SQL riêng rồi gọi importer có sẵn. Xem số khách, số đơn, giá trị đơn đã đặt (VND), checksum và receipt sau commit.
 
@@ -106,21 +104,17 @@ data/generator/jobs/
     ├── logs/
     │   ├── worker.log
     │   ├── validate.log
-    │   ├── sql.log
-    │   └── logs.log
+    │   └── sql.log
     └── outputs/
-        ├── sql/<scenario>-<identity>.sql
-        ├── access-logs/...
-        └── access-logs.zip     # nếu tổng log <= ngưỡng
+        └── sql/<scenario>-<identity>.sql
 ```
 
 `state.json` là nguồn sự thật; Session State chỉ giữ màn hình và job đang chọn. State ghi atomic; lịch sử còn sau restart.
 
 ## Tệp và checksum
 
-- `checksums.sha256` chứa SHA-256 của config, request, manifest, SQL, log, archive.
+- `checksums.sha256` chứa SHA-256 của config, request, manifest, SQL và log thực thi worker.
 - UI hiển thị dung lượng/checksum; file lớn không được nạp để preview.
-- Access log được tóm tắt theo thư mục (số file, tổng dung lượng, checksum cây). Zip chỉ được tạo khi tổng dung lượng không vượt `GENERATOR_CONSOLE_MAX_ARCHIVE_BYTES` (mặc định 200 MB).
 - File quá lớn để tải qua Streamlit sẽ hiển thị đường dẫn trên host.
 
 ## Biến môi trường
@@ -129,8 +123,6 @@ data/generator/jobs/
 |---|---|---|
 | `GENERATOR_CONSOLE_DATA_DIR` | `<repo>/data/generator/jobs` | Thư mục job |
 | `GENERATOR_CONFIGS_DIR` | `<repo>/generator/configs` | Thư mục preset |
-| `GENERATOR_PROFILE_PATH` | `<repo>/generator/profiles/uci-online-retail-uk-v1.json` | Profile tham chiếu |
-| `GENERATOR_CONSOLE_MAX_ARCHIVE_BYTES` | `209715200` | Ngưỡng tạo zip access log |
 | `GENERATOR_CONSOLE_REPO_ROOT` | suy ra từ package | Working directory cho worker |
 
 ## Kiểm tra

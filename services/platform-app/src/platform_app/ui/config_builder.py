@@ -11,7 +11,6 @@ import yaml
 from generator.config import GeneratorConfig, config_from_dict
 
 SCENARIO_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
-OUTPUT_MODES = ("sql", "logs", "both")
 
 
 @dataclass(frozen=True)
@@ -24,8 +23,6 @@ class FormValues:
     products: int
     variants: int
     orders: int
-    output_mode: str
-    expected_requests: int
     distributions_yaml: str
     store_codes: tuple[str, ...] | None = None
 
@@ -64,41 +61,17 @@ def build_config_document(preset: dict[str, Any], values: FormValues) -> dict[st
     return document
 
 
-def validate_config_document(document: dict[str, Any], values: FormValues) -> GeneratorConfig:
+def validate_config_document(document: dict[str, Any]) -> GeneratorConfig:
     scenario_id = str(document.get("scenario_id", "")).strip()
     if not SCENARIO_ID_PATTERN.fullmatch(scenario_id):
-        raise ValueError(
-            "scenario_id must start with a letter/digit and contain only letters, digits, '.', '_' or '-'"
-        )
-    if values.output_mode not in OUTPUT_MODES:
-        raise ValueError(f"output_mode must be one of {OUTPUT_MODES}")
+        raise ValueError("scenario_id must start with a letter/digit and contain only letters, digits, '.', '_' or '-'")
     if int(document.get("history_months", 0)) < 1:
         raise ValueError("history_months must be positive")
-    config = config_from_dict(document)
-    if values.output_mode in ("logs", "both"):
-        expected = resolve_expected_requests(document, values)
-        if expected < 1:
-            raise ValueError("expected_requests must be positive")
-    return config
-
-
-def resolve_expected_requests(document: dict[str, Any], values: FormValues) -> int:
-    if int(values.expected_requests) > 0:
-        return int(values.expected_requests)
-    orders = int(document["scale"]["orders"])
-    return max(1_000, orders * 20)
+    return config_from_dict(document)
 
 
 def freeze_config(document: dict[str, Any]) -> str:
     return yaml.safe_dump(document, sort_keys=False, allow_unicode=True)
-
-
-def build_request(preset_name: str, values: FormValues, expected_requests: int) -> dict[str, Any]:
-    return {
-        "preset": preset_name,
-        "output": values.output_mode,
-        "expected_requests": int(expected_requests),
-    }
 
 
 def _configs_dir() -> Path:
