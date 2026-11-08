@@ -54,6 +54,10 @@ Mở `http://localhost:8501` (đổi `PLATFORM_APP_PORT` nếu cần). Thư mụ
 
 Healthcheck dùng `http://localhost:8501/_stcore/health`.
 
+Sau đợt merge EDA, image chỉ đóng gói mã nguồn generator và `generator/configs`; không còn sao chép thư mục `generator/profiles` đã xóa. Có thể build riêng image ứng dụng bằng `docker compose --profile core build platform-app`, không cần build toàn bộ hạ tầng.
+
+Kiểm chứng sửa build ngày 08/11/2026: image build thành công; container biệt lập chạy UID/GID 1000:1000 trả health cho FastAPI và Streamlit, đồng thời xuất SQL 30 đơn bằng generator trong image. Container không có mạng ngoài, host port hoặc volume dữ liệu hiện có và đã được xóa sau kiểm tra. Đây là kiểm tra đóng gói/khởi động, chưa xác minh kết nối PostgreSQL, import hoặc batch với generator sau merge.
+
 ## Cấu hình và validate
 
 - Preset lấy từ `generator/configs/*.yml`.

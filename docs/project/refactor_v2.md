@@ -141,3 +141,5 @@ Kiểm chứng phần quản trị quyền: bộ platform-app 113 tests đạt, 
 ## Tích hợp EDA và generator vào dev
 
 Generator giữ đích PostgreSQL 0.10, địa điểm tham chiếu, metadata/import transaction và các chức năng console/API/quản trị quyền của dev. Trọng số sản phẩm R03 từ [notebook EDA](../../generator/notebooks/reference_datasets_eda.ipynb) được tích hợp vào sampler đã chia theo catalog/giao dịch/xuất SQL; các tỷ lệ còn lại giữ thành [giả định có ghi chú](GENERATOR_METRICS.md). Sinh log tổng hợp và profile UCI cũ tiếp tục được loại bỏ.
+
+**Phần 1 sau merge — sửa build, 08/11/2026:** bỏ dòng COPY `generator/profiles` không còn tồn tại khỏi Dockerfile platform-app. Image đã build lại thành công; FastAPI/Streamlit khởi động và generator xuất SQL 30 đơn trong container biệt lập chạy UID 1000. Chưa import hoặc chạy lại batch sau merge; phần 2 là nghiệm thu generator mới với PostgreSQL và Lakehouse, không dùng kết quả batch trước merge để thay thế bước này.
