@@ -346,6 +346,44 @@ services:
       - polaris-trino-reader-credentials:/run/polaris-output/trino-reader
     networks: ["lakehouse-network"]
 
+
+  lakehouse-access:
+    image: lakehouse-platform-app:0.1.0
+    profiles: ["core"]
+    user: "${PLATFORM_APP_UID:-1000}:${PLATFORM_APP_GID:-1000}"
+    entrypoint: ["uvicorn", "platform_app.access_admin.app:app", "--host", "0.0.0.0", "--port", "8010", "--no-access-log"]
+    environment:
+      API_DATABASE_URL: postgresql+psycopg2://${POSTGRES_ECOMMERCE_USER:-ecommerce_app}:${POSTGRES_ECOMMERCE_PASSWORD:-password}@postgres:5432/${POSTGRES_ECOMMERCE_DB:-ecommerce}
+      API_SECRET_KEY: ${API_SECRET_KEY:?set API_SECRET_KEY}
+      API_AUTH_COOKIE_NAME: lakehouse_access
+      API_CSRF_COOKIE_NAME: lakehouse_csrf
+      POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
+      POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
+      POLARIS_ROOT_CLIENT_ID: ${POLARIS_ROOT_CLIENT_ID:-root}
+      POLARIS_ROOT_CLIENT_SECRET: ${POLARIS_ROOT_CLIENT_SECRET:?set POLARIS_ROOT_CLIENT_SECRET}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      MINIO_POLARIS_ACCESS_KEY: ${MINIO_POLARIS_ACCESS_KEY:?set MINIO_POLARIS_ACCESS_KEY}
+      MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
+      MINIO_FLINK_ACCESS_KEY: ${MINIO_FLINK_ACCESS_KEY:?set MINIO_FLINK_ACCESS_KEY}
+      MINIO_TRINO_ACCESS_KEY: ${MINIO_TRINO_ACCESS_KEY:?set MINIO_TRINO_ACCESS_KEY}
+      ACCESS_ADMIN_AUDIT_PATH: /data/access-admin/audit.jsonl
+    volumes:
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      polaris:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health/live', timeout=5).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: ["lakehouse-network"]
+
   platform-app:
     build:
       context: .
@@ -359,6 +397,7 @@ services:
       API_SECRET_KEY: ${API_SECRET_KEY:?set API_SECRET_KEY}
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:8501,http://localhost:3000}
       API_CHECKOUT_MAX_RETRIES: ${API_CHECKOUT_MAX_RETRIES:-3}
+      CONSOLE_ACCESS_ADMIN_URL: http://lakehouse-access:8010
       SCENARIO_API_BASE_URL: ${SCENARIO_API_BASE_URL:-http://127.0.0.1:8000}
       SCENARIO_HTTP_TIMEOUT_SECONDS: ${SCENARIO_HTTP_TIMEOUT_SECONDS:-15}
       KAFKA_ENABLED: "false"

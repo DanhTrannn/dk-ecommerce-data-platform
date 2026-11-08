@@ -106,3 +106,7 @@ Giữ semantics idempotency hiện có: checkout, một số transition, nhập 
 Streamlit có màn hình **Mô phỏng API**, chạy worker riêng theo chuỗi register/login → catalog → cart → quote → checkout → đọc đơn/giỏ để xác minh. Mỗi lượt dùng khách mô phỏng mới và idempotency key riêng; không sửa hợp đồng endpoint. Chọn COD/VietQR, số lượt, số lượng một SKU và khoảng nghỉ. Journal bền vững lưu email/mã đơn/key và trạng thái; không lưu mật khẩu/cookie. Dừng hợp tác giữa các lượt; kết quả ghi chưa rõ hoặc kiểm chứng không đạt sau checkout chuyển `unknown`, không retry và dừng run.
 
 Phạm vi đầu tiên chỉ mua online; không đồng nghĩa S01 đã có toàn bộ fulfillment hay S02–S09 đã được tự động hóa. API vẫn giữ lineage `manual`, log HTTP `observed`; chưa phân loại synthetic API traffic trong schema. Kafka producer đang tắt trong Compose và chưa chứng minh log tới Lakehouse. Chi tiết cấu hình/giới hạn: [platform guide](../../services/platform-app/README.md#mô-phỏng-mua-online-qua-api).
+
+## API quản trị quyền tách biệt
+
+Streamlit Quản trị quyền gọi service nội bộ `lakehouse-access` dưới prefix `/api/v1/access`; các route này không đăng ký vào source router ở 8000. Nó tái sử dụng auth/JWT và role nguồn để xem/gán/gỡ liên kết Polaris/MinIO, không tạo dữ liệu bán hàng và không thay hợp đồng API nghiệp vụ đã giữ. Source schema không thêm bảng IAM/audit; audit cục bộ nằm trong data/access-admin. Xem [platform guide](../../services/platform-app/README.md#quản-trị-quyền-trên-streamlit) cho phạm vi, auth/CSRF, readback và giới hạn.

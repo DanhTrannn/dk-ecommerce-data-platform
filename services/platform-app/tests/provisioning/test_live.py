@@ -300,3 +300,58 @@ if printf 'test' | mc pipe writer/lakehouse/forbidden/object >/dev/null 2>&1; th
         result = self.command(command, timeout=120)
         self.assertIn("POLARIS_PROVISION_CHECK_OK", result.stdout)
         print(result.stdout.strip())
+        if os.environ.get("RUN_ACCESS_EXERCISE") == "1":
+            env.update(
+                {
+                    "API_DATABASE_URL": "postgresql+psycopg2://postgres:"
+                    + env["POSTGRES_PASSWORD"]
+                    + "@source-postgres:5432/polaris",
+                    "API_SECRET_KEY": uuid.uuid4().hex,
+                    "API_BOOTSTRAP_ADMIN_EMAIL": "admin@example.com",
+                    "API_BOOTSTRAP_ADMIN_PASSWORD": uuid.uuid4().hex,
+                    "ACCESS_ADMIN_AUDIT_PATH": "/tmp/access-audit/audit.jsonl",
+                }
+            )
+            self.secrets.extend([env["API_SECRET_KEY"], env["API_BOOTSTRAP_ADMIN_PASSWORD"]])
+            env_file.write_text("".join(f"{key}={value}\n" for key, value in env.items()))
+            self.command(
+                ["docker", "exec", "-i", pg, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "polaris"],
+                input=(ROOT / "database/schema.sql").read_text(),
+            )
+            access_command = command[:-4] + [
+                "-v",
+                f"{ROOT}/services/platform-app/tests/access_admin:/access-checks:ro",
+                "--entrypoint",
+                "python",
+                image,
+                "/access-checks/live_check.py",
+            ]
+            live = self.command(access_command, timeout=180)
+            self.assertIn("ACCESS_ADMIN_LIVE_OK", live.stdout)
+            print(live.stdout.strip())
+            nonroot = self.command(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "--pull",
+                    "never",
+                    "--network",
+                    network,
+                    "--env-file",
+                    str(env_file),
+                    "--user",
+                    "1000:1000",
+                    "-e",
+                    "ACCESS_ADMIN_AUDIT_PATH=/tmp/access-nonroot/audit.jsonl",
+                    "-v",
+                    f"{ROOT}/services/platform-app/tests/access_admin:/access-checks:ro",
+                    "--entrypoint",
+                    "python",
+                    image,
+                    "/access-checks/nonroot_check.py",
+                ],
+                timeout=180,
+            )
+            self.assertIn("ACCESS_ADMIN_NONROOT_OK", nonroot.stdout)
+            print(nonroot.stdout.strip())

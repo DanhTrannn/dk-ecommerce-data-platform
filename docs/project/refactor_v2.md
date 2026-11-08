@@ -130,3 +130,11 @@ Kiểm chứng batch biệt lập đã đạt: 27 nguồn, 30 đối soát ngu�
 Có `make provision-lakehouse`: MinIO dùng `mc` đã có trong image, Polaris dùng CLI trong platform-app qua service one-off scale 0; không thêm dependency/image riêng và không tự chạy startup. Khởi tạo bucket, bốn account MinIO, catalog/sáu namespace, ba principal Polaris và bốn credential output riêng. File credential 0600, thư mục 0700, UID/GID theo workload; state khởi tạo giữ trong volume root riêng, không mount vào API/UI.
 
 Chạy lại giữ secret/policy MinIO hiện có và RBAC Polaris sau khởi tạo; không tự rotate/reset hoặc xóa dữ liệu. Partial bootstrap Polaris có journal để tiếp tục; mất secret cả state lẫn consumer copy thì dừng và yêu cầu khôi phục/rotate chủ động. Đây là công cụ initialization, không phải IAM reconciliation hoặc health check. Thứ tự chạy và giới hạn tại [SETUP](../runbook/SETUP.md#6-explicit-minio-and-polaris-provisioning). CDC PostgreSQL, nghiệm thu batch trên Polaris/Airflow/Trino, Superset và dọn Next.js vẫn còn.
+
+### Quản trị quyền Streamlit — 08/11/2026
+
+Bổ sung màn hình xem và gán/gỡ liên kết quyền hiện có, qua backend nội bộ `lakehouse-access` dùng cùng image platform-app. Auth dùng tài khoản nguồn admin/system_admin, kiểm tra role/trạng thái mỗi request và CSRF khi ghi. Secret quản trị giữ ở backend riêng; không mount Docker socket hoặc credential volume workload vào UI. MinIO dùng binary mc từ image đang có, không thêm Python dependency.
+
+Polaris hỗ trợ principal role, catalog role và các grant catalog được chọn; MinIO hỗ trợ direct-policy binding của bốn workload. Không tạo account/role, sửa policy JSON, chỉnh group hoặc xoay secret. Snapshot revision chặn dữ liệu UI cũ, audit ghi trước thao tác và readback xác minh kết quả; không auto retry trạng thái chưa rõ. YAML/provisioning vẫn giữ semantics khởi tạo; không biến thành đồng bộ quyền liên tục. Chi tiết/giới hạn tại [platform guide](../../services/platform-app/README.md#quản-trị-quyền-trên-streamlit).
+
+Kiểm chứng phần quản trị quyền: bộ platform-app 113 tests đạt, gồm auth/CSRF/thu hồi role trên PostgreSQL biệt lập và thao tác thực trên MinIO/Polaris. Live check xác minh 9 thay đổi với 18 audit record, thêm 4 thay đổi dưới UID 1000; không dùng database/volume production. Source API, schema và sampler giữ nguyên; chưa nghiệm thu triển khai public hay toàn bộ pipeline.

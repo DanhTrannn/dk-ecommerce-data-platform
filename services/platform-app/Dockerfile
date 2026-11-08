@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1.7
+FROM cgr.dev/chainguard/minio:latest-dev AS minio-client
+
 FROM python:3.11.13-slim
+COPY --from=minio-client /usr/bin/mc /usr/local/bin/mc
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 

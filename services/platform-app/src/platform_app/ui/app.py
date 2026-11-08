@@ -5,9 +5,9 @@ from generator import __version__ as GENERATOR_VERSION
 
 from platform_app.ui.job_store import JobStore
 from platform_app.ui.paths import jobs_root
-from platform_app.ui.views import config, jobs, profile, scenarios
+from platform_app.ui.views import access, config, jobs, profile, scenarios
 
-SECTIONS = ("Cấu hình", "Theo dõi job", "Kết quả & lịch sử", "Mô phỏng API")
+SECTIONS = ("Cấu hình", "Theo dõi job", "Kết quả & lịch sử", "Mô phỏng API", "Quản trị quyền")
 
 
 def main() -> None:
@@ -40,8 +40,10 @@ def main() -> None:
         jobs.render_monitor(store)
     elif section == "Kết quả & lịch sử":
         jobs.render_history(store)
-    else:
+    elif section == "Mô phỏng API":
         scenarios.render()
+    else:
+        access.render()
 
 
 def _handle_navigation() -> None:

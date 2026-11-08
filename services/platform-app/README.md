@@ -179,3 +179,55 @@ Compose hiện đặt `KAFKA_ENABLED=false` cho platform-app. Runner phát sinh 
 Package `platform_app.provisioning` cung cấp CLI Polaris, tách khỏi API/UI startup và không cần `API_DATABASE_URL` hoặc `API_SECRET_KEY`. `make provision-polaris` chạy `python -m platform_app.provisioning.polaris` bằng image platform-app trong service `lakehouse-provision` (`scale: 0`, root cho việc chown file). Service này không mở port hay chạy web server; chỉ nó mount cả bốn credential output và state quản trị. API/UI bình thường không nhận những volume/secret quản trị này.
 
 `make provision-minio` gọi script dùng `mc` có sẵn trong container MinIO. `make provision-lakehouse` chạy MinIO trước rồi Polaris; phải build image platform-app mới và chờ storage/catalog sẵn sàng trước. Không khởi tạo business schema, nạp SQL, gọi nghiệp vụ hoặc chạy DAG. Xem [hướng dẫn provisioning](../../docs/runbook/SETUP.md#6-explicit-minio-and-polaris-provisioning) cho biến môi trường, khôi phục state, quyền output và kiểm chứng.
+
+## Quản trị quyền trên Streamlit
+
+Mở **Quản trị quyền** và đăng nhập bằng tài khoản nguồn có role `admin` hoặc `system_admin` (schema và seed admin phải có trước). Chỉ khu vực này có bước đăng nhập mới; các màn hình generator giữ cơ chế hiện tại. Cookie/token lưu trong bộ nhớ của từng session Streamlit, không cache chung hoặc ghi file; password form được xóa sau lần submit. Đăng xuất xóa session cục bộ và cookie phía client quản trị.
+
+Streamlit gọi service nội bộ `lakehouse-access:8010`, tách khỏi source API ở 8000. Backend dùng cùng PostgreSQL/JWT của ứng dụng để kiểm tra role/trạng thái tài khoản ở **mỗi request**, và kiểm tra CSRF khi ghi. Source API giữ nguyên router/endpoint cũ. `lakehouse-access` không publish port ra host và không mount Docker socket, state provisioning hoặc credential volume của workload. Chỉ service quản trị giữ MinIO/Polaris admin credentials. Nó chạy bằng UID/GID của platform-app, không cần root Linux.
+
+Phạm vi:
+
+- Polaris: xem ba workload principal, principal role, catalog role và grant hiện tại; gán/gỡ principal role, catalog role, hoặc chín quyền catalog đã được hỗ trợ. Root, `service_admin`, `catalog_admin` và role `system$...` không là đối tượng sửa trên giao diện.
+- MinIO: xem bốn workload account cấu hình qua `MINIO_*_ACCESS_KEY`, trạng thái, direct policy và group membership; xem JSON của bốn policy `lakehouse-{polaris,spark,flink,trino}` và gán/gỡ chúng. Policy JSON là read-only; không có API tạo/xóa account, sửa policy, đổi password/secret hoặc chỉnh group.
+- Hiển thị **liên kết trực tiếp**, không tính đầy đủ quyền hiệu lực từ mọi role/group/policy. Gỡ một grant/policy không chứng minh toàn bộ quyền truy cập đã mất nếu còn đường kế thừa khác.
+
+Quyền hiển thị là snapshot của lần tải; dùng **Tải lại quyền** khi có thao tác từ công cụ khác. Backend đọc lại trạng thái và so revision trước khi ghi; revision lệch trả 409 và yêu cầu tải lại. Một thay đổi chỉ tác động một liên kết, sau đó đọc lại để xác minh; không tự retry khi mất kết nối hoặc chưa rõ kết quả. Khóa file serialize các thao tác của backend dùng chung audit path, không phải khóa mọi Console/API bên ngoài.
+
+Audit append-only cục bộ tại `data/access-admin/audit.jsonl` (0600) ghi actor ID/role, loại thao tác, đối tượng, operation ID và trạng thái `started`, `verified`, `noop`, `unknown`; không ghi password/token/admin secret. Không ghi được audit trước thao tác thì không gọi upstream. Nếu ghi thành công nhưng chưa lưu/xác minh kết quả cuối, phải kiểm tra trạng thái thật và operation ID trước khi thao tác tiếp. Audit không phải kho chống sửa/xóa hoặc giao dịch phân tán với Polaris/MinIO.
+
+Chạy Docker:
+
+```bash
+docker compose --profile core build platform-app
+docker compose --profile core up -d platform-app lakehouse-access
+```
+
+Cần MinIO/Polaris đã provisioning và `data/` có quyền ghi cho `PLATFORM_APP_UID`/`PLATFORM_APP_GID`. Image platform-app copy `mc` từ chính image MinIO đang dùng, không thêm Python dependency/image runtime mới. MinIO adapter chỉ chạy các subcommand đọc và attach/detach cố định; credential truyền qua môi trường tiến trình ngắn hạn, không qua argv hay output UI.
+
+Chạy console trên host dùng `CONSOLE_ACCESS_ADMIN_URL` (mặc định `http://127.0.0.1:8010`), nhưng service Compose cố ý không publish cổng này. Nếu chạy API quản trị riêng trên host: `uv run --locked --package platform-app -- uvicorn platform_app.access_admin.app:app --host 127.0.0.1 --port 8010 --no-access-log`; cần cung cấp `mc` qua `ACCESS_ADMIN_MC_BINARY`, URL MinIO/Polaris host qua `ACCESS_ADMIN_MINIO_URL`/`ACCESS_ADMIN_POLARIS_URL`, các root credential và cấu hình PostgreSQL/JWT. Quy trình Docker ở trên là cách có sẵn binary/client đầy đủ.
+
+API nội bộ (prefix `/api/v1/access`):
+
+| Method | Path | Chức năng |
+|---|---|---|
+| POST | `/login`, `/logout` | Đăng nhập/đăng xuất quản trị |
+| GET | `/me` | Kiểm tra danh tính và role hiện tại |
+| GET | `/polaris`, `/minio` | Đọc snapshot quyền và revision |
+| POST | `/{provider}/bindings` | Gán/gỡ một liên kết có revision; cần CSRF |
+| GET | `/audit` | Đọc tối đa 50 audit record gần nhất |
+
+Mỗi request ghi chứa `kind`, `subject`, `target`, `granted`, `revision`; dữ liệu thừa bị từ chối. API không nhận admin credential, command tùy ý hay policy JSON từ form.
+
+Kiểm tra biệt lập:
+
+```bash
+uv run --locked --package platform-app -- python -m unittest discover -s services/platform-app/tests -p test_access.py -v
+RUN_POSTGRES_SCHEMA_TESTS=1 uv run --locked --package platform-app -- python -m unittest discover -s services/platform-app/tests -p test_auth_postgres.py -v
+docker build -f services/platform-app/Dockerfile -t tlcn-access-check:local .
+RUN_ACCESS_TESTS=1 uv run --locked --package platform-app -- python -m unittest discover -s services/platform-app/tests -p test_live_access.py -v
+```
+
+Live check tái sử dụng stack provisioning tạm, thêm business schema public vào database fixture riêng để kiểm tra auth; không thay đổi source/metadata đang chạy. Kiểm chứng này không nghiệm thu deployment public, toàn pipeline hoặc tính bất biến của audit.
+
+Kết quả kiểm chứng ngày 08/11/2026: 113 tests platform-app đạt với các cờ PostgreSQL/provisioning/access bật; riêng stack quyền xác minh 9 thay đổi/18 audit record và 4 thay đổi nữa bằng UID 1000. MinIO trả thứ tự action/resource không ổn định nên policy được chuẩn hóa thứ tự khi tính revision; việc đảo thứ tự JSON không bị coi là thay đổi quyền. Source/volume đang dùng không được chỉnh bởi các kiểm tra này.
