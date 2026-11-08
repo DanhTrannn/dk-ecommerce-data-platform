@@ -30,4 +30,13 @@ ignore = [
   "E402",  # Module level import not at top of file (sys.path injection)
 ]
 
+[dependency-groups]
+eda = [
+    "ipykernel==7.4.0",
+    "matplotlib==3.11.2",
+    "nbconvert==7.17.2",
+    "polars==2.1.0",
+    "seaborn==0.13.2",
+]
+
 

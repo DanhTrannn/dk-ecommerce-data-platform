@@ -84,7 +84,6 @@ Tăng phiên bản package/identity lên 0.8.0 và cập nhật lock, không th�
 
 ## 5. Hợp đồng cải thiện generator ở đợt kế tiếp
 
-Đợt **2b đã hoàn thành đo nguồn và tạo profile tham chiếu**, xem [GENERATOR_REFERENCE_PROFILE.md](GENERATOR_REFERENCE_PROFILE.md), [spec](../../generator/profiles/uci-reference.yml) và [JSON aggregate](../../generator/profiles/uci-online-retail-uk-v1.json). CLI `profile-reference` đọc artifact được ghim SHA-256, không tự tải hoặc nạp DB. Từ 541.909 dòng raw, chính sách cohort giữ 457.220 dòng trong hai kỳ sáu tháng UK, tương ứng 7.335 invoice fit và 9.783 invoice evaluation. Ghi từng lý do loại, giữ dòng nghi trùng và outlier, cách ly invoice có metadata xung đột; missing CustomerID không bị đưa vào mẫu số mua lại.
 
 Nguồn [UCI Online Retail](https://archive.ics.uci.edu/dataset/352/online+retail) bán quà tặng UK và có khách sỉ, không đại diện thời trang/POS VN. Profile đã đo bốn đặc trưng và quan hệ giỏ/lượng mua, nhưng **chưa áp dụng vào generator**. Ví dụ median giỏ fit là 15 mã hàng so với giới hạn 1–4 SKU của generator hiện tại; cần chốt cách thích nghi, không sao chép nguyên phân phối nguồn. Attribution/license, timezone chưa xác định, exposure/censoring và giới hạn diễn giải được lưu trong tài liệu.
 
@@ -139,10 +138,6 @@ Polaris hỗ trợ principal role, catalog role và các grant catalog được 
 
 Kiểm chứng phần quản trị quyền: bộ platform-app 113 tests đạt, gồm auth/CSRF/thu hồi role trên PostgreSQL biệt lập và thao tác thực trên MinIO/Polaris. Live check xác minh 9 thay đổi với 18 audit record, thêm 4 thay đổi dưới UID 1000; không dùng database/volume production. Source API, schema và sampler giữ nguyên; chưa nghiệm thu triển khai public hay toàn bộ pipeline.
 
-### Nghiệm thu batch trên stack thực — 08/11/2026
+## Tích hợp EDA và generator vào dev
 
-Đã kiểm chứng luồng PostgreSQL → Spark do Airflow điều phối → Iceberg trên MinIO/Polaris → publication → Trino bằng stack biệt lập. Hai DAG initial/interval đạt 109/109 task mỗi DAG. Runner tạo hai đơn COD qua API: số đơn ở fact/mart tăng 30 → 32, giá trị đặt hàng tăng 8.800.880 → 9.298.880 đồng; doanh thu thuần giữ 5.303.400 đồng vì COD chưa thanh toán. Đối soát nguồn–Silver đạt 30/30 ở cả hai lượt.
-
-Trino từ chối INSERT/DROP; thu hồi quyền Spark khiến job bị chặn; replay orders không tăng số bản ghi. Cố ý làm lệch tổng tiền bị quality gate chặn, reader vẫn đọc publication thành công trước đó; khôi phục đạt 55/55 kiểm tra và publish lại cùng run ID không nhân đôi publication. Đã sửa ngày initial-load khi Airflow 3 không cung cấp interval và bật Trino `iceberg.security=READ_ONLY`.
-
-Đây là kiểm chứng batch trên dữ liệu nhỏ, chạy DAG thủ công qua scheduler; chưa kiểm chứng lịch cron, CDC PostgreSQL, streaming log, Superset hoặc tải production. Không sửa/reset database và volume hiện có. Xem [cách chạy và bằng chứng](../../pipelines/README.md#full-stack-acceptance-opt-in). Phần tiếp theo là chuyển CDC sang PostgreSQL; Superset, dọn Next.js, scenario mở rộng và hiệu chỉnh generator vẫn nằm trong kế hoạch riêng.
+Generator giữ đích PostgreSQL 0.10, địa điểm tham chiếu, metadata/import transaction và các chức năng console/API/quản trị quyền của dev. Trọng số sản phẩm R03 từ [notebook EDA](../../generator/notebooks/reference_datasets_eda.ipynb) được tích hợp vào sampler đã chia theo catalog/giao dịch/xuất SQL; các tỷ lệ còn lại giữ thành [giả định có ghi chú](GENERATOR_METRICS.md). Sinh log tổng hợp và profile UCI cũ tiếp tục được loại bỏ.

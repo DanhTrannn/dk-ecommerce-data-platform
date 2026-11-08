@@ -41,8 +41,6 @@ class LocationFormTests(unittest.TestCase):
                 products=2,
                 variants=8,
                 orders=20,
-                output_mode="sql",
-                expected_requests=0,
                 distributions_yaml="",
                 store_codes=stores,
             )

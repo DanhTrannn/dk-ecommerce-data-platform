@@ -60,7 +60,7 @@ FastAPI now serves transactional data generation/lookup and HTTP observability. 
 - **Open Lakehouse Storage:** MinIO object storage, Iceberg tables/snapshots, Polaris catalog, and scheduled maintenance.
 - **Analytical Data:** 18 Lakehouse marts and publications retained for future Superset BI; legacy business-dashboard API serving is retired. HTTP reports retain their independent publication/cache and RBAC.
 - **Access-Log Analytics:** Request volume, duration percentiles, error rates, product interactions, and event-based marketing funnels.
-- **Synthetic Data Generation:** Version 0.10 generates deterministic PostgreSQL SQL history with corrected payment/return/stock consistency and synthetic-labelled historical access logs from YAML configurations; live API traffic can feed the Kafka stream. The reference-profiling CLI records measured UCI distributions and audit counts; applying them to generation remains pending.
+- **Synthetic Data Generation:** Generator 0.10 exports deterministic PostgreSQL SQL with H&M product-rank demand weights and consistent payment/return/stock relationships. Other behavioral rates remain documented [scenario assumptions](docs/project/GENERATOR_METRICS.md). Synthetic log generation is removed; runtime API access logging remains separate.
 - **Operational Source Application:** Storefront, cart/checkout, POS, store inventory, in-house delivery, COD failure tracking, returns/refunds, and product reviews.
 - **Inventory Costing:** Inbound receipts, Moving Weighted Average costs, and order-item cost snapshots for analytical COGS calculations.
 
@@ -123,7 +123,7 @@ Ports and credentials below follow the default configuration; environment overri
 | **Flink Dashboard** | 8085 | `http://localhost:8085` | Job status |
 | **Kafka** | 9092, 9094 | `localhost:9094` | External listener; Docker clients use `kafka:9092` |
 | **Debezium Connect** | 8086 | `http://127.0.0.1:8086` | Connector lifecycle/status |
-| **Generator Console (optional)** | 8501 | `http://localhost:8501` | Optional `tools` profile; SQL/access-log jobs stored under `data/generator/jobs/` |
+| **Generator Console (optional)** | 8501 | `http://localhost:8501` | Optional `tools` profile; SQL jobs stored under `data/generator/jobs/` |
 
 Additional staff accounts and store assignments are managed through the application.
 
@@ -216,13 +216,13 @@ make build
 make up PROFILES=core
 ```
 
-Open `http://localhost:8501`, choose SQL, access log or both, then monitor the per-stage results and download outputs. Completed SQL jobs can be loaded explicitly with **Nạp vào PostgreSQL** in **Kết quả & lịch sử**, with checksum validation, a background worker and durable attempt receipts. Generation never loads data automatically. The **Mô phỏng API** section runs sequential online purchase scenarios through the source API; it does not upload logs or trigger Airflow. See [services/platform-app/README.md](services/platform-app/README.md) for job layout and recovery behavior.
+Open `http://localhost:8501`, create a SQL job, then monitor the per-stage results and download outputs. Completed SQL jobs can be loaded explicitly with **Nạp vào PostgreSQL** in **Kết quả & lịch sử**, with checksum validation, a background worker and durable attempt receipts. Generation never loads data automatically. The **Mô phỏng API** section runs sequential online purchase scenarios through the source API; it does not upload logs or trigger Airflow. See [services/platform-app/README.md](services/platform-app/README.md) for job layout and recovery behavior.
 
 ### Real-Time Traffic Simulation
 
 The legacy traffic simulator has been removed. The Streamlit **Mô phỏng API** section now creates a fresh simulated customer per attempt, logs in, discovers available stock, fills a one-SKU cart and checks out using COD or VietQR. A detached worker saves run history, idempotency keys, order numbers and verification results; stopping takes effect between attempts. Configure `SCENARIO_API_BASE_URL` (default `http://127.0.0.1:8000`) and `SCENARIO_HTTP_TIMEOUT_SECONDS` (default 15). Start the API separately for local console use; Compose runs both processes. See the [platform guide](services/platform-app/README.md#mô-phỏng-mua-online-qua-api) for setup and outcome handling.
 
-Scenarios write to the target API and do not replay uncertain writes. Their distribution is not calibrated user behavior. Existing API lineage remains `manual`; runtime HTTP logs are `observed`. Compose currently disables the Kafka producer for platform-app, so generating requests does not establish delivery to Kafka/Lakehouse. Exported historical logs remain synthetic files.
+Scenarios write to the target API and do not replay uncertain writes. Their distribution is not calibrated user behavior. Existing API lineage remains `manual`; runtime HTTP logs are `observed`. Compose currently disables the Kafka producer for platform-app, so generating requests does not establish delivery to Kafka/Lakehouse. Synthetic historical log export is removed.
 
 ### Historical Data Backfill
 
@@ -239,14 +239,9 @@ uv run --locked --package platform-app -- \
   python -m platform_app.api.db.import_dataset data/generator/small.sql
 make seed  # application catalog/admin; locations are included in generator SQL
 
-# 2. Export local historical log files
-uv run --locked --package data-generator -- generator export-logs \
-  --config generator/configs/small.yml \
-  --output-directory data/generator/access-logs \
-  --expected-requests 60000
 ```
 
-The importer checks schema and dataset counts, rejects duplicate runs, reconciles payment/return/inventory records and synchronizes identity sequences in one transaction. It accepts trusted generator SQL only and takes write-blocking table locks; see the [database guide](database/README.md). Old backfill/import/upload shell helpers have been removed. Exporting logs does not upload them or send them to Kafka; the Flink log job reads Kafka. The batch source reader now supports PostgreSQL; configure its dedicated reader and storage/catalog prerequisites before running jobs. CDC conversion remains pending.
+The importer checks schema and dataset counts, rejects duplicate runs, reconciles payment/return/inventory records and synchronizes identity sequences in one transaction. It accepts trusted generator SQL only and takes write-blocking table locks; see the [database guide](database/README.md). Old backfill/import/upload shell helpers have been removed. Synthetic log export is removed; the Flink log job reads Kafka. The batch source reader now supports PostgreSQL; configure its dedicated reader and storage/catalog prerequisites before running jobs. CDC conversion remains pending.
 
 ### Run the OLTP Batch Pipeline
 
@@ -327,8 +322,8 @@ CI uses `--env-file .env.example` because `.env` is not committed and Compose re
 | **Physical SQL Schema** | [database/schema.sql](database/schema.sql) | PostgreSQL bootstrap rendered from ORM; fresh databases only |
 | **CDC** | [CDC_DASHBOARD_DATA_SPEC.md](docs/architecture/CDC_DASHBOARD_DATA_SPEC.md) | Capture contract, replay metadata, and recovery |
 | **Access Logs** | [ACCESS_LOG_DESIGN.md](docs/architecture/ACCESS_LOG_DESIGN.md) | Event contract, privacy rules, and streaming/raw-file boundaries |
-| **Data Generator** | [generator/README.md](generator/README.md) | Synthetic SQL/log generation and live traffic |
-| **Generator Reference Profile** | [GENERATOR_REFERENCE_PROFILE.md](docs/project/GENERATOR_REFERENCE_PROFILE.md) | Pinned UCI source, feature definitions, cohort/quality policy, measured results and calibration limits |
+| **Data Generator** | [generator/README.md](generator/README.md) | Synthetic SQL generation and live traffic |
+| **Generator EDA** | [Notebook](generator/notebooks/reference_datasets_eda.ipynb) · [Plan](docs/project/GENERATOR_EDA_PLAN.md) | Purchase behavior research, empirical rules and generator application |
 | **Generator Console** | [GENERATOR_CONSOLE.md](docs/project/GENERATOR_CONSOLE.md) | Streamlit job workflow, validation, persisted job layout, statuses and scope limits |
 | **Diagrams** | [docs/diagram/README.md](docs/diagram/README.md) | Chapter 3 draw.io sources, SVG figures, and offline HTML viewer |
 | **Business Analysis (B)** | [BUSINESS_DOMAIN.md](docs/architecture/BUSINESS_DOMAIN.md) | Implemented role views, business questions, sources, and KPI limits |

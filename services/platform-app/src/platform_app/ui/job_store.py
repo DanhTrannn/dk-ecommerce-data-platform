@@ -20,11 +20,10 @@ SCHEMA_VERSION = 1
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
 STATUS_SUCCEEDED = "succeeded"
-STATUS_PARTIAL = "partial"
 STATUS_FAILED = "failed"
 STATUS_INTERRUPTED = "interrupted"
 ACTIVE_STATUSES = {STATUS_QUEUED, STATUS_RUNNING}
-STAGE_ORDER = ("validate", "sql", "logs")
+STAGE_ORDER = ("validate", "sql")
 STAGE_PENDING = "pending"
 STAGE_RUNNING = "running"
 STAGE_SUCCEEDED = "succeeded"
@@ -124,9 +123,7 @@ class JobStore:
             if active_job is None:
                 active_job = next((job for job in self.list_jobs() if job.is_active), None)
             if active_job is not None and active_job.is_active:
-                raise JobAlreadyRunning(
-                    f"Job {active_job.job_id} is still active; wait for it to finish."
-                )
+                raise JobAlreadyRunning(f"Job {active_job.job_id} is still active; wait for it to finish.")
             if active is not None:
                 self._remove_active_locked()
 
@@ -137,7 +134,6 @@ class JobStore:
             (job_dir / "outputs").mkdir()
 
             created_at = _now()
-            output = str(request.get("output", "both"))
             state = {
                 "schema_version": SCHEMA_VERSION,
                 "job_id": job_id,
@@ -150,14 +146,11 @@ class JobStore:
                 "dataset_identity": dataset_identity,
                 "scenario_id": str(document.get("scenario_id", "")),
                 "preset": preset_name,
-                "output": output,
-                "expected_requests": int(request.get("expected_requests", 0)),
+                "output": "sql",
                 "current_stage": "validate",
-                "log_identity": None,
                 "stages": {
                     "validate": _stage(),
-                    "sql": _stage(STAGE_PENDING if output in ("sql", "both") else STAGE_SKIPPED),
-                    "logs": _stage(STAGE_PENDING if output in ("logs", "both") else STAGE_SKIPPED),
+                    "sql": _stage(),
                 },
                 "artifacts": [],
                 "error": None,
@@ -268,8 +261,6 @@ class JobStore:
             stage_state["message"] = message
             if summary is not None:
                 stage_state["summary"] = summary
-            if stage == "logs" and summary and summary.get("logical_identity"):
-                state["log_identity"] = summary["logical_identity"]
             state["current_stage"] = stage
 
         self.update_state(job_id, update)

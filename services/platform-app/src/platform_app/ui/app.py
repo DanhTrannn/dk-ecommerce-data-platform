@@ -5,7 +5,7 @@ from generator import __version__ as GENERATOR_VERSION
 
 from platform_app.ui.job_store import JobStore
 from platform_app.ui.paths import jobs_root
-from platform_app.ui.views import access, config, jobs, profile, scenarios
+from platform_app.ui.views import access, config, jobs, scenarios
 
 SECTIONS = ("Cấu hình", "Theo dõi job", "Kết quả & lịch sử", "Mô phỏng API", "Quản trị quyền")
 
@@ -31,11 +31,10 @@ def main() -> None:
     if flash := st.session_state.pop("flash", None):
         st.success(str(flash))
     st.title("Generator Console")
-    st.caption(f"Điều khiển generator {GENERATOR_VERSION} · job nền · SQL và access log")
+    st.caption(f"Điều khiển generator {GENERATOR_VERSION} · job nền · SQL")
 
     if section == "Cấu hình":
         config.render(store)
-        profile.render()
     elif section == "Theo dõi job":
         jobs.render_monitor(store)
     elif section == "Kết quả & lịch sử":

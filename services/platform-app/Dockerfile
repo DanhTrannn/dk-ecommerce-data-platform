@@ -14,7 +14,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH" \
     GENERATOR_CONSOLE_REPO_ROOT=/app \
     GENERATOR_CONFIGS_DIR=/app/generator/configs \
-    GENERATOR_PROFILE_PATH=/app/generator/profiles/uci-online-retail-uk-v1.json \
     GENERATOR_CONSOLE_DATA_DIR=/data/generator/jobs
 
 WORKDIR /app

@@ -12,6 +12,7 @@ scale:
   products: 60
   variants: 240
   orders: 3000
+# Các trọng số/tỷ lệ hành vi dưới đây là giả định kịch bản, trừ product_popularity từ EDA H&M.
 distributions:
   business_timezone: Asia/Ho_Chi_Minh
   day_of_week:
@@ -131,6 +132,19 @@ distributions:
     phu-kien: 9
     giay: 5
     tui-xach: 5
+  # H&M 2019: số dòng mua theo 10 nhóm thứ hạng sản phẩm, từ bán nhiều đến ít.
+  # Chuyển thứ hạng sang catalog giả lập là giả định; không phải tỷ trọng SKU VN.
+  product_popularity:
+  - 10500637
+  - 2943373
+  - 1411092
+  - 717882
+  - 386309
+  - 215783
+  - 120385
+  - 63178
+  - 28810
+  - 9481
   price_bands:
   - min_vnd: 79000
     max_vnd: 199000

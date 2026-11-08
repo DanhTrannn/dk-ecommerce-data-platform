@@ -1,140 +1,32 @@
-# Generator Console — thiết kế đợt 3
+# Generator Console
 
-Cập nhật **07/11/2026**. Streamlit Generator Console dùng generator 0.10 và có bước nạp SQL PostgreSQL riêng; phần thiết kế sinh file ban đầu được giữ bên dưới. Phạm vi và lý do chuyển đổi nằm trong [refactor_v2](refactor_v2.md); profile tham chiếu nằm trong [GENERATOR_REFERENCE_PROFILE](GENERATOR_REFERENCE_PROFILE.md).
+## 1. Mục tiêu và phạm vi
 
-## 1. Mục tiêu
+Console tạo job xuất SQL PostgreSQL, kiểm tra cấu hình, theo dõi tiến trình và tải artifact. Import PostgreSQL là thao tác riêng, không tự chạy khi sinh file. Giữ màn hình mô phỏng API và quản trị quyền của `dev`. Sampler dùng trọng số nhóm thứ hạng H&M; các tỷ lệ khác là giả định tại [GENERATOR_METRICS](GENERATOR_METRICS.md). Sinh log tổng hợp và profile UCI runtime đã được bỏ.
 
-Cho người dùng chọn preset, chỉnh các tham số thường dùng, kiểm tra cấu hình, tạo job sinh dữ liệu chạy nền, theo dõi job và tải kết quả SQL/access log. Console điều khiển generator và nạp SQL của job đã hoàn tất vào PostgreSQL bằng importer hiện có. Không tự nạp khi sinh file; chạy kịch bản mua online qua màn hình riêng, chưa upload log hoặc kích hoạt Airflow; sampler 2c giữ nguyên.
+## 2. Cấu hình
 
-## 2. Ranh giới
+Preset tại `generator/configs/`; form chỉnh scenario, seed, anchor, tháng lịch sử, customers/products/variants/orders và cửa hàng tham chiếu. YAML nâng cao chỉnh `distributions`. Dùng chung validation với generator; cấu hình cuối đóng băng trong `config.yml` và tham gia dataset identity.
 
-**Có trong đợt này**
+## 3. Thực thi và trạng thái
 
-- Preset `generator/configs/*.yml`, chỉnh tham số thường dùng và sửa YAML phân phối nâng cao.
-- Validate bằng đúng logic generator: thời gian có timezone, scale, quan hệ products/variants, phân phối/trọng số/tỷ lệ.
-- Xuất SQL, access log hoặc cả hai; nạp SQL PostgreSQL bằng tác vụ riêng tại kết quả job.
-- Một job nền tại một thời điểm trên một console; Job ID riêng cho từng lần chạy.
-- Lưu trạng thái, log, cấu hình đóng băng và artifact dưới `data/generator/jobs/<job_id>/`.
-- Theo dõi theo công đoạn; không hiển thị phần trăm giả.
-- Lịch sử bền vững qua refresh/restart; job không xác minh được tiến trình bị đánh dấu gián đoạn.
-- Xem profile tham chiếu UCI đã đo ở đợt 2b.
-- Màn hình Mô phỏng API chạy mua online theo phần 9, độc lập với job sinh file.
+Worker `python -m platform_app.ui.worker <job_dir>` gọi CLI `run --json` để ghi manifest, rồi `export-sql --json`. Một job sinh dữ liệu active trên một console; đóng tab không dừng worker. Trạng thái: queued/running/succeeded/failed/interrupted; stage validate/sql. PID không xác minh được chuyển interrupted.
 
-**Không có trong đợt này**
+## 4. Tổ chức
 
-- Import MySQL, upload SQL tùy ý, traffic ngoài kịch bản mua online, upload log, kích hoạt Airflow hoặc Superset.
-- Áp profile/reference vào sampler hoặc hiệu chỉnh sampler 2c.
-- Celery/Redis/hàng đợi phân tán; nhiều job sinh file song song.
-- Xóa `FINAL_REPORT.md` hoặc thay Next.js.
+`ui/config_builder.py` quản lý form/config; `job_store.py` lưu trạng thái/lock; `worker.py` gọi CLI; `artifacts.py` quản lý file/checksum; `import_store.py` và `import_worker.py` quản lý nạp. Giao diện nằm trong `ui/views/`, kịch bản HTTP trong `ui/scenarios/`. Logic sinh dữ liệu thuộc package generator.
 
-## 3. Cách tiếp cận
+## 5. Lưu trữ
 
-### 3.1. Dùng chung validation với generator
+`data/generator/jobs/<job_id>/` chứa config/request/state, manifest, checksums, `logs/`, `outputs/sql/` và journal `imports/<attempt_id>.json`. State ghi atomic và còn sau restart. Artifact collector bỏ qua journal import. File lớn hiển thị đường dẫn/dung lượng thay vì đọc toàn bộ vào UI.
 
-Thêm `generator/src/generator/validation.py` chứa `SIZES`, `COLORS` và `validate_scale(scale)`. `load_config()` và `config_from_dict()` validate scale; `export_sql()` và `export_logs()` cùng gọi hàm này. Console chỉ cần parse YAML rồi gọi `config_from_dict()`; không chép luật scale sang Streamlit.
+## 6. Cách chạy
 
-### 3.2. CLI trả summary JSON
+Chạy local: `uv run --locked --package platform-app platform-app`; Compose: `docker compose --profile core up -d --build platform-app`. Mở cổng 8501. API và console dùng chung container platform-app.
 
-Thêm `--json` cho `run`, `export-sql`, `export-logs`. Worker đọc JSON cuối stdout để lấy đường dẫn manifest/SQL/log, dataset identity và số liệu từng công đoạn. Output người dùng của CLI giữ nguyên.
+## 7. Kiểm tra
 
-### 3.3. Job nền tách khỏi Streamlit
-
-Console ghi cấu hình đã đóng băng và state ban đầu, sau đó spawn một process nền:
-
-```text
-python -m platform_app.ui.worker <job_dir>
-```
-
-Worker gọi CLI generator theo thứ tự:
-
-1. `run` — validate cấu hình, ghi manifest.
-2. `export-sql` — nếu chọn SQL/cả hai.
-3. `export-logs` — nếu chọn log/cả hai.
-
-SQL và log chạy độc lập: một công đoạn lỗi không xóa artifact của công đoạn kia. Đóng tab không dừng worker.
-
-### 3.4. Trạng thái
-
-Job status: `queued`, `running`, `succeeded`, `partial`, `failed`, `interrupted`.
-
-- `partial`: ít nhất một công đoạn được chọn thành công và ít nhất một công đoạn thất bại.
-- `interrupted`: console/worker restart nhưng PID không còn xác minh được, hoặc active job không còn tiến trình sống.
-
-Công đoạn: `validate`, `sql`, `logs`; mỗi công đoạn có `pending`, `running`, `succeeded`, `failed`, `skipped`, `interrupted`.
-
-## 4. Tổ chức code
-
-```text
-services/platform-app/
-├── pyproject.toml
-├── README.md
-├── Dockerfile
-├── src/platform_app/ui/
-│   ├── app.py              # entrypoint Streamlit
-│   ├── launcher.py         # console script gọi streamlit
-│   ├── paths.py            # đường dẫn repo/data, biến môi trường
-│   ├── config_builder.py   # preset -> cấu hình cuối, validate
-│   ├── job_store.py        # thư mục job, state, lock, reconcile
-│   ├── worker.py           # process nền, gọi CLI, cập nhật state
-│   ├── import_store.py     # journal, khóa và chống nạp trùng
-│   ├── import_worker.py    # kiểm tra snapshot SQL và gọi importer
-│   ├── artifacts.py        # file, size, sha256, checksum, log archive
-│   ├── reference_profile.py# đọc profile UCI
-│   └── views/
-│       ├── config.py
-│       ├── jobs.py
-│       ├── imports.py
-│       └── profile.py
-└── tests/
-```
-
-Generator vẫn là nguồn logic sinh dữ liệu. Console không import sampler và không sao chép thuật toán sinh.
-
-## 5. Lưu trữ job
-
-```text
-data/generator/jobs/
-├── .lock                    # flock cho thao tác tạo/reconcile job
-├── .active.json             # job đang chạy (job_id, pid, created_at)
-└── <job_id>/
-    ├── config.yml           # cấu hình đã đóng băng
-    ├── request.json         # preset, output mode, expected_requests
-    ├── state.json           # nguồn sự thật cho UI
-    ├── checksums.sha256
-    ├── imports/<attempt_id>.json # journal nạp, không thuộc checksum generation
-    ├── <scenario>-<identity>.manifest.json
-    ├── logs/
-    │   ├── worker.log
-    │   ├── validate.log
-    │   ├── sql.log
-    │   └── logs.log
-    └── outputs/
-        ├── sql/<scenario>-<identity>.sql
-        └── access-logs/landing/logs/...
-```
-
-- Job ID: `<UTC timestamp>-<8 hex>`, duy nhất và sắp xếp được.
-- State ghi atomic qua file tạm + `os.replace`.
-- Chỉ một job `queued`/`running` có PID sống trên một instance. Tạo job đồng thời bị chặn bằng `flock` và kiểm tra active.
-- `state.json` là nguồn sự thật; Session State chỉ giữ tab đang xem, preset và job đang chọn.
-- Khi mở console, `reconcile()` kiểm tra PID và `/proc/<pid>/cmdline`; job không xác minh được chuyển `interrupted`.
-- Artifact lớn giữ trên đĩa. UI chỉ đọc log tail và file nhỏ; file lớn hiển thị đường dẫn/dung lượng/checksum. Access log có thể tải qua zip nếu tổng dung lượng dưới ngưỡng cấu hình.
-
-## 6. Cấu hình form
-
-- Preset chọn ngoài form; đổi preset nạp lại giá trị mặc định.
-- Form gồm: scenario, seed, anchor time, history months, customers, products, variants, orders, output mode, expected requests.
-- Phân phối nâng cao nằm trong expander dưới dạng YAML; submit mới parse.
-- Cấu hình cuối = preset gốc + các trường form + `distributions` từ YAML. YAML cuối được ghi vào job và hiển thị/tải lại từ job.
-- `scenario_id` bị giới hạn ký tự an toàn để tránh ghi ra ngoài thư mục job.
-- `expected_requests = 0` nghĩa là tự động `max(1000, orders * 20)`.
-
-## 7. Kiểm chứng
-
-- Unit test generator: validation scale, `config_from_dict`, CLI `--json`.
-- Unit test console: build cấu hình, từ chối cấu hình sai, job store/lock/reconcile, artifact/checksum, worker với command runner giả.
-- Kiểm chứng tay: chạy preset small qua console, so sánh SQL với CLI cùng cấu hình; chạy cấu hình chỉ SQL, chỉ log, cả hai; kiểm tra refresh/restart và job gián đoạn.
-- `ruff`, test generator, test console, Compose config; Next.js và `FINAL_REPORT.md` không bị sửa.
+Test generator bao phủ validation, SQL/JSON, quan hệ tiền/kho và địa điểm. Test console bao phủ form, trạng thái, checksum, worker và import; kiểm thử PostgreSQL dùng database tạm riêng. Xem [hướng dẫn platform](../../services/platform-app/README.md) cho lệnh chạy và biến môi trường.
 
 ## 8. Quyết định mở rộng: nạp SQL PostgreSQL từ console
 
