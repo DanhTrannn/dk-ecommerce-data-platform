@@ -1,14 +1,38 @@
 # Kế hoạch notebook EDA cho data generator
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Người dùng yêu cầu triển khai từng phần: xong mỗi phần báo kết quả và dừng để người dùng kiểm tra. Không tự commit, push hoặc thay đổi generator.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Thực hiện phạm vi từng đợt đã được người dùng duyệt; đợt mới nhất đã cho phép viết lại generator. Không tự commit/push.
 
-**Goal:** Tạo một notebook khảo sát Olist, H&M và eCommerce Behavior Data from Multi Category Store, rút ra bằng chứng để đề xuất quy luật sinh dữ liệu và phục vụ REPORT.
+**Goal:** Tạo một notebook khảo sát Olist, H&M, eCommerce Behavior Data from Multi Category Store và UCI Online Retail, rút ra bằng chứng để đề xuất quy luật sinh dữ liệu và phục vụ REPORT.
 
-**Architecture:** Một notebook trong module generator, chia phần theo dataset và kết thúc bằng bảng quy luật. Đọc dữ liệu local độc lập với DB/pipeline; Polars dùng lazy scan để đọc, lọc và tổng hợp dữ liệu, Seaborn và Matplotlib vẽ biểu đồ. Triển khai từng phần theo thứ tự dưới đây.
+**Architecture:** Một notebook trong module generator, tổ chức theo hành vi cần mô phỏng. Mỗi nhóm nối câu hỏi nghiệp vụ → căn cứ nghiên cứu → EDA → đánh giá giữa nguồn → quy luật → ứng dụng. Đọc dữ liệu local độc lập với DB/pipeline bằng Polars; kết quả và diễn giải giữ trong notebook.
 
-**Tech Stack:** Python 3.11; đề xuất dependency group `eda` gồm Polars, Seaborn, Matplotlib, ipykernel và nbconvert, khóa phiên bản trong `uv.lock` khi triển khai. Notebook chạy trực tiếp trên máy người dùng bằng VS Code hoặc Jupyter với kernel Python local; dữ liệu đọc từ ổ đĩa local.
+**Tech Stack:** Python 3.11; dependency group `eda` gồm Polars, Seaborn, Matplotlib, ipykernel và nbconvert đã khóa trong `uv.lock`. Notebook chạy trực tiếp trên máy người dùng bằng VS Code hoặc Jupyter với kernel Python local; dữ liệu đọc từ ổ đĩa local.
 
-**Spec:** Phạm vi đã chốt trong trao đổi: ba dataset trên, một notebook EDA, bằng chứng thực nghiệm kết hợp bối cảnh Việt Nam trước khi hiệu chỉnh generator. Tham khảo cách ghi nguồn và audit trong [GENERATOR_REFERENCE_PROFILE](GENERATOR_REFERENCE_PROFILE.md); UCI không thuộc phạm vi EDA mới.
+**Spec:** Phạm vi đã chốt trong trao đổi: bốn dataset trên, một notebook EDA, bằng chứng thực nghiệm kết hợp bối cảnh Việt Nam trước khi hiệu chỉnh generator. UCI được bổ sung trực tiếp vào notebook; không khôi phục profile hoặc giao diện tham chiếu cũ.
+
+## Đợt tổ chức nghiên cứu theo hành vi — 08/11/2026
+
+Người dùng đã duyệt cách tổ chức và yêu cầu triển khai. Thực hiện các bước trong đợt này; các checklist phía dưới ghi lại quá trình EDA trước đó. Chưa sửa generator, cấu hình lấy mẫu hoặc dữ liệu nguồn; không tự commit/push.
+
+1. [x] Sắp xếp lại notebook: chuẩn bị dữ liệu; khách hàng/mua lại; giỏ hàng; nhu cầu sản phẩm; thời điểm mua; giao dịch/hậu mãi; bảng quy luật. Giữ eCommerce Behavior ở phụ lục vì sinh log ngoài phạm vi.
+2. [x] Nối nghiên cứu Việt Nam và kết quả EDA ngay trong từng nhóm; đánh giá khác biệt giữa nguồn, ghi lựa chọn/giới hạn và ánh xạ sang bảng nghiệp vụ. Bảng cuối phân biệt đề xuất có căn cứ, tham chiếu và phần chưa chốt tham số.
+3. [x] Đồng bộ phần phương pháp ở báo cáo nghiên cứu, mục 4.7 của REPORT, README generator và mục lục docs; giữ nguyên các phần không liên quan.
+
+**Kiểm tra:** giữ đủ code cell cũ, không thay phép tính/cohort; chạy notebook theo thứ tự mới từ kernel sạch, không có lỗi; kiểm tra các số liệu tổng hợp và liên kết; `git diff --check` đạt. Chỉ lưu kết quả trong notebook, kiểm tra tạm nằm ngoài Git.
+
+**Kết quả kiểm tra đợt này:** 63 code cell chạy tuần tự từ kernel sạch, không có error output; source của từng code cell giữ nguyên. Các kết quả text/plain đã có khớp bản trước đợt tổ chức lại; bảng giỏ Olist trước đó chưa có output nay được tính đầy đủ. Notebook hợp lệ theo nbformat, render HTML và liên kết nội bộ đạt; review độc lập không có phát hiện cần sửa. Không thêm dependency hoặc test vào Git, chưa commit/push.
+
+## Đợt viết lại generator từ quy luật đã đánh giá
+
+**Phạm vi được duyệt:** người dùng chọn viết lại generator tối giản theo `database/schema.sql` MySQL hiện có, không chuyển schema nguồn sang PostgreSQL trong đợt này. Áp dụng bằng chứng đủ rõ; các giá trị chưa đủ căn cứ giữ từ kịch bản cũ và ghi là giả định. Tài liệu chỉ số tập trung tại [GENERATOR_METRICS](GENERATOR_METRICS.md).
+
+- [x] Viết lại cấu hình và lấy mẫu: giữ giao diện CLI/UI cần dùng, áp dụng trọng số sản phẩm H&M từ nhóm 3 notebook, đánh dấu phép ánh xạ catalog là giả định; giữ các tỷ lệ khác.
+- [x] Sinh dữ liệu theo khóa/quan hệ và ràng buộc schema đã chốt; bảo đảm tiền, thanh toán/hoàn tiền, lịch sử trạng thái và tồn kho nhất quán. Không khôi phục profile UCI hoặc sinh log.
+- [x] Kiểm tra deterministic output, quan hệ dữ liệu và lựa chọn sản phẩm có trọng số bằng các kiểm tra tạm ngoài Git; chạy các kiểm tra hiện có còn phù hợp. Đồng bộ chỉ số, README, REPORT và trạng thái áp dụng R01–R07.
+
+**Tổ chức:** cấu hình/validation, dữ liệu catalog, giao dịch và xuất SQL/CLI. Không thêm framework lấy mẫu, benchmark trước/sau hoặc dependency nghiên cứu vào runtime. Bỏ Faker/HTTPX khỏi dependency generator vì không dùng, cập nhật lock; platform-app vẫn giữ HTTPX theo nhu cầu riêng.
+
+**Kiểm tra cuối:** Ruff đạt; 23 test hiện có đạt; sáu kịch bản tổng hợp kiểm tra quan hệ/tiền/kho/lịch sử đạt. Review độc lập tìm ba vấn đề (khóa COD theo thời điểm, tài khoản inactive và hết trọng số dương); bốn test tái hiện đã được chạy lỗi rồi chạy đạt sau sửa. File SQL thực sinh chạy qua schema/ràng buộc tương đương trong SQLite; kiểm tra FK, tổng tiền, bộ đếm coupon/COD, tính tái lập và xuất lỗi không ghi đè đầu ra đều đạt. Đây không phải bằng chứng đã import trên MySQL thật. Test bổ sung và SQL kiểm tra nằm trong `/tmp`, không đưa vào commit. Commit/push chỉ thực hiện khi người dùng yêu cầu.
 
 ## Tiến độ triển khai
 
@@ -29,12 +53,15 @@
 - [x] Phần tổng hợp đã được rút gọn theo yêu cầu mới: kết quả giữ trong notebook; 11 mục nghiệp vụ có nhận xét/quy luật Markdown, bỏ bảng diễn giải bằng Python và toàn bộ lệnh xuất file. Chưa hiệu chỉnh generator hoặc sửa REPORT.
 - [x] Dọn `data/` theo yêu cầu: chỉ giữ 13 CSV nguồn của ba dataset; xóa bản nén, clone trùng, metadata tải và kết quả EDA ngoài notebook. Nguồn tải giữ trong README.
 - [x] Phạm vi generator hiện chỉ sinh SQL; đã gỡ sinh log theo yêu cầu. Phần EDA hành vi vẫn giữ để tham khảo, chưa triển khai cách sinh log thay thế.
+- [x] Bổ sung phân phối giỏ/số lượng, giá trị đơn theo giỏ, khoảng mua theo nhóm tần suất, trọng số sản phẩm/nhóm và xác suất điểm theo giao nhận. Đã chạy notebook với nguồn thật, năm kiểm tra nhỏ ngoài Git và Ruff đạt; kết quả giữ trong notebook.
+- [x] Theo phạm vi mới, không bổ sung so sánh generator trước/sau hoặc benchmark holdout. Phân phối/quy luật là kết quả thực nghiệm; dữ liệu sinh khi triển khai là đầu ra phương pháp.
+- [x] Bổ sung UCI UK trong 12 tháng đầy đủ: giỏ theo invoice, Quantity theo mã hàng và mua lại theo đơn; giữ dữ liệu lớn và đơn cùng ngày. Đã chạy đủ 541.909 dòng nguồn, sáu kiểm tra nhỏ ngoài Git; giữ 14 CSV nguồn, không phục hồi module profile.
 
 ## Ràng buộc chung
 
-- Triển khai từng phần và dừng sau khi báo kết quả để người dùng kiểm tra; chưa tự làm tiếp phần sau.
+- Đợt tổ chức nghiên cứu chỉ thay notebook/tài liệu; đợt viết lại generator đã được duyệt riêng ở trên. Không tự khảo sát thêm dataset mới.
 - Notebook chạy trên máy người dùng; không mount vào container, không thay Dockerfile hoặc Docker Compose cho phần EDA.
-- Không sửa sampler, config sinh dữ liệu, source DB, DAG hoặc REPORT trong đợt tạo notebook.
+- Đợt viết lại chỉ sửa generator/cấu hình và tài liệu liên quan; không sửa source DB, DAG, schema hoặc hạ tầng. REPORT chỉ đồng bộ phần nghiên cứu liên quan.
 - Không nối ID giữa các dataset; mỗi kết quả phải ghi nguồn, grain, cửa sổ và mẫu số.
 - Phân biệt kết quả đo, điều chỉnh Việt Nam có nguồn và giả định chưa kiểm chứng.
 - Không đặt trước kết luận, tỷ lệ hay ngưỡng chấp nhận để ép EDA khớp generator.
@@ -44,9 +71,9 @@
 ## Cách viết notebook
 
 - Notebook chỉ chứa nội dung phân tích và code cần để thực hiện phân tích. Hướng dẫn môi trường, nguồn tải/điều khoản, checksum, manifest và tiến độ để trong README/metadata/kế hoạch; không tạo các mục này trong notebook.
-- Tổng quan/chất lượng dùng hàm có sẵn như `describe()`, `null_count()`, `is_duplicated()`; hiển thị kết quả trực tiếp, không cần viết nhận xét. Chỉ kiểm tra nghiệp vụ/join riêng khi phân tích cụ thể cần đến.
-- Chia phần rõ theo từng dataset. Mỗi mục nghiệp vụ theo thứ tự **câu hỏi → cách tính → code → kết quả → nhận xét/quy luật Markdown ngắn**. Code không chứa diễn giải hoặc xuất file.
-- Markdown ngắn, không diễn giải lại kết quả hiển thị rõ. Phần profiling không có nhận xét; các phần nghiệp vụ chỉ ghi kết luận sau khi đã đo.
+- Tổng quan/chất lượng dùng hàm có sẵn như `describe()`, `null_count()`, `is_duplicated()`. Theo yêu cầu mới, thêm nhận xét Markdown ngắn sau cell có kết quả để nêu ý nghĩa hoặc ảnh hưởng đến phép đo; cell chỉ đọc dữ liệu/bước trung gian không thêm diễn giải thừa.
+- Chia phần theo hành vi; trong mỗi phần ghi rõ dataset/cohort/đơn vị đo. Mỗi nhóm theo thứ tự **câu hỏi → nghiên cứu → cách tính/code → kết quả → đánh giá → quy luật/ứng dụng Markdown ngắn**. Code không chứa diễn giải hoặc xuất file.
+- Markdown ngắn, nhận xét đặt ngay sau bảng/biểu đồ và dựa trên số liệu đã đo. Cuối mục giữ quy luật áp dụng, tránh lặp lại toàn bộ số liệu đã nhận xét ở từng cell.
 - Cell code ngắn, làm một bước dễ theo dõi; dùng tên biến mô tả dữ liệu. Tách đọc, lọc, tổng hợp và vẽ thành các cell khi cần; tránh chuỗi biểu thức quá dài hoặc logic lồng nhiều tầng.
 - Viết trực tiếp bằng Polars. Chỉ tạo hàm khi một phép xử lý thực sự lặp lại hoặc khó đọc; không tạo class, registry, wrapper, pipeline tổng quát hay cơ chế tự phát hiện schema.
 - Chỉ đọc cột/bảng phục vụ câu hỏi đã nêu. Chỉ làm sạch lỗi ảnh hưởng phép đo; ghi rõ dữ liệu bị loại. Không thêm biến, phân khúc, mô hình hoặc kiểm định thống kê khi chưa có câu hỏi cần chúng.
@@ -54,16 +81,18 @@
 - Kiểm tra số dòng, khóa join, mẫu số và thứ tự thời gian bằng các phép đếm/assert rõ ngay gần bước xử lý. Chỉ dùng ví dụ nhỏ kiểm tra riêng khi phép tính cần đối chiếu; không xây bộ framework test cho notebook.
 - Dùng toàn bộ dữ liệu trước nếu máy đáp ứng. Chỉ thêm lấy mẫu hoặc xử lý tài nguyên khi cần; ghi chính sách ngay trong phần sử dụng.
 
-## Cấu trúc dự kiến
+## Cấu trúc sử dụng
 
 | File/thư mục | Trách nhiệm |
 |---|---|
 | `generator/notebooks/reference_datasets_eda.ipynb` | Notebook duy nhất; câu hỏi, phương pháp, code EDA, kết quả và nhận xét |
-| `data/generator/eda/raw/{olist,hm,ecommerce_behavior}/` | Dataset người dùng tải theo điều khoản nguồn; đã nằm dưới đường dẫn bị Git bỏ qua |
+| `docs/project/GENERATOR_VIETNAM_RESEARCH.md` | Hồ sơ nguồn Việt Nam và cách dùng nguồn cho từng nhóm hành vi |
+| `docs/FINAL_REPORT.md`, mục 4.7 | Tóm tắt phương pháp, kết quả và quy luật đề xuất; không thay thế notebook |
+| `data/generator/eda/raw/{olist,hm,ecommerce_behavior,uci}/` | CSV nguồn; đã nằm dưới đường dẫn bị Git bỏ qua |
 
 Khi triển khai cập nhật `pyproject.toml`, `uv.lock`, `.gitignore`, `generator/README.md` và `docs/README.md` đúng phạm vi: dependency phân tích, bỏ qua notebook checkpoints, hướng dẫn chạy và liên kết notebook. Không tạo notebook khác hay thay cơ chế khởi động ứng dụng.
 
-## Nội dung notebook và các bước triển khai
+## Các bước EDA ban đầu theo dataset
 
 ### 1. Chuẩn bị dữ liệu và khả năng tái lập
 
@@ -75,12 +104,12 @@ Khi triển khai cập nhật `pyproject.toml`, `uv.lock`, `.gitignore`, `genera
 
 **Kiểm tra:** file đầu vào không bị sửa; thiếu file/cột thì dừng ở lệnh đọc tương ứng, không cần cơ chế bỏ qua dataset. Nếu dùng mẫu, đọc lại cùng cấu hình phải có cùng tập ID.
 
-### 2. Audit chất lượng ba dataset
+### 2. Audit chất lượng các dataset
 
 - [x] Dùng `describe()` cho cột số/ngày, `null_count()` cho các trường cần phân tích; kiểm tra trùng `order_id` bằng `is_duplicated()`. Không xây bộ đếm lỗi hoặc ma trận audit riêng.
 - [x] Giữ giờ Olist theo nguồn, H&M ở cấp ngày, parse sự kiện theo UTC; không chuyển thành hành vi giờ Việt Nam.
-- [ ] Sau khi có coverage thực tế, giữ phần thời gian cuối làm evaluation trước khi chọn tham số; ghi mốc cụ thể. Kiểm tra độ dài cửa sổ khi so sánh mua lại; không gọi biến động theo thời gian là sai số generator.
-- [x] H&M dùng năm 2019 làm cohort EDA/fit; dành `[2020-01-01, 2020-09-01)` để đối chiếu sau khi chọn tham số. Khi so sánh tần suất, dùng cùng tám tháng của 2019 và 2020; hiện chưa đánh giá hoặc hiệu chỉnh generator.
+- [x] Cố định cohort và đơn vị quan sát trước khi tính phân phối; không diễn giải số ngày mua thành số đơn. Phạm vi mới không yêu cầu tách fit/evaluation để đánh giá generator.
+- [x] H&M dùng năm 2019 làm cohort khảo sát đầy đủ 12 tháng; dữ liệu ngoài năm vẫn giữ ở nguồn, không thêm phần benchmark.
 - [x] Giữ nguyên nguồn, không cắt outlier hoặc xóa dòng ở bước tổng quan; chỉ chuẩn hóa kiểu số/ngày để thống kê.
 - [x] Hiển thị bảng thống kê và missing value trực tiếp. Điều kiện lọc nghiệp vụ hoặc kiểm tra join chỉ thêm tại phép phân tích sử dụng chúng.
 
@@ -102,7 +131,7 @@ Khi triển khai cập nhật `pyproject.toml`, `uv.lock`, `.gitignore`, `genera
 - [x] Đo giao nhận trên đơn `delivered`, đủ ngày và thời gian không âm; so sánh ngày giao với ngày hẹn. Trạng thái chỉ là snapshot, không suy transition hoặc hoàn tiền.
 - [x] Điểm lấy trung bình trong từng đơn, so sánh trên đơn giao hợp lệ có đánh giá; ghi rõ quan hệ quan sát. Không đổi payment sang COD/VietQR.
 
-Mua lại hiện khảo sát từ H&M; nếu bổ sung cho Olist thì dùng `customer_unique_id`, không dùng `customer_id` riêng theo từng đơn.
+Mua lại đo theo ngày ở H&M và theo invoice ở UCI; nếu bổ sung cho Olist thì dùng `customer_unique_id`, không dùng `customer_id` riêng theo từng đơn.
 
 **Kiểm tra:** fixture một đơn có nhiều item, payment và review không làm nhân số đơn/tiền hàng; khách có hai customer_id nhưng cùng customer_unique_id được nhận diện đúng; thời gian thiếu/âm không được biến thành 0.
 
@@ -115,17 +144,23 @@ Mua lại hiện khảo sát từ H&M; nếu bổ sung cho Olist thì dùng `cus
 - [x] Không diễn giải purchase thành số đơn hoặc khoảng cách event thành HTTP latency; thời gian hoàn thành đo theo session/sản phẩm, chỉ trong nhóm có đủ chuỗi.
 - [x] Quan sát `[2019-10-01, 2019-11-02)`; giữ phiên có start từ 2/10 và end trước 1/11. Phiên qua hai tệp được ghép trước khi lọc biên; báo riêng timestamp trùng, không tự suy thứ tự hoặc gọi phiên thiếu bước là bỏ giỏ.
 
-Khoảng thời gian phiên là chênh lệch giữa event đầu/cuối quan sát, không chứng minh thời gian thực ở lại trang hoặc session đã kết thúc. Tháng 11 còn lại dành cho đối chiếu sau khi chọn tham số; hiện chưa hiệu chỉnh generator.
+Khoảng thời gian phiên là chênh lệch giữa event đầu/cuối quan sát, không chứng minh thời gian thực ở lại trang hoặc session đã kết thúc. Ngày 1/11 làm biên quan sát; phần hành vi giữ làm tham khảo, chưa triển khai sinh log.
 
 **Kiểm tra:** session nằm qua hai chunk/tệp không bị tách; purchase trước cart không đạt funnel; session thiếu ID, cùng timestamp và chạm biên được xử lý theo chính sách; các tầng funnel có thứ tự không tăng số session.
 
-### 6. Nhận xét và tổng hợp quy luật trong notebook
+### 6. EDA UCI: giỏ, số lượng và mua lại theo đơn
+
+- [x] Dùng UK, `[2010-12-01, 2011-12-01)`; metadata invoice thống nhất, bỏ C/Quantity và giá không dương/mã ngoài dạng đã nêu; giữ dòng trùng và đuôi lớn.
+- [x] Gộp Quantity và giá trị theo invoice–mã hàng; thiếu CustomerID vẫn giữ cho giỏ/số lượng. Mua lại chỉ dùng khách có ID, không gộp các invoice cùng ngày.
+- [x] Đo phân phối giỏ/số lượng, giá trị theo nhóm giỏ, số đơn/khách và khoảng mua theo nhóm tần suất; giữ riêng đơn vị và giới hạn nguồn có khách sỉ.
+
+### 7. Nhận xét và tổng hợp quy luật trong notebook
 
 - [x] Giữ số liệu và biểu đồ ngay trong notebook; không xuất CSV, ảnh hoặc file khác.
 - [x] Sau mỗi mục nghiệp vụ, nhận xét kết quả và rút ra quy luật bằng cell Markdown ngắn; code chỉ đọc, tính toán và vẽ.
 - [x] Mục cuối tổng hợp ngắn các quy luật và giới hạn, không dựng bảng chữ bằng Python. Đã đối chiếu generator hiện tại; chưa sửa chúng.
 - [x] Phần Việt Nam ghi nhu cầu nguồn cho lịch Tết, giá VND, địa lý và COD/VietQR. Chưa có nguồn thì để trống bằng chứng và ghi giả định hoặc thiếu dữ liệu.
-- [x] Giữ riêng baseline tham chiếu và kế hoạch đánh giá generator sau hiệu chỉnh. Chưa sinh/đo dữ liệu thì không báo generator đã khớp hoặc hiệu quả hơn.
+- [x] Giữ kết quả thực nghiệm và quy luật trong notebook; không thêm phần so sánh generator trước/sau. Chưa thay sampler thì không ghi đã áp dụng hoặc cải thiện đầu ra.
 
 **Kết quả:** số liệu, biểu đồ, nhận xét và quy luật nằm trong notebook; đủ trích vào REPORT sau khi được xem xét.
 
@@ -139,16 +174,17 @@ Khoảng thời gian phiên là chênh lệch giữa event đầu/cuối quan s�
 
 ## Tiêu chí hoàn thành
 
-- [ ] Notebook chạy lại từ kernel sạch, từ trên xuống, không cần DB hay stack batch/streaming. Chạy bằng `uv run --group eda jupyter nbconvert --to notebook --execute generator/notebooks/reference_datasets_eda.ipynb --inplace --ExecutePreprocessor.timeout=1800` từ repo root trên máy người dùng; exit 0 và đủ output cho ba nguồn mới được gọi là hoàn thành.
+- [ ] Notebook chạy lại từ kernel sạch, từ trên xuống, không cần DB hay stack batch/streaming. Chạy bằng `uv run --group eda jupyter nbconvert --to notebook --execute generator/notebooks/reference_datasets_eda.ipynb --inplace --ExecutePreprocessor.timeout=1800` từ repo root trên máy người dùng; exit 0 và đủ output cho bốn nguồn mới được gọi là hoàn thành.
 - [ ] Kiểm tra các grain, audit và biên đã nêu bằng phép đếm/assert trong notebook; dùng ví dụ nhỏ cho join/funnel khi cần đối chiếu. Không commit test tạm.
 - [ ] Đọc notebook theo thứ tự để kiểm tra mỗi mục có câu hỏi, code dễ theo dõi, kết quả và nhận xét; bỏ các cell/biểu đồ không phục vụ đề xuất quy luật hoặc giải thích giới hạn dữ liệu.
 - [ ] Chạy lại cùng input/config cho cùng số liệu aggregate và cùng cohort; không yêu cầu timestamp metadata hoặc byte biểu đồ trùng tuyệt đối.
 - [ ] Notebook trong Git đã xóa output/execution count; `git diff --check` đạt; không có raw data, cache, credential hay notebook execute trong danh sách thay đổi.
 - [ ] README có nguồn, bố trí tệp, cách chuẩn bị môi trường Python local/chọn kernel và lệnh chạy tại chỗ. Dependency mới chỉ nằm trong nhóm EDA và lock file.
-- [ ] Mỗi đề xuất hiệu chỉnh truy được về kết quả đo và giới hạn; chưa thay generator hoặc cập nhật kết luận thực nghiệm trong REPORT.
+- [ ] Mỗi đề xuất hiệu chỉnh truy được về kết quả đo, nguồn Việt Nam và giới hạn; REPORT phân biệt quy luật đã áp dụng với các tham số còn là giả định.
 
 ## Nguồn dự kiến
 
 - [Olist Brazilian E-Commerce](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce).
 - [H&M Personalized Fashion Recommendations](https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations/data).
 - [eCommerce Behavior Data from Multi Category Store](https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store).
+- [UCI Online Retail](https://archive.ics.uci.edu/dataset/352/online%2Bretail), Chen, D. (2015), DOI `10.24432/C5BW33`, CC BY 4.0.

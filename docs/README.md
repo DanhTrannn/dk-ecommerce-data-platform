@@ -29,8 +29,9 @@ Bộ tài liệu lấy phần Data Engineering làm trọng tâm, được đố
 | [refactor_v2](project/refactor_v2.md) | Quyết định kiến trúc, 12 kịch bản nguồn, bao phủ 18 mart và lộ trình chuyển đổi |
 | [API_TRANSITION_SCOPE](project/API_TRANSITION_SCOPE.csv) | 86 endpoint đã đối chiếu source/OpenAPI; quyết định giữ, rà soát hoặc bỏ sau khi có thay thế |
 | [DATA_BASELINE](project/DATA_BASELINE.md) | Số dòng nguồn/Silver, tài chính, kho, HTTP và snapshot ID phục vụ đối chiếu |
-| [GENERATOR_REFERENCE_PROFILE](project/GENERATOR_REFERENCE_PROFILE.md) | Đặc tả bốn đặc trưng, audit UCI, profile tham chiếu đã đo và giới hạn trước khi áp dụng vào generator |
-| [GENERATOR_EDA_PLAN](project/GENERATOR_EDA_PLAN.md) · [Notebook EDA](../generator/notebooks/reference_datasets_eda.ipynb) | EDA ba dataset, nhận xét và quy luật bằng Markdown trong notebook; chưa hiệu chỉnh generator |
+| [GENERATOR_EDA_PLAN](project/GENERATOR_EDA_PLAN.md) · [Notebook EDA](../generator/notebooks/reference_datasets_eda.ipynb) | Nghiên cứu theo hành vi: câu hỏi → căn cứ → EDA → đánh giá → quy luật R01–R07 và ứng dụng vào bảng nghiệp vụ |
+| [GENERATOR_VIETNAM_RESEARCH](project/GENERATOR_VIETNAM_RESEARCH.md) | Hồ sơ nguồn Việt Nam, phạm vi bằng chứng và cách kết hợp với EDA để quyết định quy luật sinh |
+| [GENERATOR_METRICS](project/GENERATOR_METRICS.md) | Toàn bộ chỉ số generator, giá trị cấu hình, ý nghĩa, căn cứ và giả định; trạng thái áp dụng quy luật |
 | [GENERATOR_CONSOLE](project/GENERATOR_CONSOLE.md) | Thiết kế Streamlit console, job nền, validate, lưu trạng thái và phạm vi đợt 3 |
 
 ## Tài liệu giữ để phân tích và viết tiểu luận

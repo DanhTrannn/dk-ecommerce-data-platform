@@ -90,28 +90,24 @@ Tăng phiên bản package/identity lên 0.8.0 và cập nhật lock, không th�
 
 ## 5. Hợp đồng cải thiện generator ở đợt kế tiếp
 
-Đợt **2b đã hoàn thành đo nguồn và tạo profile tham chiếu**, xem [GENERATOR_REFERENCE_PROFILE.md](GENERATOR_REFERENCE_PROFILE.md), [spec](../../generator/profiles/uci-reference.yml) và [JSON aggregate](../../generator/profiles/uci-online-retail-uk-v1.json). CLI `profile-reference` đọc artifact được ghim SHA-256, không tự tải hoặc nạp DB. Từ 541.909 dòng raw, chính sách cohort giữ 457.220 dòng trong hai kỳ sáu tháng UK, tương ứng 7.335 invoice fit và 9.783 invoice evaluation. Ghi từng lý do loại, giữ dòng nghi trùng và outlier, cách ly invoice có metadata xung đột; missing CustomerID không bị đưa vào mẫu số mua lại.
-
-Nguồn [UCI Online Retail](https://archive.ics.uci.edu/dataset/352/online+retail) bán quà tặng UK và có khách sỉ, không đại diện thời trang/POS VN. Profile đã đo bốn đặc trưng và quan hệ giỏ/lượng mua, nhưng **chưa áp dụng vào generator**. Ví dụ median giỏ fit là 15 mã hàng so với giới hạn 1–4 SKU của generator hiện tại; cần chốt cách thích nghi, không sao chép nguyên phân phối nguồn. Attribution/license, timezone chưa xác định, exposure/censoring và giới hạn diễn giải được lưu trong tài liệu.
+Cơ sở thực nghiệm nằm trong [notebook EDA](../../generator/notebooks/reference_datasets_eda.ipynb) và [kế hoạch EDA](GENERATOR_EDA_PLAN.md), sử dụng Olist, H&M, UCI Online Retail và eCommerce Behavior. Generator hiện chỉ sinh SQL; phần hành vi giữ làm tham khảo.
 
 | Đặc trưng | Cách đo phải thống nhất |
 |---|---|
-| Giỏ hàng | SKU distinct mỗi invoice hợp lệ, tách với số dòng/tổng lượng; chốt mapping SKU nguồn sang variant |
-| Lượng mua | Quantity dương theo SKU trong đơn sau khi gộp dòng đúng quy tắc |
-| Mua lại | Số đơn/khách, tỷ lệ có từ hai đơn và khoảng cách mua trong cùng cửa sổ |
-| Tập trung sản phẩm | Tỷ trọng lượng bán, đường tích lũy/top share theo thứ hạng hoặc tỷ lệ SKU khi đổi quy mô |
+| Giỏ hàng | Số sản phẩm khác nhau/đơn có hàng trong Olist; cần ánh xạ sang variant của repo |
+| Lượng mua | Quantity cộng theo mã hàng trong invoice UCI; số dòng Olist là tham chiếu bổ sung, cần ánh xạ sang variant |
+| Mua lại | Số ngày mua H&M và số invoice UCI theo khách; giữ các invoice cùng ngày |
+| Tập trung sản phẩm | Tỷ trọng dòng mua và đường tích lũy theo thứ hạng sản phẩm |
 
-Nguồn → cách làm sạch → thống kê → profile/logic sinh → kiểm tra đầu ra. Mỗi tham số gắn nhãn **đo từ nguồn / đã điều chỉnh / giả định / kịch bản**. Chỉ hiệu chỉnh đặc trưng có nguồn phù hợp; giá VND, Tết, POS, coupon, COD, hủy và review còn thiếu bằng chứng thì giữ giả định/kịch bản.
-
-Baseline ưu tiên đặc trưng tham chiếu; scenario ưu tiên quy mô/kịch bản, công bố phần phải điều chỉnh. Chốt đầu vào giữ cứng khi tổng đơn/số khách/tần suất xung đột. Tách tập hiệu chỉnh/đánh giá theo thời gian, giữ nguyên invoice; kiểm tra quan hệ giữa biến và dữ liệu sau ràng buộc, chạy nhiều seed/quy mô. Đặt ngưỡng theo từng đặc trưng có lý do; không công bố “độ thật 95%”. Ghim profile/reference version vào nhận diện dataset; ID lần chạy job khác ID dataset.
+Nguồn → cách tính → phân phối thực nghiệm → quy luật lấy mẫu → dữ liệu sinh. R03 đã áp dụng qua mười nhóm trọng số sản phẩm H&M; phân bố đều trong nhóm và ánh xạ catalog là giả định. Các tham số khác giữ theo kịch bản cũ và được ghi trong [GENERATOR_METRICS](GENERATOR_METRICS.md), gồm giới hạn co giãn số đơn theo tổng quy mô. Các yếu tố Việt Nam được tách khỏi tỷ lệ đo từ dataset; không bổ sung so sánh generator trước/sau.
 
 ## 6. Lộ trình và điều kiện hoàn thành
 
 | Đợt | Đầu ra | Điều kiện chuyển bước |
 |---|---|---|
 | 1 — Phạm vi/baseline | Ma trận S00–S11, inventory API, bao phủ mart và số liệu quan sát | Đã hoàn thành phần tài liệu/quan sát; không đồng nghĩa các scenario đã chạy |
-| 2 — Generator | Đã xong 2a: sửa lỗi; 2b: đặc tả, audit và profile tham chiếu; tiếp theo 2c: áp dụng/đánh giá | Chưa có sampler hiệu chỉnh hoặc báo cáo trước/sau dữ liệu sinh; chưa nghiệm thu cả đợt 2 |
-| 3 — Streamlit | Preset/YAML, validate, job nền và kết quả SQL/log, chạy lại không tự kích hoạt | Kết quả tương đương CLI; không ghi đè, không tự nạp MySQL |
+| 2 — Generator | Viết lại sinh SQL theo schema MySQL hiện có; áp dụng trọng số H&M, giữ tham số chưa đủ căn cứ thành giả định | Kiểm tra schema/quan hệ, tiền, kho, lịch sử, deterministic output và tài liệu chỉ số; chưa tự nạp DB |
+| 3 — Streamlit | Preset/YAML, validate, job nền và kết quả SQL, chạy lại không tự kích hoạt | Kết quả tương đương CLI; không ghi đè, không tự nạp MySQL |
 | 4 — Nạp/mô phỏng | Nạp dataset có nhận diện trùng; script/API cho các scenario đã chọn | Không reset dữ liệu ngầm; kiểm tra postcondition, quyền, CSRF/idempotency |
 | 5 — Superset | Một dashboard doanh thu/lợi nhuận trước, rồi đủ nhóm mart | Giữ công thức, publication đồng nhất và quyền; đối chiếu SQL trước khi chuyển toàn bộ |
 | 6 — Bỏ Next.js/thu gọn API | Dọn frontend, Compose/CI/env/docs và endpoint đã có thay thế | Nguồn và đầu ra BI chạy khi không bật Next.js; giữ dữ liệu/volume/checkpoint |
@@ -119,4 +115,4 @@ Baseline ưu tiên đặc trưng tham chiếu; scenario ưu tiên quy mô/kịch
 
 Superset truy vấn trực tiếp không tự kế thừa `PublishedReader` hoặc RBAC tại API. Cần PoC riêng để chốt serving snapshot/version; publication OLTP và log có mốc độc lập. Không thêm database OLAP hoặc semantic layer mới trong bước chốt phạm vi. Upload JSONL lịch sử vào MinIO hiện chưa tự đi Gold; xuất SQL không sinh HTTP access log.
 
-Đợt 1 chốt phạm vi/baseline; 2a sửa nghiệp vụ; 2b thêm CLI đo nguồn, spec và profile aggregate nhỏ cùng test không dùng mạng/dữ liệu thật. Raw UCI để ngoài Git, không thêm dependency. Chưa đổi UI, API, schema, dịch vụ hoặc biến môi trường. `FINAL_REPORT.md` giữ nguyên. Bước tiếp theo **2c**: chốt cohort/cách điều chỉnh cho retail, cấu hình baseline/scenario, gắn profile vào dataset identity, thay sampler rồi đánh giá dữ liệu sinh theo cùng grain và các ràng buộc nghiệp vụ.
+Đợt 1 chốt phạm vi/baseline; đợt 2a sửa nghiệp vụ. Hướng tiếp theo dùng các quy luật từ notebook EDA để xây dựng sampler SQL, giữ rõ đơn vị đo và các ràng buộc tiền/tồn/lineage.
