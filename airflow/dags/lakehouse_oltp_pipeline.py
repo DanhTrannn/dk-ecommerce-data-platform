@@ -13,7 +13,7 @@ from lakehouse.oltp.gold.schema import GOLD_TABLE_DDL
 CONFIG_PATH = os.environ.get("PIPELINE_CONFIG_PATH", "/opt/project/pipelines/config/default.yml")
 JOBS = "/opt/project/pipelines/src/jobs/oltp/"
 RUN = "{{ run_id }}"
-DATE = "{{ data_interval_start.in_timezone('Asia/Ho_Chi_Minh').strftime('%Y-%m-%d') }}"
+DATE = "{{ data_interval_start.astimezone(dag.timezone).strftime('%Y-%m-%d') }}"
 
 
 with DAG(

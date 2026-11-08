@@ -32,6 +32,26 @@ RUN_POSTGRES_BATCH_TESTS=1 PYTHONPATH=pipelines/src \
 
 The integration fixture uses an internal Docker network, temporary PostgreSQL/MinIO data and random credentials; no project data volumes or host ports. It tests reader provisioning/denials, paged full extraction, UUID/boolean/timestamp ingestion, offset-aware interval boundaries, empty staging replacement, replay, source-to-Silver reconciliation and existing Gold/quality/publication logic. The test uses an isolated local Iceberg Hadoop catalog rather than production Polaris; it does not establish Airflow scheduling, Polaris authorization, Trino/Superset serving or CDC delivery. `SPARK_TEST_IMAGE` and `POSTGRES_TEST_IMAGE` can select equivalent cached test images. Containers/network/temp files are cleaned on normal completion and test failures.
 
+### Full-stack acceptance (opt-in)
+
+The separate stack check uses the repository's Compose services and real Airflow scheduler/LocalExecutor, PostgreSQL, MinIO, Polaris and Trino. It creates an internal network, random credentials, temporary data and project-prefixed volumes, publishes no host ports, and removes only its own resources. It never uses the existing source database or Lakehouse volumes.
+
+Build the current application and Airflow runtimes, and cache the infrastructure images declared in Compose before starting (the fixture uses `--pull never`):
+
+```bash
+docker build -f services/platform-app/Dockerfile -t tlcn-platform-stack-check:local .
+docker build -f infrastructure/airflow/Dockerfile -t tlcn-airflow-stack-check:local .
+RUN_LAKEHOUSE_STACK_TESTS=1 PYTHONPATH=pipelines/src \
+  uv run --locked --all-packages -- \
+  python -m unittest discover -s pipelines/tests -p test_stack.py -v
+```
+
+`STACK_PLATFORM_IMAGE` and `STACK_AIRFLOW_IMAGE` override these test image tags. The test runs both 109-task OLTP DAGs: initial load, then a bounded interval containing two API-runner COD purchases. It compares publication-pinned fact/mart results through Trino, checks source-to-Silver parity, reader write denials, writer permission failure, order replay, quality rejection and same-run recovery. Reports/logs with known credentials redacted are kept under ignored `data/pipeline-runs/tlcn-stack-*/`. This is a small synthetic acceptance fixture, not a load test.
+
+The Trino catalog explicitly sets `iceberg.security=READ_ONLY`, rejecting data/metadata writes at SQL authorization before reaching MinIO. This complements the scoped MinIO policy and Polaris reader grants; see [Trino 483 Iceberg authorization](https://github.com/trinodb/trino/blob/483/docs/src/main/sphinx/connector/iceberg.md#authorization).
+
+Automatic cron creation is disabled only in the fixture; DAG runs are triggered through the Airflow API and executed by the scheduler. The fixture limits scheduler/Trino/Polaris memory and reduces Spark shuffle partitions. It does not validate cron timing, CDC, access-log streaming, Superset, public deployment or production-scale performance. Normal unit discovery skips this test unless explicitly enabled.
+
 Reference behavior: [Spark 3.5.9 JDBC options](https://spark.apache.org/docs/3.5.9/sql-data-sources-jdbc.html), [pgJDBC connection properties](https://jdbc.postgresql.org/documentation/use/).
 
 ## OLTP batch
@@ -58,7 +78,7 @@ Both OLTP DAGs contain five TaskGroups, with one task per target table:
 | `gold` | 6 dimensions + 6 facts | `gold.fact_order` |
 | `mart` | 15 marts | `mart.mart_sales_daily` |
 
-Including validate/publish, each DAG has 109 tasks and allows up to three active tasks. The batch date comes directly from the Airflow interval template; no context task or XCom is needed. No shared writer lock serializes independent table tasks. Stages finish in order: staging → Bronze → Silver → Gold → mart → validate/publish. Within a stage, `fact_order` waits for `fact_order_item`, `fact_inventory_current` waits for its daily snapshot, and inventory summary/store marts wait for `mart_inventory_current`.
+Including validate/publish, each DAG has 109 tasks and allows up to three active tasks. The interval DAG uses its interval start for the batch date; the initial-load DAG uses its fixed run start because Airflow 3 manual runs may have no logical date or interval. Both convert to the DAG timezone (Asia/Ho_Chi_Minh); no context task or XCom is needed. No shared writer lock serializes independent table tasks. Stages finish in order: staging → Bronze → Silver → Gold → mart → validate/publish. Within a stage, `fact_order` waits for `fact_order_item`, `fact_inventory_current` waits for its daily snapshot, and inventory summary/store marts wait for `mart_inventory_current`.
 
 Each Spark CLI accepts `--table` to process one configured table and prepare only its target schema. Without `--table`, the existing all-table CLI behavior remains available. Retry/clear a table task to reread its input from the beginning; extract task retries fetch only that source table again. Silver reads Bronze data matching that table's staging keys. Final quality/publication waits for every mart. Admin overview is a singleton mart built from independent catalog, inventory, customer, review, coupon and order aggregates; its counts/windows use the same fixed DAG as_of. System reconciliation reuses the additive order mart. TaskGroup `mart` writes the existing `lakehouse.gold.mart_*` tables.
 
@@ -143,8 +163,16 @@ src/lakehouse/
 
 Retired parallel Flink Bronze/Silver/fact writers and their SQL resources have been removed; Spark now owns those access-log layers. The generic `ingest_bronze.py`, obsolete fact builder and format fallbacks remain removed. Current source ingestion uses `merge_source_versions`; Silver writes Iceberg only, with deduplication/region metadata inline in its writer. Sales and inventory mart builders live with their respective `*_marts.py` modules. Short operational queries remain inline. Existing large SQL/DDL resources remain under `src/lakehouse/sql_templates/`; moving these to shared repo-level SQL is outside this batch change.
 
-Local verification scripts and Spark/Iceberg fixtures are kept outside Git. Compile/lint and Compose configuration checks remain in CI. Maintenance schedules and retention are unchanged in this change; conversion to manual maintenance is still tracked in the refactor note.
+The PostgreSQL batch and full-stack acceptance fixtures are versioned under `pipelines/tests`; their generated datasets, credentials and reports stay outside Git. Compile/lint and Compose configuration checks remain in CI. Maintenance schedules and retention are unchanged in this change; conversion to manual maintenance is still tracked in the refactor note.
 
 ### Verification evidence — 07/11/2026
 
 The disposable integration check passed with 27 PostgreSQL source tables, all 30 source-to-Silver comparisons at zero tolerance, all 27 OLTP Gold tables, 55 Gold quality checks and an Iceberg publication. It also verified paged extraction, empty intervals, replay, interval boundaries and legacy-source rejection. The check exposed and fixed Silver rejecting the valid `order_cancellation` inventory movement; unknown movement types remain quarantined. Eight pure PostgreSQL SQL/config checks also passed. These observations apply to the small synthetic fixture and local test catalog, not an existing deployment or all scenario distributions.
+
+### Full-stack verification evidence — 08/11/2026
+
+The isolated Compose acceptance passed with real PostgreSQL, MinIO/Polaris, Airflow 3.3.2 scheduler/LocalExecutor and Trino 483. Both manually triggered OLTP DAGs completed 109/109 tasks. Initial publication contained 30 orders worth 8,800,880 VND. Two API-runner COD checkouts added 498,000 VND: the incremental publication contained 32 orders worth 9,298,880 VND in both fact and order mart. Net recognized merchandise revenue remained 5,303,400 VND because the new COD orders were unpaid. Both source-to-Silver diagnostics passed 30/30 comparisons at zero tolerance.
+
+Trino SELECT/time travel worked; INSERT/DROP were denied. Revoking the Spark role denied a new Spark job without changing the completed reader publication; restoring it recovered access. Replaying order Bronze/Silver kept 32 rows in each layer. Increasing every fact order total by 1 VND caused both source-to-Gold and additive order-mart parity checks to reject publication, while the pinned reader retained correct values. Rebuilding the fact passed 55/55 checks and republishing the same run kept two publication rows in total. Test containers, volumes, network and private configuration were removed.
+
+The check exposed the manual initial-run date-template issue and missing Trino connector read-only enforcement, both corrected here. It validates this small fixture and the manually triggered batch path only; it does not establish a production latency SLA, cron creation, CDC, log streaming or Superset readiness. Generated report: `data/pipeline-runs/tlcn-stack-2385ac19c1/report.json` (ignored, local).
