@@ -172,6 +172,7 @@ Publication gates prevent a failed refresh from replacing the last accepted mani
 ├── airflow/                # DAGs and Airflow runtime
 ├── infrastructure/         # Storage, catalog, streaming, Trino and Superset configuration
 ├── docs/                   # Four technical references and the retained final report
+├── assets/report/          # Local report figures and diagram sources (gitignored)
 ├── docker-compose.yml
 ├── Makefile
 ├── pyproject.toml
@@ -226,3 +227,5 @@ The [CI workflow](.github/workflows/ci.yml) has two jobs: repository validation 
 | [FINAL_REPORT.md](docs/FINAL_REPORT.md) | Retained academic report; historical content is not the current runtime specification |
 
 Component usage remains beside its source: [platform-app](services/platform-app/README.md), [generator](generator/README.md), [database](database/README.md) and [pipelines](pipelines/README.md).
+
+Report figures and diagram sources are kept locally in `assets/report/`, which is excluded by `.gitignore`. Copy that directory separately when sharing or rendering `docs/FINAL_REPORT.md`; a fresh clone does not include it.

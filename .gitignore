@@ -23,6 +23,9 @@ data/pipeline-runs/
 artifacts/
 reports/generated/
 
+# Local report figures and diagram sources/exports
+/assets/report/
+
 airflow/logs/*
 !airflow/logs/.gitkeep
 
