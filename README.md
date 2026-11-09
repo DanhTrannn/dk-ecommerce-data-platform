@@ -42,7 +42,7 @@ The **D&K E-Commerce Data Platform** is a local Data Engineering project combini
 
 The planned transition replaces Next.js with a Streamlit generator console and Apache Superset over Trino. Phase 1 records [scenario/API scope](docs/project/refactor_v2.md) and a [local data baseline](docs/project/DATA_BASELINE.md). The Streamlit console is implemented for dataset generation/import, purchase scenarios and access bindings. Next.js remains in source; Superset is not deployed yet.
 
-Trino's Lakehouse catalog now enforces `iceberg.security=READ_ONLY`, complementing Polaris reader grants and the MinIO read policy. Both OLTP DAGs passed 109/109 tasks in the isolated scheduler/Trino acceptance; two API purchases moved the published order count from 30 to 32 without recognizing unpaid COD revenue. See [full-stack acceptance](pipelines/README.md#full-stack-acceptance-opt-in) for the check and [setup](docs/runbook/SETUP.md#batch-stack-acceptance) for applying the catalog setting.
+Trino's Lakehouse catalog now enforces `iceberg.security=READ_ONLY`, complementing Polaris reader grants and the MinIO read policy. Both OLTP DAGs passed 109/109 tasks in the isolated scheduler/Trino acceptance; post-EDA full-preset acceptance loaded 3,000 generated orders, then two API purchases moved the published order count to 3,002 without recognizing unpaid COD revenue. See [full-stack acceptance](pipelines/README.md#full-stack-acceptance-opt-in) for the check and [setup](docs/runbook/SETUP.md#batch-stack-acceptance) for applying the catalog setting.
 
 ## Overview
 

@@ -46,6 +46,8 @@ RUN_LAKEHOUSE_STACK_TESTS=1 PYTHONPATH=pipelines/src \
   python -m unittest discover -s pipelines/tests -p test_stack.py -v
 ```
 
+By default the source fixture reduces the preset to 30 orders. To accept the rewritten generator with the full scale configured in `small.yml`, add `STACK_USE_PRESET_SCALE=1` to the opt-in command (currently 500 customers, 60 products, 240 variants and 3,000 orders). This flag affects only the isolated test source, not production settings. The full-preset mode allows up to 60 minutes per DAG; the default reduced fixture retains its 25-minute limit. A failed/retrying task still fails the check immediately. The local report records generator version, configured scale, logical dataset identity and SQL SHA-256 alongside the import receipt.
+
 `STACK_PLATFORM_IMAGE` and `STACK_AIRFLOW_IMAGE` override these test image tags. The test runs both 109-task OLTP DAGs: initial load, then a bounded interval containing two API-runner COD purchases. It compares publication-pinned fact/mart results through Trino, checks source-to-Silver parity, reader write denials, writer permission failure, order replay, quality rejection and same-run recovery. Reports/logs with known credentials redacted are kept under ignored `data/pipeline-runs/tlcn-stack-*/`. This is a small synthetic acceptance fixture, not a load test.
 
 The Trino catalog explicitly sets `iceberg.security=READ_ONLY`, rejecting data/metadata writes at SQL authorization before reaching MinIO. This complements the scoped MinIO policy and Polaris reader grants; see [Trino 483 Iceberg authorization](https://github.com/trinodb/trino/blob/483/docs/src/main/sphinx/connector/iceberg.md#authorization).
@@ -176,3 +178,21 @@ The isolated Compose acceptance passed with real PostgreSQL, MinIO/Polaris, Airf
 Trino SELECT/time travel worked; INSERT/DROP were denied. Revoking the Spark role denied a new Spark job without changing the completed reader publication; restoring it recovered access. Replaying order Bronze/Silver kept 32 rows in each layer. Increasing every fact order total by 1 VND caused both source-to-Gold and additive order-mart parity checks to reject publication, while the pinned reader retained correct values. Rebuilding the fact passed 55/55 checks and republishing the same run kept two publication rows in total. Test containers, volumes, network and private configuration were removed.
 
 The check exposed the manual initial-run date-template issue and missing Trino connector read-only enforcement, both corrected here. It validates this small fixture and the manually triggered batch path only; it does not establish a production latency SLA, cron creation, CDC, log streaming or Superset readiness. Generated report: `data/pipeline-runs/tlcn-stack-2385ac19c1/report.json` (ignored, local).
+
+### Rewritten generator acceptance — 09/11/2026
+
+After the EDA merge and application build repair, the full `small.yml` scale passed against actual PostgreSQL, Airflow/Spark, MinIO/Polaris and Trino: 500 configured customers, 60 products, 240 variants and 3,000 orders. The fixture imported SQL using the production transactional importer and recorded generator 0.10.0, dataset identity, configured scale and SQL SHA-256. The full-preset SQL fingerprint was reproducible across isolated attempts.
+
+Both OLTP DAGs completed 109/109 tasks. Published fact/order-mart values read through Trino were:
+
+| Metric | Initial load | After two API COD checkouts |
+|---|---:|---:|
+| Orders | 3,000 | 3,002 |
+| Placed order value (VND) | 1,902,898,430 | 1,903,396,430 |
+| Net recognized merchandise revenue (VND) | 1,358,389,307 | 1,358,389,307 |
+
+Both source-to-Silver diagnostics passed 30/30 comparisons at zero tolerance. Trino denied INSERT/DROP; revoked Spark access denied a new job and role restoration recovered access. Order replay retained 3,002 Bronze and Silver rows. Intentional total corruption failed both source-to-Gold and additive order-mart parity checks, leaving the pinned publication readable. Recovery passed 55/55 checks; republishing the same run retained two publication rows. Private containers, volumes, network and configuration were cleaned up.
+
+The separate generator suite passed 33 tests, including product-weight normalization, first-product selection independent of variant counts and exhaustion without zero-weight fallback. PostgreSQL-backed platform discovery passed 111 tests with the two separate provider live tests skipped (`RUN_POSTGRES_SCHEMA_TESTS=1 POSTGRES_TEST_IMAGE=postgres:16.8`). That suite also covers multiple full-preset seeds, duplicate import rejection, transaction/sequence rollback and persisted API purchases.
+
+Evidence is local and ignored: `data/pipeline-runs/tlcn-stack-25aa75d70a/report.json`, `generator-stack-check.log`, `generator-unit-check.log` and `generator-postgres-check.log` under `data/pipeline-runs/`. This is post-merge technical acceptance, not proof of market representativeness, cron timing, CDC/log delivery, Superset readiness or a performance SLA. PostgreSQL CDC and actual API log capture remain the next separate phase.

@@ -12,10 +12,12 @@ import httpx
 
 
 def source():
+    import hashlib
     import yaml
     from sqlalchemy import text
     from database.seeds.seed_catalog import seed
     from generator.config import config_from_dict
+    from generator import __version__
     from generator.sql_export import export_sql
     from platform_app.api.core.config import get_settings
     from platform_app.api.db.session import SessionLocal, engine
@@ -23,14 +25,24 @@ def source():
 
     seed(SessionLocal, get_settings())
     raw = yaml.safe_load(Path("/app/generator/configs/small.yml").read_text())
-    raw["scale"] = dict(customers=10, products=2, variants=8, orders=30)
+    if os.environ.get("STACK_USE_PRESET_SCALE") != "1":
+        raw["scale"] = dict(customers=10, products=2, variants=8, orders=30)
+    config = config_from_dict(raw)
     path = Path("/data/stack-fixture.sql")
-    export_sql(config_from_dict(raw), path)
+    export_sql(config, path)
     receipt = import_dataset(engine, path)
     with engine.connect() as connection:
         orders = connection.scalar(text("SELECT count(*) FROM orders"))
         total = connection.scalar(text("SELECT coalesce(sum(total_vnd),0) FROM orders"))
-    return dict(orders=int(orders), order_total_vnd=int(total), receipt=receipt)
+    return dict(
+        orders=int(orders),
+        order_total_vnd=int(total),
+        receipt=receipt,
+        generator_version=__version__,
+        logical_identity=config.logical_identity,
+        configured_scale=config.scale,
+        sql_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+    )
 
 
 def purchases():

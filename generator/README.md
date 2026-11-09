@@ -173,3 +173,19 @@ uv run --locked --package data-generator -- python -m unittest discover -s gener
 ```
 
 The checks generate temporary datasets without contacting PostgreSQL, Kafka or external APIs. They cover payment/paid timestamps, return lineage/refunds, stock balances and nonnegative stock history, status continuity, single-variant/free-item edges, multiple seeds and INSERT batches, preset loading, deterministic SQL output and CLI summaries. Generated SQL files are removed with their temporary directories.
+
+Product-demand regression checks also verify probability preservation across catalog sizes, first-product selection independent of variant counts, and exhaustion without falling back to zero-weight products. These check sampling behavior rather than market representativeness. For actual PostgreSQL import and the full-preset Airflow/Polaris/Trino path, use the separate [integration acceptance](../pipelines/README.md#full-stack-acceptance-opt-in); pure generator tests alone do not establish those outcomes.
+
+## PostgreSQL and Lakehouse Acceptance
+
+On 09/11/2026 the rewritten generator passed 33 generator checks and PostgreSQL-backed platform acceptance (111 passed; two separate provider live tests skipped). The default `small.yml` export with 3,000 orders passed the real initial/interval Airflow DAGs, source reconciliation, Gold validation and publication-pinned Trino reads. Two API purchases increased published orders to 3,002 without recognizing unpaid COD revenue. The configured scale is 500 customers, 60 products and 240 variants; seeded auxiliary records are additional.
+
+For PostgreSQL import/API checks using the cached Compose PostgreSQL version:
+
+```bash
+RUN_POSTGRES_SCHEMA_TESTS=1 POSTGRES_TEST_IMAGE=postgres:16.8 \
+  uv run --locked --all-packages -- \
+  python -m unittest discover -s services/platform-app/tests -v
+```
+
+For the full batch path, follow the [stack image builds and opt-in command](../pipelines/README.md#full-stack-acceptance-opt-in) with `STACK_USE_PRESET_SCALE=1`. See the [post-merge evidence](../pipelines/README.md#rewritten-generator-acceptance--09112026) for financial totals, permission/replay/failure checks and scope. These outcomes establish internal consistency and pipeline integration; other behavioral distributions remain assumptions documented in GENERATOR_METRICS.

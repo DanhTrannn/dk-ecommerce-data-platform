@@ -113,6 +113,7 @@ class StackFixture:
                 "API_BOOTSTRAP_ADMIN_PASSWORD": variables["API_SECRET_KEY"],
                 "STACK_AIRFLOW_USER": variables["AIRFLOW_ADMIN_USER"],
                 "STACK_AIRFLOW_PASSWORD": variables["AIRFLOW_ADMIN_PASSWORD"],
+                "STACK_USE_PRESET_SCALE": "1" if os.environ.get("STACK_USE_PRESET_SCALE") == "1" else "0",
             },
             volumes=Replace([f"{data}:/data", f"{ROOT}/pipelines/tests/stack:/stack-checks:ro"]),
         )
@@ -354,7 +355,9 @@ class StackFixture:
         self.runtime("airflow", "--action", "wait", "--dag", "init_lakehouse_oltp")
         self.runtime("airflow", "--action", "wait", "--dag", "lakehouse_oltp_pipeline")
 
-    def wait_run(self, dag, run_id, timeout=1500):
+    def wait_run(self, dag, run_id, timeout=None):
+        if timeout is None:
+            timeout = 3600 if self.environment.get("STACK_USE_PRESET_SCALE") == "1" else 1500
         started = time.monotonic()
         last = None
         while time.monotonic() - started < timeout:
