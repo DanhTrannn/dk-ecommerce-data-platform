@@ -2,7 +2,7 @@
 
 Ngày tra cứu: **08/11/2026**. Phạm vi: hành vi mua hàng của người Việt nói chung, gồm trực tuyến và tại cửa hàng; phân biệt kết quả theo ngành hàng khi áp dụng cho dự án.
 
-Tài liệu bổ sung căn cứ cho [notebook EDA](../../generator/notebooks/reference_datasets_eda.ipynb) và việc thiết kế generator. R03 từ thực nghiệm H&M đã được áp dụng vào lựa chọn sản phẩm; các tỷ lệ nghiên cứu Việt Nam chưa được chuyển trực tiếp thành tham số. Giá trị runtime, ý nghĩa và giả định nằm trong [GENERATOR_METRICS](GENERATOR_METRICS.md).
+Tài liệu bổ sung căn cứ cho [notebook EDA](../../generator/notebooks/reference_datasets_eda.ipynb) và việc thiết kế generator. R02 từ Olist thời trang và R03 từ H&M product_code đã được áp dụng làm tham chiếu trong generator 0.11; các tỷ lệ nghiên cứu Việt Nam chưa được chuyển trực tiếp thành tham số. Giá trị runtime, ý nghĩa và giả định nằm trong [GENERATOR_METRICS](GENERATOR_METRICS.md).
 
 ## 1. Kết quả chính
 
@@ -132,7 +132,7 @@ S09–S11 là nguồn có thể nghiên cứu thêm, chưa đưa thành kết qu
 
 ## 4. Chuyển bằng chứng thành quyết định cho generator
 
-R03 đã triển khai qua trọng số mười nhóm thứ hạng H&M; cách chuyển catalog và chọn variant vẫn là giả định. Các hướng khác bên dưới tiếp tục là đề xuất; giá trị kịch bản hiện có được giữ và ghi là giả định. Việc mở rộng nghiên cứu ra nhiều ngành không đồng nghĩa phải mở rộng danh mục sản phẩm hoặc schema của repo.
+R02 đã dùng giỏ/quantity Olist thời trang, R03 dùng mười nhóm thứ hạng H&M product_code; cách chuyển nguồn/catalog/variant là giả định. Các hướng khác bên dưới là tham khảo; chính sách shop và tỷ lệ cần cho demo được chủ động đặt và ghi rõ giả định. Việc mở rộng nghiên cứu ra nhiều ngành không đồng nghĩa phải mở rộng danh mục sản phẩm hoặc schema của repo.
 
 | Thành phần | Hướng sử dụng căn cứ | Phần chưa đủ dữ liệu |
 |---|---|---|
@@ -145,7 +145,7 @@ R03 đã triển khai qua trọng số mười nhóm thứ hạng H&M; cách chu
 | Giao nhận, review, đổi trả | S08 hỗ trợ chọn tình huống. Quan hệ giao trễ–đánh giá trong EDA Olist là căn cứ quan sát ở Brazil | Phân phối thời gian giao, tổng tỷ lệ đổi trả, xác suất review và mức ảnh hưởng tại VN |
 | Online và POS | Cho phép cùng khách xuất hiện ở cả hai kênh nếu nghiệp vụ cần, tham khảo S03 | Tỷ trọng đơn theo kênh và mức chuyển đổi kênh của shop |
 
-**Quyết định áp dụng:** dùng bằng chứng H&M cho nhu cầu sản phẩm có trọng số. Các ước lượng VN chưa đủ căn cứ vẫn để trống ở mức nghiên cứu; generator giữ giá trị kịch bản cũ, được ghi rõ là giả định. Chưa chuyển tỷ lệ sở thích, phàn nàn hoặc lý do đổi trả thành tỷ lệ theo tổng đơn.
+**Quyết định áp dụng:** dùng H&M product_code cho nhu cầu và Olist fashion_ cho giỏ/quantity. Các ước lượng VN chưa đủ căn cứ để trống ở mức nghiên cứu; generator chọn giá trị kịch bản demo có mẫu số rõ và ghi giả định, không tìm thêm dữ liệu để chứng minh mọi tham số. Chưa chuyển tỷ lệ sở thích, phàn nàn hoặc lý do đổi trả thành tỷ lệ theo tổng đơn.
 
 Chưa cần thêm SEM, mô hình dự đoán hay pipeline nghiên cứu riêng. Các dataset bảng hỏi chỉ nên bổ sung vào notebook khi trả lời được một câu hỏi cụ thể còn thiếu.
 
@@ -163,4 +163,4 @@ Phần nghiên cứu này củng cố **cơ sở lựa chọn quy luật và tí
 
 - Ưu tiên nội dung do cơ quan thống kê, đơn vị khảo sát hoặc tác giả nghiên cứu công bố; các số liệu trên đều có đường dẫn trực tiếp.
 - Với báo cáo thương mại, chỉ sử dụng phần công khai đã đọc; chưa coi đó là đã tiếp cận toàn bộ bảng số liệu hay dữ liệu giao dịch gốc.
-- Chưa tải thêm dữ liệu hoặc chạy EDA các dataset VN. Notebook nối nguồn nghiên cứu với các phép đo hiện có; trạng thái áp dụng R03 và các giá trị giả định được ghi riêng trong danh mục chỉ số.
+- Chưa tải thêm dữ liệu hoặc chạy EDA các dataset VN. Notebook nối nguồn nghiên cứu với các phép đo hiện có; trạng thái áp dụng R02/R03 và các giá trị giả định được ghi riêng trong danh mục chỉ số.

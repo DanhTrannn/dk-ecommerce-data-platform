@@ -194,3 +194,7 @@ Khoảng thời gian phiên là chênh lệch giữa event đầu/cuối quan s�
 Theo quyết định tiếp theo của người dùng ngày 08/11/2026, giữ PostgreSQL và các chức năng mới của `dev`, tích hợp sampler H&M và EDA. Generator dùng hợp đồng SQL `postgresql-v1`, hỗ trợ lựa chọn địa điểm và importer hiện có. Quyết định MySQL ở trên mô tả phạm vi triển khai ban đầu, đã được thay thế khi merge.
 
 Kiểm chứng bản tích hợp: 30 test generator và 113 test platform đạt (2 live test provisioning ngoài phạm vi được bỏ qua), với importer, API và quyền nguồn chạy trên PostgreSQL 16.8 biệt lập. Bốn test hồi quy nghiệp vụ cùng kiểm tra YAML số nguyên dạng float đạt; test bổ sung nằm ngoài Git. Chưa chạy lại toàn bộ pipeline/stack.
+
+## Hướng tinh gọn và SQL demo — 09/11/2026
+
+Người dùng chọn dùng nghiên cứu vừa đủ, các chính sách shop/tỷ lệ thiếu bằng chứng được chủ động đặt làm giả định. Generator 0.11 áp dụng R02 Olist thời trang và R03 H&M product_code; coupon thường/chiến dịch, một tỷ lệ review và các xác suất hủy/COD/đổi trả rõ mẫu số thay modulo/hệ số phụ. Không mở rộng EDA để fit mọi tham số; giữ các phân tích đã có làm tham khảo. [Phạm vi/tiến độ](../references/synthetic-data-research-plan.md) và [chỉ số runtime](GENERATOR_METRICS.md) là nơi theo dõi hiện tại. Chưa mở rộng API/log/streaming.

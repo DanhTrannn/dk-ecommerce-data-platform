@@ -1,6 +1,6 @@
 # OLTP Data Generator
 
-The Data Generator (`data-generator` package, v0.10.0) exports deterministic SQL data for the current PostgreSQL [schema](../database/schema.sql). The rewritten sampler uses H&M 2019 purchase counts by product-rank group; transferring those groups onto the synthetic catalog is a modeling assumption. Other behavioral values retain the previous scenario settings and are explicitly documented as assumptions in [GENERATOR_METRICS](../docs/project/GENERATOR_METRICS.md).
+The Data Generator (`data-generator` package, v0.11.0) exports deterministic SQL for the current PostgreSQL [schema](../database/schema.sql). It uses H&M 2019 product-code demand and Olist fashion baskets/quantities as reference distributions. Source transfer and variant selection are modeling assumptions. Other values are explicit shop policies or demo assumptions in [GENERATOR_METRICS](../docs/project/GENERATOR_METRICS.md). Research stays limited to evidence needed for useful analysis.
 
 Runtime responsibilities are grouped in `config.py`/`validation.py`, `catalog.py`, `transactions.py`, `sql_export.py`, `runner.py` and `cli.py`. The runtime does not read research CSVs or execute the notebook. Synthetic access-log generation and the old UCI profile modules remain removed. Artifacts retain the `postgresql-v1` metadata, validation, table locks and identity-sequence restart contract required by the existing importer.
 
@@ -76,9 +76,40 @@ The rewritten generator uses a `dk-generator-v2` identity namespace so older con
 - Each order has a checkout stock withdrawal; cancellations and failed deliveries have compensating movements. Passed returns add stock; modeled exchanges also withdraw the replacement SKU. Opening balance plus net movements equals closing stock. The arbitrary 500-unit inbound rows have been removed: opening stock is an explicit assumption sized from total withdrawals plus an 80–200 unit buffer, not a simulated receipt or measured replenishment policy.
 - Return creation/resolution fits between completion and the anchor. Order status history follows COD/VietQR paths.
 
-These checks establish internal consistency within the covered scenarios. Product demand now uses measured H&M rank-group weights; catalog transfer, customer order rescaling, COD/return selection and seasonality remain documented assumptions. POS, actual inbound receipts and API exchange execution are outside the generated scenarios. The generator supports 25 of the 28 schema tables, including selectable reference cities/stores. `store_inventory`, `inbound_receipts` and `inbound_receipt_items` remain outside the generated scenarios.
+These checks establish internal consistency within the covered scenarios. Product demand uses measured H&M product-code rank groups and baskets/quantities use Olist fashion counts; source transfer, customer order rescaling, outcome probabilities and seasonality remain documented assumptions. POS, actual inbound receipts and API exchange execution are outside the generated scenarios. The generator supports 25 of the 28 schema tables, including selectable reference cities/stores. `store_inventory`, `inbound_receipts` and `inbound_receipt_items` remain outside the generated scenarios.
 
 ---
+
+## Central YAML settings
+
+Edit `generator/configs/small.yml` (or pass another complete YAML with `--config`). `distributions` contains the existing weights/rates; `policies` holds the remaining scenario values previously in Python. The console preserves both blocks in its frozen job config; its advanced editor still edits only `distributions`, so change `policies` in the preset file.
+
+| `policies` group | Controls |
+|---|---|
+| `history`, `customers`, `catalog` | Days/month, master timestamps, customer state/name/address sampling, archive rate, price steps and cost ratios |
+| `shipping`, `timing` | Shipping fee/free threshold, failed attempts/spacing, COD blocking, eligible ages, processing delays, campaign window and minute of hour |
+| `returns` | First/random item and replacement, quantity, request/processing delay |
+| `inventory` | Opening-stock buffer range |
+| `coupons`, `reviews` | Validity/usage limits and extra review/moderation delays |
+| `wishlist`, `carts` | Creation/removal rates, item counts, quantity and timestamp ranges |
+
+Ranges use `[minimum, maximum]`, both inclusive. Required policy values are read from YAML without Python fallback values. Validation rejects invalid ranges/rates, attempts outside the schema's 1–3 limit, and incompatible timing. Return quantity is capped by purchased quantity; refund and stock checks remain mandatory. Changing policies changes dataset identity.
+
+These settings control generated SQL; they do not change the source API's own policies. Defaults retain its current values (including COD blocking at three failed orders). Fixed sample vocabulary, schema statuses, ID/SQL/crypto mechanics and chronological safety guards remain in code.
+
+## Demo policy
+
+The retained preset uses these agent-selected assumptions to expose useful analytical cases:
+
+| Parameter | Default | Eligible population |
+|---|---|---|
+| `outcomes.cancellation_rate` | 8% | Orders at least two hours old |
+| `outcomes.cod_failure_rate` | 8% | Non-cancelled COD orders at least three days old |
+| `outcomes.return_rate` | 6% | Completed orders with three days left for return processing |
+| `outcomes.exchange_rate` | 50% | Return requests with a replacement variant; otherwise refund |
+| `outcomes.cod_rate` | 60% | Customers eligible for COD at order time |
+
+These are sampling probabilities, not quotas or market statistics. Completed delivery depends on order age after cancellation/failure selection. Coupon policy has only ordinary/campaign percentage discounts and two usage rates; reviews use one write rate. Customer/coupon cancellation modifiers and modulo-based outcome selection are removed. The preset documents the simplified `outcomes`, `coupons` and `reviews` shapes; update old YAML manually using this preset. Existing `postgresql-v1` import semantics remain unchanged.
 
 ## Dataset Scale Configurations
 
@@ -90,7 +121,7 @@ The retained preset is:
 
 ---
 
-These are YAML inputs, not measured loaded row counts. Edit the preset or a copy to choose another scale. Dates follow `anchor_time`, not the date the command runs. `distributions.product_popularity` contains ten empirical purchase-count weights in descending rank groups; other behavioral values remain unchanged assumptions.
+These are YAML inputs, not measured loaded row counts. Edit the preset or a copy to choose another scale. Dates follow `anchor_time`, not the date the command runs. `distributions.product_popularity` contains ten empirical product-code purchase-count weights; `order_size`/`quantity_per_item` contain Olist fashion counts. Other values are shop policies or demo assumptions.
 
 ## Vietnamese E-Commerce Behavioral Distributions
 
@@ -98,7 +129,7 @@ The generator uses the following retail scenario assumptions:
 
 - **Timezone & Seasonality:** Uses `Asia/Ho_Chi_Minh` (stored as UTC). Models a configured Tet window, double-day campaigns (e.g. 9/9, 11/11, 12/12), and Black Friday. The fixed Tet window is an assumption, not a year-specific lunar-calendar lookup.
 - **Diurnal Rhythm:** Normal day peaks occur at 19:00–22:00. Campaign days feature 00:00–02:00 midnight spikes, lunch rushes (12:00), and evening surges.
-- **Customer Segmentation:** Customers are segmented into `loyal`, `regular`, and `one_off` cohorts with distinct purchase intervals, coupon affinity, review propensities, and cancellation rates.
+- **Customer Segmentation:** Customers retain `loyal`, `regular`, and `one_off` allocation profiles with purchase intervals and campaign affinity. Counts are rescaled to the configured total; labels are assumptions, and `one_off` does not guarantee exactly one final order. Coupon/review/cancellation rates are shared.
 - **Review Behavior:** Reviews originate from completed order items, within the observation window and before a full return is resolved. Weights for approved/rejected status are 94/6; they are assumptions, not guaranteed final proportions.
 - **Soft Archive:** Simulates product and coupon lifecycle archives without breaking historical relational lineage.
 
@@ -122,7 +153,7 @@ Each result has a short Markdown finding. Group conclusions assess differences b
 
 UCI uses UK invoices in `[2010-12-01, 2011-12-01)`, preserving source time. Invoice metadata must have one timestamp/country and at most one known customer. Cancellations, nonpositive quantity/price and codes outside five digits plus up to two letters are excluded. Duplicate source rows and bulk purchases are retained; lines aggregate by invoice/stock code. Missing customer IDs remain in baskets but are excluded from repurchase metrics. Multiple invoices on one day remain distinct. This gift-retail source includes wholesalers; its distributions are not Vietnamese fashion-retail estimates.
 
-R03 is now implemented through ten H&M product-rank groups in the YAML. We integrate group weights over the target rank intervals, shuffle the rank-to-product assignment with the scenario seed, then select a product before selecting one of its remaining variants. This avoids giving a product extra demand solely because it has more variants. Uniform demand inside each rank group and transfer to a smaller catalog are explicit assumptions. Other rates remain the previous scenario assumptions; the Olist/UCI distributions and Vietnam surveys are not copied into unsupported local probabilities. A generator before/after comparison or holdout benchmark remains outside scope.
+R02/R03 use the measured counts in notebook sections 2.4 and 3.3. Product demand uses ten H&M `product_code` rank groups; basket size counts distinct products, then one variant is chosen per product and quantity is sampled from Olist fashion order/product counts. Rank integration, catalog transfer, one variant per product and uniform variant choice are explicit assumptions. Products cannot repeat within an order; basket size is capped by available positive-weight products. The original 64.04% top-decile share describes articles; the product-code reference is 74.82%, neither is a required final revenue share. Overseas references are not estimates of the Vietnamese market. Before/after or holdout benchmarks remain outside scope.
 
 From the repository root:
 

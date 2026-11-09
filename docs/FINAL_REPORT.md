@@ -726,7 +726,7 @@ Dịch vụ phân tích trong Backend kết nối với Apache Trino thông qua 
 
 ### **4.7.1. Bộ sinh dữ liệu mô phỏng bán lẻ thời trang Việt Nam**
 
-Để phục vụ kiểm thử và trình diễn hệ thống, nhóm phát triển gói `data-generator` (phiên bản 0.10.0), sinh dữ liệu SQL từ cấu hình YAML, có seed để tái lập kết quả.
+Để phục vụ kiểm thử và trình diễn hệ thống, nhóm phát triển gói `data-generator` (phiên bản 0.11.0), sinh dữ liệu SQL từ cấu hình YAML, có seed để tái lập kết quả.
 
 Cơ sở nghiên cứu để thiết kế bộ sinh dữ liệu gồm ba phần:
 
@@ -734,7 +734,7 @@ Cơ sở nghiên cứu để thiết kế bộ sinh dữ liệu gồm ba phần:
 * **Bằng chứng nghiên cứu tại Việt Nam:** Thống kê mức sống, khảo sát tiêu dùng và báo cáo thị trường bổ sung căn cứ về chi tiêu, mua đa kênh, thanh toán, mùa vụ Tết và hậu mãi. [Hồ sơ nghiên cứu](project/GENERATOR_VIETNAM_RESEARCH.md) ghi đối tượng, đơn vị đo và giới hạn của từng nguồn; không chuyển tỷ lệ người trả lời hoặc doanh số thành xác suất theo đơn.
 * **Giả định kịch bản của nhóm:** Những tham số chưa có bằng chứng phù hợp, như giá VND của shop, tỷ lệ COD/VietQR, hệ số chiến dịch và phân phối giờ mua, cần được chốt rõ là giả định trước khi triển khai. Không coi chúng là ước lượng đại diện cho thị trường Việt Nam.
 
-Generator dùng schema PostgreSQL hiện tại, giữ CLI/console xuất SQL và importer có sẵn sau khi tích hợp vào `dev`. Quy luật R03 đã được áp dụng bằng trọng số mười nhóm thứ hạng sản phẩm H&M; cách ánh xạ sang catalog giả lập được ghi là giả định. Các tỷ lệ chưa đủ căn cứ giữ nguyên giá trị kịch bản cũ. [Danh mục chỉ số](project/GENERATOR_METRICS.md) ghi toàn bộ giá trị, ý nghĩa và nguồn/giả định. Chức năng sinh log tổng hợp vẫn ngoài phạm vi.
+Generator dùng schema PostgreSQL hiện tại, giữ CLI/console xuất SQL và importer có sẵn sau khi tích hợp vào `dev`. R02 dùng phân phối giỏ/quantity Olist thời trang; R03 dùng trọng số mười nhóm thứ hạng H&M product_code. Chuyển nguồn sang catalog/shop mô phỏng là giả định. Chính sách shop và tỷ lệ chưa có ước lượng phù hợp được chủ động chọn để demo đủ ca phân tích: hủy 8% đơn đủ tuổi, giao thất bại 8% đơn COD đủ điều kiện và đổi/trả 6% đơn hoàn tất đủ thời gian xử lý. Các tỷ lệ có mẫu số khác nhau và không đại diện thị trường VN. Các tham số hành vi và chính sách được cấu hình tập trung trong YAML (`distributions` và `policies`); code giữ các ràng buộc nhất quán. [Danh mục chỉ số](project/GENERATOR_METRICS.md) ghi toàn bộ giá trị, ý nghĩa và nguồn/giả định. Chức năng sinh log tổng hợp vẫn ngoài phạm vi.
 
 ### **4.7.2. Khảo sát thực nghiệm làm cơ sở sinh dữ liệu**
 
@@ -745,8 +745,8 @@ Mỗi nhóm đi theo chuỗi **câu hỏi nghiệp vụ → căn cứ nghiên c�
 | Quy luật | Kết quả thực nghiệm và đánh giá | Quyết định đề xuất và ứng dụng |
 | :--- | :--- | :--- |
 | R01. Mua lại | UCI: 63,99% trong 3.880 khách có ≥2 đơn. H&M: 66,20% khách có ≥2 ngày mua; khoảng mua trung vị 52 ngày ở nhóm 2–4 ngày, 17 ngày ở nhóm ≥5 ngày. Hai nguồn có đơn vị khác nhau. | Khoảng mua phụ thuộc nhóm tần suất; UCI tham chiếu số đơn, H&M tham chiếu ngày mua. Ứng dụng vào lịch `orders`; chưa chốt tỷ trọng nhóm khách của shop VN. |
-| R02. Giỏ hàng | Olist: 96,67% đơn có dòng hàng chỉ chứa một product. UCI: trong 17.118 đơn, giỏ trung vị 15 mã, Quantity trung vị 3; nguồn có khách sỉ. | Tách kích thước giỏ và số lượng trong `order_items`, tổng tiền hình thành từ dòng hàng. Chưa chốt trọng số bán lẻ, giá VND và ánh xạ mã nguồn sang variant. |
-| R03. Nhu cầu sản phẩm | H&M: top 10% sản phẩm có bán chiếm 64,04% dòng mua. Tập trung theo shop của báo cáo thị trường không thay thế phép đo theo SKU. | Đã áp dụng mười nhóm trọng số thứ hạng; xáo thứ hạng bằng seed, chọn sản phẩm rồi variant. Phân bố đều trong nhóm và ánh xạ catalog vẫn là giả định; tỷ trọng cuối mẫu không được bảo đảm bằng số liệu nguồn. |
+| R02. Giỏ hàng | Olist thời trang: 1.409 đơn, 92,97% giỏ một product; 97,70% cặp đơn–product có một đơn vị. Chủ yếu túi/phụ kiện; UCI giỏ lớn có khách sỉ chỉ để đối chiếu. | Đã áp dụng số product 1–4 và quantity 1–5 theo trọng số nguồn; chọn một variant/product rồi tính tiền từ item. Chuyển nguồn và giá VND là giả định. |
+| R03. Nhu cầu sản phẩm | H&M: top 10% article chiếm 64,04%, còn top 10% product_code chiếm 74,82% dòng mua. Tập trung theo shop của báo cáo thị trường không thay thế phép đo theo SKU. | Đã áp dụng mười nhóm thứ hạng product_code; xáo thứ hạng bằng seed, chọn sản phẩm rồi variant. Phân bố đều trong nhóm và ánh xạ catalog vẫn là giả định; tỷ trọng cuối mẫu không được bảo đảm bằng số liệu nguồn. |
 | R04. Thời điểm mua | H&M: chỉ số dòng mua/ngày khoảng 1,41 ở tháng 6, 0,80 ở tháng 12; khảo sát Việt Nam bổ sung cửa sổ trước Tết và giới hạn theo ngành. | Đề xuất lịch Tết theo năm, tách nhu cầu nền/chiến dịch khi sinh `orders.created_at`. Chưa chốt hệ số mùa vụ VN, ngày đôi và giờ mua. |
 | R05. Thanh toán/kênh | Olist đo tỷ trọng giá trị thanh toán; khảo sát VN đo người sử dụng kênh và sở thích thanh toán. Các mẫu số không tương đương số đơn. | Dùng phương thức hợp lệ theo kênh trong `orders`/`payments`; chưa suy ra tỷ trọng online/POS, COD/VietQR hoặc thất bại thanh toán. |
 | R06. Giao nhận/đánh giá | Olist: thời gian giao trung vị 11,03 ngày, trễ 5,65%; điểm trung bình/đơn 4,28 khi đúng hẹn, 2,32 khi trễ. Đây là liên hệ quan sát ở Brazil. | Đề xuất thời gian giao có phân phối và điểm theo trải nghiệm. Áp dụng cho `shipments`/`product_reviews` cần chốt thời gian VN, ngày hẹn và ánh xạ review theo đơn sang item. |
