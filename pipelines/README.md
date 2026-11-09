@@ -105,15 +105,15 @@ Staging is shared and overwritten, so run jobs through the DAG's single-active-r
 
 ## CDC and access logs
 
-`streaming` starts Debezium/Kafka/Flink. `mysql_cdc_to_bronze.py` writes immutable audit events to `bronze.oltp_cdc_events`, including before/after, operation and transport coordinates. It never writes Silver/Gold. The former `spark-cdc` service and transport-checkpoint materializer are removed; existing audit/publication/history tables are preserved.
+`streaming` starts Debezium/Kafka/Flink. Run `make source-cdc` after schema bootstrap to configure the dedicated source role, 27-table publication and FULL replica identity; Debezium uses the existing publication with auto-creation disabled. `postgres_cdc_to_bronze.py` writes immutable audit events to `bronze.oltp_cdc_events`, including before/after, PostgreSQL LSN/transaction metadata and transport coordinates. Existing MySQL audit fields/history are preserved with additive columns. See [CDC operations](../docs/architecture/CDC_DASHBOARD_DATA_SPEC.md) for startup, migration and recovery. It never writes Silver/Gold. The former `spark-cdc` service and transport-checkpoint materializer are removed; existing audit/publication/history tables are preserved.
 
-`manual_lakehouse_hard_delete` (`schedule=None`) synchronizes source hard deletes from CDC. It never deletes MySQL rows. Source purge remains an explicit, separately approved operation, performed while CDC is capturing changes. Normal source operations remain soft deletes.
+`manual_lakehouse_hard_delete` (`schedule=None`) synchronizes source hard deletes from CDC. It never deletes PostgreSQL source rows. Source purge remains an explicit, separately approved operation, performed while CDC is capturing changes. Normal source operations remain soft deletes.
 
 The DAG takes no user parameters and always processes both `cart_items` and `wishlist_items`. Triggering the DAG executes delete synchronization directly; there is no preview mode or apply flag. Hard-delete synchronization supports only removed cart and wishlist items:
 
 | Source table | Soft-delete evidence in the CDC `before` image |
 |---|---|
-| `cart_items`, `wishlist_items` | `is_present = 0` and `removed_at IS NOT NULL` |
+| `cart_items`, `wishlist_items` | `is_present = false` (or legacy `0`) and `removed_at IS NOT NULL` |
 
 Only actual delete events (`operation='d'`) whose source deletion time `source_ts <= DAG start time - 30 days` qualify. `source_ts` comes from the CDC event’s `source.ts_ms`, not the row’s `updated_at`, the soft-delete `removed_at` or the capture/ingestion time. Events without a source deletion timestamp, tombstones, active records, recent deletions and unsupported tables are excluded. `is_active=false` alone is not a deletion marker; all other tables, including `products` and `coupons`, are excluded. Products and coupons retain their archive lifecycle.
 
@@ -123,7 +123,7 @@ Trigger delete synchronization:
 docker compose exec -T airflow-scheduler airflow dags trigger manual_lakehouse_hard_delete
 ```
 
-Run delete synchronization while batch/init are idle; coordination between these separate DAGs is manual. The single task reads eligible CDC delete keys and deletes matching Silver rows with one Spark MERGE per supported table. It does not recheck MySQL or Silver update timestamps, maintain a deletion ledger, track processed events or split keys into chunks. Repeating the delete is safe for rows that are already absent; every run reads the eligible CDC events again. After each successful MERGE, an INFO log reports the Silver table, deleted row count and cutoff; repeated runs with no matching rows report zero.
+Run delete synchronization while batch/init are idle; coordination between these separate DAGs is manual. The single task reads eligible CDC delete keys and deletes matching Silver rows with one Spark MERGE per supported table. It does not recheck PostgreSQL or Silver update timestamps, maintain a deletion ledger, track processed events or split keys into chunks. Repeating the delete is safe for rows that are already absent; every run reads the eligible CDC events again. After each successful MERGE, an INFO log reports the Silver table, deleted row count and cutoff; repeated runs with no matching rows report zero.
 
 Bronze source versions, CDC audit and historical snapshots are retained. No Kafka offsets are reset. Batch/backfill is not filtered against deleted keys and can restore rows from old staging/Bronze; run this manual DAG again when deletion must be reapplied. Existing deletion-ledger tables from earlier deployments are no longer used; this code change does not drop them. Current Gold/mart builders and dashboards do not read cart/wishlist items, so this DAG does not rebuild Gold/marts or create a new analytics publication. The next successful batch publishes the current Silver snapshots.
 
@@ -196,3 +196,11 @@ Both source-to-Silver diagnostics passed 30/30 comparisons at zero tolerance. Tr
 The separate generator suite passed 33 tests, including product-weight normalization, first-product selection independent of variant counts and exhaustion without zero-weight fallback. PostgreSQL-backed platform discovery passed 111 tests with the two separate provider live tests skipped (`RUN_POSTGRES_SCHEMA_TESTS=1 POSTGRES_TEST_IMAGE=postgres:16.8`). That suite also covers multiple full-preset seeds, duplicate import rejection, transaction/sequence rollback and persisted API purchases.
 
 Evidence is local and ignored: `data/pipeline-runs/tlcn-stack-25aa75d70a/report.json`, `generator-stack-check.log`, `generator-unit-check.log` and `generator-postgres-check.log` under `data/pipeline-runs/`. This is post-merge technical acceptance, not proof of market representativeness, cron timing, CDC/log delivery, Superset readiness or a performance SLA. PostgreSQL CDC and actual API log capture remain the next separate phase.
+
+### PostgreSQL CDC acceptance — 09/11/2026
+
+The opt-in actual-stack check passed with Debezium 3.0.8, Kafka 3.8, Flink 1.19 and Iceberg/MinIO/Polaris. Its managed publication/FULL replica identity covered 27 tables and all 594 snapshot rows matched source counts per table, including zero-row tables. Source setup rejected an incomplete schema, preserved isolation, reran successfully, removed old owner membership and denied credential reads/business inserts. Kafka and Bronze excluded customer_credentials.
+
+The pre-PostgreSQL audit fixture row and binlog fields survived additive schema evolution. Live INSERT/UPDATE/DELETE produced full previous/new values, positive PostgreSQL LSN/txId, stable transport IDs, delete envelopes and NULL-value tombstones; transaction BEGIN/END were retained. Detached submission returned with the remote job RUNNING. A TaskManager restart recovered from a completed checkpoint and captured another insert; a Connect restart retained its pgoutput slot, did not repeat snapshot/prior row operations and captured a later update. No duplicate event IDs or Silver/Gold tables were observed in the fixture.
+
+Five pure CDC contract checks passed. The normal pipeline suite passed 16 tests with three integration cases skipped; CDC integration was enabled separately with `RUN_POSTGRES_CDC_TESTS=1`. The private resources were cleaned and the local report is `data/pipeline-runs/tlcn-stack-085770b323/report.json` (ignored). Full JobManager disaster recovery, arbitrary resubmission/offset resets, load/latency SLAs and API access-log delivery are not established by this check. See [CDC operations](../docs/architecture/CDC_DASHBOARD_DATA_SPEC.md) for setup and recovery boundaries.

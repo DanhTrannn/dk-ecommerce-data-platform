@@ -130,6 +130,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
       - ./infrastructure/postgres/configure-source-reader.sh:/opt/project/configure-source-reader.sh:ro
+      - ./infrastructure/postgres/configure-source-cdc.sh:/opt/project/configure-source-cdc.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres}"]
       interval: 5s
@@ -577,8 +578,9 @@ services:
     command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/opt/project/flink/bin/submit-job.sh"]
     environment:
       <<: *flink-environment
-      JOB_SCRIPT: /opt/project/pipelines/src/jobs/cdc/mysql_cdc_to_bronze.py
+      JOB_SCRIPT: /opt/project/pipelines/src/jobs/cdc/postgres_cdc_to_bronze.py
       JOB_NAME_PATTERN: oltp_cdc_to_bronze
+      POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
     restart: "no"
     volumes:
       - ./pipelines:/opt/project/pipelines:ro

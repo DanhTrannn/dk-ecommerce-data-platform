@@ -2,8 +2,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
 MUTABLE_CURSOR = "updated_at"
 APPEND_ONLY_CURSOR = "created_at"
 SILVER_PREFIX = "silver_"
@@ -180,6 +178,8 @@ def _validate(config: Config) -> None:
 
 
 def load_config(path: str | Path | None = None) -> Config:
+    import yaml
+
     file_path = Path(path) if path else config_path()
     if not file_path.is_file():
         raise ConfigError(f"config not found: {file_path}")

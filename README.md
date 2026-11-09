@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![Node.js](https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
-[![MySQL](https://img.shields.io/badge/MySQL-8.4-4479A1?style=flat-square&logo=mysql&logoColor=white)](https://mysql.com)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16.8-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Apache Kafka](https://img.shields.io/badge/Apache_Kafka-3.8-231F20?style=flat-square&logo=apachekafka&logoColor=white)](https://kafka.apache.org)
 [![Apache Flink](https://img.shields.io/badge/Apache_Flink-1.19-E6526F?style=flat-square&logo=apacheflink&logoColor=white)](https://flink.apache.org)
 [![Apache Spark](https://img.shields.io/badge/Apache_Spark-3.5.9-E25A1C?style=flat-square&logo=apachespark&logoColor=white)](https://spark.apache.org)
@@ -21,7 +21,7 @@
 
 </div>
 
-> **PostgreSQL transition:** Compose uses one PostgreSQL service with separate `ecommerce`, `airflow` and `polaris` databases. FastAPI and Streamlit share platform-app. The 28-table source schema and ORM now target PostgreSQL and have been checked in isolation. Generator 0.10 SQL, seeds and transactional import also pass isolated PostgreSQL checks. Core business API workflows now pass isolated PostgreSQL checks; six legacy BI aggregation endpoints and ten admin GET list/duplicate endpoints are retired; all write routes remain. Batch JDBC/source handling and a dedicated read-only PostgreSQL reader are implemented; PostgreSQL CDC consumer conversion remains pending. See [source API scope](docs/project/API_SOURCE_SCOPE.md). Existing data is not migrated; service health checks do not verify business pipelines.
+> **PostgreSQL transition:** Compose uses one PostgreSQL service with separate `ecommerce`, `airflow` and `polaris` databases. FastAPI and Streamlit share platform-app. The 28-table source schema and ORM now target PostgreSQL and have been checked in isolation. Generator 0.10 SQL, seeds and transactional import also pass isolated PostgreSQL checks. Core business API workflows now pass isolated PostgreSQL checks; six legacy BI aggregation endpoints and ten admin GET list/duplicate endpoints are retired; all write routes remain. Batch JDBC/source handling and a dedicated read-only PostgreSQL reader are implemented; PostgreSQL CDC audit capture has passed isolated snapshot/change/recovery acceptance; run `make source-cdc` after schema bootstrap. See [source API scope](docs/project/API_SOURCE_SCOPE.md). Existing data is not migrated; service health checks do not verify business pipelines.
 
 **Current transition scope:** Compose excludes standalone API/frontend services. FastAPI and the Streamlit Generator Console run together in the platform-app Python slim image. The `core` profile starts PostgreSQL, MinIO, Polaris, Airflow, Trino and platform-app. Airflow has service startup configuration and the Python path required to parse mounted DAGs; batch source/storage/catalog configuration and the PII salt must be set before running business DAGs; the PostgreSQL reader and MinIO/Polaris bootstrap remain explicit commands. Existing application/startup instructions below describe the broader project and are outside this temporary scope.
 
@@ -35,10 +35,10 @@ MinIO runs only its storage server image; there is no separate Python init image
 
 Infrastructure images remain separate per service. `ICEBERG_VERSION` is passed to Airflow, Spark and Flink builds. Flink configuration and launcher scripts are baked into its image; rebuild after editing `infrastructure/flink/conf/` or `infrastructure/flink/bin/`. Airflow installs runtime dependencies with pip independently of the business workspace. Completed MinIO/Polaris bootstrap preserves existing credentials and manual permissions; access bindings can be managed from Streamlit through the internal lakehouse-access service.
 
-The **D&K E-Commerce Data Platform** is a local Data Engineering project combining an e-commerce source application, batch data processing, MySQL change capture, and access-log streaming. MySQL contains 28 OLTP tables; 27 are configured for analytical ingestion. Data is stored in Apache Iceberg on MinIO, cataloged by Polaris, and queried through Trino. A Next.js/FastAPI application provides Storefront, POS, administration, and ECharts dashboards.
+The **D&K E-Commerce Data Platform** is a local Data Engineering project combining an e-commerce source application, batch data processing, PostgreSQL WAL change capture, and access-log streaming. PostgreSQL contains 28 OLTP tables; 27 are configured for analytical ingestion. Data is stored in Apache Iceberg on MinIO, cataloged by Polaris, and queried through Trino. A Next.js/FastAPI application provides Storefront, POS, administration, and ECharts dashboards.
 
 > [!NOTE]
-> The platform has three data paths: **OLTP batch**, **MySQL binlog CDC**, and **access-log streaming**. Airflow batch is the only OLTP Silver/Gold writer. CDC continuously records Bronze audit events; it does not apply changes to analytical tables.
+> The platform has three data paths: **OLTP batch**, **PostgreSQL WAL CDC**, and **access-log streaming**. Airflow batch is the only OLTP Silver/Gold writer. CDC continuously records Bronze audit events; it does not apply changes to analytical tables.
 
 The planned transition replaces Next.js with a Streamlit generator console and Apache Superset over Trino. Phase 1 records [scenario/API scope](docs/project/refactor_v2.md) and a [local data baseline](docs/project/DATA_BASELINE.md). The Streamlit console is implemented for dataset generation/import, purchase scenarios and access bindings. Next.js remains in source; Superset is not deployed yet.
 
@@ -53,7 +53,7 @@ FastAPI now serves transactional data generation/lookup and HTTP observability. 
 
 ## Features
 
-- **Hybrid Ingestion:** Spark batch extraction, Debezium MySQL CDC, and Kafka/Flink access-log processing.
+- **Hybrid Ingestion:** Spark batch extraction, Debezium PostgreSQL CDC, and Kafka/Flink access-log processing.
 - **Incremental Batch:** Airflow time intervals, sequential Spark JDBC extraction in 10,000-row chunks, reusable Parquet staging, retry-safe Bronze history, and incremental Silver MERGE; no lookback, cursor files or manifests. Source tables and mappings are declared in `pipelines/src/lakehouse/utils/config.py`. A separate manual DAG synchronizes CDC hard deletes only for removed cart/wishlist items with soft-delete evidence and source deletions at least 30 days old, while retaining Bronze/audit history. Both OLTP DAGs expose one task per table in five TaskGroups: staging, Bronze, Silver, Gold and mart.
 - **Medallion Processing:** Bronze source history, Silver typing/deduplication/MERGE and PII pseudonymization, and Gold dimensions/facts/marts.
 - **Data Quality and Reconciliation:** Source-to-Silver reconciliation and post-Gold checks, with audit results in `lakehouse.system.data_quality_results`.
@@ -152,8 +152,8 @@ OLTP batch:
   PostgreSQL interval -> Spark -> reusable staging -> Bronze source versions -> Silver MERGE -> Gold/marts
   Validated Gold -> published Iceberg snapshots -> Trino/API
 
-MySQL CDC:
-  MySQL binlog -> Debezium -> Kafka -> Flink -> Bronze CDC events
+PostgreSQL CDC:
+  PostgreSQL WAL -> Debezium -> Kafka -> Flink -> Bronze CDC events
   Bronze CDC events -> audit/replay inspection (no automatic Silver/Gold writes)
 
 Access logs:
@@ -166,7 +166,7 @@ Storage / catalog:
 
 Serving:
   Iceberg -> Trino -> FastAPI analytics -> Admin BI Hub / ECharts
-  MySQL -----------> FastAPI transactions, auth/RBAC, source reconciliation
+  PostgreSQL ------> FastAPI transactions, auth/RBAC, source reconciliation
 ```
 
 See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) and [editable draw.io diagram](docs/diagram/08-system-architecture.drawio) for component boundaries.
@@ -179,7 +179,7 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 | **Visualization** | Apache ECharts | 6.1.0 | Dashboard charts |
 | **Application** | FastAPI / SQLAlchemy | 0.116.1 / 2.0.41 | Transactions, auth/RBAC, logging, analytics API |
 | **Operational DB** | PostgreSQL | 16.8 | 28 OLTP tables; 27 analytical source tables |
-| **Change Capture** | Debezium | 3.0.8 | Initial snapshot and row-binlog capture |
+| **Change Capture** | Debezium | 3.0.8 | Initial snapshot and PostgreSQL WAL capture |
 | **Event Streaming** | Apache Kafka | 3.8.0 | CDC and access-log topics |
 | **Stream Processing** | Apache Flink | 1.19 | Raw access-log Landing and Bronze CDC ingestion |
 | **Object Storage** | MinIO | `latest-dev` | Landing, Iceberg files, and processing state |
@@ -241,7 +241,7 @@ make seed  # application catalog/admin; locations are included in generator SQL
 
 ```
 
-The importer checks schema and dataset counts, rejects duplicate runs, reconciles payment/return/inventory records and synchronizes identity sequences in one transaction. It accepts trusted generator SQL only and takes write-blocking table locks; see the [database guide](database/README.md). Old backfill/import/upload shell helpers have been removed. Synthetic log export is removed; the Flink log job reads Kafka. The batch source reader now supports PostgreSQL; configure its dedicated reader and storage/catalog prerequisites before running jobs. CDC conversion remains pending.
+The importer checks schema and dataset counts, rejects duplicate runs, reconciles payment/return/inventory records and synchronizes identity sequences in one transaction. It accepts trusted generator SQL only and takes write-blocking table locks; see the [database guide](database/README.md). Old backfill/import/upload shell helpers have been removed. Synthetic log export is removed; the Flink log job reads Kafka. The batch source reader now supports PostgreSQL; configure its dedicated reader and storage/catalog prerequisites before running jobs. CDC audit capture is implemented; see [CDC operations](docs/architecture/CDC_DASHBOARD_DATA_SPEC.md). API-to-Kafka log capture remains a separate pending step.
 
 ### Run the OLTP Batch Pipeline
 
@@ -334,10 +334,14 @@ CI uses `--env-file .env.example` because `.env` is not committed and Compose re
 
 ### PostgreSQL batch configuration
 
-Use a separate `POSTGRES_ECOMMERCE_READER_USER` / `POSTGRES_ECOMMERCE_READER_PASSWORD`, then run `make source-reader` after the business schema exists and the PostgreSQL container has the updated environment/mount. Spark and Airflow use this SELECT-only role for 27 source tables; credentials are excluded from the JDBC URL and `customer_credentials` is not granted. Set a stable nonempty `SILVER_PSEUDONYMIZE_SALT` before Silver processing. Rebuild legacy Spark/Airflow images to include the already-pinned PostgreSQL JDBC driver. See the [pipeline guide](pipelines/README.md#postgresql-batch-source--07112026) for configuration, isolated checks and migration boundaries. MinIO/Polaris provisioning now has an explicit command; PostgreSQL CDC and full-stack verification remain separate work; batch changes do not rewrite existing MySQL analytical history.
+Use a separate `POSTGRES_ECOMMERCE_READER_USER` / `POSTGRES_ECOMMERCE_READER_PASSWORD`, then run `make source-reader` after the business schema exists and the PostgreSQL container has the updated environment/mount. Spark and Airflow use this SELECT-only role for 27 source tables; credentials are excluded from the JDBC URL and `customer_credentials` is not granted. Set a stable nonempty `SILVER_PSEUDONYMIZE_SALT` before Silver processing. Rebuild legacy Spark/Airflow images to include the already-pinned PostgreSQL JDBC driver. See the [pipeline guide](pipelines/README.md#postgresql-batch-source--07112026) for configuration, isolated checks and migration boundaries. MinIO/Polaris provisioning now has an explicit command; PostgreSQL CDC audit and batch full-stack checks are documented separately; batch changes do not rewrite existing MySQL analytical history.
 
 ### Streamlit access administration
 
 The **Quản trị quyền** screen lets existing source `admin`/`system_admin` accounts inspect supported Polaris/MinIO assignments and grant/revoke existing bindings. Polaris supports principal-role, catalog-role and selected catalog-privilege changes; MinIO supports direct policy attachment/detachment for the four configured workload accounts. It does not create accounts/roles, edit policy JSON or rotate secrets.
 
 An internal `lakehouse-access` service checks database-backed authorization and CSRF for mutations, records local audit events and verifies remote outcomes. Administrative credentials stay in that service; Streamlit keeps per-session login cookies only. The service publishes no host port and uses no Docker socket or workload credential volumes. Rebuild the platform-app image (which reuses MinIO's bundled mc), then start `platform-app lakehouse-access`. See the [platform guide](services/platform-app/README.md#quản-trị-quyền-trên-streamlit) for prerequisites, endpoint contracts and isolated checks. Displayed assignments are snapshots and do not compute every inherited effective permission.
+
+### PostgreSQL CDC source setup
+
+After business schema bootstrap and Lakehouse provisioning, run `make source-cdc` before registering `debezium-init` and submitting `flink-cdc-submit`. This explicitly manages the dedicated replication role, 27-table publication and FULL replica identity; `customer_credentials` is excluded. The CDC job adds PostgreSQL metadata columns while preserving old audit fields/history and exits its submit container after detached submission. CDC remains Bronze audit only. See [CDC startup, migration and acceptance](docs/architecture/CDC_DASHBOARD_DATA_SPEC.md).

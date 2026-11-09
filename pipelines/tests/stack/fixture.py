@@ -283,7 +283,7 @@ class StackFixture:
         )
         return result.stdout.strip()
 
-    def start(self):
+    def start_source(self):
         self.command(
             [
                 "up",
@@ -335,6 +335,9 @@ class StackFixture:
         self.command(["up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "180", "platform-app"])
         self.evidence["source"] = self.runtime("source")
         self.command(["exec", "-T", "postgres", "sh", "/opt/project/configure-source-reader.sh"])
+
+    def start(self):
+        self.start_source()
         self.command(
             [
                 "up",

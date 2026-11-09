@@ -10,7 +10,7 @@
 | `services/platform-app/` | Một package/image Python chung cho FastAPI và Streamlit; Dockerfile, start.sh, dependency |
 | `services/platform-app/src/platform_app/ui/` | Giao diện Streamlit điều khiển generator |
 | `services/platform-app/src/platform_app/api/` | FastAPI, model OLTP, nghiệp vụ, auth, logging, analytics |
-| `database/schema.sql` | DDL MySQL cuối cùng: 28 bảng, index, khóa và CHECK |
+| `database/schema.sql` | DDL PostgreSQL hiện tại: 28 bảng, index, khóa và CHECK |
 | `database/seeds/` | Catalog, tồn mở đầu và bootstrap admin |
 | `generator/src/generator/` | Sinh dữ liệu SQL và access log theo cấu hình |
 | `generator/configs/` | Quy mô và phân phối dataset |
@@ -39,7 +39,7 @@
 | OLTP Silver | [writer.py](../../pipelines/src/lakehouse/oltp/silver/writer.py), [schema.py](../../pipelines/src/lakehouse/oltp/silver/schema.py) |
 | OLTP quality | [gate.py](../../pipelines/src/lakehouse/oltp/quality/gate.py), kiểm tra theo domain và [reconcile.py](../../pipelines/src/lakehouse/oltp/quality/reconcile.py) |
 | Access log stream | [kafka_to_lakehouse.py](../../pipelines/src/jobs/logs/kafka_to_lakehouse.py) |
-| CDC stream | [mysql_cdc_to_bronze.py](../../pipelines/src/jobs/cdc/mysql_cdc_to_bronze.py) |
+| CDC stream | [postgres_cdc_to_bronze.py](../../pipelines/src/jobs/cdc/postgres_cdc_to_bronze.py) |
 | Query serving | [analytics service](../../services/platform-app/src/platform_app/api/modules/analytics/service.py) |
 | Storage authorization | [MinIO](../../infrastructure/minio), [Polaris](../../infrastructure/polaris/rbac.yml) |
 
@@ -49,15 +49,15 @@ Python workspace có `platform-app`, `data-generator`, `batch-pipeline` dùng ch
 
 Profile `core` chứa PostgreSQL, MinIO, Polaris, Airflow, Trino và platform-app; `batch` chứa Spark SQL client local; `streaming` chứa Kafka, Debezium Connect và Flink. Các init thuộc nhóm service tương ứng. Các job đăng ký CDC/submit Flink nằm trong streaming với scale 0, chỉ chạy thủ công. Khi chọn batch hoặc streaming, bật kèm core. Makefile mặc định chọn core.
 
-Bootstrap MinIO/Polaris mới và chuyển schema/SQL nghiệp vụ từ MySQL sang PostgreSQL còn chờ triển khai. Build/healthcheck của service không xác nhận pipeline nghiệp vụ chạy đầu cuối.
+Bootstrap MinIO/Polaris chạy chủ động qua make provision-lakehouse; schema/SQL nghiệp vụ, batch và CDC audit đã chuyển PostgreSQL và có kiểm chứng biệt lập. Build/healthcheck của service không xác nhận pipeline nghiệp vụ chạy đầu cuối.
 
 Các dịch vụ storage/catalog dùng chung và được kết nối qua Docker network. Xem service/port chính xác trong [Compose](../../docker-compose.yml).
 
 ## 4. Quy tắc phụ thuộc
 
-- Frontend → FastAPI trong `platform-app`; kết nối API được cấu hình PostgreSQL/Trino. Logic/schema nguồn MySQL cũ còn chờ chuyển đổi.
-- Spark batch đọc MySQL, ghi staging và bảng Iceberg.
-- Debezium được cấu hình đọc PostgreSQL WAL; consumer CDC Flink cũ vẫn cần chuyển đổi.
+- Frontend → FastAPI trong `platform-app`; kết nối API được cấu hình PostgreSQL/Trino. Schema/logic nguồn hiện dùng PostgreSQL.
+- Spark batch đọc PostgreSQL, ghi staging và bảng Iceberg.
+- Debezium đọc PostgreSQL WAL; Flink giữ audit CDC ở Bronze, không cập nhật Silver/Gold.
 - Polaris quản lý catalog và quyền; MinIO lưu file.
 - Trino phục vụ SQL; không thay thế OLTP.
 - Generator tạo dữ liệu nguồn, không chèn số liệu dựng sẵn trực tiếp vào Gold.

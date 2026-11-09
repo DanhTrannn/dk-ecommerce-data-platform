@@ -26,7 +26,7 @@ config="$(cat <<JSON
   "plugin.name": "pgoutput",
   "slot.name": "ecommerce_cdc",
   "publication.name": "ecommerce_publication",
-  "publication.autocreate.mode": "filtered",
+  "publication.autocreate.mode": "disabled",
   "schema.include.list": "public",
   "table.include.list": "public\\\\.(customers|categories|products|product_variants|carts|cart_items|wishlist_items|orders|order_items|payments|order_status_history|inventory|coupons|coupon_redemptions|refunds|product_reviews|cities|stores|store_inventory|delivery_staff|shipments|return_requests|return_items|inventory_transactions|inbound_receipts|inbound_receipt_items|shipment_attempts)",
   "snapshot.mode": "initial",
