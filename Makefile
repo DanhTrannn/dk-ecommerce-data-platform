@@ -1,4 +1,4 @@
-.PHONY: all up start build down stop restart ps logs status seed source-reader source-cdc provision-minio provision-polaris provision-lakehouse typecheck help
+.PHONY: all up start build down stop restart ps logs status seed source-reader source-cdc provision-minio provision-polaris provision-lakehouse typecheck help superset-db superset-init superset-sync
 
 PROFILES ?= core
 export COMPOSE_PROFILES := $(PROFILES)
@@ -9,7 +9,7 @@ help:
 	@echo "D&K E-Commerce Lakehouse Platform"
 	@echo "  make up                        Start core services and wait for readiness"
 	@echo "  make up PROFILES=core,batch     Add local Spark client"
-	@echo "  make up PROFILES=core,batch,streaming  Start all groups"
+	@echo "  make up PROFILES=core,batch,streaming  Start data profiles"
 	@echo "  make build                     Build all project images"
 	@echo "  make down                      Stop all groups; retain volumes"
 	@echo "  make restart PROFILES=core     Restart selected existing containers"
@@ -18,6 +18,9 @@ help:
 	@echo "  make source-reader             Configure the dedicated PostgreSQL batch reader"
 	@echo "  make source-cdc                Configure CDC grants, publication and replica identity"
 	@echo "  make seed                      Run source seeds (business schema required)"
+	@echo "  make superset-db               Create dedicated Superset metadata storage"
+	@echo "  make superset-init             Initialize BI metadata and first admin explicitly"
+	@echo "  make superset-sync             Create a sales dashboard pinned to a publication"
 	@echo "  make typecheck                 Check frontend TypeScript"
 
 up: start
@@ -65,6 +68,15 @@ provision-polaris:
 provision-lakehouse:
 	@$(MAKE) provision-minio
 	@$(MAKE) provision-polaris
+
+superset-db:
+	@docker compose exec -T postgres sh /opt/project/configure-superset.sh
+
+superset-init:
+	@docker compose --profile bi run --rm --no-deps -T superset-init
+
+superset-sync:
+	@docker compose --profile bi run --rm --no-deps -T superset-sync
 
 typecheck:
 	@npm --prefix services/storefront run typecheck

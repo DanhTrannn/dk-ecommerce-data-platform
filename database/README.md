@@ -94,3 +94,8 @@ Role chỉ SELECT 27 bảng nguồn của batch, không có quyền đọc `cust
 Chạy `make source-cdc` chủ động sau khi schema đủ 28 bảng và PostgreSQL nhận mount script mới. Dùng `POSTGRES_CDC_USER`/`POSTGRES_CDC_PASSWORD` đã có trong `.env.example`. Script quản lý role riêng LOGIN/REPLICATION với SELECT trên 27 bảng phân tích, bỏ membership owner cũ, đặt FULL replica identity và tạo/đồng bộ `ecommerce_publication`. Không cấp SELECT credential hoặc default privilege cho bảng tương lai. Thiếu schema hoặc role không phù hợp thì dừng trong transaction.
 
 Đây là bước quản trị có thể lấy khóa bảng và áp dụng mật khẩu đã cấu hình; không xóa dữ liệu, replication slot hay offset. Debezium dùng publication có sẵn với auto-create disabled. Xem [CDC operations](../docs/architecture/CDC_DASHBOARD_DATA_SPEC.md) để chạy connector/Flink, đọc audit và phân biệt phục hồi checkpoint với nộp job mới.
+
+
+## Metadata Superset tùy chọn
+
+`make superset-db` chạy script PostgreSQL riêng sau khi áp dụng env/mount mới, tạo database/user `superset` với password được cấu hình. Script hỗ trợ volume đang có, không sửa schema/dữ liệu nguồn và giữ password của role đã tồn tại. `make superset-init` mới thực hiện migration metadata Superset và tạo admin ban đầu. Xem [hướng dẫn BI](../docs/runbook/SUPERSET.md); không dùng account OLTP/Polaris/Airflow làm owner metadata này.

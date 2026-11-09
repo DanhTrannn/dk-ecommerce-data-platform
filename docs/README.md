@@ -13,8 +13,9 @@ Bộ tài liệu lấy phần Data Engineering làm trọng tâm, được đố
 | [OLTP_SCHEMA](architecture/OLTP_SCHEMA.md) | 28 bảng nguồn PostgreSQL, kiểu/ràng buộc đã chuyển và giới hạn nghiệm thu nghiệp vụ |
 | [schema.sql](../database/schema.sql) | Bootstrap PostgreSQL được render từ ORM; chỉ dùng database trống |
 | [ACCESS_LOG_DESIGN](architecture/ACCESS_LOG_DESIGN.md) | JSON contract, quyền riêng tư và xử lý log |
-| [CDC_DASHBOARD_DATA_SPEC](architecture/CDC_DASHBOARD_DATA_SPEC.md) | Binlog, Debezium, Kafka, Bronze CDC và phục hồi |
+| [CDC_DASHBOARD_DATA_SPEC](architecture/CDC_DASHBOARD_DATA_SPEC.md) | PostgreSQL WAL, Debezium, Kafka, Bronze CDC và phục hồi |
 | [PROJECT_STRUCTURE](architecture/PROJECT_STRUCTURE.md) | Thư mục và điểm vào của mã nguồn |
+| [Superset sales PoC](runbook/SUPERSET.md) | Cấu hình BI tùy chọn, snapshot publication, làm mới dashboard và kiểm tra |
 | [SETUP](runbook/SETUP.md) | Cài đặt, thứ tự khởi động, vận hành batch/streaming, quyền truy cập và xử lý lỗi |
 | [Phát triển và CI](../README.md#development-commands) | Lệnh kiểm tra cục bộ và các job GitHub Actions |
 | [Sơ đồ Chương 3](diagram/README.md) | Bộ sơ đồ theo dàn ý: Use Case, Activity, Sequence, kiến trúc, ERD MySQL, Lakehouse và wireframe; có trang HTML xem nhanh |

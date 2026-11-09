@@ -47,6 +47,8 @@ tests/
 !generator/tests/*.py
 !pipelines/tests/
 !pipelines/tests/**/*.py
+!infrastructure/superset/tests/
+!infrastructure/superset/tests/*.py
 !services/platform-app/tests/
 !services/platform-app/tests/**/
 !services/platform-app/tests/**/*.py

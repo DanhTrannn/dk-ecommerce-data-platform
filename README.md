@@ -42,15 +42,17 @@ The **D&K E-Commerce Data Platform** is a local Data Engineering project combini
 
 Real API access-log capture has passed isolated Kafka/Flink/Airflow/Trino acceptance: 21 requests, two checkout workflows and two resolved cart additions across three log marts. Producer recovery, replay deduplication, checkpoint recovery and last-good publication reads passed. PostgreSQL UUIDs are normalized to 16-byte Silver values, with compatibility for earlier catalog snapshots. See [access-log acceptance](pipelines/README.md#api-access-log-acceptance--09112026) for evidence and limits.
 
-The planned transition replaces Next.js with a Streamlit generator console and Apache Superset over Trino. Phase 1 records [scenario/API scope](docs/project/refactor_v2.md) and a [local data baseline](docs/project/DATA_BASELINE.md). The Streamlit console is implemented for dataset generation/import, purchase scenarios and access bindings. Next.js remains in source; Superset is not deployed yet.
+The planned transition replaces Next.js with a Streamlit generator console and Apache Superset over Trino. Phase 1 records [scenario/API scope](docs/project/refactor_v2.md) and a [local data baseline](docs/project/DATA_BASELINE.md). The Streamlit console is implemented for dataset generation/import, purchase scenarios and access bindings. Next.js remains in source. An optional Superset sales PoC now provides publication-pinned datasets; other BI dashboards and viewer/store permissions remain pending. See [Superset setup](docs/runbook/SUPERSET.md).
 
 Trino's Lakehouse catalog now enforces `iceberg.security=READ_ONLY`, complementing Polaris reader grants and the MinIO read policy. Both OLTP DAGs passed 109/109 tasks in the isolated scheduler/Trino acceptance; post-EDA full-preset acceptance loaded 3,000 generated orders, then two API purchases moved the published order count to 3,002 without recognizing unpaid COD revenue. See [full-stack acceptance](pipelines/README.md#full-stack-acceptance-opt-in) for the check and [setup](docs/runbook/SETUP.md#batch-stack-acceptance) for applying the catalog setting.
+
+The `bi` profile runs Superset 6.1.0 against Trino and uses a dedicated metadata database/user in the existing PostgreSQL service. Run `make superset-db`, `make superset-init` and `make superset-sync` explicitly after configuration and a successful OLTP publication. The sales PoC has four KPI cards and four charts; each generated dashboard keeps one manifest's Iceberg snapshot IDs. No Redis/Celery service or new OLAP store is added. [Setup, refresh semantics and limitations](docs/runbook/SUPERSET.md).
 
 ## Overview
 
 The project covers data collection, incremental extraction, Medallion transformations, data quality, reconciliation, and SQL analytics. The website and POS provide transactional source data; the generator supplies configurable synthetic datasets and simulated API traffic.
 
-FastAPI now serves transactional data generation/lookup and HTTP observability. Six legacy BI aggregation endpoints and ten admin GET list/duplicate endpoints are removed with unused services/schemas; all 41 write route declarations remain. Lookup responses provide numeric customer/store IDs for scenario inputs; old Next.js overview/BI pages will receive 404. Superset remains planned. The 18 Lakehouse marts and publication infrastructure are retained. Auth, store permissions, checkout/POS, inventory, shipping, returns and reviews remain source workflows; their main paths are tested against isolated PostgreSQL. Machine learning remains outside scope.
+FastAPI now serves transactional data generation/lookup and HTTP observability. Six legacy BI aggregation endpoints and ten admin GET list/duplicate endpoints are removed with unused services/schemas; all 41 write route declarations remain. Lookup responses provide numeric customer/store IDs for scenario inputs; old Next.js overview/BI pages will receive 404. Superset has an optional sales PoC; the remaining BI areas are still pending. The 18 Lakehouse marts and publication infrastructure are retained. Auth, store permissions, checkout/POS, inventory, shipping, returns and reviews remain source workflows; their main paths are tested against isolated PostgreSQL. Machine learning remains outside scope.
 
 
 ## Features
@@ -60,7 +62,7 @@ FastAPI now serves transactional data generation/lookup and HTTP observability. 
 - **Medallion Processing:** Bronze source history, Silver typing/deduplication/MERGE and PII pseudonymization, and Gold dimensions/facts/marts.
 - **Data Quality and Reconciliation:** Source-to-Silver reconciliation and post-Gold checks, with audit results in `lakehouse.system.data_quality_results`.
 - **Open Lakehouse Storage:** MinIO object storage, Iceberg tables/snapshots, Polaris catalog, and scheduled maintenance.
-- **Analytical Data:** 18 Lakehouse marts and publications retained for future Superset BI; legacy business-dashboard API serving is retired. HTTP reports retain their independent publication/cache and RBAC.
+- **Analytical Data:** 18 Lakehouse marts and publications, with two marts served by the initial Superset sales PoC; legacy business-dashboard API serving is retired. HTTP reports retain their independent publication/cache and RBAC.
 - **Access-Log Analytics:** Request volume, duration percentiles, error rates, product interactions, and event-based marketing funnels.
 - **Synthetic Data Generation:** Generator 0.10 exports deterministic PostgreSQL SQL with H&M product-rank demand weights and consistent payment/return/stock relationships. Other behavioral rates remain documented [scenario assumptions](docs/project/GENERATOR_METRICS.md). Synthetic log generation is removed; runtime API access logging remains separate.
 - **Operational Source Application:** Storefront, cart/checkout, POS, store inventory, in-house delivery, COD failure tracking, returns/refunds, and product reviews.
@@ -81,6 +83,7 @@ FastAPI now serves transactional data generation/lookup and HTTP observability. 
 | `core` | PostgreSQL, MinIO, Polaris, Airflow, Trino, platform-app; associated initialization services |
 | `batch` | Local Spark client (`spark-client`), used with core; idle until a manual command |
 | `streaming` | Kafka, Debezium Connect, Flink; manual jobs default to zero instances |
+| `bi` | Optional Superset web; explicit metadata initialization and publication sync commands |
 
 
 Makefile is the entrypoint for Compose. `make up` creates `.env` from `.env.example` only when missing, selects `PROFILES` (`core` by default), and waits for service readiness. Existing `.env` files are preserved.
@@ -124,6 +127,7 @@ Ports and credentials below follow the default configuration; environment overri
 | **Polaris Console** | 8183 | `http://localhost:8183` | `POLARIS_ROOT_CLIENT_ID` / `POLARIS_ROOT_CLIENT_SECRET`; realm `POLARIS` |
 | **Airflow UI** | 8080 | `http://localhost:8080` | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
 | **Trino** | 8084 | `http://localhost:8084` | Query engine / Web UI |
+| **Superset (optional)** | 8088 | `http://127.0.0.1:8088` | Explicit admin initialization; see [BI setup](docs/runbook/SUPERSET.md) |
 | **Flink Dashboard** | 8085 | `http://localhost:8085` | Job status |
 | **Kafka** | 9092, 9094 | `localhost:9094` | External listener; Docker clients use `kafka:9092` |
 | **Debezium Connect** | 8086 | `http://127.0.0.1:8086` | Connector lifecycle/status |
@@ -180,7 +184,8 @@ See the [system architecture](docs/architecture/SYSTEM_ARCHITECTURE_VISUAL.md) a
 | Layer | Component | Version / Image Tag | Responsibility |
 |---|---|---|---|
 | **Presentation** | Next.js / React | 15.5.21 / 19.1.8 | Storefront, POS, administration, BI Hub |
-| **Visualization** | Apache ECharts | 6.1.0 | Dashboard charts |
+| **Visualization** | Apache ECharts | 6.1.0 | Legacy frontend dashboard charts |
+| **BI (optional)** | Apache Superset | 6.1.0 | Publication-pinned sales PoC over Trino |
 | **Application** | FastAPI / SQLAlchemy | 0.116.1 / 2.0.41 | Transactions, auth/RBAC, logging, analytics API |
 | **Operational DB** | PostgreSQL | 16.8 | 28 OLTP tables; 27 analytical source tables |
 | **Change Capture** | Debezium | 3.0.8 | Initial snapshot and PostgreSQL WAL capture |
@@ -262,7 +267,7 @@ Importing the same SQL dataset twice is rejected by unique keys. See the [genera
 
 ### Operational Signals and Analytical Metrics
 
-The 18 marts and KPI definitions remain in the Lakehouse code and [Metrics Catalog](docs/architecture/METRICS_CATALOG.md); the six legacy business BI API endpoints are removed. Superset dashboards are not implemented yet. Historical dashboard design documents describe the previous UI.
+The 18 marts and KPI definitions remain in the Lakehouse code and [Metrics Catalog](docs/architecture/METRICS_CATALOG.md); the six legacy business BI API endpoints are removed. The optional Superset sales PoC provides eight charts over two publication-pinned marts; other dashboards and viewer/store permissions remain pending. Historical dashboard design documents describe the previous UI.
 
 HTTP observability remains available to admin/system_admin:
 

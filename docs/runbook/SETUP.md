@@ -433,3 +433,8 @@ PostgreSQL JDBC returns UUIDs as strings. Silver now decodes those strings into 
 
 
 Verified 09/11/2026 in an isolated stack: 21 observed requests, both cart additions resolved, two checkouts, three published marts, same-run replay, TaskManager recovery, conflicting-ID rejection and authorized HTTP reporting all passed. The completed run removed its private resources. See [acceptance evidence](../../pipelines/README.md#api-access-log-acceptance--09112026); Superset and production latency remain outside this check.
+
+
+## Optional Superset sales BI
+
+The `bi` profile adds Superset 6.1.0 over read-only Trino, with a separate metadata database/user in the existing PostgreSQL service. Initialization and synchronization are explicit. Start with [Superset setup and publication contract](SUPERSET.md); the initial scope is a sales dashboard with two mart datasets, not all BI areas or inherited API/store RBAC.
