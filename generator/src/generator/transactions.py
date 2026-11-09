@@ -1,4 +1,4 @@
-"""Generate related transaction rows; parameter provenance is in GENERATOR_METRICS.md."""
+"""Generate related transaction rows; parameter provenance is in docs/data.md."""
 
 import random
 from collections import defaultdict

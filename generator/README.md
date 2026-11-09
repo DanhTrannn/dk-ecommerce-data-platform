@@ -1,6 +1,6 @@
 # OLTP Data Generator
 
-The Data Generator (`data-generator` package, v0.10.0) exports deterministic SQL data for the current PostgreSQL [schema](../database/schema.sql). The rewritten sampler uses H&M 2019 purchase counts by product-rank group; transferring those groups onto the synthetic catalog is a modeling assumption. Other behavioral values retain the previous scenario settings and are explicitly documented as assumptions in [GENERATOR_METRICS](../docs/project/GENERATOR_METRICS.md).
+The Data Generator (`data-generator` package, v0.10.0) exports deterministic SQL data for the current PostgreSQL [schema](../database/schema.sql). The rewritten sampler uses H&M 2019 purchase counts by product-rank group; transferring those groups onto the synthetic catalog is a modeling assumption. Other behavioral values retain the previous scenario settings and are explicitly documented as assumptions in [generator parameter catalog](../docs/data.md#danh-mục-tham-số-generator).
 
 Runtime responsibilities are grouped in `config.py`/`validation.py`, `catalog.py`, `transactions.py`, `sql_export.py`, `runner.py` and `cli.py`. The runtime does not read research CSVs or execute the notebook. Synthetic access-log generation and the old UCI profile modules remain removed. Artifacts retain the `postgresql-v1` metadata, validation, table locks and identity-sequence restart contract required by the existing importer.
 
@@ -112,7 +112,7 @@ The generator uses the following retail scenario assumptions:
 
 ## Reference Dataset EDA (local notebook)
 
-The [EDA notebook](notebooks/reference_datasets_eda.ipynb) is organized by the behavior the generator needs to model: customers/repurchase, baskets, product demand, purchase timing, and transactions/after-sales. Each group follows **business question → research evidence → EDA → assessment → generation rule → project application**. Data preparation retains `describe()` and `null_count()`. The [Vietnam research report](../docs/project/GENERATOR_VIETNAM_RESEARCH.md) documents the source populations, measurements and limits; relevant findings are placed beside the notebook analysis. See the [plan](../docs/project/GENERATOR_EDA_PLAN.md).
+The [EDA notebook](notebooks/reference_datasets_eda.ipynb) is organized by the behavior the generator needs to model: customers/repurchase, baskets, product demand, purchase timing, and transactions/after-sales. Each group follows **business question → research evidence → EDA → assessment → generation rule → project application**. Data preparation retains `describe()` and `null_count()`. The [Vietnam research report](../docs/data.md#9-hồ-sơ-nguồn-nghiên-cứu-generator) documents the source populations, measurements and limits; relevant findings are placed beside the notebook analysis. See the [plan](../docs/data.md#8-dữ-liệu-sinh-và-căn-cứ).
 
 UCI supplies invoice-level quantities and repurchase metrics; H&M supplies purchase-day patterns and product demand; Olist supplies baskets and delivery/review relationships. Their distributions remain separate: purchase days differ from orders, source product codes differ from project variants, and overseas measurements are not estimates for Vietnamese shoppers. eCommerce Behavior is retained in an appendix; log generation remains outside scope.
 
@@ -188,4 +188,4 @@ RUN_POSTGRES_SCHEMA_TESTS=1 POSTGRES_TEST_IMAGE=postgres:16.8 \
   python -m unittest discover -s services/platform-app/tests -v
 ```
 
-For the full batch path, follow the [stack image builds and opt-in command](../pipelines/README.md#full-stack-acceptance-opt-in) with `STACK_USE_PRESET_SCALE=1`. See the [post-merge evidence](../pipelines/README.md#rewritten-generator-acceptance--09112026) for financial totals, permission/replay/failure checks and scope. These outcomes establish internal consistency and pipeline integration; other behavioral distributions remain assumptions documented in GENERATOR_METRICS.
+For the full batch path, follow the [stack image builds and opt-in command](../pipelines/README.md#full-stack-acceptance-opt-in) with `STACK_USE_PRESET_SCALE=1`. See the [post-merge evidence](../pipelines/README.md#rewritten-generator-acceptance--09112026) for financial totals, permission/replay/failure checks and scope. These outcomes establish internal consistency and pipeline integration; other behavioral distributions remain assumptions documented in generator parameter catalog.

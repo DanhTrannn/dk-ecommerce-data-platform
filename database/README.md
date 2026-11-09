@@ -1,12 +1,12 @@
 # PostgreSQL source schema
 
-`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; phần 2 bổ sung generator/seed/importer PostgreSQL; generator hiện ở 0.10 và đã tích hợp địa điểm vào SQL, được kiểm tra bằng database biệt lập. Các luồng API nghiệp vụ chính đã kiểm chứng trên PostgreSQL biệt lập; batch reader đã chuyển PostgreSQL; batch đã nghiệm thu riêng và CDC audit PostgreSQL đã kiểm chứng trên stack biệt lập; provisioning Lakehouse chạy chủ động bằng `make provision-lakehouse`. Xem [phạm vi API nguồn](../docs/project/API_SOURCE_SCOPE.md). Không nạp SQL MySQL cũ vào schema này.
+`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; phần 2 bổ sung generator/seed/importer PostgreSQL; generator hiện ở 0.10 và đã tích hợp địa điểm vào SQL, được kiểm tra bằng database biệt lập. Các luồng API nghiệp vụ chính đã kiểm chứng trên PostgreSQL biệt lập; batch reader đã chuyển PostgreSQL; batch đã nghiệm thu riêng và CDC audit PostgreSQL đã kiểm chứng trên stack biệt lập; provisioning Lakehouse chạy chủ động bằng `make provision-lakehouse`. Xem [phạm vi API nguồn](../docs/architecture.md#1-phạm-vi-và-hiện-trạng). Không nạp SQL MySQL cũ vào schema này.
 
 ## Định nghĩa và tái lập
 
 - [ORM](../services/platform-app/src/platform_app/api/models/) định nghĩa cột, default, CHECK, FK và index.
 - [schema.sql](schema.sql) là bản SQL bootstrap được render từ ORM, bổ sung trigger `updated_at`. `Base.metadata.create_all()` riêng lẻ không cài các trigger này.
-- [OLTP_SCHEMA](../docs/architecture/OLTP_SCHEMA.md) mô tả hợp đồng dữ liệu, cursor và giới hạn chuyển đổi.
+- [OLTP_SCHEMA](../docs/data.md#2-schema-oltp) mô tả hợp đồng dữ liệu, cursor và giới hạn chuyển đổi.
 - [seeds/](seeds/) chạy thủ công, bổ sung từng bản ghi tham chiếu còn thiếu và giữ dữ liệu đã có; không tự chạy khi API khởi động.
 
 Render hoặc kiểm tra file SQL từ thư mục gốc:
@@ -93,9 +93,9 @@ Role chỉ SELECT 27 bảng nguồn của batch, không có quyền đọc `cust
 
 Chạy `make source-cdc` chủ động sau khi schema đủ 28 bảng và PostgreSQL nhận mount script mới. Dùng `POSTGRES_CDC_USER`/`POSTGRES_CDC_PASSWORD` đã có trong `.env.example`. Script quản lý role riêng LOGIN/REPLICATION với SELECT trên 27 bảng phân tích, bỏ membership owner cũ, đặt FULL replica identity và tạo/đồng bộ `ecommerce_publication`. Không cấp SELECT credential hoặc default privilege cho bảng tương lai. Thiếu schema hoặc role không phù hợp thì dừng trong transaction.
 
-Đây là bước quản trị có thể lấy khóa bảng và áp dụng mật khẩu đã cấu hình; không xóa dữ liệu, replication slot hay offset. Debezium dùng publication có sẵn với auto-create disabled. Xem [CDC operations](../docs/architecture/CDC_DASHBOARD_DATA_SPEC.md) để chạy connector/Flink, đọc audit và phân biệt phục hồi checkpoint với nộp job mới.
+Đây là bước quản trị có thể lấy khóa bảng và áp dụng mật khẩu đã cấu hình; không xóa dữ liệu, replication slot hay offset. Debezium dùng publication có sẵn với auto-create disabled. Xem [CDC operations](../docs/operations.md#cdcflinkkafka) để chạy connector/Flink, đọc audit và phân biệt phục hồi checkpoint với nộp job mới.
 
 
 ## Metadata Superset tùy chọn
 
-`make superset-db` chạy script PostgreSQL riêng sau khi áp dụng env/mount mới, tạo database/user `superset` với password được cấu hình. Script hỗ trợ volume đang có, không sửa schema/dữ liệu nguồn và giữ password của role đã tồn tại. `make superset-init` mới thực hiện migration metadata Superset và tạo admin ban đầu. Xem [hướng dẫn BI](../docs/runbook/SUPERSET.md); không dùng account OLTP/Polaris/Airflow làm owner metadata này.
+`make superset-db` chạy script PostgreSQL riêng sau khi áp dụng env/mount mới, tạo database/user `superset` với password được cấu hình. Script hỗ trợ volume đang có, không sửa schema/dữ liệu nguồn và giữ password của role đã tồn tại. `make superset-init` mới thực hiện migration metadata Superset và tạo admin ban đầu. Xem [hướng dẫn BI](../docs/setup.md#6-superset-tùy-chọn); không dùng account OLTP/Polaris/Airflow làm owner metadata này.

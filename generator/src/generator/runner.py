@@ -39,7 +39,7 @@ def run(config: GeneratorConfig, output_directory: Path) -> Path:
         "generated_at": datetime.now(UTC).isoformat(),
         "implementation_status": "sql_export_available",
         "empirical_rules": ["hm_2019_product_popularity"],
-        "assumptions_document": "docs/project/GENERATOR_METRICS.md",
+        "assumptions_document": "docs/data.md",
     }
     path = output_directory / f"{config.scenario_id}-{config.logical_identity}.manifest.json"
     temporary_path = path.with_suffix(".tmp")
