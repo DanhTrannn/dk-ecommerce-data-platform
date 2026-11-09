@@ -204,3 +204,28 @@ The opt-in actual-stack check passed with Debezium 3.0.8, Kafka 3.8, Flink 1.19 
 The pre-PostgreSQL audit fixture row and binlog fields survived additive schema evolution. Live INSERT/UPDATE/DELETE produced full previous/new values, positive PostgreSQL LSN/txId, stable transport IDs, delete envelopes and NULL-value tombstones; transaction BEGIN/END were retained. Detached submission returned with the remote job RUNNING. A TaskManager restart recovered from a completed checkpoint and captured another insert; a Connect restart retained its pgoutput slot, did not repeat snapshot/prior row operations and captured a later update. No duplicate event IDs or Silver/Gold tables were observed in the fixture.
 
 Five pure CDC contract checks passed. The normal pipeline suite passed 16 tests with three integration cases skipped; CDC integration was enabled separately with `RUN_POSTGRES_CDC_TESTS=1`. The private resources were cleaned and the local report is `data/pipeline-runs/tlcn-stack-085770b323/report.json` (ignored). Full JobManager disaster recovery, arbitrary resubmission/offset resets, load/latency SLAs and API access-log delivery are not established by this check. See [CDC operations](../docs/architecture/CDC_DASHBOARD_DATA_SPEC.md) for setup and recovery boundaries.
+
+
+### Real access-log acceptance (opt-in)
+
+```bash
+RUN_ACCESS_LOG_STACK_TESTS=1 PYTHONPATH=pipelines/src:pipelines/tests \
+  uv run --package batch-pipeline python -m unittest discover -s pipelines/tests -p test_logs_stack.py -v
+```
+
+The private Compose fixture uses the actual platform image, Kafka, Flink, MinIO, Polaris, Airflow and Trino, with random credentials, an internal network, no published ports and isolated named volumes. Build `tlcn-platform-stack-check:local` from `services/platform-app/Dockerfile` after producer changes. `STACK_PLATFORM_IMAGE`, `STACK_AIRFLOW_IMAGE` and `LOGS_FLINK_IMAGE` select cached equivalent images. The fixture starts only the components needed for logs; it does not start Debezium.
+
+The check exercises API availability and local DLQ when Kafka starts late, automatic producer connection recovery, real catalog/product HTTP traffic and two API cart/checkout purchases, a custom shared topic, detached Flink submission, raw duplicate/invalid-message retention, production source-to-catalog builders and quality gates, canonical 16-byte Silver UUIDs and compatibility with old textual UUID bytes, resolved cart additions, the scheduler's one-task log DAG, three published marts through Trino, replay idempotence, TaskManager checkpoint recovery and retention of the last publication after an event-ID conflict. Catalog preparation invokes production batch builders in one Spark process; this check does not revalidate the 109-task OLTP scheduler DAG. JSON evidence and redacted commands are written under ignored `data/pipeline-runs/<project>/`; resources are removed after success or failure.
+
+Run normal tests without the opt-in flag for parser/CDC/source contracts. Producer acknowledgement, bounded delivery, shutdown drain, disabled mode, startup recovery and DLQ fallback have independent tests in `services/platform-app/tests/api/core/test_kafka_producer.py`. See [setup](../docs/runbook/SETUP.md#real-api-access-log-capture) for operational limits, including manual DLQ recovery and the absence of a transactional outbox.
+
+
+### API access-log acceptance — 09/11/2026
+
+The isolated actual-stack check passed in 411.4 seconds: API → a custom Kafka topic → detached Flink → Landing → scheduler-run Spark log DAG → Bronze/Silver/fact → three published marts → Trino and authorized HTTP Metrics. It retained three offline requests in the local DLQ and recovered the producer connection when Kafka started. The published fact contained 21 observed requests, including two real runner checkouts; route/funnel totals matched, both cart additions resolved to products, raw replay did not duplicate valid events, and one malformed payload remained flagged in Bronze.
+
+This acceptance exposed a PostgreSQL UUID encoding defect: casting JDBC UUID strings to Binary stored UTF-8 text instead of UUID bytes. Silver now decodes UUIDs, and log identity mapping accepts both canonical and earlier textual encodings. All 18 binary UUID columns passed the length check; four product/variant mapping checks covered both encodings. Catalog preparation passed 30/30 source reconciliation and 55/55 Gold checks.
+
+Two retries of one logical log run retained one publication row and unchanged fact counts. TaskManager recovery advanced checkpoint 25 → 26 and captured three new requests. A conflicting valid payload sharing an event ID rejected publication; the prior funnel stayed unchanged. HTTP Metrics returned 200 with `data_source=lakehouse`, `source_run_id=logs-replay`, 21 requests and no cache fallback; anonymous access returned 401. The OLTP publication remained independent.
+
+Local evidence: `data/pipeline-runs/tlcn-stack-0ba785099b/report.json` and `data/pipeline-runs/access-log-stack-check.log` (ignored). Private resources from this completed run were removed. The pipeline unit suite passed 18 tests with four opt-in cases skipped; platform tests passed 71 with 49 opt-in cases skipped. Full-repository Ruff, Compose validation and lock checks passed. This does not establish production latency, JobManager HA, automatic DLQ replay, cron timing or Superset readiness.

@@ -1,17 +1,17 @@
 # Refactor v2 — Generator Console và BI trên Lakehouse
 
-Cập nhật **05/11/2026**. Quyết định đã chốt: thay toàn bộ Next.js, gồm Storefront/Admin/POS/BI UI, bằng **Streamlit điều khiển generator** và **Superset phục vụ BI qua Trino**. Đây là kiến trúc mục tiêu; đợt 1 chỉ chốt phạm vi và ghi baseline, chưa xóa UI, đổi API, sửa generator hoặc cài hai công cụ mới.
+Cập nhật **09/11/2026**. Quyết định đã chốt: thay toàn bộ Next.js, gồm Storefront/Admin/POS/BI UI, bằng **Streamlit điều khiển generator** và **Superset phục vụ BI qua Trino**. Đây là kiến trúc mục tiêu; đợt 1 chỉ chốt phạm vi và ghi baseline, chưa xóa UI, đổi API, sửa generator hoặc cài hai công cụ mới.
 
 ## 1. Quyết định kiến trúc và ranh giới
 
-**Trạng thái chuyển PostgreSQL ngày 07/11/2026:** phần 1 đã chuyển schema/ORM (28 bảng, UUID native, identity, CHECK và trigger UTC), có kiểm tra PostgreSQL biệt lập; xem [database guide](../../database/README.md) và [OLTP reference](../architecture/OLTP_SCHEMA.md). Phần 2 đã chuyển generator sang SQL PostgreSQL, seed bổ sung bản ghi an toàn và importer có transaction/đối soát/identity restart; generator 0.10 đã đưa thành phố/cửa hàng vào SQL và cho chọn qua YAML/Streamlit; nạp preset small và month-test được kiểm tra trên PostgreSQL biệt lập. Không nạp hoặc migrate database hiện có. Phần 3 đã kiểm chứng các luồng nghiệp vụ chính trên PostgreSQL biệt lập và sửa transaction/ledger; phạm vi và giới hạn tại [API nguồn](API_SOURCE_SCOPE.md). Sáu API BI và mười GET quản trị danh sách/trùng lặp đã bỏ theo quyết định thu gọn mới; giữ toàn bộ API ghi và lookup cần cho mô phỏng, Superset chưa thay thế. Batch JDBC/extraction/đối soát đã chuyển PostgreSQL với reader chỉ đọc; CDC audit PostgreSQL đã chuyển và kiểm chứng ở phần 3A bên dưới; provisioning MinIO/Polaris đã có lệnh khởi tạo chủ động, đã nghiệm thu batch trên stack biệt lập với Airflow/Polaris/Trino; Superset và log API thực còn chờ. Streamlit đã có trong platform-app, gồm nạp SQL job qua importer với checksum/lịch sử riêng; runner mua online API đã có (khách mới → giỏ → checkout → xác minh), các scenario mở rộng và Superset chưa triển khai. Sau merge EDA, sampler đã áp dụng R03: trọng số độ phổ biến sản phẩm từ H&M; các đặc trưng khác vẫn là giả định được ghi chú, chưa hiệu chỉnh toàn diện. Không dùng baseline MySQL cũ để khẳng định trạng thái PostgreSQL hiện tại.
+**Trạng thái chuyển PostgreSQL ngày 07/11/2026:** phần 1 đã chuyển schema/ORM (28 bảng, UUID native, identity, CHECK và trigger UTC), có kiểm tra PostgreSQL biệt lập; xem [database guide](../../database/README.md) và [OLTP reference](../architecture/OLTP_SCHEMA.md). Phần 2 đã chuyển generator sang SQL PostgreSQL, seed bổ sung bản ghi an toàn và importer có transaction/đối soát/identity restart; generator 0.10 đã đưa thành phố/cửa hàng vào SQL và cho chọn qua YAML/Streamlit; nạp preset small và month-test được kiểm tra trên PostgreSQL biệt lập. Không nạp hoặc migrate database hiện có. Phần 3 đã kiểm chứng các luồng nghiệp vụ chính trên PostgreSQL biệt lập và sửa transaction/ledger; phạm vi và giới hạn tại [API nguồn](API_SOURCE_SCOPE.md). Sáu API BI và mười GET quản trị danh sách/trùng lặp đã bỏ theo quyết định thu gọn mới; giữ toàn bộ API ghi và lookup cần cho mô phỏng, Superset chưa thay thế. Batch JDBC/extraction/đối soát đã chuyển PostgreSQL với reader chỉ đọc; CDC audit PostgreSQL đã chuyển và kiểm chứng ở phần 3A bên dưới; provisioning MinIO/Polaris đã có lệnh khởi tạo chủ động, đã nghiệm thu batch trên stack biệt lập với Airflow/Polaris/Trino; Log API thực đã nghiệm thu ở phần 3B bên dưới; Superset còn chờ. Streamlit đã có trong platform-app, gồm nạp SQL job qua importer với checksum/lịch sử riêng; runner mua online API đã có (khách mới → giỏ → checkout → xác minh), các scenario mở rộng và Superset chưa triển khai. Sau merge EDA, sampler đã áp dụng R03: trọng số độ phổ biến sản phẩm từ H&M; các đặc trưng khác vẫn là giả định được ghi chú, chưa hiệu chỉnh toàn diện. Không dùng baseline MySQL cũ để khẳng định trạng thái PostgreSQL hiện tại.
 
 Giữ bài toán **retail thời trang Việt Nam**, VND, ngày nghiệp vụ Asia/Ho_Chi_Minh. Tập trung vào nguồn dữ liệu giải thích được, nghiệp vụ nhất quán và kết quả phân tích có thể đối soát.
 
 | Thành phần | Trách nhiệm sau chuyển đổi |
 |---|---|
 | Streamlit | Chọn preset/profile, chỉnh cấu hình, chạy generator, xem/tải kết quả; tác vụ nạp và traffic là bước riêng |
-| Generator CLI | Sinh SQL lịch sử và access log tổng hợp; là logic dùng chung cho CLI/console |
+| Generator CLI | Sinh SQL lịch sử; dùng chung cho CLI/console. Log hành vi lấy từ request API thực |
 | FastAPI + PostgreSQL | Nghiệp vụ nguồn và tra cứu phục vụ mô phỏng; giữ auth, quyền, CSRF/idempotency cần thiết |
 | Spark/Airflow | Batch, Silver/Gold/mart, quality gate và publication |
 | Debezium/Kafka/Flink | CDC Bronze audit và access log tới Landing; không tự cập nhật OLTP Silver/Gold |
@@ -108,7 +108,7 @@ Baseline ưu tiên đặc trưng tham chiếu; scenario ưu tiên quy mô/kịch
 | 4 — Nạp/mô phỏng | Nạp dataset có nhận diện trùng; script/API cho các scenario đã chọn | Không reset dữ liệu ngầm; kiểm tra postcondition, quyền, CSRF/idempotency |
 | 5 — Superset | Một dashboard doanh thu/lợi nhuận trước, rồi đủ nhóm mart | Giữ công thức, publication đồng nhất và quyền; đối chiếu SQL trước khi chuyển toàn bộ |
 | 6 — Bỏ Next.js/thu gọn API | Dọn frontend, Compose/CI/env/docs và endpoint đã có thay thế | Nguồn và đầu ra BI chạy khi không bật Next.js; giữ dữ liệu/volume/checkpoint |
-| 7 — Kiểm chứng toàn luồng | Generator → MySQL → batch → publication → Trino → Superset; CDC/log kiểm tra riêng | Có bằng chứng từng luồng, nguồn/độ mới rõ; không gán SLA khi chưa đo |
+| 7 — Kiểm chứng toàn luồng | Generator → PostgreSQL → batch → publication → Trino → Superset; CDC/log kiểm tra riêng | Có bằng chứng từng luồng, nguồn/độ mới rõ; không gán SLA khi chưa đo |
 
 Superset truy vấn trực tiếp không tự kế thừa `PublishedReader` hoặc RBAC tại API. Cần PoC riêng để chốt serving snapshot/version; publication OLTP và log có mốc độc lập. Không thêm database OLAP hoặc semantic layer mới trong bước chốt phạm vi. Upload JSONL lịch sử vào MinIO hiện chưa tự đi Gold; xuất SQL không sinh HTTP access log.
 
@@ -158,4 +158,15 @@ Xem [hướng dẫn và bằng chứng sau merge](../../pipelines/README.md#rewr
 
 Nghiệm thu stack biệt lập đạt: 594 snapshot row khớp số lượng từng bảng trong 27 nguồn, giữ dòng audit legacy, có C/U/D/tombstone/BEGIN/END và before/after đầy đủ. TaskManager phục hồi checkpoint, Debezium restart tiếp tục từ slot/offset, không lặp snapshot; ghi mới sau restart đến Bronze và không thấy duplicate event_id trong cửa sổ thử. Không tạo Silver/Gold hoặc publication BI. Tài nguyên thử đã dọn; [report](../../pipelines/README.md#postgresql-cdc-acceptance--09112026) và hướng dẫn nạp/vận hành được cập nhật. FINAL_REPORT giữ nguyên.
 
-Phần tiếp theo là 3B: nối log thực từ API vào Kafka và nghiệm thu đường log tới Landing/mart. Superset và dọn Next.js tiếp tục làm sau. Kết quả này không khẳng định end-to-end exactly-once, phục hồi JobManager HA hoặc dashboard đã thay đổi theo CDC.
+Log API thực được nghiệm thu ở phần 3B bên dưới. Superset và dọn Next.js tiếp tục làm sau. Kết quả này không khẳng định end-to-end exactly-once, phục hồi JobManager HA hoặc dashboard đã thay đổi theo CDC.
+
+
+### Phần 3B — Log API thực tới mart, 09/11/2026
+
+Đã cho phép bật producer qua `KAFKA_ENABLED`, thống nhất topic giữa API/Kafka-init/Flink và lưu DLQ trong volume data. Producer chờ xác nhận Kafka ở tác vụ nền có giới hạn, giữ lượt gửi lỗi trong DLQ, thử kết nối lại khi Kafka khởi động muộn và chờ gửi khi shutdown. Flink submit detached trả về sau khi gửi job. Publication log dùng MERGE để retry một logical run không thêm dòng trùng.
+
+Nghiệm thu phát hiện UUID PostgreSQL bị cast thành bytes của chuỗi tại Silver, khiến log thêm giỏ không nối được về sản phẩm. Đã chuẩn hóa UUID thành 16 bytes và hỗ trợ đọc encoding cũ trong bước resolve sản phẩm/variant; không đổi schema hoặc snapshot lịch sử. Cả 18 cột UUID và bốn kiểm tra mapping hai encoding đều đạt.
+
+Stack biệt lập đã đạt toàn luồng: 21 request quan sát, hai checkout và hai lượt thêm giỏ nối đúng sản phẩm; đủ ba mart qua Trino, đối soát nguồn–Silver 30/30 và Gold 55/55. Raw lặp không tăng fact; JSON lỗi giữ ở Bronze; retry giữ một publication; Flink phục hồi checkpoint và nhận request mới. Payload hợp lệ dùng trùng ID bị chặn trước publication, HTTP Metrics vẫn đọc đúng lần công bố trước. [Bằng chứng và giới hạn](../../pipelines/README.md#api-access-log-acceptance--09112026).
+
+Tài nguyên của lượt thử hoàn tất đã dọn. FINAL_REPORT giữ nguyên; không thêm dependency. DLQ chưa tự replay, log mart cập nhật theo DAG độc lập với Landing và CDC vẫn là audit. Phần tiếp theo là dựng Superset qua Trino; sau đó mới dọn Next.js.

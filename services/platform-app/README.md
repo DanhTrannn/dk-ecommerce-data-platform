@@ -168,7 +168,7 @@ HTTP 4xx là lượt thất bại (408 được coi chưa xác định); runner 
 
 Runner hiện là kịch bản kiểm chứng nghiệp vụ, không phải sampler đã hiệu chỉnh: mỗi lượt là khách mới, một SKU và chọn hàng theo thứ tự catalog. API vẫn ghi `data_origin=manual`/`generation_run_id=NULL`; HTTP middleware ghi `observed` cho request thực sự nhận, không chứng minh hành vi người dùng thật. Run journal liên kết các giao dịch mô phỏng bằng email và idempotency key; chưa bổ sung lineage mô phỏng vào schema/API. Không suy tỷ lệ mua lại, độ phổ biến sản phẩm hay conversion tự nhiên từ kịch bản này.
 
-Compose hiện đặt `KAFKA_ENABLED=false` cho platform-app. Runner phát sinh HTTP thật nhưng không tự bật producer, tải log lịch sử, gửi trực tiếp Kafka hoặc kích hoạt DAG. Cần bước kiểm chứng log/pipeline riêng. Chưa có fulfillment, hủy đơn, coupon, POS, nhập kho, đổi trả hoặc tự khôi phục mật khẩu tài khoản mô phỏng.
+Compose nhận `KAFKA_ENABLED` từ môi trường, mặc định `false`; bật `true` khi dùng streaming để ghi request thực qua Kafka/Flink. Runner không tự bật producer, tải log lịch sử, gửi trực tiếp Kafka hoặc kích hoạt DAG. Producer tự thử kết nối lại khi Kafka khởi động muộn và giữ lượt gửi chưa xác nhận trong DLQ dưới `data/events/`; replay DLQ vẫn là thao tác riêng. Xem [hướng dẫn log thực](../../docs/runbook/SETUP.md#real-api-access-log-capture). Chưa có fulfillment, hủy đơn, coupon, POS, nhập kho, đổi trả hoặc tự khôi phục mật khẩu tài khoản mô phỏng.
 
 ## Công cụ provisioning Lakehouse
 

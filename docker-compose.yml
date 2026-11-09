@@ -62,6 +62,7 @@ x-flink-common: &flink-common
     MINIO_FLINK_SECRET_KEY: ${MINIO_FLINK_SECRET_KEY:?set MINIO_FLINK_SECRET_KEY}
     MINIO_ENDPOINT: http://minio:9000
     KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    KAFKA_ACCESS_LOG_TOPIC: ${KAFKA_ACCESS_LOG_TOPIC:-ecommerce.access_logs}
     CDC_TOPIC_PREFIX: ${CDC_TOPIC_PREFIX:-ecommerce}
     PYTHONPATH: /opt/project/pipelines/src
   networks: ["lakehouse-network"]
@@ -401,7 +402,10 @@ services:
       CONSOLE_ACCESS_ADMIN_URL: http://lakehouse-access:8010
       SCENARIO_API_BASE_URL: ${SCENARIO_API_BASE_URL:-http://127.0.0.1:8000}
       SCENARIO_HTTP_TIMEOUT_SECONDS: ${SCENARIO_HTTP_TIMEOUT_SECONDS:-15}
-      KAFKA_ENABLED: "false"
+      KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_ACCESS_LOG_TOPIC: ${KAFKA_ACCESS_LOG_TOPIC:-ecommerce.access_logs}
+      KAFKA_DLQ_FILE_PATH: /data/events/dlq_access_logs.jsonl
       STREAMLIT_SERVER_HEADLESS: "true"
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
     ports:
@@ -460,7 +464,7 @@ services:
       - --create
       - --if-not-exists
       - --topic
-      - ecommerce.access_logs
+      - ${KAFKA_ACCESS_LOG_TOPIC:-ecommerce.access_logs}
       - --partitions
       - "1"
       - --replication-factor

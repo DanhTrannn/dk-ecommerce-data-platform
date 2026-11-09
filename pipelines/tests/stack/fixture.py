@@ -358,7 +358,7 @@ class StackFixture:
         self.runtime("airflow", "--action", "wait", "--dag", "init_lakehouse_oltp")
         self.runtime("airflow", "--action", "wait", "--dag", "lakehouse_oltp_pipeline")
 
-    def wait_run(self, dag, run_id, timeout=None):
+    def wait_run(self, dag, run_id, timeout=None, *, expected_tasks=109):
         if timeout is None:
             timeout = 3600 if self.environment.get("STACK_USE_PRESET_SCALE") == "1" else 1500
         started = time.monotonic()
@@ -373,7 +373,9 @@ class StackFixture:
                 print(f"STACK_PROGRESS {dag} {run_id} {json.dumps(state)}", flush=True)
                 last = state
             if state.get("state") == "success":
-                assert sum(state["tasks"].values()) == 109 and state["tasks"].get("success") == 109, state
+                assert (
+                    sum(state["tasks"].values()) == expected_tasks and state["tasks"].get("success") == expected_tasks
+                ), state
                 return dict(state=state, elapsed_seconds=round(time.monotonic() - started, 1))
             if state.get("state") == "failed" or any(
                 key in (state.get("tasks") or {}) for key in ("failed", "up_for_retry")

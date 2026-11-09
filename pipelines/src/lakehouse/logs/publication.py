@@ -20,7 +20,12 @@ def publish_logs(spark, run_id, targets, *, observed_at, source_at, source_snaps
         refs = spark.sql(f"SELECT snapshot_id FROM {target}.refs WHERE name='main'").collect()
         snapshots[target] = refs[0].snapshot_id if refs else None
     source = f"TIMESTAMP {literal(str(source_at))}" if source_at else "CAST(NULL AS TIMESTAMP)"
-    spark.sql(f"""INSERT INTO {PUBLICATIONS}
-        SELECT {literal(run_id)},current_timestamp(),{source},{literal(json.dumps(snapshots))},
-        {SCHEMA_VERSION},'logs_rollup',TIMESTAMP {literal(str(observed_at))},
-        {literal(json.dumps(source_snapshots))}""")
+    spark.sql(f"""MERGE INTO {PUBLICATIONS} t USING (
+        SELECT {literal(run_id)} AS run_id, current_timestamp() AS published_at,
+        {source} AS source_event_at, {literal(json.dumps(snapshots))} AS snapshots_json,
+        {SCHEMA_VERSION} AS schema_version, 'logs_rollup' AS source_mode,
+        TIMESTAMP {literal(str(observed_at))} AS observed_at,
+        {literal(json.dumps(source_snapshots))} AS source_snapshots_json
+        ) s ON t.run_id=s.run_id AND t.source_mode=s.source_mode
+        WHEN MATCHED THEN UPDATE SET *
+        WHEN NOT MATCHED THEN INSERT *""")

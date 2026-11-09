@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 from pyspark.sql import DataFrame, SparkSession, functions as F
 from pyspark.sql.window import Window
+from pyspark.sql.types import BinaryType, StringType
 from dataclasses import dataclass
 from .pii import _pseudonymize, _pseudonymized_column_name
 from .validation import _validate_rows
@@ -12,6 +13,17 @@ from .quarantine import write_quarantine
 @dataclass
 class MergeResult:
     quarantined: int = 0
+
+
+def _aligned_column(field, source_schema):
+    if field.name not in source_schema.names:
+        return F.lit(None).cast(field.dataType).alias(field.name)
+    column = F.col(field.name)
+    if isinstance(field.dataType, BinaryType) and isinstance(source_schema[field.name].dataType, StringType):
+        # PostgreSQL JDBC exposes UUID as text; a binary cast would store UTF-8,
+        # not the 16 UUID bytes required by the existing analytical schemas.
+        column = F.unhex(F.regexp_replace(column, "-", ""))
+    return column.cast(field.dataType).alias(field.name)
 
 
 def merge_oltp_table(
@@ -83,14 +95,7 @@ def merge_oltp_table(
     from lakehouse.utils.sql import identifier
 
     target_schema = spark.table(target_path).schema
-    aligned = valid_df.select(
-        *[
-            F.col(field.name).cast(field.dataType).alias(field.name)
-            if field.name in valid_df.columns
-            else F.lit(None).cast(field.dataType).alias(field.name)
-            for field in target_schema.fields
-        ]
-    )
+    aligned = valid_df.select(*[_aligned_column(field, valid_df.schema) for field in target_schema.fields])
     aligned.createOrReplaceTempView("silver_delta")
     key, cursor = identifier(table.pk), identifier(table.cursor_field)
     # A historical backfill must not overwrite a newer source version.

@@ -3,8 +3,17 @@
 from pyspark.sql import functions as F
 
 
+def _uuid_token(name):
+    column = F.col(name)
+    # Retain support for published snapshots created by the former text-to-binary
+    # cast while new Silver batches write canonical 16-byte UUIDs.
+    return F.when(F.length(column) == 16, F.lower(F.hex(column))).otherwise(
+        F.regexp_replace(F.lower(column.cast("string")), "-", "")
+    )
+
+
 def resolve_product_events(events, products, variants):
-    product_ids = products.select("product_id", "name", "slug", F.lower(F.hex("public_id")).alias("uuid"))
+    product_ids = products.select("product_id", "name", "slug", _uuid_token("public_id").alias("uuid"))
     tokens = (
         product_ids.select("product_id", "name", F.col("slug").alias("token"))
         .unionByName(product_ids.select("product_id", "name", F.col("uuid").alias("token")))
@@ -22,7 +31,7 @@ def resolve_product_events(events, products, variants):
         F.col("name").alias("_product_name"),
     )
     variant_map = variants.join(products.select("product_id", "name"), "product_id", "left").select(
-        F.lower(F.hex("public_id")).alias("_variant_token"),
+        _uuid_token("public_id").alias("_variant_token"),
         F.col("product_id").alias("_variant_product_id"),
         F.col("name").alias("_variant_product_name"),
     )

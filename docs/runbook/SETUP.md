@@ -407,3 +407,29 @@ Follow [CDC operations](../architecture/CDC_DASHBOARD_DATA_SPEC.md). After schem
 Start Kafka/Connect/Flink, run `debezium-init`, then `flink-cdc-submit` explicitly. The new entrypoint is `postgres_cdc_to_bronze.py`; stop an old writer before upgrading its graph. Schema evolution adds PostgreSQL columns to the same audit table and leaves old binlog fields/history intact. A MySQL savepoint is not automatically a compatible PostgreSQL restore point.
 
 The private actual-stack check matched 594 initial snapshot rows across all 27 configured source tables, retained a pre-existing legacy audit row, verified live create/update/delete/tombstone and transaction metadata, and recovered after TaskManager and Connect restarts. The connector retained its pgoutput slot without repeating the snapshot; new post-restart writes arrived. Credentials were excluded; no Silver/Gold tables were created. Evidence: `data/pipeline-runs/tlcn-stack-085770b323/report.json` (ignored/local). This proves the tested audit path, not a dashboard refresh SLA, arbitrary offset replay, JobManager HA or API access-log delivery.
+
+
+## Real API access-log capture
+
+1. Apply the source schema/seeds and explicit MinIO/Polaris provisioning. Complete a successful OLTP batch publication; product-demand mapping reads its pinned Silver products and variants.
+2. Set `KAFKA_ENABLED=true` in `.env`. Keep `false` for a core-only setup. The optional `KAFKA_ACCESS_LOG_TOPIC` must stay stable for an existing deployment; changing it selects a different source, not a migration of old messages.
+3. Start infrastructure and apply the producer setting:
+
+   ```bash
+   docker compose --profile core --profile streaming up -d kafka flink-jobmanager flink-taskmanager platform-app
+   docker compose --profile streaming run --rm flink-submit
+   ```
+
+   The submit service initializes the topic through `kafka-init`, submits the access graph in detached mode and exits. Compose fixes broker addressing to `kafka:9092` and DLQ storage to `/data/events/dlq_access_logs.jsonl`. Host-run API settings in `.env.example` use `localhost:9094` and a relative data path instead. Rebuild platform-app after changing producer code; mounted pipeline code takes effect after resubmitting the Flink graph using the controlled upgrade procedure above.
+4. Run purchase scenarios in Streamlit or call business API routes. Health probes are excluded. Match response `X-Request-ID` to Landing `event_id`; confirm raw envelopes and `data_origin=observed`. Generation/import of SQL alone does not create HTTP access events.
+5. Trigger `lakehouse_logs_marts` when idle, or allow its hourly schedule. Its single task captures an observation cutoff and processes Landing → Bronze → Silver → fact → three marts → independent log publication. Query `system.logs_analytics_publications` and the published snapshots through Trino. Landing freshness and mart freshness are separate.
+
+As described by the [aiokafka producer contract](https://aiokafka.readthedocs.io/en/stable/producer.html), enqueue completion alone is not a broker acknowledgement. The API waits for broker acknowledgement in tracked background tasks with a 10-second delivery deadline, a maximum of 256 pending deliveries and `acks=all`. It retries a failed initial connection every five seconds after each bounded attempt. Failed/offline/over-capacity deliveries go to the local JSONL DLQ; failure to write that file is logged. Kafka recovery allows new events to be sent; it does not automatically replay the DLQ. A timeout can mean the broker stored the message without returning its acknowledgement, so recovery must preserve request IDs and original payloads. This is not a transactional outbox or a lossless guarantee across process crashes, disk failures or abrupt shutdown.
+
+Landing retains raw duplicates and malformed contracts. Spark retains distinct raw payloads in Bronze, flags rejected contracts, deduplicates valid Silver/fact events by immutable request ID and rejects conflicting valid payloads sharing that ID before publication. Retrying one logical log run updates one publication row. A failed run leaves the previous published snapshots available; unversioned physical tables may contain partial work and must not be used as the completed report.
+
+
+PostgreSQL JDBC returns UUIDs as strings. Silver now decodes those strings into canonical 16-byte UUIDs for the existing binary UUID columns, rather than casting them to UTF-8 bytes. The product resolver accepts both the corrected encoding and previously published textual UUID bytes. No schema type, source ID or historical snapshot is changed. Interval batches normalize only rows they read; use the explicit initial-load DAG when the entire current Silver catalog needs normalization, while keeping other batch writers idle. Access-log mapping remains compatible with an earlier catalog publication during that upgrade.
+
+
+Verified 09/11/2026 in an isolated stack: 21 observed requests, both cart additions resolved, two checkouts, three published marts, same-run replay, TaskManager recovery, conflicting-ID rejection and authorized HTTP reporting all passed. The completed run removed its private resources. See [acceptance evidence](../../pipelines/README.md#api-access-log-acceptance--09112026); Superset and production latency remain outside this check.

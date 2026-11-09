@@ -40,6 +40,8 @@ The **D&K E-Commerce Data Platform** is a local Data Engineering project combini
 > [!NOTE]
 > The platform has three data paths: **OLTP batch**, **PostgreSQL WAL CDC**, and **access-log streaming**. Airflow batch is the only OLTP Silver/Gold writer. CDC continuously records Bronze audit events; it does not apply changes to analytical tables.
 
+Real API access-log capture has passed isolated Kafka/Flink/Airflow/Trino acceptance: 21 requests, two checkout workflows and two resolved cart additions across three log marts. Producer recovery, replay deduplication, checkpoint recovery and last-good publication reads passed. PostgreSQL UUIDs are normalized to 16-byte Silver values, with compatibility for earlier catalog snapshots. See [access-log acceptance](pipelines/README.md#api-access-log-acceptance--09112026) for evidence and limits.
+
 The planned transition replaces Next.js with a Streamlit generator console and Apache Superset over Trino. Phase 1 records [scenario/API scope](docs/project/refactor_v2.md) and a [local data baseline](docs/project/DATA_BASELINE.md). The Streamlit console is implemented for dataset generation/import, purchase scenarios and access bindings. Next.js remains in source; Superset is not deployed yet.
 
 Trino's Lakehouse catalog now enforces `iceberg.security=READ_ONLY`, complementing Polaris reader grants and the MinIO read policy. Both OLTP DAGs passed 109/109 tasks in the isolated scheduler/Trino acceptance; post-EDA full-preset acceptance loaded 3,000 generated orders, then two API purchases moved the published order count to 3,002 without recognizing unpaid COD revenue. See [full-stack acceptance](pipelines/README.md#full-stack-acceptance-opt-in) for the check and [setup](docs/runbook/SETUP.md#batch-stack-acceptance) for applying the catalog setting.
@@ -102,6 +104,8 @@ make down
 ```
 
 `make up` reports Compose failures directly. `make down` stops all groups and retains data volumes. Starting fewer profiles does not stop containers from other groups; stop the stack first when switching to a smaller selection. Make overrides `COMPOSE_PROFILES` from `.env` with the selected `PROFILES` value.
+
+Access-log capture is opt-in. Set `KAFKA_ENABLED=true` in `.env`, start the `streaming` profile and recreate `platform-app` to apply the setting. Run `docker compose --profile streaming run --rm flink-submit` after storage/catalog provisioning. Compose connects the API to `kafka:9092`; `KAFKA_ACCESS_LOG_TOPIC` is shared by the API, topic initializer and Flink. Confirm log events in `lakehouse.landing.access_logs`, then run the `lakehouse_logs_marts` DAG after a valid OLTP catalog publication exists. The API retains unconfirmed sends in `data/events/dlq_access_logs.jsonl` on the mounted host data directory; replay is manual and must preserve request IDs. See [access-log setup](docs/runbook/SETUP.md#real-api-access-log-capture).
 
 Image builds and service readiness do not initialize business schemas, seed data, run DAGs or verify analytical results. After storage/catalog services are ready, run `make provision-lakehouse` explicitly to create missing resources and private workload credentials. See the [setup guide](docs/runbook/SETUP.md).
 
