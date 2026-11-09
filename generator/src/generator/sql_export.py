@@ -118,7 +118,13 @@ def export_sql(config: GeneratorConfig, output_path: Path) -> DatasetSummary:
     try:
         with temporary.open("w", encoding="utf-8") as stream:
             _write_header(stream, config, config.generation_run_id)
-            stream.write(locations_sql(config.locations, catalog.history_start - timedelta(days=30), _sql_literal))
+            stream.write(
+                locations_sql(
+                    config.locations,
+                    catalog.history_start - timedelta(days=config.policies["history"]["master_data_lead_days"]),
+                    _sql_literal,
+                )
+            )
             for table, rows in catalog.tables.items():
                 if rows:
                     columns = tuple(rows[0])

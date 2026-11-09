@@ -429,12 +429,14 @@ def popularity_weights(product_count: int, decile_counts: tuple[float, ...]) -> 
 
 def build_catalog(config: GeneratorConfig, randomizer: random.Random) -> Catalog:
     distribution = config.distributions
+    policy = config.policies
+    customer_policy, catalog_policy = policy["customers"], policy["catalog"]
     customer_count, product_count, variant_count = (config.scale[key] for key in ("customers", "products", "variants"))
     namespace = uuid.UUID(config.logical_identity)
     id_base = 10_000_000 + (int(namespace.hex[:8], 16) % 10_000) * 10_000_000
     end = config.anchor_time.astimezone(UTC)
-    start = end - timedelta(days=config.history_months * 30)
-    created = start - timedelta(days=30)
+    start = end - timedelta(days=config.history_months * policy["history"]["days_per_month"])
+    created = start - timedelta(days=policy["history"]["master_data_lead_days"])
     catalog = Catalog({}, [], {}, {}, {}, id_base, namespace, start, end)
     tables = catalog.tables
     names = random.Random(f"{config.seed}-names")
@@ -442,14 +444,18 @@ def build_catalog(config: GeneratorConfig, randomizer: random.Random) -> Catalog
     archive = random.Random(f"{config.seed}-catalog-archive")
     tables["customers"] = []
     for index in range(customer_count):
-        female = names.random() < 0.80
+        female = names.random() < customer_policy["female_name_rate"]
         middle = FEMALE_MIDDLE_NAMES if female else MALE_MIDDLE_NAMES
         given = FEMALE_GIVEN_NAMES if female else MALE_GIVEN_NAMES
         name = f"{names.choice(FAMILY_NAMES)} {names.choice(middle)} {names.choice(given)}"
         customer_id = id_base + index + 1
-        created_at = start - timedelta(days=randomizer.randint(1, 180))
-        active = index == 0 or randomizer.random() >= 0.04
-        inactive_at = None if active else end - timedelta(days=randomizer.randint(1, 60))
+        created_at = start - timedelta(days=randomizer.randint(*customer_policy["created_before_history_days"]))
+        active = index == 0 or randomizer.random() >= customer_policy["inactive_rate"]
+        inactive_at = (
+            None
+            if active
+            else end - timedelta(days=randomizer.randint(*customer_policy["inactive_before_anchor_days"]))
+        )
         if inactive_at is not None:
             created_at = min(created_at, inactive_at - timedelta(seconds=1))
         tables["customers"].append(
@@ -468,7 +474,7 @@ def build_catalog(config: GeneratorConfig, randomizer: random.Random) -> Catalog
             }
         )
         catalog.customer_addresses[customer_id] = (
-            f"{addresses.randint(1, 999)} {addresses.choice(STREET_NAMES)}, "
+            f"{addresses.randint(*customer_policy['house_number_range'])} {addresses.choice(STREET_NAMES)}, "
             f"{addresses.choice(WARD_NAMES)}, {addresses.choice(DISTRICT_NAMES)}, TP. Hồ Chí Minh"
         )
     tables["customers"].append(
@@ -536,7 +542,7 @@ def build_catalog(config: GeneratorConfig, randomizer: random.Random) -> Catalog
             }
         )
     category_ids = {code: root_id + index for index, code in enumerate(CATEGORY_NAMES, 1)}
-    archived = set(archive.sample(range(product_count), product_count // 20))
+    archived = set(archive.sample(range(product_count), int(product_count * catalog_policy["archive_rate"])))
     combinations = list(product(SIZES, COLORS))
     bands = distribution.price_bands
     max_price = max(band.max_vnd for band in bands)
@@ -546,7 +552,7 @@ def build_catalog(config: GeneratorConfig, randomizer: random.Random) -> Catalog
     for index in range(product_count):
         code = randomizer.choices(list(distribution.categories), weights=list(distribution.categories.values()))[0]
         band = randomizer.choices(bands, weights=[band.weight for band in bands])[0]
-        price = randomizer.randrange(band.min_vnd, band.max_vnd + 1, 1000)
+        price = randomizer.randrange(band.min_vnd, band.max_vnd + 1, catalog_policy["price_step_vnd"])
         product_id = id_base + index + 1
         tables["products"].append(
             {
@@ -568,7 +574,7 @@ def build_catalog(config: GeneratorConfig, randomizer: random.Random) -> Catalog
         for variant_index in range(per_product + (index < extra)):
             size, color = combinations[variant_index]
             variant_id = id_base + len(catalog.variants) + 1
-            unit_price = min(max_price, price + variant_index * 5000)
+            unit_price = min(max_price, price + variant_index * catalog_policy["variant_price_step_vnd"])
             variant = {
                 "variant_id": variant_id,
                 "public_id": catalog.public_id("variant", len(catalog.variants)),
@@ -577,7 +583,13 @@ def build_catalog(config: GeneratorConfig, randomizer: random.Random) -> Catalog
                 "size_code": size,
                 "color_code": color,
                 "price_vnd": unit_price,
-                "cost_price_vnd": int(unit_price * (0.35 + variant_index % 11 * 0.01)),
+                "cost_price_vnd": int(
+                    unit_price
+                    * (
+                        catalog_policy["cost_ratio_base"]
+                        + variant_index % catalog_policy["cost_ratio_levels"] * catalog_policy["cost_ratio_step"]
+                    )
+                ),
                 "is_active": True,
                 "created_at": created,
                 "updated_at": created,

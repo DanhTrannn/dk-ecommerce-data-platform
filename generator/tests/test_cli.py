@@ -6,6 +6,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+from generator import __version__
 from generator.cli import main
 from generator.sql_export import DatasetSummary
 
@@ -26,7 +27,7 @@ class CliJsonTests(unittest.TestCase):
             ):
                 main()
             payload = json.loads(stdout.getvalue())
-            self.assertEqual(payload["generator_version"], "0.10.0")
+            self.assertEqual(payload["generator_version"], __version__)
             self.assertTrue(Path(payload["manifest_path"]).is_file())
             self.assertIn("logical_identity", payload)
             self.assertEqual(payload["sql_format"], "postgresql-v1")
@@ -60,9 +61,8 @@ class CliJsonTests(unittest.TestCase):
         self.assertEqual(payload["orders"], 4)
         self.assertEqual((payload["cities"], payload["stores"]), (2, 3))
         self.assertEqual(payload["sql_format"], "postgresql-v1")
-        self.assertEqual(payload["generator_version"], "0.10.0")
+        self.assertEqual(payload["generator_version"], __version__)
         self.assertIn("logical_identity", payload)
-
 
 
 if __name__ == "__main__":

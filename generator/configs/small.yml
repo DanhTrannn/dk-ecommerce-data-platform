@@ -1,3 +1,4 @@
+# SQL demo: trọng số H&M product_code và Olist thời trang là tham chiếu; các chính sách/tỷ lệ khác là giả định.
 scenario_id: small-repurchase-v2
 dataset_size: small
 seed: 20260724
@@ -12,42 +13,10 @@ scale:
   products: 60
   variants: 240
   orders: 3000
-# Các trọng số/tỷ lệ hành vi dưới đây là giả định kịch bản, trừ product_popularity từ EDA H&M.
 distributions:
   business_timezone: Asia/Ho_Chi_Minh
-  day_of_week:
-  - 0.9
-  - 0.95
-  - 1.0
-  - 1.05
-  - 1.2
-  - 1.5
-  - 1.4
-  hour_of_day:
-  - 0.05
-  - 0.02
-  - 0.02
-  - 0.02
-  - 0.03
-  - 0.05
-  - 0.09
-  - 0.14
-  - 0.18
-  - 0.2
-  - 0.22
-  - 0.26
-  - 0.28
-  - 0.26
-  - 0.24
-  - 0.24
-  - 0.27
-  - 0.34
-  - 0.5
-  - 0.72
-  - 0.95
-  - 1.1
-  - 1.0
-  - 0.6
+  day_of_week: [0.9, 0.95, 1.0, 1.05, 1.2, 1.5, 1.4]
+  hour_of_day: [0.05, 0.02, 0.02, 0.02, 0.03, 0.05, 0.09, 0.14, 0.18, 0.2, 0.22, 0.26, 0.28, 0.26, 0.24, 0.24, 0.27, 0.34, 0.5, 0.72, 0.95, 1.1, 1.0, 0.6]
   seasonality:
     tet:
       month_start: 1
@@ -56,73 +25,19 @@ distributions:
       day_end: 18
       peak: 2.8
     sales:
-    - name: 1-1
-      month: 1
-      day: 1
-      boost: 4.0
-      after_days: 0
-    - name: 2-2
-      month: 2
-      day: 2
-      boost: 4.0
-      after_days: 0
-    - name: 3-3
-      month: 3
-      day: 3
-      boost: 4.0
-      after_days: 0
-    - name: 4-4
-      month: 4
-      day: 4
-      boost: 4.0
-      after_days: 0
-    - name: 5-5
-      month: 5
-      day: 5
-      boost: 4.0
-      after_days: 0
-    - name: 6-6
-      month: 6
-      day: 6
-      boost: 4.0
-      after_days: 0
-    - name: 7-7
-      month: 7
-      day: 7
-      boost: 4.0
-      after_days: 0
-    - name: 8-8
-      month: 8
-      day: 8
-      boost: 4.0
-      after_days: 0
-    - name: 9-9
-      month: 9
-      day: 9
-      boost: 4.8
-      after_days: 0
-    - name: 10-10
-      month: 10
-      day: 10
-      boost: 4.8
-      after_days: 0
-    - name: 11-11
-      month: 11
-      day: 11
-      boost: 4.8
-      after_days: 0
-    - name: 12-12
-      month: 12
-      day: 12
-      boost: 4.8
-      after_days: 0
-    - name: black_friday
-      month: 11
-      day: null
-      weekday: 4
-      week_index: 4
-      boost: 3.2
-      after_days: 2
+    - {after_days: 0, boost: 4.0, day: 1, month: 1, name: 1-1}
+    - {after_days: 0, boost: 4.0, day: 2, month: 2, name: 2-2}
+    - {after_days: 0, boost: 4.0, day: 3, month: 3, name: 3-3}
+    - {after_days: 0, boost: 4.0, day: 4, month: 4, name: 4-4}
+    - {after_days: 0, boost: 4.0, day: 5, month: 5, name: 5-5}
+    - {after_days: 0, boost: 4.0, day: 6, month: 6, name: 6-6}
+    - {after_days: 0, boost: 4.0, day: 7, month: 7, name: 7-7}
+    - {after_days: 0, boost: 4.0, day: 8, month: 8, name: 8-8}
+    - {after_days: 0, boost: 4.8, day: 9, month: 9, name: 9-9}
+    - {after_days: 0, boost: 4.8, day: 10, month: 10, name: 10-10}
+    - {after_days: 0, boost: 4.8, day: 11, month: 11, name: 11-11}
+    - {after_days: 0, boost: 4.8, day: 12, month: 12, name: 12-12}
+    - {after_days: 2, boost: 3.2, day: null, month: 11, name: black_friday, week_index: 4, weekday: 4}
   categories:
     ao: 22
     dam: 18
@@ -132,19 +47,7 @@ distributions:
     phu-kien: 9
     giay: 5
     tui-xach: 5
-  # H&M 2019: số dòng mua theo 10 nhóm thứ hạng sản phẩm, từ bán nhiều đến ít.
-  # Chuyển thứ hạng sang catalog giả lập là giả định; không phải tỷ trọng SKU VN.
-  product_popularity:
-  - 10500637
-  - 2943373
-  - 1411092
-  - 717882
-  - 386309
-  - 215783
-  - 120385
-  - 63178
-  - 28810
-  - 9481
+  product_popularity: [12268604, 2147935, 947086, 482513, 264938, 146864, 79113, 38985, 16192, 4700]
   price_bands:
   - min_vnd: 79000
     max_vnd: 199000
@@ -158,15 +61,8 @@ distributions:
   - min_vnd: 699000
     max_vnd: 2500000
     weight: 10
-  order_size:
-  - 55
-  - 30
-  - 12
-  - 3
-  quantity_per_item:
-  - 70
-  - 25
-  - 5
+  order_size: [1310, 87, 8, 4]
+  quantity_per_item: [1489, 29, 3, 2, 1]
   customers:
     loyal:
       share: 0.15
@@ -187,62 +83,21 @@ distributions:
       - 120
       campaign_affinity: 0.48
     one_off:
+      interval_days: [1, 1]
       share: 0.5
       orders_per_year:
       - 1
       - 1
       campaign_affinity: 0.38
-  campaign_hour_of_day:
-  - 2.8
-  - 1.2
-  - 0.22
-  - 0.08
-  - 0.05
-  - 0.06
-  - 0.1
-  - 0.16
-  - 0.22
-  - 0.28
-  - 0.34
-  - 0.55
-  - 1.35
-  - 0.72
-  - 0.36
-  - 0.3
-  - 0.36
-  - 0.48
-  - 0.72
-  - 1.1
-  - 1.65
-  - 2.05
-  - 1.8
-  - 1.3
+  campaign_hour_of_day: [2.8, 1.2, 0.22, 0.08, 0.05, 0.06, 0.1, 0.16, 0.22, 0.28, 0.34, 0.55, 1.35, 0.72, 0.36, 0.3, 0.36, 0.48, 0.72, 1.1, 1.65, 2.05, 1.8, 1.3]
   coupons:
-    base_usage_rate: 0.14
-    campaign_usage_rate: 0.64
-    midnight_usage_rate: 0.82
-    first_order_usage_rate: 0.42
-    customer_multipliers:
-      loyal: 1.25
-      regular: 1.0
-      one_off: 0.8
-    campaign_percentage_values:
-    - 10
-    - 12
-    - 15
-    midnight_fixed_values_vnd:
-    - 30000
-    - 50000
-    - 70000
-    everyday_percentage: 8
-    welcome_fixed_vnd: 50000
-    everyday_minimum_subtotal_vnd: 299000
-    campaign_minimum_subtotal_vnd: 199000
+    usage_rate: 0.25
+    campaign_usage_rate: 0.45
+    percentage: 10
+    campaign_percentage: 15
+    minimum_subtotal_vnd: 199000
   reviews:
-    completed_order_rates:
-      loyal: 0.58
-      regular: 0.38
-      one_off: 0.24
+    write_rate: 0.35
     rating_weights:
     - 2
     - 5
@@ -255,17 +110,88 @@ distributions:
     delay_days:
     - 1
     - 14
-  cancellations:
-    base_rate: 0.035
-    campaign_rate: 0.065
-    coupon_addon: 0.012
-    customer_addons:
-      loyal: -0.012
-      regular: 0.0
-      one_off: 0.018
-    reasons:
+  outcomes:
+    cancellation_rate: 0.08
+    cod_rate: 0.6
+    cod_failure_rate: 0.08
+    return_rate: 0.06
+    exchange_rate: 0.5
+    cancellation_reasons:
       Đặt nhầm size hoặc màu: 28
       Muốn thay đổi địa chỉ nhận hàng: 18
       Tìm thấy lựa chọn phù hợp hơn: 18
       Áp nhầm mã giảm giá: 14
       Không còn nhu cầu mua: 22
+
+# Chính sách và khoảng lấy mẫu của generator; không tự đổi cấu hình API nguồn.
+policies:
+  history:
+    days_per_month: 30
+    master_data_lead_days: 30
+  customers:
+    house_number_range: [1, 999]
+    female_name_rate: 0.8
+    inactive_rate: 0.04
+    created_before_history_days: [1, 180]
+    inactive_before_anchor_days: [1, 60]
+  catalog:
+    archive_rate: 0.05
+    price_step_vnd: 1000
+    variant_price_step_vnd: 5000
+    cost_ratio_base: 0.35
+    cost_ratio_step: 0.01
+    cost_ratio_levels: 11
+  shipping:
+    fee_vnd: 30000
+    free_from_subtotal_vnd: 500000
+    failed_attempts: 3
+    attempt_interval_hours: 6
+    failure_after_days: 2
+    cod_block_after_failures: 3
+  timing:
+    cancellation_min_age_hours: 2
+    completion_min_age_days: 5
+    confirmation_min_age_hours: 8
+    failure_min_age_days: 3
+    confirmation_delay_hours: [2, 18]
+    completion_delay_hours: [24, 96]
+    cancellation_delay_minutes: [15, 480]
+    campaign_pull_days: 7
+    minute_of_hour: [0, 59]
+  returns:
+    item_selection: first
+    replacement_selection: first
+    quantity: 1
+    request_delay_days: 2
+    processing_delay_days: 1
+  inventory:
+    buffer_units: [80, 200]
+  coupons:
+    start_before_history_days: 1
+    valid_after_anchor_days: 365
+    minimum_total_usage_limit: 100
+    extra_total_usage_limit: 100
+    ordinary_customer_usage_limit: 10
+    campaign_customer_usage_limit: 1
+  reviews:
+    extra_delay_hours: [0, 23]
+    moderation_delay_hours: [1, 48]
+  wishlist:
+    creation_rate: 0.55
+    item_count: [1, 5]
+    purchased_share: 0.4
+    minimum_purchased_items: 1
+    added_before_purchase_days: [1, 30]
+    added_before_purchase_hours: [0, 23]
+    readded_after_days: [0, 7]
+    unpurchased_readded_after_days: [0, 29]
+    removal_rate: 0.18
+    removed_after_days: [0, 14]
+  carts:
+    checkout_lead_minutes: [5, 10080]
+    stale_rate: 0.65
+    stale_before_anchor_days: [2, 20]
+    recent_before_anchor_hours: [1, 12]
+    created_before_update_hours: [1, 72]
+    active_item_count: [1, 3]
+    active_quantity: [1, 3]

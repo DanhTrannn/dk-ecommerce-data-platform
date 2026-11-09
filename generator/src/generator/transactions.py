@@ -54,71 +54,55 @@ def campaign_dates(config: GeneratorConfig, catalog: Catalog) -> list[tuple[dict
 
 def build_coupons(config: GeneratorConfig, catalog: Catalog) -> dict[int, str]:
     behavior = config.distributions.coupons
+    policy = config.policies["coupons"]
+    master_created = catalog.history_start - timedelta(days=config.policies["history"]["master_data_lead_days"])
     start, end, base = catalog.history_start, catalog.history_end, catalog.id_base
     zone = ZoneInfo(config.distributions.business_timezone)
     specs = [
         (
             "everyday",
-            "percentage",
-            behavior["everyday_percentage"],
-            behavior["everyday_minimum_subtotal_vnd"],
-            start - timedelta(days=1),
-            end + timedelta(days=365),
-        ),
-        (
-            "welcome",
-            "fixed_amount",
-            behavior["welcome_fixed_vnd"],
-            behavior["campaign_minimum_subtotal_vnd"],
-            start - timedelta(days=1),
-            end + timedelta(days=365),
-        ),
+            behavior["percentage"],
+            start - timedelta(days=policy["start_before_history_days"]),
+            end + timedelta(days=policy["valid_after_anchor_days"]),
+        )
     ]
-    for campaign_index, (event, day) in enumerate(campaign_dates(config, catalog)):
+    for event, day in campaign_dates(config, catalog):
         moment = datetime.combine(day, datetime.min.time(), zone).astimezone(UTC)
         specs.append(
             (
                 "campaign",
-                "percentage",
-                behavior["campaign_percentage_values"][campaign_index % len(behavior["campaign_percentage_values"])],
-                behavior["campaign_minimum_subtotal_vnd"],
-                moment,
+                behavior["campaign_percentage"],
+                max(master_created, moment),
                 moment + timedelta(days=event["after_days"] + 1),
             )
         )
-        specs.append(
-            (
-                "midnight",
-                "fixed_amount",
-                behavior["midnight_fixed_values_vnd"][campaign_index % len(behavior["midnight_fixed_values_vnd"])],
-                behavior["campaign_minimum_subtotal_vnd"],
-                moment,
-                moment + timedelta(hours=2),
-            )
-        )
     rows, kinds = [], {}
-    for index, (kind, discount_type, value, minimum, begins, ends) in enumerate(specs, 1):
-        archived = kind in {"campaign", "midnight"} and ends <= end
+    for index, (kind, percentage, begins, ends) in enumerate(specs, 1):
+        archived = kind == "campaign" and ends <= end
         code = f"SYN-{catalog.namespace.hex[:8]}-{index:04d}"
         rows.append(
             {
                 "coupon_id": base + index,
                 "public_id": catalog.public_id("coupon", index),
                 "code_normalized": code.lower(),
-                "discount_type": discount_type,
-                "discount_value": value,
-                "minimum_subtotal_vnd": minimum,
+                "discount_type": "percentage",
+                "discount_value": percentage,
+                "minimum_subtotal_vnd": behavior["minimum_subtotal_vnd"],
                 "starts_at": begins,
                 "ends_at": ends,
                 "is_active": not archived,
-                "total_usage_limit": max(100, config.scale["orders"] + 100),
-                "per_customer_usage_limit": 10 if kind == "everyday" else 1,
+                "total_usage_limit": max(
+                    policy["minimum_total_usage_limit"], config.scale["orders"] + policy["extra_total_usage_limit"]
+                ),
+                "per_customer_usage_limit": policy["ordinary_customer_usage_limit"]
+                if kind == "everyday"
+                else policy["campaign_customer_usage_limit"],
                 "used_count": 0,
                 "archived_at": ends if archived else None,
                 "archived_by_customer_id": base + config.scale["customers"] + 1 if archived else None,
                 "archive_reason": "Kết thúc chiến dịch synthetic" if archived else None,
-                "created_at": start - timedelta(days=30),
-                "updated_at": ends if archived else start - timedelta(days=30),
+                "created_at": master_created,
+                "updated_at": ends if archived else master_created,
             }
         )
         kinds[base + index] = kind
@@ -200,7 +184,7 @@ def order_schedule(config: GeneratorConfig, catalog: Catalog, randomizer: random
             else:
                 remaining = count - position
                 cap = max(0, (limit - previous).days) // remaining
-                interval = randomizer.randint(*group.get("interval_days", [1, 1]))
+                interval = randomizer.randint(*group["interval_days"])
                 day = (previous + timedelta(days=min(interval, cap))).astimezone(zone).date()
                 if randomizer.random() < group["campaign_affinity"]:
                     candidates = [
@@ -208,31 +192,32 @@ def order_schedule(config: GeneratorConfig, catalog: Catalog, randomizer: random
                         for item in campaign_days
                         if previous.astimezone(zone).date() <= item
                         and item <= limit.astimezone(zone).date()
-                        and abs((item - day).days) <= 7
+                        and abs((item - day).days) <= config.policies["timing"]["campaign_pull_days"]
                     ]
                     if candidates:
                         day = randomizer.choice(candidates)
             hour_weights = distribution.campaign_hour_of_day if boosts.get(day, 1) > 1 else distribution.hour_of_day
             hour = randomizer.choices(range(24), weights=hour_weights)[0]
-            moment = datetime(day.year, day.month, day.day, hour, randomizer.randrange(60), tzinfo=zone).astimezone(UTC)
+            moment = datetime(
+                day.year,
+                day.month,
+                day.day,
+                hour,
+                randomizer.randint(*config.policies["timing"]["minute_of_hour"]),
+                tzinfo=zone,
+            ).astimezone(UTC)
             moment = min(limit, max(catalog.history_start, previous or catalog.history_start, moment))
-            yield customer_index, name, position, moment, boosts.get(day, 1) > 1
+            yield customer_index, moment
             previous = moment
 
 
 def select_order_variants(catalog: Catalog, randomizer: random.Random, count: int) -> list[dict]:
-    available = {
-        key: list(values) for key, values in catalog.variants_by_product.items() if catalog.product_weights[key] > 0
-    }
+    available = {key: weight for key, weight in catalog.product_weights.items() if weight > 0}
     selected = []
-    for _ in range(min(count, sum(len(values) for values in available.values()))):
-        products = list(available)
-        product_id = randomizer.choices(products, weights=[catalog.product_weights[key] for key in products])[0]
-        variant = randomizer.choice(available[product_id])
-        selected.append(variant)
-        available[product_id].remove(variant)
-        if not available[product_id]:
-            del available[product_id]
+    for _ in range(min(count, len(available))):
+        product_id = randomizer.choices(list(available), weights=list(available.values()))[0]
+        selected.append(randomizer.choice(catalog.variants_by_product[product_id]))
+        del available[product_id]
     return sorted(selected, key=lambda row: row["variant_id"])
 
 
@@ -240,6 +225,10 @@ def transaction_batches(
     config: GeneratorConfig, catalog: Catalog, randomizer: random.Random, coupon_kinds: dict[int, str]
 ):
     distribution, base, end = config.distributions, catalog.id_base, catalog.history_end
+    policy = config.policies
+    shipping, timing, returns = policy["shipping"], policy["timing"], policy["returns"]
+    wishlist, carts, review_policy = policy["wishlist"], policy["carts"], policy["reviews"]
+    return_delay = timedelta(days=returns["request_delay_days"] + returns["processing_delay_days"])
     reviews = random.Random(f"{config.seed}-reviews")
     counts = defaultdict(int)
     net, outbound, versions = defaultdict(int), defaultdict(int), defaultdict(int)
@@ -278,13 +267,11 @@ def transaction_batches(
             },
         )
 
-    for index, (customer_index, group, position, moment, campaign) in enumerate(
-        order_schedule(config, catalog, randomizer)
-    ):
+    for index, (customer_index, moment) in enumerate(order_schedule(config, catalog, randomizer)):
         customer = catalog.tables["customers"][customer_index]
         customer_id, order_id = customer["customer_id"], base + index + 1
         age = end - moment
-        cart_time = moment - timedelta(minutes=randomizer.randint(5, 10080))
+        cart_time = moment - timedelta(minutes=randomizer.randint(*carts["checkout_lead_minutes"]))
         cart = add(
             "carts",
             "cart_id",
@@ -316,65 +303,59 @@ def transaction_batches(
             and subtotal >= row["minimum_subtotal_vnd"]
             and coupon_usage[customer_id, row["coupon_id"]] < row["per_customer_usage_limit"]
         ]
-        local_hour = moment.astimezone(ZoneInfo(distribution.business_timezone)).hour
-        coupon = None
-        for kind, rate in [
-            ("midnight", behavior["midnight_usage_rate"]),
-            ("campaign", behavior["campaign_usage_rate"]),
-            ("welcome", behavior["first_order_usage_rate"]),
-            ("everyday", behavior["base_usage_rate"]),
-        ]:
-            candidates = [row for row in eligible if coupon_kinds[row["coupon_id"]] == kind]
-            if (
-                not candidates
-                or (kind == "midnight" and local_hour not in (0, 1))
-                or (kind == "welcome" and position != 0)
-            ):
-                continue
-            if randomizer.random() < min(1, rate * behavior["customer_multipliers"][group]):
-                coupon = randomizer.choice(candidates)
-            break
-        discount = (
-            0
-            if coupon is None
-            else (
-                subtotal * coupon["discount_value"] // 100
-                if coupon["discount_type"] == "percentage"
-                else min(subtotal, coupon["discount_value"])
-            )
-        )
+        campaign_coupons = [row for row in eligible if coupon_kinds[row["coupon_id"]] == "campaign"]
+        candidates = campaign_coupons or eligible
+        usage_rate = behavior["campaign_usage_rate"] if campaign_coupons else behavior["usage_rate"]
+        coupon = randomizer.choice(candidates) if candidates and randomizer.random() < usage_rate else None
+        discount = subtotal * coupon["discount_value"] // 100 if coupon else 0
         if discount == 0:
             coupon = None
-        total = subtotal - discount + (0 if subtotal >= 500000 else 30000)
-        cancellation = distribution.cancellations
-        rate = cancellation["campaign_rate"] if campaign else cancellation["base_rate"]
-        rate += cancellation["customer_addons"][group] + (cancellation["coupon_addon"] if coupon else 0)
-        cancelled = age >= timedelta(hours=2) and randomizer.random() < max(0, min(1, rate))
-        completed = not cancelled and age >= timedelta(days=5) and randomizer.random() < 0.97
-        confirmed = not cancelled and not completed and age >= timedelta(hours=8)
-        cod_blocked = sum(time <= moment for time in failure_times[customer_id]) >= 3
-        cod = (customer_index + position) % 10 < 6 and not cod_blocked
-        risky = customer_index % 8 == 3
-        boom = cod and not cancelled and age >= timedelta(days=3) and position % (3 if risky else 31) == 0
+        total = subtotal - discount + (0 if subtotal >= shipping["free_from_subtotal_vnd"] else shipping["fee_vnd"])
+        outcomes = distribution.outcomes
+        cancelled = (
+            age >= timedelta(hours=timing["cancellation_min_age_hours"])
+            and randomizer.random() < outcomes["cancellation_rate"]
+        )
+        completed = not cancelled and age >= timedelta(days=timing["completion_min_age_days"])
+        confirmed = not cancelled and not completed and age >= timedelta(hours=timing["confirmation_min_age_hours"])
+        cod_blocked = sum(time <= moment for time in failure_times[customer_id]) >= shipping["cod_block_after_failures"]
+        cod = not cod_blocked and randomizer.random() < outcomes["cod_rate"]
+        boom = (
+            cod
+            and not cancelled
+            and age >= timedelta(days=timing["failure_min_age_days"])
+            and randomizer.random() < outcomes["cod_failure_rate"]
+        )
         completed = completed and not boom
         confirmed = confirmed or boom
         paid_at = None if cod else moment
         confirmed_at = moment if cod else None
         if not cod and (completed or confirmed):
-            confirmed_at = min(end - timedelta(minutes=2), moment + timedelta(hours=randomizer.randint(2, 18)))
+            confirmed_at = min(
+                end - timedelta(minutes=2),
+                moment + timedelta(hours=randomizer.randint(*timing["confirmation_delay_hours"])),
+            )
         completed_at = (
-            min(end - timedelta(minutes=1), confirmed_at + timedelta(hours=randomizer.randint(24, 96)))
+            min(
+                end - timedelta(minutes=1),
+                confirmed_at + timedelta(hours=randomizer.randint(*timing["completion_delay_hours"])),
+            )
             if completed
             else None
         )
         if cod and completed:
             paid_at = completed_at
         cancelled_at = (
-            min(end - timedelta(minutes=1), moment + timedelta(minutes=randomizer.randint(15, 480)))
+            min(
+                end - timedelta(minutes=1),
+                moment + timedelta(minutes=randomizer.randint(*timing["cancellation_delay_minutes"])),
+            )
             if cancelled
             else None
         )
-        failed_at = min(end, (confirmed_at or moment) + timedelta(days=2)) if boom else None
+        failed_at = (
+            min(end, (confirmed_at or moment) + timedelta(days=shipping["failure_after_days"])) if boom else None
+        )
         status = (
             "failed_delivery"
             if boom
@@ -388,7 +369,9 @@ def transaction_batches(
         )
         updated = cancelled_at or failed_at or completed_at or confirmed_at or moment
         reason = (
-            randomizer.choices(list(cancellation["reasons"]), weights=list(cancellation["reasons"].values()))[0]
+            randomizer.choices(
+                list(outcomes["cancellation_reasons"]), weights=list(outcomes["cancellation_reasons"].values())
+            )[0]
             if cancelled
             else None
         )
@@ -516,16 +499,22 @@ def transaction_batches(
         refund_amount, refund_time, refund_reason = (
             (total, cancelled_at, reason) if cancelled and not cod else (0, None, None)
         )
-        if completed and completed_at + timedelta(days=3) <= end and index % 25 == 7:
-            first = order_items[0]
+        if completed and completed_at + return_delay <= end and randomizer.random() < outcomes["return_rate"]:
+            first = order_items[0] if returns["item_selection"] == "first" else randomizer.choice(order_items)
+            return_quantity = min(returns["quantity"], first["quantity"])
             replacements = [
                 row
                 for row in catalog.variants_by_product[variants_by_id[first["variant_id"]]["product_id"]]
                 if row["variant_id"] != first["variant_id"]
             ]
-            exchange = index % 10 < 7 and bool(replacements)
-            replacement = replacements[0] if exchange else None
-            returned_at, resolved_at = completed_at + timedelta(days=2), completed_at + timedelta(days=3)
+            exchange = bool(replacements) and randomizer.random() < outcomes["exchange_rate"]
+            replacement = (
+                (replacements[0] if returns["replacement_selection"] == "first" else randomizer.choice(replacements))
+                if exchange
+                else None
+            )
+            returned_at = completed_at + timedelta(days=returns["request_delay_days"])
+            resolved_at = completed_at + return_delay
             return_code = f"RET-{catalog.namespace.hex[:8]}-{index + 1:08d}"
             request = add(
                 "return_requests",
@@ -543,7 +532,13 @@ def transaction_batches(
                     "updated_at": resolved_at,
                 },
             )
-            amount = 0 if exchange else round(first["unit_price_vnd"] * (1 - discount / subtotal)) if subtotal else 0
+            amount = (
+                0
+                if exchange or not subtotal
+                else min(
+                    payment["amount_vnd"], round(first["unit_price_vnd"] * (1 - discount / subtotal)) * return_quantity
+                )
+            )
             add(
                 "return_items",
                 "return_item_id",
@@ -551,7 +546,7 @@ def transaction_batches(
                     "return_id": request["return_id"],
                     "order_item_id": first["order_item_id"],
                     "variant_id": first["variant_id"],
-                    "quantity": 1,
+                    "quantity": return_quantity,
                     "exchange_variant_id": replacement["variant_id"] if replacement else None,
                     "refund_amount_vnd": amount,
                     "inspection_status": "passed",
@@ -559,12 +554,12 @@ def transaction_batches(
                     "updated_at": resolved_at,
                 },
             )
-            movement(first["variant_id"], 1, "return_customer", return_code, resolved_at)
+            movement(first["variant_id"], return_quantity, "return_customer", return_code, resolved_at)
             if exchange:
-                movement(replacement["variant_id"], -1, "exchange_out", return_code, resolved_at)
+                movement(replacement["variant_id"], -return_quantity, "exchange_out", return_code, resolved_at)
             else:
                 refund_amount, refund_time, refund_reason = amount, resolved_at, request["customer_reason"]
-                if len(order_items) == 1 and first["quantity"] == 1:
+                if len(order_items) == 1 and first["quantity"] == return_quantity:
                     order["status"], order["updated_at"] = "returned", resolved_at
         if refund_time is not None and refund_amount > 0:
             add(
@@ -624,7 +619,7 @@ def transaction_batches(
                     "order_id": order_id,
                     "delivery_staff_id": staff_id,
                     "status": "failed" if boom else "delivered",
-                    "attempt_count": 3 if boom else 1,
+                    "attempt_count": shipping["failed_attempts"] if boom else 1,
                     "cod_amount_vnd": total if cod else 0,
                     "cod_collected_vnd": total if cod and completed else 0,
                     "dispatched_at": confirmed_at or moment,
@@ -635,9 +630,14 @@ def transaction_batches(
                     "updated_at": updated,
                 },
             )
-            for attempt in range(1, 4 if boom else 2):
+            for attempt in range(1, (shipping["failed_attempts"] if boom else 1) + 1):
                 attempt_at = (
-                    min(failed_at, (confirmed_at or moment) + timedelta(hours=attempt * 6)) if boom else completed_at
+                    min(
+                        failed_at,
+                        (confirmed_at or moment) + timedelta(hours=attempt * shipping["attempt_interval_hours"]),
+                    )
+                    if boom
+                    else completed_at
                 )
                 add(
                     "shipment_attempts",
@@ -658,12 +658,13 @@ def transaction_batches(
         if boom:
             failure_times[customer_id].append(failed_at)
             customer["boom_count"] = customer.get("boom_count", 0) + 1
-            customer["is_cod_blocked"] = customer["boom_count"] >= 3
+            customer["is_cod_blocked"] = customer["boom_count"] >= shipping["cod_block_after_failures"]
         for item in order_items if completed else []:
-            if reviews.random() >= distribution.reviews["completed_order_rates"][group]:
+            if reviews.random() >= distribution.reviews["write_rate"]:
                 continue
             review_time = completed_at + timedelta(
-                days=reviews.randint(*distribution.reviews["delay_days"]), hours=reviews.randint(0, 23)
+                days=reviews.randint(*distribution.reviews["delay_days"]),
+                hours=reviews.randint(*review_policy["extra_delay_hours"]),
             )
             if review_time > end or (order["status"] == "returned" and review_time >= order["updated_at"]):
                 continue
@@ -673,7 +674,9 @@ def transaction_batches(
                 weights=list(distribution.reviews["status_weights"].values()),
             )[0]
             moderated_at = (
-                min(end, review_time + timedelta(hours=reviews.randint(1, 48))) if review_status == "rejected" else None
+                min(end, review_time + timedelta(hours=reviews.randint(*review_policy["moderation_delay_hours"])))
+                if review_status == "rejected"
+                else None
             )
             add(
                 "product_reviews",
@@ -697,10 +700,16 @@ def transaction_batches(
 
     for customer in catalog.tables["customers"][:-1]:
         customer_id = customer["customer_id"]
-        if randomizer.random() < 0.55:
-            count = randomizer.randint(1, min(5, len(products)))
+        if randomizer.random() < wishlist["creation_rate"]:
+            count = min(randomizer.randint(*wishlist["item_count"]), len(products))
             purchased = bought[customer_id]
-            converted = min(len(purchased), max(1, round(count * 0.4)) if purchased else 0)
+            converted = min(
+                count,
+                len(purchased),
+                max(wishlist["minimum_purchased_items"], round(count * wishlist["purchased_share"]))
+                if purchased
+                else 0,
+            )
             selected_ids = randomizer.sample(sorted(purchased), converted)
             selected_ids += randomizer.sample([key for key in products if key not in selected_ids], count - converted)
             for product_id in selected_ids:
@@ -708,18 +717,26 @@ def transaction_batches(
                 if purchase_time:
                     first = max(
                         catalog.history_start,
-                        purchase_time - timedelta(days=randomizer.randint(1, 30), hours=randomizer.randint(0, 23)),
+                        purchase_time
+                        - timedelta(
+                            days=randomizer.randint(*wishlist["added_before_purchase_days"]),
+                            hours=randomizer.randint(*wishlist["added_before_purchase_hours"]),
+                        ),
                     )
-                    last = min(purchase_time, first + timedelta(days=randomizer.randint(0, 7)))
+                    last = min(
+                        purchase_time, first + timedelta(days=randomizer.randint(*wishlist["readded_after_days"]))
+                    )
                     removed = purchase_time
                 else:
                     first = catalog.history_start + timedelta(
                         seconds=randomizer.randrange(max(1, int((end - catalog.history_start).total_seconds())))
                     )
-                    last = min(end, first + timedelta(days=randomizer.randrange(30)))
+                    last = min(
+                        end, first + timedelta(days=randomizer.randint(*wishlist["unpurchased_readded_after_days"]))
+                    )
                     removed = (
-                        min(end, last + timedelta(days=randomizer.randrange(15)))
-                        if randomizer.random() < 0.18
+                        min(end, last + timedelta(days=randomizer.randint(*wishlist["removed_after_days"])))
+                        if randomizer.random() < wishlist["removal_rate"]
                         else None
                     )
                 add(
@@ -738,11 +755,11 @@ def transaction_batches(
                 )
         if customer["status"] == "active":
             updated = end - (
-                timedelta(days=randomizer.randint(2, 20))
-                if randomizer.random() < 0.65
-                else timedelta(hours=randomizer.randint(1, 12))
+                timedelta(days=randomizer.randint(*carts["stale_before_anchor_days"]))
+                if randomizer.random() < carts["stale_rate"]
+                else timedelta(hours=randomizer.randint(*carts["recent_before_anchor_hours"]))
             )
-            created = updated - timedelta(hours=randomizer.randint(1, 72))
+            created = updated - timedelta(hours=randomizer.randint(*carts["created_before_update_hours"]))
             cart = add(
                 "carts",
                 "cart_id",
@@ -754,14 +771,16 @@ def transaction_batches(
                     "checked_out_at": None,
                 },
             )
-            for variant in randomizer.sample(catalog.variants, randomizer.randint(1, min(3, len(catalog.variants)))):
+            for variant in randomizer.sample(
+                catalog.variants, min(randomizer.randint(*carts["active_item_count"]), len(catalog.variants))
+            ):
                 add(
                     "cart_items",
                     "cart_item_id",
                     {
                         "cart_id": cart["cart_id"],
                         "variant_id": variant["variant_id"],
-                        "quantity": randomizer.randint(1, 3),
+                        "quantity": randomizer.randint(*carts["active_quantity"]),
                         "is_present": True,
                         "first_added_at": created,
                         "removed_at": None,
@@ -772,7 +791,7 @@ def transaction_batches(
         yield dict(batch)
         batch.clear()
     for variant_id in variants_by_id:
-        opening = outbound[variant_id] + randomizer.randint(80, 200)
+        opening = outbound[variant_id] + randomizer.randint(*policy["inventory"]["buffer_units"])
         batch["inventory"].append(
             {
                 "variant_id": variant_id,
