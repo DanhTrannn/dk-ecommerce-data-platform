@@ -1,6 +1,6 @@
 # Kiến trúc hệ thống
 
-Cập nhật theo codebase ngày **09/11/2026**. Các kết quả nghiệm thu được tách khỏi trạng thái dịch vụ đang chạy trong [operations.md](operations.md). Cấu trúc dữ liệu và chỉ số nằm trong [data.md](data.md); lệnh cài đặt nằm trong [setup.md](setup.md).
+Cập nhật theo codebase ngày **10/11/2026**. Các kết quả nghiệm thu được tách khỏi trạng thái dịch vụ đang chạy trong [operations.md](operations.md). Cấu trúc dữ liệu và chỉ số nằm trong [data.md](data.md); lệnh cài đặt nằm trong [setup.md](setup.md).
 
 ## 1. Phạm vi và hiện trạng
 
@@ -110,6 +110,10 @@ Service và port cụ thể lấy từ [Compose](../docker-compose.yml). Không 
 | `database/` | PostgreSQL schema renderer và seed |
 | `services/storefront/` | Frontend cũ, chưa dọn khỏi repo |
 
+### Pilot thay engine batch
+
+Có runtime Python tùy chọn tại `infrastructure/batch/Dockerfile`: Polars 2.1.0 xử lý DataFrame, PyIceberg 0.12.0 commit Iceberg qua Polaris, PyArrow 18.1.0 chuyển đổi dữ liệu và psycopg2 đọc nguồn. Pilot chỉ xử lý `categories` trong namespace `polars_pilot_*`, không ghi namespace serving hoặc publication. Airflow/Spark và hai job Flink hiện tại giữ nguyên. Chưa tạo một service luôn chạy mới trong Compose. Cách chạy và giới hạn ở [pipelines README](../pipelines/README.md#polars--pyiceberg-migration-pilot).
+
 ## 7. Phần chưa hoàn tất
 
-Ưu tiên tiếp theo là mở rộng Superset tới các nhóm mart còn lại, quyền viewer/store, chọn publication mới và vòng đời asset/snapshot. Chưa chuyển hết BI hoặc tự sync từ Airflow. Dọn Next.js sau khi có đủ chức năng thay thế. Generator chưa hiệu chỉnh toàn bộ hành vi theo dữ liệu Việt Nam; runner chưa bao phủ mọi API nghiệp vụ. Benchmark production, HA/disaster recovery, tự replay DLQ và hardening triển khai public chưa được nghiệm thu.
+Ưu tiên hiện tại là nghiệm thu pilot Polars/PyIceberg, sau đó chuyển đủ nguồn OLTP, Gold/log, quality/publication, maintenance và Airflow trước khi bỏ Spark. Superset còn cần mở rộng tới các nhóm mart khác, quyền viewer/store, chọn publication mới và vòng đời asset/snapshot. Chưa chuyển hết BI hoặc tự sync từ Airflow. Dọn Next.js sau khi có đủ chức năng thay thế. Generator chưa hiệu chỉnh toàn bộ hành vi theo dữ liệu Việt Nam; runner chưa bao phủ mọi API nghiệp vụ. Benchmark production, HA/disaster recovery, tự replay DLQ và hardening triển khai public chưa được nghiệm thu.

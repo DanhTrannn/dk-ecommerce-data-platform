@@ -192,6 +192,8 @@ FastAPI retains source write operations and the lookups needed to supply their I
 
 Both require `admin`/`system_admin`. Streamlit access administration uses the internal service to inspect and assign/revoke supported existing bindings; account creation, arbitrary policy editing and secret rotation are outside its current scope.
 
+An optional **Polars + PyIceberg migration pilot** now provides a categories-only extraction → Parquet staging → Bronze/Silver path in a separate `polars_pilot_*` namespace. It is outside the scheduled serving pipeline and does not publish BI data. Setup, opt-in checks and limitations are in the [pipeline guide](pipelines/README.md#polars--pyiceberg-migration-pilot). Spark remains the production batch/log engine.
+
 ## Development Commands
 
 ```bash

@@ -229,3 +229,36 @@ This acceptance exposed a PostgreSQL UUID encoding defect: casting JDBC UUID str
 Two retries of one logical log run retained one publication row and unchanged fact counts. TaskManager recovery advanced checkpoint 25 → 26 and captured three new requests. A conflicting valid payload sharing an event ID rejected publication; the prior funnel stayed unchanged. HTTP Metrics returned 200 with `data_source=lakehouse`, `source_run_id=logs-replay`, 21 requests and no cache fallback; anonymous access returned 401. The OLTP publication remained independent.
 
 Local evidence: `data/pipeline-runs/tlcn-stack-0ba785099b/report.json` and `data/pipeline-runs/access-log-stack-check.log` (ignored). Private resources from this completed run were removed. The pipeline unit suite passed 18 tests with four opt-in cases skipped; platform tests passed 71 with 49 opt-in cases skipped. Full-repository Ruff, Compose validation and lock checks passed. This does not establish production latency, JobManager HA, automatic DLQ replay, cron timing or Superset readiness.
+
+## Polars + PyIceberg migration pilot
+
+The production DAGs still use Spark. The optional pilot only processes `categories` in an explicitly named `polars_pilot_*` namespace; it never writes the serving Bronze/Silver/Gold namespaces or publication manifests. It reuses the existing source reader and Spark-named workload credentials during migration, without reprovisioning accounts or grants.
+
+```bash
+uv sync --locked --all-packages --extra polars
+PYTHONPATH=pipelines/src uv run --locked --all-packages --extra polars -- \
+  python -m unittest discover -s pipelines/tests -p test_polars_pilot.py -v
+
+docker build -f infrastructure/batch/Dockerfile -t tlcn-polars-pilot:local .
+RUN_POLARS_STACK_TESTS=1 PYTHONPATH=pipelines/src \
+  uv run --locked --all-packages --extra polars -- \
+  python -m unittest discover -s pipelines/tests -p test_polars_stack.py -v
+```
+
+The opt-in fixture starts private PostgreSQL/MinIO/Polaris/Trino resources and one-off Python/Spark clients, then Kafka/Flink for a real API-log read. It reuses the existing cached platform, Spark and Flink images; see the image overrides in `tests/stack/fixture.py`, `tests/logs/fixture.py` and `tests/polars_checks/fixture.py`. No host ports or existing deployment volumes are used. Reports are written under ignored `data/pipeline-runs/` and private resources are cleaned afterward.
+
+`jobs/oltp/run_polars_pilot.py` is also an explicit CLI for a configured isolated environment:
+
+```bash
+PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline --extra polars -- \
+  python -m jobs.oltp.run_polars_pilot \
+  --namespace polars_pilot_local --run-id initial
+```
+
+This command requires the existing `POSTGRES_SOURCE_*`, source reader/database, MinIO endpoint/bucket/Spark workload keys, Polaris URI/catalog/realm and `POLARIS_CREDENTIAL_FILE` to be exported for that environment. It does not load `.env`, publish analytics or initialize production tables. Use both `--interval-start` and `--interval-end` for a bounded UTC interval. A PostgreSQL session advisory lock serializes pilot invocations sharing the namespace.
+
+The Python image has no Spark/Java runtime and is not an always-running Compose service. Runtime dependencies are opt-in `batch-pipeline[polars]`: Polars 2.1.0, PyIceberg 0.12.0 (Arrow/native transform extras for partitioned writes) and psycopg2 2.9.10. Shared PyArrow is pinned to 18.1.0 because PyIceberg's Arrow extra requires at least 18; host consumers use the same workspace lock. Production Spark/Airflow images and their separate dependencies remain unchanged.
+
+This pilot is not the production replacement: full 27-table schema/PII/quarantine coverage, all Gold/log transforms, Airflow cutover, publication integration and maintenance parity remain subsequent work. Its history scans are bounded only by the pilot table size; do not interpret this implementation as a general large-table merge strategy.
+
+The clean compatibility run on 10/11/2026 passed in 167.890 seconds, including service startup/cleanup. It verified paged category history/current state, replay and interval boundaries, old snapshot reads, Spark positional deletes, Python partitioned writes, Trino/Spark readback, actual catalog permission denial/recovery and three real API requests captured by Flink. This is compatibility acceptance on a small private fixture, not a performance or full-pipeline claim. Evidence and remaining boundaries are in [operations](../docs/operations.md#nghiệm-thu-pilot-ngày-10112026).

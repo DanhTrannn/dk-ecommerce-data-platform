@@ -60,3 +60,23 @@ def page_query(query, pk, last_pk, limit):
     key = identifier(pk)
     after = f" WHERE {key} > {last_pk}" if last_pk is not None else ""
     return f"SELECT * FROM ({query}) source_rows{after} ORDER BY {key} LIMIT {limit}"
+
+
+def postgres_reader():
+    import psycopg2
+    from psycopg2.extras import register_uuid
+
+    # Reuse validation and source credential names without carrying JDBC into the runtime.
+    options = jdbc_options()
+    connection = psycopg2.connect(
+        host=os.environ.get("POSTGRES_SOURCE_HOST", "postgres"),
+        port=int(os.environ.get("POSTGRES_SOURCE_PORT", "5432")),
+        dbname=os.environ["POSTGRES_ECOMMERCE_DB"],
+        user=options["user"],
+        password=options["password"],
+        connect_timeout=10,
+        options="-c timezone=UTC -c default_transaction_read_only=on",
+    )
+    register_uuid(conn_or_curs=connection)
+    connection.set_session(readonly=True)
+    return connection

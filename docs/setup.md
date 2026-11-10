@@ -238,3 +238,14 @@ make down
 ```
 
 `make stop` là alias của thao tác down trong Makefile, không phải `docker compose stop`. Không dùng xóa volume như bước khắc phục mặc định.
+
+## 8. Runtime thử Polars/PyIceberg
+
+Spark vẫn chạy các DAG hiện tại. Pilot Python không cần bật profile/service mới; cài extra và build image chỉ khi kiểm chứng chuyển engine:
+
+```bash
+uv sync --locked --all-packages --extra polars
+docker build -f infrastructure/batch/Dockerfile -t tlcn-polars-pilot:local .
+```
+
+Không có biến môi trường production mới trong bước này; pilot dùng reader, MinIO workload và file credential Polaris hiện có, với cấu hình phù hợp môi trường riêng. Lệnh nghiệm thu stack biệt lập, CLI và các image cần cache nằm trong [pipeline guide](../pipelines/README.md#polars--pyiceberg-migration-pilot). Chưa đổi tên account `spark_writer` hoặc thay runtime Airflow.

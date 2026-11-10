@@ -1,6 +1,6 @@
 # Dữ liệu, pipeline và chỉ số
 
-Cập nhật theo codebase ngày **09/11/2026**. Nguồn định nghĩa chính là [schema PostgreSQL](../database/schema.sql), [catalog trích xuất](../pipelines/src/lakehouse/utils/config.py), [Gold schema](../pipelines/src/lakehouse/oltp/gold/schema.py), [log transforms](../pipelines/src/lakehouse/logs/) và [presets generator](../generator/configs/). Các con số mô phỏng/nghiệm thu không phải số liệu kinh doanh thực tế.
+Cập nhật theo codebase ngày **10/11/2026**. Nguồn định nghĩa chính là [schema PostgreSQL](../database/schema.sql), [catalog trích xuất](../pipelines/src/lakehouse/utils/config.py), [Gold schema](../pipelines/src/lakehouse/oltp/gold/schema.py), [log transforms](../pipelines/src/lakehouse/logs/) và [presets generator](../generator/configs/). Các con số mô phỏng/nghiệm thu không phải số liệu kinh doanh thực tế.
 
 ## 1. Nguồn và lineage
 
@@ -88,6 +88,12 @@ Batch interval dùng UTC có timezone `[start,end)`; append-only đọc `created
 Silver chuẩn hóa UUID JDBC dạng chuỗi thành **16 bytes** theo schema phân tích BINARY hiện có. Resolver log hỗ trợ cả encoding đúng và bytes của chuỗi UUID từ các lần batch cũ. Interval chỉ chuẩn hóa các dòng được đọc; cần init có kiểm soát nếu muốn chuẩn hóa toàn bộ current state. Không tự sửa snapshot lịch sử.
 
 PII của customer, đơn và nhân sự được chuẩn hóa lower/trim rồi token hóa SHA-256 với salt bắt buộc; giữ NULL, bỏ cột raw theo mapping. Quarantine cũng xử lý tên cột PII. Đây là pseudonymization, không phải bảo đảm ẩn danh tuyệt đối; raw OLTP/Bronze/CDC vẫn cần quyền phù hợp. Salt thay đổi làm đổi token.
+
+### Luồng thử Polars/PyIceberg
+
+Pilot `categories` tái sử dụng catalog nguồn: phân trang theo PK, interval `[start,end)`, staging riêng theo namespace/run, Bronze theo `(category_id, updated_at)` và Silver theo PK với điều kiện cursor không cũ hơn state hiện có. UUID Silver là 16 bytes; `slug` không có trong nguồn được điền NULL theo schema phân tích. Interval rỗng tạo staging typed rỗng, không xóa lịch sử. Mỗi invocation được khóa theo namespace bằng PostgreSQL session advisory lock.
+
+Pilot không tổng quát hóa validation/PII/quarantine cho 27 bảng. Category thiếu key/code/name làm job thất bại; chưa ghi production quarantine. Nó không thay đổi schema hoặc snapshot của các bảng đang phục vụ BI.
 
 ## 4. CDC audit
 

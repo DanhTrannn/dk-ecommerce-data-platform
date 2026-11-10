@@ -196,4 +196,36 @@ Superset acceptance chạy production batch builders hai lượt bằng Spark cl
 
 ## 9. Thứ tự công việc tiếp theo
 
-Mở rộng Superset ngoài hai mart doanh thu, bổ sung role/viewer/store và quy tắc lọc đúng grain; chốt chọn publication mới/lifecycle assets và retention snapshots. Hoàn thiện runner các nghiệp vụ còn thiếu khi cần tạo dữ liệu tương ứng. Sau khi BI/source flow có thay thế và kiểm chứng đủ mới dọn Next.js/CI/dependency liên quan. Không đưa chức năng mới vào tài liệu hiện trạng như thể đã triển khai.
+Tiếp tục chuyển engine theo thứ tự pilot → OLTP Bronze/Silver → Gold/quality/publication → log/maintenance → Airflow/cutover; chưa bỏ Spark khi thiếu một nhóm chức năng. Sau đó mở rộng Superset ngoài hai mart doanh thu, bổ sung role/viewer/store và quy tắc lọc đúng grain; chốt chọn publication mới/lifecycle assets và retention snapshots. Hoàn thiện runner các nghiệp vụ còn thiếu khi cần tạo dữ liệu tương ứng. Sau khi BI/source flow có thay thế và kiểm chứng đủ mới dọn Next.js/CI/dependency liên quan. Không đưa chức năng mới vào tài liệu hiện trạng như thể đã triển khai.
+
+## 10. Kiểm chứng thay Spark bằng Polars/PyIceberg
+
+Luồng thử chỉ ghi namespace `polars_pilot_*`; không chạy trên Gold hoặc publication hiện tại. Lệnh offline và opt-in stack nằm trong [pipeline guide](../pipelines/README.md#polars--pyiceberg-migration-pilot). Stack dùng volume/network riêng, secret ngẫu nhiên và không publish port. Bằng chứng lưu trong `data/pipeline-runs/<project>/report.json`; file log tổng là `data/pipeline-runs/polars-stack-check.log`.
+
+Giữ nguyên account/policy đang có. Staging thử nằm dưới `landing/polars-pilot/<namespace>/<run>/`, phù hợp prefix được cấp cho workload; không mở rộng quyền bucket để làm thử nghiệm qua. Chỉ đọc credential file bằng parser key/value, không source shell trong Python. Pilot dùng tối đa 10.000 dòng/trang; không suy rộng thành bảo đảm bounded memory cho mọi thao tác merge/scan.
+
+| Chức năng | Phương án và giới hạn trong bước đầu |
+|---|---|
+| Reader PostgreSQL | Kết nối riêng, read-only/UTC, reader credentials hiện có; không đọc `customer_credentials` |
+| Catalog/object storage | REST Polaris + PyArrow FileIO, credential file và key workload; chưa đổi tên account |
+| Commit dữ liệu | Đã kiểm chứng append/upsert/delete/overwrite và time travel trong fixture với Spark/Trino |
+| Streaming interop | Đã đọc lại ba log API thực từ Landing do Flink ghi trong fixture; job Flink giữ nguyên |
+| Snapshot expiration | PyIceberg 0.12.0 có API; chưa đưa vào lịch production hoặc nghiệm thu việc dọn file vật lý |
+| Compaction, rewrite manifests, orphan cleanup | Chưa có thay thế được nghiệm thu; không tuyên bố maintenance đã chuyển hoàn tất |
+| Publication/Superset | Chưa đổi engine phục vụ hoặc contract; pilot không publish |
+
+Các khả năng API được đối chiếu từ [PyIceberg API](https://py.iceberg.apache.org/api/) và runtime đã pin, không coi tài liệu latest là bằng chứng nghiệm thu của hệ thống. Trước khi bỏ Spark phải bổ sung đủ schema/PII/quarantine, Gold/log/quality/publication, maintenance, Airflow cutover và chạy nghiệm thu toàn luồng. Chưa có số đo RAM/thời gian đủ để kết luận mức cải thiện hiệu năng.
+
+### Nghiệm thu pilot ngày 10/11/2026
+
+Run sạch `tlcn-stack-3c7af4837d` đạt trong **167,890 giây** trên fixture nhỏ; đây là thời gian toàn bộ kiểm chứng có khởi động/dọn service, không phải benchmark xử lý dữ liệu. Report local: `data/pipeline-runs/tlcn-stack-3c7af4837d/report.json`.
+
+- 15 category qua 8 trang ở page size 2; replay vẫn 15 Bronze/15 Silver. Một cập nhật làm Bronze tăng 16 phiên bản, Silver giữ 15 dòng.
+- Interval có offset `+07:00` lấy đúng hai dòng tại lower/inside, loại upper; interval rỗng giữ nguyên snapshot và dữ liệu.
+- Trino đọc đúng UUID 16 bytes và snapshot trước cập nhật.
+- PyIceberg đọc được một positional delete file do Spark tạo; append/upsert/delete/overwrite trên bảng partition, Decimal, timestamp microsecond/UTC, null, boolean và UTF-8 được kiểm chứng. Spark và Trino đọc đúng kết quả Python; schema/field IDs giữ nguyên trong ca thử.
+- Reader nguồn bị từ chối UPDATE và đọc `customer_credentials`. Thu hồi binding Polaris làm pilot thất bại; cấp lại thì chạy được, không thay policy để bỏ qua lỗi.
+- Ba request API thực được Kafka/Flink ghi Landing và PyIceberg đọc lại. Không tạo OLTP/log publication.
+- Runtime khóa Polars 2.1.0, PyIceberg 0.12.0, PyArrow 18.1.0, pyiceberg-core 0.10.1; image Python không có Java/PySpark. Namespace, network và volumes kiểm thử đã được dọn.
+
+Bộ kiểm tra pipeline offline đạt 25 test, bỏ qua 5 integration opt-in; trong đó có 7 test mới cho pilot. Generator đạt 33 test; platform suite đạt 71 test và bỏ qua 49 test có điều kiện. Ruff, format cho các file Python thay đổi, workspace lock và dependency compatibility đều đạt. Chưa nghiệm thu đủ 27 nguồn, PII/quarantine production, Gold/log rollup, publication, scheduler hoặc maintenance trên engine mới.
