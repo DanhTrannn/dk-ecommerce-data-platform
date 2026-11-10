@@ -64,7 +64,7 @@ def page_query(query, pk, last_pk, limit):
 
 def postgres_reader():
     import psycopg2
-    from psycopg2.extras import register_uuid
+    from psycopg2.extras import register_default_json, register_default_jsonb, register_uuid
 
     # Reuse validation and source credential names without carrying JDBC into the runtime.
     options = jdbc_options()
@@ -78,5 +78,7 @@ def postgres_reader():
         options="-c timezone=UTC -c default_transaction_read_only=on",
     )
     register_uuid(conn_or_curs=connection)
+    register_default_json(conn_or_curs=connection, loads=lambda value: value)
+    register_default_jsonb(conn_or_curs=connection, loads=lambda value: value)
     connection.set_session(readonly=True)
     return connection

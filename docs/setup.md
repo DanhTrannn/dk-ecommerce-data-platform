@@ -249,3 +249,15 @@ docker build -f infrastructure/batch/Dockerfile -t tlcn-polars-pilot:local .
 ```
 
 Không có biến môi trường production mới trong bước này; pilot dùng reader, MinIO workload và file credential Polaris hiện có, với cấu hình phù hợp môi trường riêng. Lệnh nghiệm thu stack biệt lập, CLI và các image cần cache nằm trong [pipeline guide](../pipelines/README.md#polars--pyiceberg-migration-pilot). Chưa đổi tên account `spark_writer` hoặc thay runtime Airflow.
+
+### CLI Bronze/Silver cho 27 nguồn
+
+Sau khi cấu hình reader, storage/catalog, credential file và salt PII cho môi trường riêng:
+
+```bash
+PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline --extra polars -- \
+  python -m jobs.oltp.run_polars_batch \
+  --namespace-prefix polars_batch_local --run-id initial
+```
+
+Thêm `--interval-start` và `--interval-end` để đọc interval `[start,end)`; lặp `--table orders --table payments` nếu chỉ chọn một nhóm. Không chấp nhận bảng ngoài whitelist hoặc prefix namespace serving. Pilot categories cũ giữ CLI riêng. Native batch chưa nối vào DAG hoặc publish dữ liệu; Gold/log/maintenance tiếp tục dùng Spark. Cần giữ các file schema Silver trong SQL resources khi build image, dù runtime Python không thực thi Spark SQL.

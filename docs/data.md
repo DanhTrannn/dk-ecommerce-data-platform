@@ -93,7 +93,11 @@ PII của customer, đơn và nhân sự được chuẩn hóa lower/trim rồi 
 
 Pilot `categories` tái sử dụng catalog nguồn: phân trang theo PK, interval `[start,end)`, staging riêng theo namespace/run, Bronze theo `(category_id, updated_at)` và Silver theo PK với điều kiện cursor không cũ hơn state hiện có. UUID Silver là 16 bytes; `slug` không có trong nguồn được điền NULL theo schema phân tích. Interval rỗng tạo staging typed rỗng, không xóa lịch sử. Mỗi invocation được khóa theo namespace bằng PostgreSQL session advisory lock.
 
-Pilot không tổng quát hóa validation/PII/quarantine cho 27 bảng. Category thiếu key/code/name làm job thất bại; chưa ghi production quarantine. Nó không thay đổi schema hoặc snapshot của các bảng đang phục vụ BI.
+CLI pilot categories vẫn fail khi thiếu key/code/name. CLI batch 27 nguồn là bước mở rộng riêng: schema Bronze đọc từ metadata PostgreSQL, UUID giữ dạng chuỗi ở Bronze; schema Silver đọc hợp đồng cột hiện có qua adapter giới hạn các kiểu dữ liệu đã khai báo. Adapter không chạy SQL/PySpark và từ chối kiểu chưa hỗ trợ. JSON nguồn được giữ dạng văn bản như JDBC, không parse rồi serialize lại. Schema mới phải được review trước khi mở rộng adapter.
+
+Native batch dedup theo PK/cursor/thời gian ingest, giữ guard chống backfill cũ, chuyển các quy tắc validation hiện có và ghi nhiều mã lỗi theo thứ tự hiện tại. Token SHA-256 giữ trim ký tự space U+0020, lowercase, salt và NULL; tạo `shipping_region` trước khi bỏ địa chỉ gốc. Quarantine chỉ giữ JSON đã token hóa các cột PII theo pattern hiện có, bỏ trường NULL như Spark, dedup bằng source table/record/mã lỗi và partition theo ngày. Không có thêm cam kết ẩn danh cho nội dung free-text/JSON.
+
+Tất cả đích batch mới ở namespace migration riêng; không thay đổi schema hoặc snapshot phục vụ BI và chưa chạy Gold/publication. Việc stage toàn bộ nguồn hoàn tất trước khi merge dữ liệu, nhưng các commit bảng vẫn độc lập, không phải transaction đa bảng. Đọc nguồn theo trang không đồng nghĩa snapshot giao dịch nhất quán toàn bộ 27 bảng khi nguồn đang thay đổi.
 
 ## 4. CDC audit
 

@@ -33,6 +33,7 @@ class PolarsStack(LogsStack):
                     "services": {
                         "polars-pilot": service,
                         "spark-client": {"volumes": [f"{ROOT}/pipelines/tests/polars_checks:/polars-checks:ro"]},
+                        "platform-app": {"volumes": [f"{ROOT}/pipelines/tests/polars_checks:/polars-checks:ro"]},
                     }
                 }
             )

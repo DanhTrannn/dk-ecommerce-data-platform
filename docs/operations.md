@@ -229,3 +229,38 @@ Run sạch `tlcn-stack-3c7af4837d` đạt trong **167,890 giây** trên fixture 
 - Runtime khóa Polars 2.1.0, PyIceberg 0.12.0, PyArrow 18.1.0, pyiceberg-core 0.10.1; image Python không có Java/PySpark. Namespace, network và volumes kiểm thử đã được dọn.
 
 Bộ kiểm tra pipeline offline đạt 25 test, bỏ qua 5 integration opt-in; trong đó có 7 test mới cho pilot. Generator đạt 33 test; platform suite đạt 71 test và bỏ qua 49 test có điều kiện. Ruff, format cho các file Python thay đổi, workspace lock và dependency compatibility đều đạt. Chưa nghiệm thu đủ 27 nguồn, PII/quarantine production, Gold/log rollup, publication, scheduler hoặc maintenance trên engine mới.
+
+## 11. Native Bronze/Silver cho 27 nguồn
+
+Bước mở rộng có CLI `jobs.oltp.run_polars_batch` và nhóm module `lakehouse/oltp/polars/`. Tất cả bảng từ catalog nguồn được hỗ trợ ở Bronze/Silver, gồm schema typed cho bảng/interval rỗng, validation nhiều lỗi, PII và quarantine. Các namespace vẫn tách biệt bằng prefix `polars_batch_*`; Spark tiếp tục chạy Gold/log/publication, maintenance và DAG hiện tại.
+
+Lệnh kiểm chứng:
+
+```bash
+PYTHONPATH=pipelines/src uv run --locked --all-packages --extra polars -- \
+  python -m unittest discover -s pipelines/tests -p test_polars_batch.py -v
+RUN_POLARS_BATCH_STACK_TESTS=1 PYTHONPATH=pipelines/src \
+  uv run --locked --all-packages --extra polars -- \
+  python -m unittest discover -s pipelines/tests -p test_polars_batch_stack.py -v
+```
+
+Rebuild image pilot trước integration. Fixture so sánh fingerprint toàn bộ cột nghiệp vụ của 27 Bronze, 27 Silver và quarantine giữa Spark/native. Metadata thời điểm ingest/run không tham gia fingerprint. Dữ liệu rỗng của generator được bổ sung bằng service nhập hàng/chuyển kho trên nguồn riêng, để cả 27 bảng có dữ liệu; thêm JSON có Unicode để kiểm tra giữ nguyên văn bản nguồn. Hai đơn COD được tạo qua API thật để đối chiếu interval.
+
+Quy trình thử dòng lỗi dùng cùng một dòng đã sắp thứ tự và materialize trước khi đưa cho hai engine. Không so hai kết quả `LIMIT 1` không có thứ tự vì có thể lấy hai phiên bản/bản ghi khác nhau. Diagnostics chỉ xuất tên cột, kiểu/độ dài và hash, không trả nội dung bản ghi.
+
+Quarantine giữ cùng tập mã lỗi và chuẩn JSON của engine hiện tại: token hóa theo pattern cột, bỏ trường NULL, timestamp UTC ở milliseconds, dedup theo source/record/mã lỗi; không coi đây là xử lý PII cho mọi nội dung free-text. Field ID của partition được bind sau khi catalog cấp schema, không suy đoán ID từ vị trí cột Arrow. Guard từ chối Bronze thiếu thông tin nguồn ngay cả khi bảng chưa có snapshot.
+
+Chưa đưa vào production: schema/type evolution mới cần review, adapter không phải bộ dịch Spark SQL tổng quát; chưa có transaction snapshot nguồn xuyên 27 bảng khi source còn ghi; chưa đo RAM của upsert/file scan ở tải lớn. Tiếp theo cần chuyển Gold/quality/publication, log rollup, hard-delete/maintenance và scheduler trước khi bỏ Spark. Không tự nới quyền MinIO/Polaris hoặc dùng root để vượt lỗi.
+
+### Nghiệm thu 27 nguồn ngày 10/11/2026
+
+Run sạch `tlcn-stack-7e0f251bbd` đạt trong **381,475 giây**, gồm khởi động/dọn service và cả hai engine tham chiếu; không dùng thời gian này để so tốc độ Spark với Polars. Report local: `data/pipeline-runs/tlcn-stack-7e0f251bbd/report.json`.
+
+- Cả 27 bảng nguồn có dòng dữ liệu, tổng 600 dòng ở lần nạp đầu. Service nhập hàng tạo receipt/item/ledger; service chuyển kho tạo store inventory và ledger tương ứng.
+- Fingerprint toàn bộ cột nghiệp vụ của 27 Bronze và 27 Silver khớp Spark sau init, replay, interval rỗng và incremental. JSON Unicode nguồn được giữ nguyên.
+- Hai đơn COD tạo qua API làm Silver orders tăng 30 → 32; snapshot cũ vẫn có 30 đơn. Backfill từ staging ban đầu không ghi đè state mới hoặc xóa hai đơn mới.
+- 27 ca dòng lỗi, mỗi bảng một ca, có cùng mã lỗi và nội dung JSON quarantine với Spark ở mức so sánh JSON semantic. Replay không tăng số record quarantine; các cột PII trong payload được token hóa theo hợp đồng hiện có.
+- Bronze bị gắn nhãn legacy làm run bị từ chối; phục hồi classification trong fixture cho kết quả dữ liệu không đổi. Không tạo publication hoặc chạy Gold/log/maintenance/scheduler native.
+- Pipeline offline đạt 34 test, bỏ qua 6 integration opt-in; có 9 test mới cho bước 27 nguồn. Ruff, format, lock/dependency checks, liên kết local và byte của `FINAL_REPORT.md` được kiểm tra. Network/volume/container riêng đã dọn; dữ liệu triển khai hiện có không thay đổi.
+
+Phạm vi nghiệm thu là fixture nhỏ và các quy tắc hiện tại. Arrow casts là strict; giá trị ngoài miền biểu diễn của schema Silver cần được chốt chính sách riêng trước cutover. Chưa nghiệm thu throughput, tải lớn hoặc toàn bộ pipeline production bằng engine native.

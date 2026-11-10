@@ -262,3 +262,25 @@ The Python image has no Spark/Java runtime and is not an always-running Compose 
 This pilot is not the production replacement: full 27-table schema/PII/quarantine coverage, all Gold/log transforms, Airflow cutover, publication integration and maintenance parity remain subsequent work. Its history scans are bounded only by the pilot table size; do not interpret this implementation as a general large-table merge strategy.
 
 The clean compatibility run on 10/11/2026 passed in 167.890 seconds, including service startup/cleanup. It verified paged category history/current state, replay and interval boundaries, old snapshot reads, Spark positional deletes, Python partitioned writes, Trino/Spark readback, actual catalog permission denial/recovery and three real API requests captured by Flink. This is compatibility acceptance on a small private fixture, not a performance or full-pipeline claim. Evidence and remaining boundaries are in [operations](../docs/operations.md#nghiệm-thu-pilot-ngày-10112026).
+
+### All-source Bronze/Silver migration
+
+The optional runtime also provides `jobs.oltp.run_polars_batch`, with all 27 configured tables by default and repeatable `--table` selection. It derives source types from PostgreSQL cursor metadata and reads existing Silver DDL contracts through a deliberately limited Arrow adapter. It does not execute Spark SQL or import PySpark. PostgreSQL JSON text is retained unchanged.
+
+```bash
+PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline --extra polars -- \
+  python -m jobs.oltp.run_polars_batch \
+  --namespace-prefix polars_batch_local --run-id initial
+
+RUN_POLARS_BATCH_STACK_TESTS=1 PYTHONPATH=pipelines/src \
+  uv run --locked --all-packages --extra polars -- \
+  python -m unittest discover -s pipelines/tests -p test_polars_batch_stack.py -v
+```
+
+Rebuild `tlcn-polars-pilot:local` before the new integration check. It reuses the private source/Trino fixture and runs actual Spark extraction/Silver as the reference. No Kafka/Flink/Airflow service is needed for this batch comparison. `STACK_USE_PRESET_SCALE=1` selects the existing full generator preset; default fixtures remain small.
+
+All output is fenced under `<prefix>_bronze`, `<prefix>_silver` and `<prefix>_quarantine`, with staging under `landing/polars-batch/<prefix>/<run>/`. One PostgreSQL advisory lock serializes native invocations sharing the prefix. Every selected source stages successfully before Bronze/Silver data commits begin. Quarantine uses the existing business rules, salted SHA-256 PII normalization and replay identity; older source versions cannot replace newer current state.
+
+Use both interval flags for incremental extraction. Empty intervals preserve typed staging and existing rows. Native merges retain source history and reject legacy/unclassified Bronze. Source paging is bounded, but Iceberg upserts and matching-file scans are not claimed to have bounded memory for arbitrary workloads. Source reads are not a cross-table transactional snapshot while writes are occurring. The engine still does not build Gold, publish analytics, replace maintenance or run scheduled DAGs.
+
+The clean all-source run `tlcn-stack-7e0f251bbd` passed on 10/11/2026 in 381.475 seconds including both engines and service lifecycle. All 27 tables contained data (600 initial source rows), 54 Bronze/Silver business-column fingerprints matched Spark, two API COD purchases moved current orders from 30 to 32, and all 27 fault cases matched quarantine codes/semantic JSON. Replay, empty intervals, older backfill, old snapshots and legacy-source rejection passed. See [acceptance evidence](../docs/operations.md#nghiệm-thu-27-nguồn-ngày-10112026); this is not a performance or serving cutover claim.
