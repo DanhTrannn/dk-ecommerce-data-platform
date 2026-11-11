@@ -259,7 +259,7 @@ This command requires the existing `POSTGRES_SOURCE_*`, source reader/database, 
 
 The Python image has no Spark/Java runtime and is not an always-running Compose service. Runtime dependencies are opt-in `batch-pipeline[polars]`: Polars 2.1.0, PyIceberg 0.12.0 (Arrow/native transform extras for partitioned writes) and psycopg2 2.9.10. Shared PyArrow is pinned to 18.1.0 because PyIceberg's Arrow extra requires at least 18; host consumers use the same workspace lock. Production Spark/Airflow images and their separate dependencies remain unchanged.
 
-This pilot is not the production replacement: the extensions below cover 27-table Bronze/Silver and Gold with isolated publication; log transforms, Airflow/BI cutover and maintenance parity remain subsequent work. Its history scans are bounded only by the pilot table size; do not interpret this implementation as a general large-table merge strategy.
+This pilot is not the production replacement: the extensions below cover 27-table Bronze/Silver and Gold with isolated publication; native log ingestion, Airflow/BI cutover and maintenance parity remain subsequent work. Its history scans are bounded only by the pilot table size; do not interpret this implementation as a general large-table merge strategy.
 
 The clean compatibility run on 10/11/2026 passed in 167.890 seconds, including service startup/cleanup. It verified paged category history/current state, replay and interval boundaries, old snapshot reads, Spark positional deletes, Python partitioned writes, Trino/Spark readback, actual catalog permission denial/recovery and three real API requests captured by Flink. This is compatibility acceptance on a small private fixture, not a performance or full-pipeline claim. Evidence and remaining boundaries are in [operations](../docs/operations.md#nghiệm-thu-pilot-ngày-10112026).
 
@@ -305,4 +305,26 @@ Choose the observation timestamp for the actual data; `--as-of` must include a t
 
 One prefix lock serializes native source/Gold jobs. Gold reads pinned Silver snapshots, reads back its own Gold commits, persists all 55 checks, and publishes only on success. Schema-v3 manifests pin 54 physical Silver/Gold names under the migration prefix, including explicit null snapshot IDs for empty tables. They do not redirect existing Superset/serving readers. Failed gates retain the previous publication; rerunning a logical run updates one publication row. Inventory history retains prior day partitions, while current summaries select the observation day. Integer VND allocation uses Int128 intermediates; parity fingerprints compare DOUBLE fields at six decimal places and integer money exactly.
 
-The stack check uses the real Spark implementation as a reference, private PostgreSQL/MinIO/Polaris/Trino, two actual API COD purchases, a deliberately corrupted mart, gate recovery and pinned old-manifest reads. It does not establish scale or production latency. Native log rollups, hard-delete handling, maintenance, Airflow scheduling and BI serving cutover remain pending.
+The stack check uses the real Spark implementation as a reference, private PostgreSQL/MinIO/Polaris/Trino, two actual API COD purchases, a deliberately corrupted mart, gate recovery and pinned old-manifest reads. It does not establish scale or production latency. The native log rollup extension below covers a separate boundary; log ingestion, hard-delete handling, maintenance, Airflow scheduling and BI serving cutover remain pending.
+
+
+### Native access-log marts
+
+`jobs.logs.run_polars_marts` builds the three log marts from a pinned snapshot of the existing serving `gold.fact_web_events`. It selects a published product/variant catalog from either the native OLTP publication (default) or serving OLTP publication. It does not run Landing/Bronze/Silver/fact ingestion.
+
+```bash
+PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline --extra polars -- \
+  python -m jobs.logs.run_polars_marts \
+  --namespace-prefix polars_batch_local --run-id logs_initial \
+  --as-of 2026-11-11T10:00:00Z --catalog-source native
+
+RUN_POLARS_LOGS_STACK_TESTS=1 PYTHONPATH=pipelines/src \
+  uv run --locked --all-packages --extra polars -- \
+  python -m unittest discover -s pipelines/tests -p test_polars_logs_stack.py -v
+```
+
+Use an appropriate event cutoff, optionally `--catalog-run-id` to select an explicit batch publication, and `--catalog-source serving` for the production catalog namespace. `--verify-only` audits without publishing. Destinations remain fenced under the migration prefix. The shared namespace lock serializes native jobs; outputs are read back from their own commit IDs. Fifteen checks must pass before an independent schema-v1 log publication pins the three output snapshots and four input snapshots. Failed checks preserve the prior publication. Audits append to `<prefix>_system.logs_quality_results`; this feature does not modify OLTP publications or existing BI readers.
+
+Native latency quantiles use exact nearest-rank (`equiprobable`) with null durations excluded, while Spark uses `percentile_approx`; large-data equivalence is not claimed. Counts retain existing request-event semantics, UTC grouping and zero-denominator NULLs. Product identity supports canonical/legacy UUIDs and unresolved raw keys, and rejects joins that multiply events. Fact loading and aggregation are in memory; large-table resource limits are not yet established.
+
+The opt-in check uses real API envelopes captured in the private local DLQ, a test-only handoff to actual Spark medallion transforms, and direct Spark/native mart comparisons. It does not start Kafka/Flink/Airflow or prove automatic DLQ replay. Remaining engine work includes native log ingestion through fact, hard-delete/maintenance, scheduler and serving cutover.

@@ -1,6 +1,6 @@
 # Dữ liệu, pipeline và chỉ số
 
-Cập nhật theo codebase ngày **10/11/2026**. Nguồn định nghĩa chính là [schema PostgreSQL](../database/schema.sql), [catalog trích xuất](../pipelines/src/lakehouse/utils/config.py), [Gold schema](../pipelines/src/lakehouse/oltp/gold/schema.py), [log transforms](../pipelines/src/lakehouse/logs/) và [presets generator](../generator/configs/). Các con số mô phỏng/nghiệm thu không phải số liệu kinh doanh thực tế.
+Cập nhật theo codebase ngày **11/11/2026**. Nguồn định nghĩa chính là [schema PostgreSQL](../database/schema.sql), [catalog trích xuất](../pipelines/src/lakehouse/utils/config.py), [Gold schema](../pipelines/src/lakehouse/oltp/gold/schema.py), [log transforms](../pipelines/src/lakehouse/logs/) và [presets generator](../generator/configs/). Các con số mô phỏng/nghiệm thu không phải số liệu kinh doanh thực tế.
 
 ## 1. Nguồn và lineage
 
@@ -501,3 +501,14 @@ Gold native giữ 27 schema hiện có: dimension, fact và 15 mart OLTP. Adapte
 `--as-of` là mốc nghiệp vụ có timezone cho cửa sổ coupon 15 phút, review 45 phút và các bảng quan sát. `_gold_ingested_at` là thời điểm xử lý thực. `--batch-date` chỉ định ngày logic của audit, mặc định ngày UTC của mốc nghiệp vụ. Snapshot tồn kho dùng ngày Việt Nam: chỉ ghi đè partition ngày hiện tại, giữ ngày cũ; bảng current/summary chỉ đọc ngày đang quan sát. Dimension ngày thay thế phạm vi năm 2025–2027.
 
 Gate native giữ 55 kiểm tra về đối soát, tài chính, tồn kho, vận hành, marketing, admin, khóa, freshness và PII. Audit lưu ở `<prefix>_system.data_quality_results`; publication ở `<prefix>_system.analytics_publications`, ghim cả Silver/Gold đã audit. Trạng thái không có snapshot được giữ NULL trong manifest. Đọc lại publication cũ vẫn dùng snapshot cũ dù các bảng được rebuild; retention snapshot phải tôn trọng các manifest còn dùng.
+
+
+### Hợp đồng ba mart log native
+
+Giữ nguyên tên/cột/grain của `mart_hourly_route_metrics`, `mart_daily_product_demand` và `mart_marketing_funnel_daily`. Ngày/giờ tính theo UTC. Các chỉ số funnel là số request thành công, không phải số người/session/đơn hàng duy nhất; visitor đếm actor khác NULL. Tên cũ `success_2xx_count` vẫn tính HTTP dưới 400 (gồm 3xx). Mẫu số bằng 0 trả NULL.
+
+Ánh xạ sản phẩm hỗ trợ slug, ID số, UUID chuẩn 16 bytes và encoding UUID văn bản cũ; UUID có dấu gạch được chuẩn hóa, slug giữ dấu gạch. Product token có ưu tiên hơn variant token. Khóa chưa khớp giữ `raw-product:`/`raw-variant:` để vẫn thấy nhu cầu chưa ánh xạ; mapping làm nhân bản event bị chặn.
+
+Percentile native dùng quantile `equiprobable`, tương ứng nearest-rank chính xác; bỏ duration NULL, làm tròn ba chữ số. Spark hiện dùng `percentile_approx` mặc định. Đây là khác biệt thuật toán cần chốt trước cutover, không khẳng định mọi tập dữ liệu lớn sẽ cho cùng kết quả. Tham khảo cơ chế tại [Polars quantile](https://docs.pola.rs/api/python/stable/reference/expressions/api/polars.Expr.quantile.html) và [Spark percentile_approx](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.percentile_approx.html); runtime thực tế vẫn theo các phiên bản đã pin trong repo.
+
+15 kiểm tra gồm timestamp/ID/ngày UTC, trạng thái HTTP/flags, miền duration, ba đối chiếu output sau ghi, ba kiểm tra grain, bảo toàn tổng request route/funnel, checkout và product actions. Audit append vào `<prefix>_system.logs_quality_results`; publication log dùng schema v1 với tên bảng vật lý migration. Nguồn fact vẫn do Spark ghi; gate native không thay thế kiểm tra raw-payload conflict ở Bronze.

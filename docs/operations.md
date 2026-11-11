@@ -293,3 +293,25 @@ Run riêng `tlcn-stack-dc4b12de35` đạt trong **361,334 giây**, gồm khởi 
 - Bộ pipeline offline có 50 test: 43 đạt, 7 integration opt-in được bỏ qua; ca Gold stack được chạy riêng và đạt. Image Python không cần Java/PySpark. Các tài nguyên stack riêng đã được dọn.
 
 Gold native vẫn là luồng migration riêng, chưa thay production Airflow/Spark hoặc Superset. Chưa có nghiệm thu tải lớn/hiệu năng và chưa chuyển log, hard delete hay maintenance.
+
+
+### Chạy và khắc phục lỗi mart log native
+
+Chạy `jobs.logs.run_polars_marts` sau khi fact Spark và publication catalog có sẵn. Đích là namespace migration, reader BI hiện tại vẫn dùng serving. Xem audit ở `<prefix>_system.logs_quality_results`, lọc `run_id`/`status='FAILED'`. Nếu `event_identity` lỗi, kiểm tra nguồn fact và gate upstream; không dedup tùy tiện để vượt lỗi. Nếu identity mapping nhân bản, kiểm tra slug/UUID catalog đã công bố. Nếu readback/conservation lỗi, sửa nguồn/logic hoặc rebuild rồi verify lại; không tự cập nhật manifest.
+
+Retry cùng `run_id`/`source_mode=logs_rollup` giữ một publication logic. `--verify-only` lưu audit mà không publish. Manifest cũ vẫn đọc snapshot cũ sau rebuild hoặc lỗi gate; không expire các snapshot mà publication còn dùng. `--as-of` là cutoff event, không phải watermark ingest: sự kiện đến muộn đã có trong fact vẫn tham gia full rebuild nếu thời gian event trong phạm vi. Event tương lai bị loại khỏi mart ở cutoff đang chọn.
+
+Bộ kiểm thử offline có các ca UUID cũ/mới, unresolved keys, duplicate mapping, request/visitor semantics, percentile, NULL/empty và corruption. Ca stack opt-in dùng handoff DLQ kiểm thử; không coi đây là nghiệm thu Kafka/Flink hoặc full native access-log ingestion. Chưa đo giới hạn RAM, latency hay equivalence percentile trên dữ liệu lớn.
+
+### Nghiệm thu mart log native ngày 11/11/2026
+
+Run sạch `tlcn-stack-53b840e713` đạt trong **194,555 giây**, gồm lifecycle và Spark tham chiếu; không dùng thời gian này để so hiệu năng engine. Report local, gitignored: `data/pipeline-runs/tlcn-stack-53b840e713/report.json`.
+
+- 21 envelope từ API thật (gồm hai checkout qua runner) đi qua handoff DLQ kiểm thử và các phép biến đổi medallion Spark. Replay raw không nhân bản fact; một envelope hỏng nằm ở Bronze. Không tuyên bố nghiệm thu Kafka/Flink hay tự replay DLQ trong ca này.
+- Cả ba mart native khớp fingerprint nghiệp vụ Spark ở 21 event; khi thêm một event đến muộn vào fact, cả ba tiếp tục khớp ở 22 event. Native audit đủ 15 kiểm tra trước publication.
+- Sai tổng request khiến verify gate lỗi; publication cũ vẫn đọc được qua Trino. Rebuild phục hồi cùng run chỉ giữ một publication logic; verify-only không tạo publication. Duplicate event ID ở fact bị chặn trước khi ghi mart mới.
+- Sửa tên sản phẩm trong Silver mà chưa publish không thay kết quả; event tương lai bị loại ở cutoff cố định. Publication OLTP giữ nguyên suốt ca kiểm chứng.
+- Cutoff trước mọi event xóa toàn bộ mart current về rỗng và publish `source_event_at=NULL`; các snapshot cũ vẫn đọc được. Kết thúc có bốn publication log logic riêng.
+- Pipeline offline: **55 test đạt, 8 integration opt-in được bỏ qua**; ca log stack chạy riêng và đạt. 12 test log mới cũng skip đúng khi thiếu extra Polars. Ruff/format, lock/dependency, liên kết local và hash source trong image đạt; `FINAL_REPORT.md` giữ nguyên. Tài nguyên stack riêng đã được dọn.
+
+Phạm vi còn lại: chuyển log ingestion từ Landing tới fact, rồi hard delete/maintenance và scheduler/serving. Cần chốt tương thích percentile với Spark approximate trên tập dữ liệu lớn trước cutover; ca nhỏ này không chứng minh equivalence tổng quát hoặc giới hạn RAM.

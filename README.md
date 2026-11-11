@@ -192,7 +192,7 @@ FastAPI retains source write operations and the lookups needed to supply their I
 
 Both require `admin`/`system_admin`. Streamlit access administration uses the internal service to inspect and assign/revoke supported existing bindings; account creation, arbitrary policy editing and secret rotation are outside its current scope.
 
-The optional **Polars + PyIceberg migration runtime** includes the categories pilot and an all-27-source Bronze/Silver CLI with validation, PII pseudonymization and quarantine. It also builds all 27 Gold tables, persists 55 quality checks and publishes validated snapshot manifests in isolated migration namespaces. It stays outside scheduled serving and the current BI readers. Setup, opt-in checks and limitations are in the [pipeline guide](pipelines/README.md#polars--pyiceberg-migration-pilot). Spark remains the production batch/log engine.
+The optional **Polars + PyIceberg migration runtime** includes the categories pilot and an all-27-source Bronze/Silver CLI with validation, PII pseudonymization and quarantine. It also builds all 27 Gold tables, persists 55 quality checks and publishes validated snapshot manifests in isolated migration namespaces. It stays outside scheduled serving and the current BI readers. Setup, opt-in checks and limitations are in the [pipeline guide](pipelines/README.md#polars--pyiceberg-migration-pilot). An additional native CLI builds the three log marts from the persisted serving fact and a pinned published catalog. Spark still performs log ingestion and scheduled serving; the native outputs have separate publication and are not connected to current BI readers.
 
 ## Development Commands
 

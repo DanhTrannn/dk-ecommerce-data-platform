@@ -284,3 +284,26 @@ RUN_POLARS_GOLD_STACK_TESTS=1 PYTHONPATH=pipelines/src \
 ```
 
 Đây là publication migration riêng, chưa kết nối Superset, reader serving hoặc DAG hiện tại. Không dùng lệnh này như thao tác cutover production.
+
+
+### CLI ba mart access log native
+
+Cài extra/build image như phần trên. Cần có `lakehouse.gold.fact_web_events` đã được pipeline Spark tạo và một publication OLTP batch hợp lệ; CLI không tự ingest Landing hoặc bootstrap source.
+
+```bash
+PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline --extra polars -- \
+  python -m jobs.logs.run_polars_marts \
+  --namespace-prefix polars_batch_local --run-id logs_initial \
+  --as-of 2026-11-11T10:00:00Z \
+  --catalog-source native
+```
+
+Thay mốc `--as-of` theo dữ liệu đang nghiệm thu, giữ nguyên khi retry. Mặc định chọn publication batch mới nhất trong `<prefix>_system.analytics_publications`; `--catalog-run-id` chỉ định một lần công bố. Dùng `--catalog-source serving` nếu chọn catalog trong `lakehouse.system.analytics_publications`. Đích vẫn luôn là namespace migration. `--verify-only` kiểm tra mart hiện có, không rebuild hoặc publish. Không có biến môi trường hoặc dependency mới; dùng reader/catalog/storage workload hiện có.
+
+```bash
+RUN_POLARS_LOGS_STACK_TESTS=1 PYTHONPATH=pipelines/src \
+  uv run --locked --all-packages --extra polars -- \
+  python -m unittest discover -s pipelines/tests -p test_polars_logs_stack.py -v
+```
+
+Fixture tạo nguồn/API/PostgreSQL/MinIO/Polaris/Trino riêng và dùng Spark client tham chiếu. Nó lấy envelope API thật từ DLQ qua handoff nội bộ của kiểm thử; không khởi động Kafka/Flink/Airflow và không phải nghiệm thu replay broker/DLQ tự động.

@@ -1,6 +1,6 @@
 # Kiến trúc hệ thống
 
-Cập nhật theo codebase ngày **10/11/2026**. Các kết quả nghiệm thu được tách khỏi trạng thái dịch vụ đang chạy trong [operations.md](operations.md). Cấu trúc dữ liệu và chỉ số nằm trong [data.md](data.md); lệnh cài đặt nằm trong [setup.md](setup.md).
+Cập nhật theo codebase ngày **11/11/2026**. Các kết quả nghiệm thu được tách khỏi trạng thái dịch vụ đang chạy trong [operations.md](operations.md). Cấu trúc dữ liệu và chỉ số nằm trong [data.md](data.md); lệnh cài đặt nằm trong [setup.md](setup.md).
 
 ## 1. Phạm vi và hiện trạng
 
@@ -116,11 +116,20 @@ Có runtime Python tùy chọn tại `infrastructure/batch/Dockerfile`: Polars 2
 
 ## 7. Phần chưa hoàn tất
 
-Native Bronze/Silver đã được nghiệm thu trên 27 nguồn trong fixture riêng; Gold/quality/publication có runtime migration riêng mô tả bên dưới; log, hard-delete/maintenance và Airflow vẫn cần chuyển trước khi bỏ Spark. Superset còn cần mở rộng tới các nhóm mart khác, quyền viewer/store, chọn publication mới và vòng đời asset/snapshot. Chưa chuyển hết BI hoặc tự sync từ Airflow. Dọn Next.js sau khi có đủ chức năng thay thế. Generator chưa hiệu chỉnh toàn bộ hành vi theo dữ liệu Việt Nam; runner chưa bao phủ mọi API nghiệp vụ. Benchmark production, HA/disaster recovery, tự replay DLQ và hardening triển khai public chưa được nghiệm thu.
+Native Bronze/Silver đã được nghiệm thu trên 27 nguồn trong fixture riêng; Gold/quality/publication có runtime migration riêng mô tả bên dưới; log ingest tới fact, hard-delete/maintenance và Airflow vẫn cần chuyển trước khi bỏ Spark. Superset còn cần mở rộng tới các nhóm mart khác, quyền viewer/store, chọn publication mới và vòng đời asset/snapshot. Chưa chuyển hết BI hoặc tự sync từ Airflow. Dọn Next.js sau khi có đủ chức năng thay thế. Generator chưa hiệu chỉnh toàn bộ hành vi theo dữ liệu Việt Nam; runner chưa bao phủ mọi API nghiệp vụ. Benchmark production, HA/disaster recovery, tự replay DLQ và hardening triển khai public chưa được nghiệm thu.
 
 
 ### Gold native và ranh giới publication
 
 `jobs.oltp.run_polars_gold` dùng cùng advisory lock theo prefix với batch nguồn. Job ghim 27 snapshot Silver, xây 27 bảng Gold bằng Polars, commit qua PyIceberg, rồi đọc lại đúng snapshot vừa ghi để chạy 55 kiểm tra. Kết quả audit được lưu cả khi gate thất bại; chỉ gate đạt mới cập nhật publication. Các commit bảng độc lập; manifest là ranh giới đọc một tập snapshot đã kiểm chứng, không phải transaction Iceberg đa bảng.
 
-Manifest schema v3 ghi đúng 54 tên bảng vật lý `lakehouse.<prefix>_silver.*` và `lakehouse.<prefix>_gold.*`. Nó không giả tên serving `lakehouse.gold.*`. Superset và reader production hiện tại chưa chuyển sang hợp đồng namespace này. `--verify-only` chỉ audit, không publish. Airflow, pipeline access log, hard delete và maintenance vẫn dùng Spark; chưa cutover hoặc gỡ Spark.
+Manifest schema v3 ghi đúng 54 tên bảng vật lý `lakehouse.<prefix>_silver.*` và `lakehouse.<prefix>_gold.*`. Nó không giả tên serving `lakehouse.gold.*`. Superset và reader production hiện tại chưa chuyển sang hợp đồng namespace này. `--verify-only` chỉ audit, không publish. Airflow, access-log ingest tới fact, hard delete và maintenance vẫn dùng Spark; chưa cutover hoặc gỡ Spark.
+
+
+### Mart access log native
+
+`jobs.logs.run_polars_marts` đọc một snapshot cố định của `lakehouse.gold.fact_web_events`, lọc theo `--as-of`, rồi xây ba mart route, nhu cầu sản phẩm và funnel bằng Polars. Catalog sản phẩm/biến thể được đọc từ đúng snapshot của một publication OLTP batch schema v3; có thể chọn catalog native hoặc serving và chỉ định `run_id`. Thay đổi Silver chưa được công bố không tự đi vào lần tính này.
+
+Job dùng advisory lock chung theo prefix, ghi output trong `<prefix>_gold`, đọc lại snapshot của chính các commit đó, audit 15 kiểm tra và cập nhật `<prefix>_system.logs_analytics_publications` khi đạt. Publication log độc lập với publication OLTP, ghim ba snapshot output và bốn input: fact, bảng publication catalog, products và variants. Không ghim lại snapshot mới sau audit. `--verify-only` chỉ audit.
+
+Bước này chỉ chuyển rollup/publication. Spark vẫn xử lý Landing → Bronze → Silver → fact, gồm parser, dedup và gate xung đột payload. Native không tự thu Kafka hoặc thay DAG, HTTP Metrics, Superset hay reader serving. Chưa chuyển hard delete/maintenance.
