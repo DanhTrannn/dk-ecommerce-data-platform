@@ -1,6 +1,5 @@
 """Explicit 27-source Bronze/Silver migration run in isolated namespaces."""
 
-import hashlib
 import re
 from datetime import UTC, datetime
 
@@ -11,7 +10,7 @@ from lakehouse.oltp.polars.privacy import required_salt
 from lakehouse.oltp.polars.source import source_pages
 from lakehouse.oltp.polars.writer import PROPERTIES, evolve_bronze, guard_bronze, ingest_page
 from lakehouse.utils.config import SOURCE_TABLES
-from lakehouse.utils.postgres import source_query
+from lakehouse.utils.postgres import namespace_lock, source_query
 
 
 def selected_tables(names=None):
@@ -56,17 +55,8 @@ def run_batch(catalog, connection, prefix, *, bucket, run_id, tables=None, start
         raise ValueError("Both interval bounds are required")
     for table in specs:
         source_query(table, start, end)
-    lock = int.from_bytes(hashlib.sha256(prefix.encode()).digest()[:8], "big", signed=True)
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_try_advisory_lock(%s)", (lock,))
-        if not cursor.fetchone()[0]:
-            raise RuntimeError("Another writer owns this batch namespace")
-    try:
+    with namespace_lock(connection, prefix):
         return execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size, salt)
-    finally:
-        connection.rollback()
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_unlock(%s)", (lock,))
 
 
 def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size, salt):

@@ -97,7 +97,7 @@ CLI pilot categories vẫn fail khi thiếu key/code/name. CLI batch 27 nguồn 
 
 Native batch dedup theo PK/cursor/thời gian ingest, giữ guard chống backfill cũ, chuyển các quy tắc validation hiện có và ghi nhiều mã lỗi theo thứ tự hiện tại. Token SHA-256 giữ trim ký tự space U+0020, lowercase, salt và NULL; tạo `shipping_region` trước khi bỏ địa chỉ gốc. Quarantine chỉ giữ JSON đã token hóa các cột PII theo pattern hiện có, bỏ trường NULL như Spark, dedup bằng source table/record/mã lỗi và partition theo ngày. Không có thêm cam kết ẩn danh cho nội dung free-text/JSON.
 
-Tất cả đích batch mới ở namespace migration riêng; không thay đổi schema hoặc snapshot phục vụ BI và chưa chạy Gold/publication. Việc stage toàn bộ nguồn hoàn tất trước khi merge dữ liệu, nhưng các commit bảng vẫn độc lập, không phải transaction đa bảng. Đọc nguồn theo trang không đồng nghĩa snapshot giao dịch nhất quán toàn bộ 27 bảng khi nguồn đang thay đổi.
+Tất cả đích batch mới ở namespace migration riêng; không thay đổi schema hoặc snapshot phục vụ BI. Gold/publication native có CLI riêng bên dưới. Việc stage toàn bộ nguồn hoàn tất trước khi merge dữ liệu, nhưng các commit bảng vẫn độc lập, không phải transaction đa bảng. Đọc nguồn theo trang không đồng nghĩa snapshot giao dịch nhất quán toàn bộ 27 bảng khi nguồn đang thay đổi.
 
 ## 4. CDC audit
 
@@ -492,3 +492,12 @@ Phần này giữ hồ sơ nguồn S01–S11 của nghiên cứu ngày **08/11/2
 - **Dữ liệu được bài báo mô tả:** 5.485 đánh giá được gán nhãn thủ công, thuộc bốn nhóm sản phẩm.
 - **Dùng được:** tài liệu tham khảo cho nội dung và cách diễn đạt phàn nàn bằng tiếng Việt, nếu sau này cần sinh nội dung review.
 - **Giới hạn:** chưa xác minh quyền truy cập/giấy phép dữ liệu gốc. Tập gán nhãn không mặc nhiên đại diện tỷ lệ phàn nàn, phân phối sao hoặc tỷ lệ hoàn hàng ngoài thị trường. Không cần thêm mô hình NLP vào repo chỉ để sử dụng ý tưởng này.
+
+
+### Hợp đồng Gold native
+
+Gold native giữ 27 schema hiện có: dimension, fact và 15 mart OLTP. Adapter Arrow đọc schema SQL hiện có, gồm DATE/DOUBLE và COMMENT; không chạy Spark SQL. Các phép phân bổ giảm giá/hoàn tiền dùng tích Int128 và hiệu phần nguyên tích lũy, trả về VND Int64; không dùng số thực để phân bổ tiền. Giá vốn lấy snapshot dòng đơn. COD chưa ghi nhận doanh thu được giữ tách khỏi doanh thu đã ghi nhận.
+
+`--as-of` là mốc nghiệp vụ có timezone cho cửa sổ coupon 15 phút, review 45 phút và các bảng quan sát. `_gold_ingested_at` là thời điểm xử lý thực. `--batch-date` chỉ định ngày logic của audit, mặc định ngày UTC của mốc nghiệp vụ. Snapshot tồn kho dùng ngày Việt Nam: chỉ ghi đè partition ngày hiện tại, giữ ngày cũ; bảng current/summary chỉ đọc ngày đang quan sát. Dimension ngày thay thế phạm vi năm 2025–2027.
+
+Gate native giữ 55 kiểm tra về đối soát, tài chính, tồn kho, vận hành, marketing, admin, khóa, freshness và PII. Audit lưu ở `<prefix>_system.data_quality_results`; publication ở `<prefix>_system.analytics_publications`, ghim cả Silver/Gold đã audit. Trạng thái không có snapshot được giữ NULL trong manifest. Đọc lại publication cũ vẫn dùng snapshot cũ dù các bảng được rebuild; retention snapshot phải tôn trọng các manifest còn dùng.

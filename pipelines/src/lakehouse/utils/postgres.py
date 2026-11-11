@@ -1,6 +1,8 @@
 """PostgreSQL source SQL and JDBC properties, independent of Spark runtime."""
 
 import os
+import hashlib
+from contextlib import contextmanager
 import re
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -82,3 +84,19 @@ def postgres_reader():
     register_default_jsonb(conn_or_curs=connection, loads=lambda value: value)
     connection.set_session(readonly=True)
     return connection
+
+
+@contextmanager
+def namespace_lock(connection, namespace):
+    """Serialize native source and Gold jobs using one session-scoped namespace key."""
+    lock = int.from_bytes(hashlib.sha256(namespace.encode()).digest()[:8], "big", signed=True)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (lock,))
+        if not cursor.fetchone()[0]:
+            raise RuntimeError("Another writer owns this batch namespace")
+    try:
+        yield
+    finally:
+        connection.rollback()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", (lock,))

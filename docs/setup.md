@@ -260,4 +260,27 @@ PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline --extra polars
   --namespace-prefix polars_batch_local --run-id initial
 ```
 
-Thêm `--interval-start` và `--interval-end` để đọc interval `[start,end)`; lặp `--table orders --table payments` nếu chỉ chọn một nhóm. Không chấp nhận bảng ngoài whitelist hoặc prefix namespace serving. Pilot categories cũ giữ CLI riêng. Native batch chưa nối vào DAG hoặc publish dữ liệu; Gold/log/maintenance tiếp tục dùng Spark. Cần giữ các file schema Silver trong SQL resources khi build image, dù runtime Python không thực thi Spark SQL.
+Thêm `--interval-start` và `--interval-end` để đọc interval `[start,end)`; lặp `--table orders --table payments` nếu chỉ chọn một nhóm. Không chấp nhận bảng ngoài whitelist hoặc prefix namespace serving. Pilot categories cũ giữ CLI riêng. Native batch chưa nối vào DAG; Gold native chạy riêng theo lệnh bên dưới, còn log/maintenance tiếp tục dùng Spark. Cần giữ các file schema Silver trong SQL resources khi build image, dù runtime Python không thực thi Spark SQL.
+
+
+### CLI Gold và kiểm tra chất lượng native
+
+Chạy sau Bronze/Silver đủ 27 bảng, trong cùng môi trường riêng đã cấu hình reader, Polaris và MinIO workload:
+
+```bash
+PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline --extra polars -- \
+  python -m jobs.oltp.run_polars_gold \
+  --namespace-prefix polars_batch_local --run-id gold_initial \
+  --as-of 2026-11-10T10:00:00Z
+```
+
+Thay `--as-of` bằng mốc nghiệp vụ phù hợp dữ liệu đang kiểm chứng; lệnh không tự đồng bộ với thời điểm nguồn. `--batch-date YYYY-MM-DD` là tùy chọn cho ngày logic audit. Thêm `--verify-only` để audit các snapshot hiện có mà không rebuild hoặc publication. Gate thất bại làm CLI lỗi sau khi lưu audit; publication trước đó được giữ nguyên. Không có biến môi trường mới. Giữ SQL resources trong image vì schema native còn sử dụng các hợp đồng đó.
+
+```bash
+# Rebuild image trước khi nghiệm thu stack.
+RUN_POLARS_GOLD_STACK_TESTS=1 PYTHONPATH=pipelines/src \
+  uv run --locked --all-packages --extra polars -- \
+  python -m unittest discover -s pipelines/tests -p test_polars_gold_stack.py -v
+```
+
+Đây là publication migration riêng, chưa kết nối Superset, reader serving hoặc DAG hiện tại. Không dùng lệnh này như thao tác cutover production.

@@ -6,7 +6,7 @@ from lakehouse.utils.sql import identifier, render_sql
 
 
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Iterable
 
@@ -26,21 +26,7 @@ QUALITY_RESULTS_DDL = render_sql(
 )
 
 
-class GoldQualityGateError(RuntimeError):
-    """Raised when a blocking post-publication Gold quality check fails."""
-
-
-@dataclass(frozen=True)
-class QualityCheckResult:
-    check_name: str
-    dataset: str
-    observed_value: str
-    expected_value: str
-    passed: bool
-    details: str
-    severity: str = "ERROR"
-    variance_percent: float = 0.0
-    failed_rows: int = 0
+from lakehouse.oltp.quality.contracts import GoldQualityGateError, QualityCheckResult
 
 
 def ensure_quality_results_table(spark: SparkSession) -> None:

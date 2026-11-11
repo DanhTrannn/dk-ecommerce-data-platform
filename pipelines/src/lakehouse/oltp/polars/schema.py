@@ -15,6 +15,8 @@ TYPES = {
     "BOOLEAN": pa.bool_(),
     "TIMESTAMP": pa.timestamp("us", tz="UTC"),
     "ARRAY<STRING>": pa.list_(pa.string()),
+    "DATE": pa.date32(),
+    "DOUBLE": pa.float64(),
 }
 
 
@@ -24,11 +26,15 @@ def ddl_schema(resource):
     if not match:
         raise ValueError("Unsupported Silver schema contract")
     fields = []
-    for column in match.group(1).split(","):
-        parts = column.strip().split()
-        if len(parts) != 2 or parts[1] not in TYPES:
-            raise ValueError("Unsupported column in Silver schema contract")
-        fields.append(pa.field(parts[0], TYPES[parts[1]]))
+    for column in match.group(1).splitlines():
+        if not column.strip():
+            continue
+        part = re.fullmatch(
+            r"\s*([A-Za-z_][A-Za-z0-9_]*)\s+([A-Z]+(?:<STRING>)?)(?:\s+COMMENT\s+'(?:[^']|'')*')?\s*,?\s*", column
+        )
+        if part is None or part[2] not in TYPES:
+            raise ValueError("Unsupported column in schema contract")
+        fields.append(pa.field(part[1], TYPES[part[2]]))
     return pa.schema(fields)
 
 

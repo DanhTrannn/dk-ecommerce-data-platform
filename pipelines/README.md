@@ -259,7 +259,7 @@ This command requires the existing `POSTGRES_SOURCE_*`, source reader/database, 
 
 The Python image has no Spark/Java runtime and is not an always-running Compose service. Runtime dependencies are opt-in `batch-pipeline[polars]`: Polars 2.1.0, PyIceberg 0.12.0 (Arrow/native transform extras for partitioned writes) and psycopg2 2.9.10. Shared PyArrow is pinned to 18.1.0 because PyIceberg's Arrow extra requires at least 18; host consumers use the same workspace lock. Production Spark/Airflow images and their separate dependencies remain unchanged.
 
-This pilot is not the production replacement: full 27-table schema/PII/quarantine coverage, all Gold/log transforms, Airflow cutover, publication integration and maintenance parity remain subsequent work. Its history scans are bounded only by the pilot table size; do not interpret this implementation as a general large-table merge strategy.
+This pilot is not the production replacement: the extensions below cover 27-table Bronze/Silver and Gold with isolated publication; log transforms, Airflow/BI cutover and maintenance parity remain subsequent work. Its history scans are bounded only by the pilot table size; do not interpret this implementation as a general large-table merge strategy.
 
 The clean compatibility run on 10/11/2026 passed in 167.890 seconds, including service startup/cleanup. It verified paged category history/current state, replay and interval boundaries, old snapshot reads, Spark positional deletes, Python partitioned writes, Trino/Spark readback, actual catalog permission denial/recovery and three real API requests captured by Flink. This is compatibility acceptance on a small private fixture, not a performance or full-pipeline claim. Evidence and remaining boundaries are in [operations](../docs/operations.md#nghiệm-thu-pilot-ngày-10112026).
 
@@ -281,6 +281,28 @@ Rebuild `tlcn-polars-pilot:local` before the new integration check. It reuses th
 
 All output is fenced under `<prefix>_bronze`, `<prefix>_silver` and `<prefix>_quarantine`, with staging under `landing/polars-batch/<prefix>/<run>/`. One PostgreSQL advisory lock serializes native invocations sharing the prefix. Every selected source stages successfully before Bronze/Silver data commits begin. Quarantine uses the existing business rules, salted SHA-256 PII normalization and replay identity; older source versions cannot replace newer current state.
 
-Use both interval flags for incremental extraction. Empty intervals preserve typed staging and existing rows. Native merges retain source history and reject legacy/unclassified Bronze. Source paging is bounded, but Iceberg upserts and matching-file scans are not claimed to have bounded memory for arbitrary workloads. Source reads are not a cross-table transactional snapshot while writes are occurring. The engine still does not build Gold, publish analytics, replace maintenance or run scheduled DAGs.
+Use both interval flags for incremental extraction. Empty intervals preserve typed staging and existing rows. Native merges retain source history and reject legacy/unclassified Bronze. Source paging is bounded, but Iceberg upserts and matching-file scans are not claimed to have bounded memory for arbitrary workloads. Source reads are not a cross-table transactional snapshot while writes are occurring. This source CLI does not build Gold or publish analytics; the separate Gold CLI below handles those steps in migration namespaces. Neither replaces maintenance or scheduled DAGs.
 
 The clean all-source run `tlcn-stack-7e0f251bbd` passed on 10/11/2026 in 381.475 seconds including both engines and service lifecycle. All 27 tables contained data (600 initial source rows), 54 Bronze/Silver business-column fingerprints matched Spark, two API COD purchases moved current orders from 30 to 32, and all 27 fault cases matched quarantine codes/semantic JSON. Replay, empty intervals, older backfill, old snapshots and legacy-source rejection passed. See [acceptance evidence](../docs/operations.md#nghiệm-thu-27-nguồn-ngày-10112026); this is not a performance or serving cutover claim.
+
+
+### Native Gold, quality gate and publication
+
+`jobs.oltp.run_polars_gold` builds all 27 existing Gold contracts using Polars/PyIceberg. Run it after all-source Bronze/Silver, with the same configured isolated environment:
+
+```bash
+PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline --extra polars -- \
+  python -m jobs.oltp.run_polars_gold \
+  --namespace-prefix polars_batch_local --run-id gold_initial \
+  --as-of 2026-11-10T10:00:00Z
+
+RUN_POLARS_GOLD_STACK_TESTS=1 PYTHONPATH=pipelines/src \
+  uv run --locked --all-packages --extra polars -- \
+  python -m unittest discover -s pipelines/tests -p test_polars_gold_stack.py -v
+```
+
+Choose the observation timestamp for the actual data; `--as-of` must include a timezone. `--batch-date` optionally labels the audit's logical date. Processing timestamps remain actual ingestion time. `--verify-only` audits existing tables without rebuilding or publishing. Rebuild the Python image before the stack check.
+
+One prefix lock serializes native source/Gold jobs. Gold reads pinned Silver snapshots, reads back its own Gold commits, persists all 55 checks, and publishes only on success. Schema-v3 manifests pin 54 physical Silver/Gold names under the migration prefix, including explicit null snapshot IDs for empty tables. They do not redirect existing Superset/serving readers. Failed gates retain the previous publication; rerunning a logical run updates one publication row. Inventory history retains prior day partitions, while current summaries select the observation day. Integer VND allocation uses Int128 intermediates; parity fingerprints compare DOUBLE fields at six decimal places and integer money exactly.
+
+The stack check uses the real Spark implementation as a reference, private PostgreSQL/MinIO/Polaris/Trino, two actual API COD purchases, a deliberately corrupted mart, gate recovery and pinned old-manifest reads. It does not establish scale or production latency. Native log rollups, hard-delete handling, maintenance, Airflow scheduling and BI serving cutover remain pending.

@@ -26,7 +26,7 @@
 
 The current interface is a **Streamlit Generator Console** for generating/importing datasets, running online purchase scenarios, and managing existing Lakehouse access bindings. An optional **Apache Superset sales PoC** reads two published sales marts. The legacy Next.js application remains in source and CI, but is not started by Compose; its retired business BI endpoints are no longer available.
 
-> **Three separate data paths:** Airflow/Spark batch is the only OLTP Silver/Gold writer. PostgreSQL CDC records Bronze audit events. API access logs flow through Kafka/Flink to Landing, then through a separate Spark pipeline and publication. CDC capture alone does not refresh sales dashboards.
+> **Three separate data paths:** Airflow/Spark batch is the only writer of the serving OLTP Silver/Gold namespaces. PostgreSQL CDC records Bronze audit events. API access logs flow through Kafka/Flink to Landing, then through a separate Spark pipeline and publication. CDC capture alone does not refresh sales dashboards.
 
 ## Features
 
@@ -192,7 +192,7 @@ FastAPI retains source write operations and the lookups needed to supply their I
 
 Both require `admin`/`system_admin`. Streamlit access administration uses the internal service to inspect and assign/revoke supported existing bindings; account creation, arbitrary policy editing and secret rotation are outside its current scope.
 
-The optional **Polars + PyIceberg migration runtime** includes the categories pilot and an all-27-source Bronze/Silver CLI with validation, PII pseudonymization and quarantine. It writes isolated namespaces, stays outside scheduled serving, and does not publish BI data. Setup, opt-in checks and limitations are in the [pipeline guide](pipelines/README.md#polars--pyiceberg-migration-pilot). Spark remains the production batch/log engine.
+The optional **Polars + PyIceberg migration runtime** includes the categories pilot and an all-27-source Bronze/Silver CLI with validation, PII pseudonymization and quarantine. It also builds all 27 Gold tables, persists 55 quality checks and publishes validated snapshot manifests in isolated migration namespaces. It stays outside scheduled serving and the current BI readers. Setup, opt-in checks and limitations are in the [pipeline guide](pipelines/README.md#polars--pyiceberg-migration-pilot). Spark remains the production batch/log engine.
 
 ## Development Commands
 

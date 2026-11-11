@@ -264,3 +264,32 @@ Run sạch `tlcn-stack-7e0f251bbd` đạt trong **381,475 giây**, gồm khởi 
 - Pipeline offline đạt 34 test, bỏ qua 6 integration opt-in; có 9 test mới cho bước 27 nguồn. Ruff, format, lock/dependency checks, liên kết local và byte của `FINAL_REPORT.md` được kiểm tra. Network/volume/container riêng đã dọn; dữ liệu triển khai hiện có không thay đổi.
 
 Phạm vi nghiệm thu là fixture nhỏ và các quy tắc hiện tại. Arrow casts là strict; giá trị ngoài miền biểu diễn của schema Silver cần được chốt chính sách riêng trước cutover. Chưa nghiệm thu throughput, tải lớn hoặc toàn bộ pipeline production bằng engine native.
+
+### Gold native: chạy, audit và xử lý gate
+
+CLI `jobs.oltp.run_polars_gold` xây đủ 27 bảng, ghi audit 55 kiểm tra ở `<prefix>_system.data_quality_results` rồi mới cập nhật `<prefix>_system.analytics_publications`. Giữ nguyên `--as-of` khi retry cùng lần quan sát. Khi gate thất bại, xem các audit `status='FAILED'` theo `run_id`; sửa nguyên nhân hoặc rebuild rồi audit lại. Không bỏ qua gate bằng cách tự sửa manifest.
+
+`--verify-only` kiểm tra snapshot hiện tại và lưu audit, không tạo/cập nhật publication. Cùng `run_id`/`source_mode` chỉ có một publication logic; audit vẫn append từng lần kiểm tra. Manifest cũ ghim snapshot đã audit, nên rebuild thất bại không đổi kết quả đọc manifest đó. Không expire snapshot đang còn được publication sử dụng.
+
+```bash
+PYTHONPATH=pipelines/src .venv/bin/python -m unittest discover -s pipelines/tests -v
+RUN_POLARS_GOLD_STACK_TESTS=1 PYTHONPATH=pipelines/src \
+  .venv/bin/python -m unittest discover -s pipelines/tests -p test_polars_gold_stack.py -v
+```
+
+Rebuild image Python theo hướng dẫn setup trước integration. Fixture riêng dùng PostgreSQL/MinIO/Polaris/Trino, Spark tham chiếu và API nguồn; không cần Kafka/Flink/Airflow cho ca Gold này. Fingerprint bỏ metadata ingest/run, chuẩn hóa DATE và so DOUBLE ở sáu chữ số thập phân; tiền VND nguyên phải khớp chính xác. Kiểm tra lịch sử tồn kho có fixture ngày trước được chèn chủ động, không tuyên bố tái dựng lịch sử thực từ một snapshot nguồn.
+
+Phần native vẫn dùng DataFrame/bảng đọc vào bộ nhớ; chưa nghiệm thu dữ liệu lớn, giới hạn RAM hoặc latency production. Access-log rollups, maintenance, hard delete, Airflow và reader BI chưa chuyển engine.
+
+
+### Nghiệm thu Gold native ngày 10/11/2026
+
+Run riêng `tlcn-stack-dc4b12de35` đạt trong **361,334 giây**, gồm khởi động/dọn stack và hai engine; không dùng số này để kết luận engine nào nhanh hơn. Report local (gitignored): `data/pipeline-runs/tlcn-stack-dc4b12de35/report.json`.
+
+- Cả 27 bảng Gold khớp fingerprint nghiệp vụ Spark ở lượt đầu và lượt cập nhật; mỗi engine đạt 55/55 kiểm tra ở cả hai lượt.
+- Hai đơn COD qua API thật tăng số đơn 30 → 32; giá trị đặt hàng 11.565.410 → 12.063.410 VND; doanh thu đã ghi nhận giữ 8.618.410 VND. Trino đọc theo manifest mới và vẫn đọc được kết quả cũ qua manifest trước đó.
+- Sửa sai tổng tiền mart trong fixture khiến gate chặn publication và lưu audit lỗi. Rebuild phục hồi cùng `run_id` giữ một publication logic; `--verify-only` đạt không tạo publication. Sau lượt cập nhật có hai publication logic.
+- Snapshot tồn kho giữ hai ngày (56 dòng) trong daily, còn current chỉ giữ ngày quan sát (28 dòng). Ngày trước là fixture chủ động để kiểm tra retention.
+- Bộ pipeline offline có 50 test: 43 đạt, 7 integration opt-in được bỏ qua; ca Gold stack được chạy riêng và đạt. Image Python không cần Java/PySpark. Các tài nguyên stack riêng đã được dọn.
+
+Gold native vẫn là luồng migration riêng, chưa thay production Airflow/Spark hoặc Superset. Chưa có nghiệm thu tải lớn/hiệu năng và chưa chuyển log, hard delete hay maintenance.
