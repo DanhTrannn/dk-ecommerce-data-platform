@@ -104,8 +104,8 @@ Service và port cụ thể lấy từ [Compose](../docker-compose.yml). Không 
 
 ### Engine batch
 
-Image `infrastructure/batch/Dockerfile` chứa Polars 2.1.0, PyIceberg 0.12.0, PyArrow và dbt-trino; Airflow dùng cùng môi trường qua `PIPELINE_PYTHON`. Không còn Spark hoặc Java trong runtime batch. Chi tiết job, kiểm tra và giới hạn ở [pipelines README](../pipelines/README.md).
+Image `infrastructure/batch/Dockerfile` chứa Polars 2.1.0, PyIceberg 0.12.0, PyArrow và dbt-trino; Airflow dùng cùng môi trường qua `PIPELINE_PYTHON`. Chi tiết job, kiểm tra và giới hạn ở [pipelines README](../pipelines/README.md).
 
 ## 7. Phần chưa hoàn tất
 
-Hard delete ở nguồn không còn được đồng bộ sang Silver sau khi gỡ CDC. Superset còn cần mở rộng tới các nhóm mart khác, quyền viewer/store, chọn publication mới và vòng đời asset/snapshot. Chưa chuyển hết BI hoặc tự sync từ Airflow. Dọn Next.js sau khi có đủ chức năng thay thế. Generator chưa hiệu chỉnh toàn bộ hành vi theo dữ liệu Việt Nam; runner chưa bao phủ mọi API nghiệp vụ. Benchmark production, HA/disaster recovery, tự replay DLQ và hardening triển khai public chưa được nghiệm thu.
+Hard delete ở nguồn chưa được đồng bộ sang Silver. Superset còn cần mở rộng tới các nhóm mart khác, quyền viewer/store, chọn publication mới và vòng đời asset/snapshot. Chưa chuyển hết BI hoặc tự sync từ Airflow. Dọn Next.js sau khi có đủ chức năng thay thế. Generator chưa hiệu chỉnh toàn bộ hành vi theo dữ liệu Việt Nam; runner chưa bao phủ mọi API nghiệp vụ. Benchmark production, HA/disaster recovery, tự replay DLQ và hardening triển khai public chưa được nghiệm thu.

@@ -98,11 +98,7 @@ Native batch dedup theo PK/cursor/thời gian ingest, giữ guard chống backfi
 
 DAG chạy với prefix `serving`; CLI nhận prefix khác để chạy thử trong namespace riêng. Việc stage toàn bộ nguồn hoàn tất trước khi merge dữ liệu, nhưng các commit bảng vẫn độc lập, không phải transaction đa bảng. Đọc nguồn theo trang không đồng nghĩa snapshot giao dịch nhất quán toàn bộ 27 bảng khi nguồn đang thay đổi.
 
-## 4. CDC (đã gỡ)
-
-Luồng CDC (PostgreSQL WAL → Debezium → Kafka → Flink → `lakehouse.bronze.oltp_cdc_events`) và DAG đồng bộ hard delete đã bị gỡ. Batch là đường duy nhất đưa dữ liệu nguồn vào Lakehouse; vì không còn sự kiện xóa, `cart_items`/`wishlist_items` bị xóa ở PostgreSQL vẫn còn trong Silver. Môi trường cũ còn giữ bảng `bronze.oltp_cdc_events`, replication slot `ecommerce_cdc`, publication `ecommerce_publication` và role `debezium` cho đến khi xóa thủ công.
-
-## 5. Access-log contract và xử lý
+## 4. Access-log contract và xử lý
 
 Contract mang `schema.name=ecommerce.access`, version `1.0.0`. Parser thực thi tại [parser.py](../pipelines/src/lakehouse/logs/parser.py); middleware/builder tại [API core](../services/platform-app/src/platform_app/api/core/access_logging.py). Không mô tả parser như một full JSON Schema validator.
 
@@ -122,7 +118,7 @@ Flink giữ decoded raw payload, kể cả sai contract. Pipeline log dùng raw 
 
 Product resolver dùng Silver products/variants theo snapshot OLTP đã công bố khi build log mart. Khóa chưa resolve giữ riêng; không gán sản phẩm tùy ý. Log publication lưu các snapshot đầu vào và mốc `observed_at`. Không tự nạp JSONL lịch sử vào Gold hoặc replay DLQ.
 
-## 6. Dimension, fact và 18 mart
+## 5. Dimension, fact và 18 mart
 
 Dimension nghiệp vụ: `dim_date`, `dim_customer`, `dim_product`, `dim_variant`, `dim_store`, `dim_delivery_staff`. Fact nghiệp vụ: `fact_order` (một dòng/đơn), `fact_order_item` (một dòng/item), `fact_shipment`, `fact_return_exchange`, `fact_inventory_daily_snapshot`, `fact_inventory_current`. Log có `fact_web_events` theo request ID.
 
@@ -149,7 +145,7 @@ Dimension nghiệp vụ: `dim_date`, `dim_customer`, `dim_product`, `dim_variant
 
 Bốn summary hiện tại không phải chuỗi lịch sử theo mọi mốc build. Không cộng nhiều ngày snapshot tồn thành tồn hiện tại. DDL đầy đủ và partition nằm trong [SQL contracts](../pipelines/src/lakehouse/sql_templates/contracts/gold/).
 
-## 7. Định nghĩa KPI và chất lượng
+## 6. Định nghĩa KPI và chất lượng
 
 | Chỉ số | Công thức/diễn giải |
 |---|---|
@@ -176,7 +172,7 @@ Phân biệt NULL/chưa quan sát, 0 được đo từ nguồn hợp lệ và un
 
 Gold gate kiểm tra count/tiền/key/reference/lineage/PII và parity item → order → mart; chỉ publish sau khi đạt. Kết quả lưu `lakehouse.system.data_quality_results`. Đối soát source–Silver đọc nguồn hiện tại, nên cần nguồn đứng yên để so cùng thời điểm; tolerance theo cấu hình/lệnh, không coi so lệch thời gian là mất dữ liệu.
 
-## 8. Dữ liệu sinh và căn cứ
+## 7. Dữ liệu sinh và căn cứ
 
 Hiện **chưa có runtime sinh dữ liệu**: package `data-generator` (CLI, SQL export, importer, console Streamlit) đã bị gỡ. Thư mục [generator](../generator/README.md) chỉ giữ quy luật và preset để generator mới đọc sau này. Mỗi khối YAML ghi `source`: `measured` (đo trong notebook), `transfer` (đo ở nguồn nước ngoài, áp cho shop thời trang VN như giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản). YAML là danh mục tham số chính thức; tài liệu này không chép lại giá trị.
 
@@ -211,7 +207,7 @@ Giỏ bỏ dở, trọng số lượt xem sản phẩm, các bước request ph�
 
 Các con số trên mô tả dữ liệu nguồn công khai và giả định, **không** chứng nhận tính đại diện cho shop Việt Nam.
 
-## 9. Hồ sơ nguồn nghiên cứu generator
+## 8. Hồ sơ nguồn nghiên cứu generator
 
 Phần này giữ hồ sơ nguồn S01–S11 của nghiên cứu ngày **08/11/2026**, để tra cứu cùng [notebook EDA OLTP](../generator/oltp/notebooks/purchase_behavior_eda.ipynb). Đây là bối cảnh và giới hạn của nghiên cứu đã có, không phải kết quả kiểm định mới trong lần gom tài liệu. Các tỷ lệ khảo sát Việt Nam dưới đây không được dùng để hiệu chỉnh preset generator. S09–S11 là hướng tham khảo, chưa có EDA dữ liệu gốc.
 
@@ -325,6 +321,6 @@ Giữ nguyên tên/cột/grain của `mart_hourly_route_metrics`, `mart_daily_pr
 
 Ánh xạ sản phẩm hỗ trợ slug, ID số, UUID chuẩn 16 bytes và encoding UUID văn bản cũ; UUID có dấu gạch được chuẩn hóa, slug giữ dấu gạch. Product token có ưu tiên hơn variant token. Khóa chưa khớp giữ `raw-product:`/`raw-variant:` để vẫn thấy nhu cầu chưa ánh xạ; mapping làm nhân bản event bị chặn.
 
-Percentile native dùng quantile `equiprobable`, tương ứng nearest-rank chính xác; bỏ duration NULL, làm tròn ba chữ số. Pipeline Spark cũ dùng `percentile_approx`, nên percentile có thể lệch nhẹ so với các publication tạo trước khi chuyển engine. Tham khảo [Polars quantile](https://docs.pola.rs/api/python/stable/reference/expressions/api/polars.Expr.quantile.html).
+Percentile native dùng quantile `equiprobable`, tương ứng nearest-rank chính xác; bỏ duration NULL, làm tròn ba chữ số. Tham khảo [Polars quantile](https://docs.pola.rs/api/python/stable/reference/expressions/api/polars.Expr.quantile.html).
 
 15 kiểm tra gồm timestamp/ID/ngày UTC, trạng thái HTTP/flags, miền duration, ba đối chiếu output sau ghi, ba kiểm tra grain, bảo toàn tổng request route/funnel, checkout và product actions. Audit append vào `<prefix>_system.logs_quality_results`; publication log dùng schema v1 với tên bảng vật lý migration. Gate này không thay thế kiểm tra raw-payload conflict ở Bronze.

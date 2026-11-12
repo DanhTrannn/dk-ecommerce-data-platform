@@ -79,7 +79,7 @@ Integration tests (chỉ giữ local, không có trong git) tự tạo PostgreSQ
 
 Sau bootstrap đủ bảng, đặt `POSTGRES_ECOMMERCE_READER_USER=ecommerce_reader` và password riêng trong `.env`; Compose truyền chúng vào PostgreSQL/Airflow/batch client. Cập nhật container PostgreSQL để nhận biến/mount mới rồi chạy `make source-reader`. Lệnh gọi `infrastructure/postgres/configure-source-reader.sh` bằng tài khoản quản trị PostgreSQL trong container, tạo/cấu hình role chuyên dụng trong một transaction; không tự chạy khi startup và không thay schema hay dữ liệu nghiệp vụ.
 
-Role chỉ SELECT 27 bảng nguồn của batch, không có quyền đọc `customer_credentials` hoặc quyền ghi bảng/sequence. Không dùng role ứng dụng/admin; script từ chối role có đặc quyền, membership hoặc sở hữu database/schema/relation. Mặc định phiên là UTC/read-only. Không grant mặc định cho bảng mới; khi whitelist thay đổi phải review và chạy lại. Script có thể áp lại password cấu hình khi chạy lại; đây không phải công cụ migrate database cũ. Hướng dẫn kết nối và kiểm chứng tại [pipeline guide](../pipelines/README.md#postgresql-batch-source--07112026).
+Role chỉ SELECT 27 bảng nguồn của batch, không có quyền đọc `customer_credentials` hoặc quyền ghi bảng/sequence. Không dùng role ứng dụng/admin; script từ chối role có đặc quyền, membership hoặc sở hữu database/schema/relation. Mặc định phiên là UTC/read-only. Không grant mặc định cho bảng mới; khi whitelist thay đổi phải review và chạy lại. Script có thể áp lại password cấu hình khi chạy lại; đây không phải công cụ migrate database cũ. Cách batch dùng role này xem [pipeline guide](../pipelines/README.md#setup).
 
 ## Metadata Superset tùy chọn
 

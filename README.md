@@ -173,7 +173,7 @@ Publication gates prevent a failed refresh from replacing the last accepted mani
 
 ## Data Generation and Source APIs
 
-OLTP presets live in `generator/oltp/configs/`: `1m.yml`, `10m.yml` and `50m.yml` target about 1, 10 and 50 million orders over 12 months (260,000 / 2,600,000 / 13,000,000 buying customers). Total orders are an outcome of the purchase-frequency rule, not an input. Browsing rules for synthetic access logs live in `generator/logs/configs/access_logs.yml`. No runtime reads these presets yet. See [generator/README.md](generator/README.md) and the [synthetic data notes](docs/data.md#8-dữ-liệu-sinh-và-căn-cứ).
+OLTP presets live in `generator/oltp/configs/`: `1m.yml`, `10m.yml` and `50m.yml` target about 1, 10 and 50 million orders over 12 months (260,000 / 2,600,000 / 13,000,000 buying customers). Total orders are an outcome of the purchase-frequency rule, not an input. Browsing rules for synthetic access logs live in `generator/logs/configs/access_logs.yml`. No runtime reads these presets yet. See [generator/README.md](generator/README.md) and the [synthetic data notes](docs/data.md#7-dữ-liệu-sinh-và-căn-cứ).
 
 Streamlit supports online purchase scenarios and existing Polaris/MinIO binding administration. Scenario runs are persisted under `data/generator/scenarios/`. Purchase attempts create real source API records; uncertain writes are recorded for inspection instead of being blindly replayed. Runtime logs are observed HTTP requests, not historical synthetic sessions.
 
