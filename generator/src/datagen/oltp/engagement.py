@@ -38,7 +38,9 @@ def cart_tables(
     policy = preset.policies.carts
     online = lifecycle.filter(pl.col("channel") == "online").sort("order_id")
     joined = customers.select("customer_id", pl.col("created_at").alias("joined_at"))
-    checked = online.select("order_id", "customer_id", "created_at").join(joined, on="customer_id")
+    checked = online.select("order_id", "customer_id", "created_at").join(
+        joined, on="customer_id", maintain_order="left"
+    )
     lead = _uniform(rng, policy.checkout_lead_minutes, checked.height) * MICROS_PER_MINUTE
     checked = checked.with_columns(
         cart_id=pl.Series(ids.take("carts", checked.height)),
@@ -54,7 +56,9 @@ def cart_tables(
         pl.col("created_at").alias("updated_at"),
         pl.col("created_at").alias("checked_out_at"),
     )
-    checked_items = items.join(checked.select("order_id", "cart_id", "opened_at", "created_at"), on="order_id").select(
+    checked_items = items.join(
+        checked.select("order_id", "cart_id", "opened_at", "created_at"), on="order_id", maintain_order="left"
+    ).select(
         "cart_id",
         "variant_id",
         "quantity",
@@ -84,11 +88,14 @@ def cart_tables(
         }
     ).with_columns(checked_out_at=pl.lit(None, dtype=pl.Datetime("us", "UTC")))
     picks = _random_products(reference, rng, cart_ids, _uniform(rng, policy.active_item_count, count))
-    variant = picks.join(reference.variants.select("product_id", "variant_id"), on="product_id")
+    variant = picks.join(reference.variants.select("product_id", "variant_id"), on="product_id", maintain_order="left")
     variant = variant.with_columns(key=pl.Series(rng.random(variant.height)))
     variant = variant.sort("owner", "product_id", "key").group_by("owner", "product_id", maintain_order=True).first()
     active_items = variant.join(
-        active_carts.select("cart_id", "created_at", "updated_at"), left_on="owner", right_on="cart_id"
+        active_carts.select("cart_id", "created_at", "updated_at"),
+        left_on="owner",
+        right_on="cart_id",
+        maintain_order="left",
     ).select(
         pl.col("owner").alias("cart_id"),
         "variant_id",
@@ -129,10 +136,10 @@ def wishlist_table(
     )
 
     first_bought = (
-        items.join(lifecycle.select("order_id", "customer_id", "created_at"), on="order_id")
+        items.join(lifecycle.select("order_id", "customer_id", "created_at"), on="order_id", maintain_order="left")
         .group_by("customer_id", "product_id")
         .agg(pl.col("created_at").min().alias("bought_at"))
-        .join(owners, on="customer_id")
+        .join(owners, on="customer_id", maintain_order="left")
         .sort("customer_id", "product_id")
     )
     first_bought = first_bought.with_columns(key=pl.Series(rng.random(first_bought.height)))
@@ -140,14 +147,16 @@ def wishlist_table(
         pl.int_range(pl.len()).over("customer_id", order_by="key") < pl.min_horizontal("wanted_bought", "size")
     )
     taken = bought.group_by("customer_id").len().rename({"len": "taken"})
-    rest = owners.join(taken, on="customer_id", how="left").with_columns(
+    rest = owners.join(taken, on="customer_id", how="left", maintain_order="left").with_columns(
         rest=pl.col("size") - pl.col("taken").fill_null(0)
     )
     rest = rest.filter(pl.col("rest") > 0)
     others = _random_products(reference, rng, rest["customer_id"].to_numpy(), rest["rest"].to_numpy()).rename(
         {"owner": "customer_id"}
     )
-    others = others.join(bought.select("customer_id", "product_id"), on=["customer_id", "product_id"], how="anti")
+    others = others.join(
+        bought.select("customer_id", "product_id"), on=["customer_id", "product_id"], how="anti", maintain_order="left"
+    )
 
     anchor = utc_micros(preset.anchor_time)
     start = utc_micros(preset.history_start)

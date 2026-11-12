@@ -133,6 +133,7 @@ def return_tables(
             ranked.select("order_id", "line", "order_item_id", "variant_id", "product_id", "price_vnd"),
             left_on=["order_id", "return_item_index"],
             right_on=["order_id", "line"],
+            maintain_order="left",
         )
         .sort("return_id")
     )
@@ -231,7 +232,7 @@ def _exchange_variants(lines: pl.DataFrame, reference: Reference, rng: np.random
     options = (
         lines.filter(pl.col("return_action") == "exchange")
         .select("return_id", "product_id", pl.col("variant_id").alias("returned"))
-        .join(reference.variants.select("product_id", "variant_id"), on="product_id")
+        .join(reference.variants.select("product_id", "variant_id"), on="product_id", maintain_order="left")
         .filter(pl.col("variant_id") != pl.col("returned"))
         .sort("return_id", "variant_id")
     )
@@ -239,7 +240,7 @@ def _exchange_variants(lines: pl.DataFrame, reference: Reference, rng: np.random
     chosen = options.sort("return_id", "key").group_by("return_id", maintain_order=True).first()
     return (
         lines.select("return_id")
-        .join(chosen.select("return_id", "variant_id"), on="return_id", how="left")["variant_id"]
+        .join(chosen.select("return_id", "variant_id"), on="return_id", how="left", maintain_order="left")["variant_id"]
         .alias("exchange_variant_id")
     )
 
@@ -284,12 +285,14 @@ def review_table(
     """One review per reviewed order, on an item chosen uniformly; rejected reviews carry their moderation."""
     reviewed = lifecycle.filter(pl.col("review_at").is_not_null()).sort("order_id")
     counts = items.group_by("order_id").len()
-    reviewed = reviewed.join(counts, on="order_id")
+    reviewed = reviewed.join(counts, on="order_id", maintain_order="left")
     reviewed = reviewed.with_columns(
         line=pl.Series(np.floor(rng.random(reviewed.height) * reviewed["len"].to_numpy()).astype(np.int64))
     )
     ranked = items.with_columns(line=pl.int_range(pl.len()).over("order_id", order_by="variant_id"))
-    rows = reviewed.join(ranked.select("order_id", "line", "order_item_id", "product_id"), on=["order_id", "line"])
+    rows = reviewed.join(
+        ranked.select("order_id", "line", "order_item_id", "product_id"), on=["order_id", "line"], maintain_order="left"
+    )
     rows = rows.sort("order_id").with_columns(review_id=pl.Series(ids.take("product_reviews", rows.height)))
     rejected = pl.col("review_status") == "rejected"
     return conform(

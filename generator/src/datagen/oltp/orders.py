@@ -115,7 +115,7 @@ def draw_order_items(
     slots = slots.with_columns(
         wanted=pl.Series(sample_frequency_table(rng, preset.baskets.variants_per_product, slots.height))
     )
-    options = slots.join(reference.variants.select("product_id", "variant_id"), on="product_id")
+    options = slots.join(reference.variants.select("product_id", "variant_id"), on="product_id", maintain_order="left")
     options = options.with_columns(key=pl.Series(rng.random(options.height))).sort("slot", "key")
     chosen = options.filter(pl.int_range(pl.len()).over("slot") < pl.col("wanted")).sort("slot", "variant_id")
     quantity = sample_frequency_table(rng, preset.baskets.quantity_per_variant, chosen.height)
@@ -134,11 +134,11 @@ def price_orders(
 ) -> pl.DataFrame:
     """Add subtotal, coupon, discount, shipping fee and total; POS orders get no coupon and no shipping."""
     subtotal = (
-        items.join(reference.variants.select("variant_id", "price_vnd"), on="variant_id")
+        items.join(reference.variants.select("variant_id", "price_vnd"), on="variant_id", maintain_order="left")
         .group_by("order_index")
         .agg((pl.col("price_vnd") * pl.col("quantity")).sum().alias("subtotal_vnd"))
     )
-    orders = orders.join(subtotal, on="order_index", how="left").sort("order_index")
+    orders = orders.join(subtotal, on="order_index", how="left", maintain_order="left").sort("order_index")
     coupons = reference.coupons
     if channel == "pos":
         coupon_id = pl.repeat(None, orders.height, dtype=pl.Int64, eager=True)
@@ -153,9 +153,10 @@ def price_orders(
         ),
         on="coupon_id",
         how="left",
+        maintain_order="left",
     )
     # Usage beyond the per-customer limit falls back to no coupon, counted in order time.
-    use_rank = pl.int_range(1, pl.len() + 1).over("customer_id", "coupon_id", order_by="created_at")
+    use_rank = pl.int_range(1, pl.len() + 1).over("customer_id", "coupon_id", order_by=["created_at", "order_index"])
     orders = orders.with_columns(
         pl.when(use_rank > pl.col("per_customer_usage_limit")).then(None).otherwise(pl.col(name)).alias(name)
         for name in ("coupon_id", "coupon_code", "coupon_percentage")

@@ -62,8 +62,10 @@ def draw_lifecycle(
     failed = cod & ~cancelled & (rng.random(n) < outcomes.cod_failure_rate)
     # A customer whose earlier COD orders failed cod_block_after_failures times pays later orders by VietQR.
     prior_failures = (
-        pl.DataFrame({"customer_id": o["customer_id"], "t": created, "f": failed.astype(np.int64)})
-        .select((pl.col("f").cum_sum() - pl.col("f")).over("customer_id", order_by="t"))
+        pl.DataFrame(
+            {"customer_id": o["customer_id"], "t": created, "i": o["order_index"], "f": failed.astype(np.int64)}
+        )
+        .select((pl.col("f").cum_sum() - pl.col("f")).over("customer_id", order_by=["t", "i"]))
         .to_series()
         .to_numpy()
     )
@@ -123,7 +125,7 @@ def draw_lifecycle(
     wants_return = present["delivered_at"] & (rng.random(n) < outcomes.return_rate)
     exchange = rng.random(n) < outcomes.exchange_rate
     lines = items.group_by("order_index").agg(pl.len().alias("lines"), pl.col("quantity").sum().alias("units"))
-    lines = o.select("order_index").join(lines, on="order_index", how="left")
+    lines = o.select("order_index").join(lines, on="order_index", how="left", maintain_order="left")
     return_item_index = np.floor(rng.random(n) * lines["lines"].to_numpy()).astype(np.int64)
     t["return_requested_at"] = t["completed_at"] + returns.request_delay_days * MICROS_PER_DAY
     present["return_requested_at"] = wants_return.copy()
@@ -168,7 +170,9 @@ def draw_lifecycle(
 
     houses = _uniform(rng, preset.policies.customers.house_number_range, n)
     street = rng.integers(1, 51, n)
-    city_names = o.select("city_id").join(reference.cities.select("city_id", "name"), on="city_id", how="left")["name"]
+    city_names = o.select("city_id").join(
+        reference.cities.select("city_id", "name"), on="city_id", how="left", maintain_order="left"
+    )["name"]
     staff = rng.choice(reference.delivery_staff_ids, size=n)
 
     events = {

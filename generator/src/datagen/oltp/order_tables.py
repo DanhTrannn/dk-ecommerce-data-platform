@@ -43,8 +43,8 @@ def order_tables(
         .with_columns(order_number=pl.format("SYN-{}", pl.col("order_id").cast(pl.String).str.zfill(12)))
     )
     items = (
-        items.join(lifecycle.select("order_index", "order_id", "created_at"), on="order_index")
-        .join(reference.variants, on="variant_id")
+        items.join(lifecycle.select("order_index", "order_id", "created_at"), on="order_index", maintain_order="left")
+        .join(reference.variants, on="variant_id", maintain_order="left")
         .sort("order_index", "variant_id")
     )
     items = items.with_columns(
@@ -202,6 +202,7 @@ def _order_ledger(
     lines = items.select("order_id", "variant_id", "quantity").join(
         lifecycle.select("order_id", "order_number", "channel", "store_id", "created_at", "cancelled_at", "failed_at"),
         on="order_id",
+        maintain_order="left",
     )
     is_pos = pl.col("channel") == "pos"
     parts = [
@@ -233,7 +234,7 @@ def _order_ledger(
             pl.col("failed_at").alias("created_at"),
         ),
     ]
-    ledger = pl.concat(parts).sort("created_at", "order_id", "variant_id", maintain_order=True)
+    ledger = pl.concat(parts).sort("created_at", "order_id", "variant_id", "movement_type")
     return conform(
         "inventory_transactions",
         ledger.with_columns(

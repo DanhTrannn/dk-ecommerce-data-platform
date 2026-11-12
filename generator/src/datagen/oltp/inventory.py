@@ -55,7 +55,7 @@ def inventory_tables(
     buffer = rng.integers(policy.store_buffer_units[0], policy.store_buffer_units[1] + 1, transfers.height)
     transfers = transfers.with_columns(
         quantity=pl.col("outbound") + pl.when(pl.col("first")).then(pl.Series(buffer)).otherwise(0)
-    ).join(starts, on="yearmonth")
+    ).join(starts, on="yearmonth", maintain_order="left")
 
     central_out = demand.filter(pl.col("store_id").is_null()).select("variant_id", "yearmonth", "outbound")
     sent = transfers.group_by("variant_id", "yearmonth").agg(pl.col("quantity").sum().alias("outbound"))
@@ -69,17 +69,17 @@ def inventory_tables(
         .group_by("variant_id", "yearmonth")
         .agg(pl.col("outbound").sum().alias("quantity"))
         .filter(pl.col("quantity") > 0)
-        .join(reference.variants.select("variant_id", "cost_price_vnd"), on="variant_id")
+        .join(reference.variants.select("variant_id", "cost_price_vnd"), on="variant_id", maintain_order="left")
         .sort("yearmonth", "variant_id")
     )
 
-    receipts = needed.select("yearmonth").unique().sort("yearmonth").join(starts, on="yearmonth")
+    receipts = needed.select("yearmonth").unique().sort("yearmonth").join(starts, on="yearmonth", maintain_order="left")
     receipts = receipts.with_columns(
         receipt_id=pl.Series(ids.take("inbound_receipts", receipts.height)),
         public_id=uuid4_strings(rng, receipts.height),
         at=utc_series("at", receipts["month_start"].to_numpy() - 2 * MICROS_PER_HOUR),
     )
-    lines = needed.join(receipts.select("yearmonth", "receipt_id", "at"), on="yearmonth").sort(
+    lines = needed.join(receipts.select("yearmonth", "receipt_id", "at"), on="yearmonth", maintain_order="left").sort(
         "receipt_id", "variant_id"
     )
     lines = lines.with_columns(
@@ -90,7 +90,7 @@ def inventory_tables(
     totals = lines.group_by("receipt_id").agg(
         pl.col("quantity").sum().alias("total_items_count"), pl.col("total_cost_vnd").sum()
     )
-    receipt_rows = receipts.join(totals, on="receipt_id").with_columns(
+    receipt_rows = receipts.join(totals, on="receipt_id", maintain_order="left").with_columns(
         receipt_code=pl.format("SYN-INB-{}", "yearmonth"),
     )
 
@@ -157,7 +157,11 @@ def inventory_tables(
         ]
     )
     central = all_rows.filter(pl.col("store_id").is_null()).group_by("variant_id").agg(pl.col("net").sum())
-    inventory = reference.variants.select("variant_id").join(central, on="variant_id", how="left").sort("variant_id")
+    inventory = (
+        reference.variants.select("variant_id")
+        .join(central, on="variant_id", how="left", maintain_order="left")
+        .sort("variant_id")
+    )
     stores = (
         all_rows.filter(pl.col("store_id").is_not_null()).group_by("store_id", "variant_id").agg(pl.col("net").sum())
     ).sort("store_id", "variant_id")

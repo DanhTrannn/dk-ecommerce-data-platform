@@ -19,7 +19,7 @@ def pos_order_counts(
 ) -> pl.DataFrame:
     """POS orders per (store, month): the city share split evenly over its stores, times the month's intensity."""
     total = round(online_order_count * preset.pos.orders_per_online_order)
-    stores = reference.stores.join(reference.cities.select("city_id", "share"), on="city_id")
+    stores = reference.stores.join(reference.cities.select("city_id", "share"), on="city_id", maintain_order="left")
     stores = stores.with_columns(weight=pl.col("share") / pl.len().over("city_id")).sort("store_id")
     months = (
         pl.DataFrame({"yearmonth": timeline.yearmonth, "weight": timeline.day_weight})

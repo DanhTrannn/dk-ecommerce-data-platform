@@ -129,10 +129,12 @@ def build_reference(
                 pl.col("name").alias("product_name"),
             ),
             on="product_id",
+            maintain_order="left",
         )
         .join(
             pl.DataFrame({"category_code": list(CATEGORY_NAMES), "category_name": list(CATEGORY_NAMES.values())}),
             on="category_code",
+            maintain_order="left",
         )
         .select(
             "variant_id",
