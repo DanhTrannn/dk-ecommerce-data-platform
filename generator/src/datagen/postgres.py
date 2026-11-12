@@ -103,3 +103,11 @@ def sync_sequences(connection) -> None:
 def analyze(connection) -> None:
     with connection.cursor() as cursor:
         cursor.execute("ANALYZE")
+
+
+def number(connection, sql: str, parameters=None) -> float:
+    """The single value of an aggregate query; NaN when the query has nothing to measure."""
+    with connection.cursor() as cursor:
+        cursor.execute(sql, parameters)
+        value = cursor.fetchone()[0]
+    return float("nan") if value is None else float(value)
