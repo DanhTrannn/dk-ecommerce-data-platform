@@ -141,7 +141,7 @@ Số product thực tế bị chặn theo số product khả dụng có trọng 
 
 **Giả định chuyển nguồn:** áp H&M/Olist sang shop của repo, chọn variant đồng đều và dùng chung phân phối quantity. Olist cohort chủ yếu túi/phụ kiện, chỉ 30 đơn có quần áo nữ; chưa đại diện riêng shop nữ Việt Nam. UCI chỉ đối chiếu, không trực tiếp điều khiển giỏ runtime. Chưa thêm quan hệ thực nghiệm giá/giỏ→quantity hoặc quy đổi giá BRL sang VND.
 
-Cohort và phép tính nằm ở [notebook EDA, mục 2.4 và 3.3](../../generator/notebooks/reference_datasets_eda.ipynb). Phạm vi nằm ở [kế hoạch EDA](GENERATOR_EDA_PLAN.md).
+Cohort và phép tính nằm ở [notebook EDA, mục 2.4 và 3.3](../../generator/notebooks/reference_datasets_eda.ipynb).
 
 ## 5. Thời điểm mua và chiến dịch — giả định
 

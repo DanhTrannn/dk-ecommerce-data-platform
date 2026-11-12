@@ -321,7 +321,7 @@ CI uses `--env-file .env.example` because `.env` is not committed and Compose re
 | **CDC** | [CDC_DASHBOARD_DATA_SPEC.md](docs/architecture/CDC_DASHBOARD_DATA_SPEC.md) | Capture contract, replay metadata, and recovery |
 | **Access Logs** | [ACCESS_LOG_DESIGN.md](docs/architecture/ACCESS_LOG_DESIGN.md) | Event contract, privacy rules, and streaming/raw-file boundaries |
 | **Data Generator** | [generator/README.md](generator/README.md) | Synthetic SQL generation and live traffic |
-| **Generator EDA** | [Notebook](generator/notebooks/reference_datasets_eda.ipynb) · [Plan](docs/project/GENERATOR_EDA_PLAN.md) | Purchase behavior research, empirical rules and generator application |
+| **Generator EDA** | [Notebook](generator/notebooks/reference_datasets_eda.ipynb) | Purchase behavior research, empirical rules and generator application |
 | **Generator Console** | [GENERATOR_CONSOLE.md](docs/project/GENERATOR_CONSOLE.md) | Streamlit job workflow, validation, persisted job layout, statuses and scope limits |
 | **Diagrams** | [docs/diagram/README.md](docs/diagram/README.md) | Chapter 3 draw.io sources, SVG figures, and offline HTML viewer |
 | **Business Analysis (B)** | [BUSINESS_DOMAIN.md](docs/architecture/BUSINESS_DOMAIN.md) | Implemented role views, business questions, sources, and KPI limits |
