@@ -6,10 +6,9 @@ from pathlib import Path
 
 import httpx
 
-from platform_app.ui.import_store import stamp
 from platform_app.ui.scenarios.config import PurchaseConfig
 from platform_app.ui.scenarios.purchase import ScenarioFailure, purchase
-from platform_app.ui.scenarios.store import ScenarioStore
+from platform_app.ui.scenarios.store import ScenarioStore, stamp
 
 
 def run(root, run_id, client_factory=None, csrf_cookie=None):

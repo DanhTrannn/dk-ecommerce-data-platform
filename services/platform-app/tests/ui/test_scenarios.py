@@ -12,9 +12,8 @@ import httpx
 from pydantic import ValidationError
 from streamlit.testing.v1 import AppTest
 
-from platform_app.ui.job_store import JobStoreError
 from platform_app.ui.scenarios.config import PurchaseConfig, ScenarioSettings
-from platform_app.ui.scenarios.store import ScenarioStore
+from platform_app.ui.scenarios.store import ScenarioStore, ScenarioStoreError
 from platform_app.ui.scenarios.worker import run
 
 
@@ -159,7 +158,7 @@ class ScenarioTests(unittest.TestCase):
         def start(_):
             try:
                 return self.store.start(PurchaseConfig(), self.settings)
-            except JobStoreError:
+            except ScenarioStoreError:
                 return None
 
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -173,7 +172,7 @@ class ScenarioTests(unittest.TestCase):
 
     def test_launch_failure_is_durable(self):
         with patch.object(self.store, "launcher", side_effect=OSError("private")):
-            with self.assertRaises(JobStoreError):
+            with self.assertRaises(ScenarioStoreError):
                 self.store.start(PurchaseConfig(), self.settings)
         self.assertEqual(self.store.history()[0]["status"], "failed")
         self.assertNotIn("private", json.dumps(self.store.history()))

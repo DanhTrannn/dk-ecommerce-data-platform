@@ -8,15 +8,29 @@ import subprocess
 import sys
 import uuid
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Thread
 
-from platform_app.ui.import_store import stamp
-from platform_app.ui.job_store import JobStore, JobStoreError
 from platform_app.ui.paths import repo_root
 from platform_app.ui.scenarios.config import PurchaseConfig, ScenarioSettings
 
 ACTIVE = {"queued", "running"}
+
+
+class ScenarioStoreError(Exception):
+    """Invalid scenario state or a run that cannot be started/updated."""
+
+
+def stamp() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    os.replace(temporary, path)
 
 
 def _launch(root, run_id):
@@ -56,10 +70,10 @@ class ScenarioStore:
 
     def path(self, run_id):
         if not re.fullmatch(r"[a-f0-9]{32}", run_id):
-            raise JobStoreError("Invalid scenario run ID")
+            raise ScenarioStoreError("Invalid scenario run ID")
         path = self.root / f"{run_id}.json"
         if path.is_symlink():
-            raise JobStoreError("Invalid scenario record")
+            raise ScenarioStoreError("Invalid scenario record")
         return path
 
     @contextmanager
@@ -75,11 +89,11 @@ class ScenarioStore:
     def read(self, run_id):
         record = json.loads(self.path(run_id).read_text(encoding="utf-8"))
         if record["run_id"] != run_id:
-            raise JobStoreError("Scenario identity mismatch")
+            raise ScenarioStoreError("Scenario identity mismatch")
         return record
 
     def write(self, record):
-        JobStore._write_json(self.path(record["run_id"]), record)
+        _write_json(self.path(record["run_id"]), record)
 
     def history(self):
         return sorted(
@@ -105,7 +119,7 @@ class ScenarioStore:
         self.reconcile()
         with self.lock():
             if any(row["status"] in ACTIVE for row in self.history()):
-                raise JobStoreError("Đang có kịch bản chạy; chờ hoàn tất hoặc yêu cầu dừng.")
+                raise ScenarioStoreError("Đang có kịch bản chạy; chờ hoàn tất hoặc yêu cầu dừng.")
             record = dict(
                 run_id=uuid.uuid4().hex,
                 config=config.model_dump(),
@@ -128,7 +142,7 @@ class ScenarioStore:
             except Exception:
                 record.update(status="failed", finished_at=stamp(), message="Không khởi động được worker.")
                 self.write(record)
-                raise JobStoreError(record["message"]) from None
+                raise ScenarioStoreError(record["message"]) from None
             self.write(record)
             return record
 
@@ -136,7 +150,7 @@ class ScenarioStore:
         with self.lock():
             record = self.read(run_id)
             if record["status"] != "queued" or record["pid"] != os.getpid():
-                raise JobStoreError("Scenario is not assigned to this worker")
+                raise ScenarioStoreError("Scenario is not assigned to this worker")
             record.update(status="running", started_at=stamp())
             self.write(record)
             return record
@@ -145,7 +159,7 @@ class ScenarioStore:
         with self.lock():
             record = self.read(run_id)
             if record["status"] != "running" or record["pid"] != os.getpid():
-                raise JobStoreError("Scenario is no longer owned by this worker")
+                raise ScenarioStoreError("Scenario is no longer owned by this worker")
             change(record)
             self.write(record)
             return record

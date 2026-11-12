@@ -2,18 +2,29 @@
 
 import os
 import uuid
-from datetime import UTC, datetime
 from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from generator.locations import LocationConfig, locations_sql
-from generator.postgres_sql import lock_sql, restart_identities_sql
-from generator.sql_export import _sql_literal
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from .db.postgres_fixture import PostgresFixture
+
+# Checkout/POS uses the HCM store; permission tests assign the highest store_id (another city).
+# No location seed exists outside the generator.
+LOCATION_SQL = """
+INSERT INTO public.cities(code, name, is_active, created_at, updated_at)
+VALUES ('HCM', 'Hồ Chí Minh', TRUE, now(), now()), ('HN', 'Hà Nội', TRUE, now(), now());
+INSERT INTO public.stores(city_id, code, name, address, phone, is_active, created_at, updated_at)
+SELECT c.city_id, v.code, v.name, v.address, v.phone, TRUE, now(), now()
+FROM (VALUES
+    (1, 'HCM', 'HCM-CENTRE', 'Trung tâm Sài Gòn', '123 Nguyễn Huệ, Quận 1', '028-1234-5678'),
+    (2, 'HN', 'HN-CENTRE', 'Cửa hàng Hoàn Kiếm', '789 Hàng Bài, Hoàn Kiếm', '024-1111-2222')
+) AS v(ordinal, city_code, code, name, address, phone)
+JOIN public.cities c ON c.code = v.city_code
+ORDER BY v.ordinal;
+"""
 
 
 class SourceAPIFixture(PostgresFixture):
@@ -67,12 +78,7 @@ class SourceAPIFixture(PostgresFixture):
         with self.engine.begin() as connection:
             tables = ",".join(f'public."{name}"' for name in sorted(Base.metadata.tables))
             connection.exec_driver_sql(f"TRUNCATE {tables} RESTART IDENTITY CASCADE")
-            connection.exec_driver_sql(lock_sql())
-            connection.exec_driver_sql(
-                locations_sql(LocationConfig(), datetime.now(UTC), _sql_literal),
-                execution_options={"no_parameters": True},
-            )
-            connection.exec_driver_sql(restart_identities_sql(), execution_options={"no_parameters": True})
+            connection.exec_driver_sql(LOCATION_SQL)
         seed(self.factory, self.settings)
         self.admin = self.client()
         self.call(self.admin, "POST", "/api/v1/auth/login", {"email": "admin@example.com", "password": self.password})

@@ -13,13 +13,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never \
     PATH="/app/.venv/bin:$PATH" \
     GENERATOR_CONSOLE_REPO_ROOT=/app \
-    GENERATOR_CONFIGS_DIR=/app/generator/configs \
     GENERATOR_CONSOLE_DATA_DIR=/data/generator/jobs
 
 WORKDIR /app
 
 COPY pyproject.toml uv.lock .python-version ./
-COPY generator/pyproject.toml generator/pyproject.toml
 COPY pipelines/pyproject.toml pipelines/pyproject.toml
 COPY services/platform-app/pyproject.toml services/platform-app/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -29,13 +27,9 @@ COPY services/platform-app/src services/platform-app/src
 COPY database database
 COPY services/platform-app/start.sh /app/start.sh
 COPY infrastructure/polaris/rbac.yml /app/infrastructure/polaris/rbac.yml
-COPY generator/src generator/src
-COPY generator/configs generator/configs
-COPY generator/profiles generator/profiles
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable \
         --reinstall-package platform-app \
-        --reinstall-package data-generator \
         --package platform-app
 
 EXPOSE 8000 8501

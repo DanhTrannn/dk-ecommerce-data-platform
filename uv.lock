@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.11.*"
 resolution-markers = [
     "python_full_version >= '3.11.5' and sys_platform == 'win32'",
@@ -13,7 +13,6 @@ resolution-markers = [
 [manifest]
 members = [
     "batch-pipeline",
-    "data-generator",
     "lakehouse-workspace",
     "platform-app",
 ]
@@ -403,21 +402,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a9/95/a3dbbb5028f35eafb79008e7522a75244477d2838f38cbb722248dabc2a8/cycler-0.12.1.tar.gz", hash = "sha256:88bb128f02ba341da8ef447245a9e138fae777f6a23943da4540077d3601eb1c", size = 7615, upload-time = "2023-10-07T05:32:18.335Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl", hash = "sha256:85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30", size = 8321, upload-time = "2023-10-07T05:32:16.783Z" },
-]
-
-[[package]]
-name = "data-generator"
-version = "0.11.0"
-source = { editable = "generator" }
-dependencies = [
-    { name = "argon2-cffi" },
-    { name = "pyyaml" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "argon2-cffi", specifier = "==25.1.0" },
-    { name = "pyyaml", specifier = "==6.0.2" },
 ]
 
 [[package]]
@@ -1071,7 +1055,6 @@ dependencies = [
     { name = "aiokafka" },
     { name = "anyio" },
     { name = "argon2-cffi" },
-    { name = "data-generator" },
     { name = "email-validator" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -1092,7 +1075,6 @@ requires-dist = [
     { name = "aiokafka", specifier = "==0.11.0" },
     { name = "anyio", specifier = "==4.14.2" },
     { name = "argon2-cffi", specifier = "==25.1.0" },
-    { name = "data-generator", editable = "generator" },
     { name = "email-validator", specifier = "==2.2.0" },
     { name = "fastapi", specifier = "==0.116.1" },
     { name = "httpx", specifier = "==0.28.1" },
