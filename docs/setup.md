@@ -79,19 +79,15 @@ uv run --locked --package platform-app -- \
 
 Không dùng DDL bootstrap để nâng cấp volume đang có, và không nhập SQL MySQL cũ. Đổi schema thực cần thao tác/migration được review riêng.
 
-### Sinh và import SQL
+### Seed và dữ liệu lịch sử
 
 ```bash
-uv run --locked --package data-generator -- generator export-sql \
-  --config generator/configs/small.yml --output data/generator/small.sql
-uv run --locked --package platform-app -- \
-  python -m platform_app.api.db.import_dataset data/generator/small.sql
 make seed
 ```
 
-Host importer/seed đọc `API_DATABASE_URL` và `API_SECRET_KEY` trong môi trường host; URL phải tới PostgreSQL qua port host và dùng owner nguồn. Có thể dùng Streamlit để sinh/nạp job thay CLI. Seed bổ sung catalog/admin còn thiếu; địa điểm thuộc generator, không còn seed riêng `0010_multi_city_stores.py`.
+Seed đọc `API_DATABASE_URL` và `API_SECRET_KEY` trong môi trường host; URL phải tới PostgreSQL qua port host và dùng owner nguồn. Seed bổ sung catalog/admin còn thiếu và giữ record/credential đã có; **không tạo `cities`/`stores`**.
 
-Importer chỉ nhận SQL generator tin cậy: schema/checksum/count/lineage gate, khóa bảng, transaction, đối soát tiền/kho, restart sequence và chặn dataset đã tồn tại. Không tự xóa dữ liệu hoặc upsert một dataset khác; seed chạy lại giữ các record/credential đã có. Sinh file không tự nạp file hoặc chạy pipeline.
+Hiện chưa có công cụ sinh hoặc nạp dữ liệu lịch sử: package `data-generator`, importer `import_dataset` và chức năng sinh/nạp trên Streamlit đã bị gỡ. Generator mới sẽ đọc preset trong `generator/oltp/configs/` và `generator/logs/configs/`; xem [generator](../generator/README.md).
 
 ### API và Streamlit
 
@@ -101,12 +97,10 @@ docker compose --profile core up -d --build platform-app lakehouse-access
 
 Mở Streamlit tại `http://127.0.0.1:8501`; FastAPI `/docs` tại port 8000 nếu docs được bật. Console có các phần:
 
-- Tạo job SQL từ preset/form/YAML, theo dõi stage và tải artifact.
-- Kết quả/lịch sử: chọn job hoàn tất để nạp PostgreSQL bằng thao tác riêng.
 - Mô phỏng API: khách mới → catalog → giỏ → quote → checkout → hậu kiểm; chưa tự fulfillment/POS/đổi trả.
 - Quản trị quyền: đăng nhập bằng admin/system_admin nguồn, xem và gán/gỡ binding đã hỗ trợ.
 
-Nguồn cần catalog active và tồn kho đủ để runner mua hàng. Không tự replay thao tác ghi có kết quả chưa rõ. Job/scenario/import được ghi dưới `data/generator/` để tiếp tục xem sau restart.
+Nguồn cần catalog active và tồn kho đủ để runner mua hàng. Không tự replay thao tác ghi có kết quả chưa rõ. Run mô phỏng được ghi dưới `data/generator/scenarios/` để tiếp tục xem sau restart.
 
 Chạy local thay Docker:
 
@@ -117,7 +111,7 @@ uv run --locked --package platform-app -- \
 uv run --locked --package platform-app platform-app
 ```
 
-Thay bootstrap admin trong `.env` phục vụ lệnh seed host; Compose không forward các biến bootstrap admin vào platform-app. Seed trước khi đăng nhập phần quản trị quyền; console generator local không phải hệ thống auth public đã harden.
+Thay bootstrap admin trong `.env` phục vụ lệnh seed host; Compose không forward các biến bootstrap admin vào platform-app. Seed trước khi đăng nhập phần quản trị quyền; Platform Console local không phải hệ thống auth public đã harden.
 
 ## 4. Cấp quyền và chạy batch
 
@@ -154,7 +148,7 @@ Nếu kích hoạt interval DAG qua Airflow API v2, phải cung cấp interval h
 }
 ```
 
-Đây không thay thế full init/backfill và không khẳng định mọi manual trigger không có interval đều chạy được. Auth/API trigger được dùng trong [stack helper](../pipelines/tests/stack/runtime.py).
+Đây không thay thế full init/backfill và không khẳng định mọi manual trigger không có interval đều chạy được. Auth/API trigger được dùng trong stack helper `pipelines/tests/stack/runtime.py` (test chỉ có ở local).
 
 ## 5. CDC và access log
 

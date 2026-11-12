@@ -24,13 +24,13 @@
 
 **D&K E-Commerce Data Platform** is a local Data Engineering project for a Vietnamese retailer with online and in-store sales. It combines configurable synthetic transaction data, a FastAPI source application, batch processing, PostgreSQL change capture, and real API access logs. Analytical tables use Apache Iceberg on MinIO, an Apache Polaris catalog, and Trino for SQL access.
 
-The current interface is a **Streamlit Generator Console** for generating/importing datasets, running online purchase scenarios, and managing existing Lakehouse access bindings. An optional **Apache Superset sales PoC** reads two published sales marts. The legacy Next.js application remains in source and CI, but is not started by Compose; its retired business BI endpoints are no longer available.
+The current interface is a **Streamlit Platform Console** for running online purchase scenarios against the API and managing existing Lakehouse access bindings. An optional **Apache Superset sales PoC** reads two published sales marts. The legacy Next.js application remains in source and CI, but is not started by Compose; its retired business BI endpoints are no longer available.
 
 > **Three separate data paths:** Airflow/Spark batch is the only writer of the serving OLTP Silver/Gold namespaces. PostgreSQL CDC records Bronze audit events. API access logs flow through Kafka/Flink to Landing, then through a separate Spark pipeline and publication. CDC capture alone does not refresh sales dashboards.
 
 ## Features
 
-- **Synthetic retail datasets:** Generator 0.10 exports PostgreSQL SQL with related orders, payments, inventory, receipts, delivery, returns and reviews. Product-rank demand weights use H&M research; other behavioral parameters remain explicit scenario assumptions.
+- **Synthetic data rules:** EDA notebooks derive purchase rules (H&M, Olist) and browsing rules (eCommerce Behavior) into YAML presets for OLTP (`1m`/`10m`/`50m` orders per year) and access logs. The SQL generator that consumes them is not implemented yet; see [generator/README.md](generator/README.md).
 - **Source workflows:** Retained APIs cover authentication, products, cart/checkout, POS, stock, inbound receipts, payments, delivery, returns and reviews. Streamlit currently automates online purchase attempts; it does not automate every retained API workflow.
 - **Incremental batch:** Fixed Airflow intervals, paginated JDBC staging, Bronze history, Silver typing/deduplication/MERGE and PII pseudonymization, followed by Gold rebuilds and validation.
 - **Open Lakehouse:** Iceberg snapshots, Polaris access control, MinIO workload accounts, Trino read-only access, and scheduled maintenance for an explicit table subset.
@@ -84,19 +84,12 @@ docker compose exec -T postgres sh -c \
   'PGPASSWORD="$POSTGRES_ECOMMERCE_PASSWORD" exec psql -X -v ON_ERROR_STOP=1 --host=127.0.0.1 --username="$POSTGRES_ECOMMERCE_USER" --dbname="$POSTGRES_ECOMMERCE_DB"' \
   < database/schema.sql
 
-uv run --locked --package data-generator -- generator export-sql \
-  --config generator/configs/small.yml \
-  --output data/generator/small.sql
-
-# Host API_DATABASE_URL must target the source PostgreSQL database:
-uv run --locked --package platform-app -- \
-  python -m platform_app.api.db.import_dataset data/generator/small.sql
 make seed
 make source-reader
 make up PROFILES=core,batch
 ```
 
-The importer accepts trusted generator SQL, validates it and loads it transactionally; it rejects duplicate runs. Generated SQL includes store/city locations. `make seed` supplies application catalog/bootstrap accounts, with optional admin credentials supplied to the host process. Existing databases are not migrated automatically. See [database/README.md](database/README.md) before importing into a nonempty database.
+There is currently no bulk dataset import: the previous generator and its SQL importer were removed, and the new generator is pending. `make seed` supplies application catalog/bootstrap accounts, with optional admin credentials supplied to the host process; it does not create cities or stores. Existing databases are not migrated automatically. See [database/README.md](database/README.md) before importing into a nonempty database.
 
 ### Run data pipelines
 
@@ -136,7 +129,7 @@ Open the dashboard URL returned by sync. Each dashboard is pinned to one publica
 
 | Interface | Default local address |
 |---|---|
-| Streamlit Generator Console | <http://127.0.0.1:8501> |
+| Streamlit Platform Console | <http://127.0.0.1:8501> |
 | FastAPI / OpenAPI UI | <http://127.0.0.1:8000/docs> |
 | Airflow | <http://localhost:8080> |
 | Trino | <http://127.0.0.1:8084> |
@@ -166,7 +159,7 @@ Publication gates prevent a failed refresh from replacing the last accepted mani
 ├── services/
 │   ├── platform-app/       # FastAPI, Streamlit, workers, access administration, provisioning
 │   └── storefront/         # Legacy Next.js application
-├── generator/              # Synthetic SQL generator, presets and research notebook
+├── generator/              # EDA notebooks and YAML presets: oltp/ (purchases), logs/ (browsing)
 ├── database/               # PostgreSQL schema and explicit seeds
 ├── pipelines/              # Spark batch, Flink streaming, source contracts and tests
 ├── airflow/                # DAGs and Airflow runtime
@@ -181,9 +174,9 @@ Publication gates prevent a failed refresh from replacing the last accepted mani
 
 ## Data Generation and Source APIs
 
-The `small.yml` preset specifies 500 customers, 60 products, 240 variants, 3,000 orders and 12 months of history. `anchor_time` and the random seed make the scenario reproducible. H&M product-rank weights are implemented; other research findings are not automatically calibrated into runtime distributions. See [generator/README.md](generator/README.md) and the [parameter catalog](docs/data.md#danh-mục-tham-số-generator).
+OLTP presets live in `generator/oltp/configs/`: `1m.yml`, `10m.yml` and `50m.yml` target about 1, 10 and 50 million orders over 12 months (260,000 / 2,600,000 / 13,000,000 buying customers). Total orders are an outcome of the purchase-frequency rule, not an input. Browsing rules for synthetic access logs live in `generator/logs/configs/access_logs.yml`. No runtime reads these presets yet. See [generator/README.md](generator/README.md) and the [synthetic data notes](docs/data.md#8-dữ-liệu-sinh-và-căn-cứ).
 
-Streamlit supports dataset generation, results/history with explicit PostgreSQL import, online purchase scenarios and existing Polaris/MinIO binding administration. Detached workers persist job/run artifacts under `data/`. Generation does not automatically import data or trigger Airflow. Purchase attempts create real source API records; uncertain writes are recorded for inspection instead of being blindly replayed. Runtime logs are observed HTTP requests, not historical synthetic sessions.
+Streamlit supports online purchase scenarios and existing Polaris/MinIO binding administration. Scenario runs are persisted under `data/generator/scenarios/`. Purchase attempts create real source API records; uncertain writes are recorded for inspection instead of being blindly replayed. Runtime logs are observed HTTP requests, not historical synthetic sessions.
 
 FastAPI retains source write operations and the lookups needed to supply their IDs. Six former business BI aggregation endpoints and ten administrative list/duplicate GET endpoints are retired. Inspect the current route contract at `/docs` or in the [API guide](services/platform-app/src/platform_app/api/README.md). The two retained administrative HTTP analytics endpoints are:
 
@@ -201,8 +194,7 @@ uv lock --check
 python3 -m compileall -q airflow/dags/
 uvx ruff check .
 
-uv run --locked --package data-generator -- \
-  python -m unittest discover -s generator/tests -v
+# Tests are kept local only (every tests/ directory is gitignored, except pipelines/dbt/tests data tests).
 uv run --locked --package platform-app -- \
   python -m unittest discover -s services/platform-app/tests -v
 

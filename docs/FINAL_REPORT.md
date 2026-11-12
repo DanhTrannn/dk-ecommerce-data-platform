@@ -562,7 +562,7 @@ dk-ecommerce-data-platform/
 ├── airflow/
 │   └── dags/                    # 6 DAGs điều phối luồng dữ liệu tự động
 ├── infrastructure/              # Dockerfile, MinIO policy, Polaris RBAC và cấu hình engine
-├── generator/                   # Bộ công cụ sinh dữ liệu mô phỏng bán lẻ Việt Nam (v0.8.0)
+├── generator/                   # Notebook EDA và preset YAML cho dữ liệu mô phỏng (oltp/, logs/)
 └── scripts/                     # Bộ kịch bản tự động hóa khởi động, nạp dữ liệu và kiểm thử
 ```
 
@@ -724,41 +724,40 @@ Dịch vụ phân tích trong Backend kết nối với Apache Trino thông qua 
 
 ## **4.7. Xây dựng dữ liệu mô phỏng phục vụ trình diễn và kiểm thử**
 
-### **4.7.1. Bộ sinh dữ liệu mô phỏng bán lẻ thời trang Việt Nam**
+### **4.7.1. Hướng tiếp cận**
 
-Để phục vụ kiểm thử và trình diễn hệ thống, nhóm phát triển gói `data-generator` (phiên bản 0.10.0), sinh dữ liệu SQL từ cấu hình YAML, có seed để tái lập kết quả.
+Dữ liệu mô phỏng được xây theo nguyên tắc **quy luật trước, bộ sinh sau**: các quy luật hành vi được rút ra từ dữ liệu công khai, ghi thành cấu hình YAML có nhãn nguồn, rồi mới cài đặt bộ sinh đọc cấu hình đó. Mỗi khối tham số mang một trong ba nhãn: `measured` (đo trực tiếp trong notebook), `transfer` (đo ở nguồn nước ngoài và áp cho shop thời trang Việt Nam như một giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản, không có dữ liệu để ước lượng).
 
-Cơ sở nghiên cứu để thiết kế bộ sinh dữ liệu gồm ba phần:
+Mỗi quy luật được trình bày theo ba phần: dữ liệu cho thấy gì (biểu đồ hoặc bảng), quy luật một câu với ít tham số nhất có thể, và kiểm tra bằng cách so phân phối của mô hình với thực tế, sai lệch tính bằng điểm phần trăm. Chỉ những quy luật lặp lại giữa các nguồn hoặc dự báo đúng trên phần dữ liệu chưa dùng để ước lượng mới được chuyển sang shop Việt Nam.
 
-* **Bằng chứng định lượng từ dữ liệu thực tế:** EDA Olist, H&M và UCI Online Retail đo giỏ hàng, số lượng, mua lại, nhu cầu sản phẩm và giao nhận/đánh giá trên từng cohort. eCommerce Behavior được giữ ở phụ lục tham khảo vì sinh log ngoài phạm vi hiện tại.
-* **Bằng chứng nghiên cứu tại Việt Nam:** Thống kê mức sống, khảo sát tiêu dùng và báo cáo thị trường bổ sung căn cứ về chi tiêu, mua đa kênh, thanh toán, mùa vụ Tết và hậu mãi. [Hồ sơ nghiên cứu](data.md#9-hồ-sơ-nguồn-nghiên-cứu-generator) ghi đối tượng, đơn vị đo và giới hạn của từng nguồn; không chuyển tỷ lệ người trả lời hoặc doanh số thành xác suất theo đơn.
-* **Giả định kịch bản của nhóm:** Những tham số chưa có bằng chứng phù hợp, như giá VND của shop, tỷ lệ COD/VietQR, hệ số chiến dịch và phân phối giờ mua, cần được chốt rõ là giả định trước khi triển khai. Không coi chúng là ước lượng đại diện cho thị trường Việt Nam.
+Bộ sinh dữ liệu cũ (`data-generator` 0.10, xuất SQL và nạp qua Streamlit) đã được gỡ bỏ. Bộ sinh mới cho OLTP và cho access log lịch sử (đọc dữ liệu OLTP từ PostgreSQL) là hướng phát triển tiếp theo.
 
-Generator dùng schema PostgreSQL hiện tại, giữ CLI/console xuất SQL và importer có sẵn sau khi tích hợp vào `dev`. Quy luật R03 đã được áp dụng bằng trọng số mười nhóm thứ hạng sản phẩm H&M; cách ánh xạ sang catalog giả lập được ghi là giả định. Các tỷ lệ chưa đủ căn cứ giữ nguyên giá trị kịch bản cũ. [Danh mục chỉ số](data.md#danh-mục-tham-số-generator) ghi toàn bộ giá trị, ý nghĩa và nguồn/giả định. Chức năng sinh log tổng hợp vẫn ngoài phạm vi.
+### **4.7.2. Quy luật mua hàng (OLTP)**
 
-### **4.7.2. Khảo sát thực nghiệm làm cơ sở sinh dữ liệu**
+Phân tích nằm trong [purchase_behavior_eda.ipynb](../generator/oltp/notebooks/purchase_behavior_eda.ipynb), dùng H&M kênh online năm 2019 và Olist năm 2017.
 
-Phân tích được thực hiện trong [notebook EDA](../generator/notebooks/reference_datasets_eda.ipynb), sử dụng Olist năm 2017, H&M năm 2019 và UCI UK trong `[2010-12-01, 2011-12-01)`. Notebook tổ chức theo năm nhóm hành vi: khách hàng/mua lại, giỏ hàng, nhu cầu sản phẩm, thời điểm mua và giao dịch/hậu mãi.
-
-Mỗi nhóm đi theo chuỗi **câu hỏi nghiệp vụ → căn cứ nghiên cứu → thực nghiệm EDA → đánh giá giữa nguồn → quy luật sinh → ứng dụng vào dự án**. Đánh giá tập trung vào đơn vị quan sát, mẫu số, khoảng thời gian và mức phù hợp với nghiệp vụ. Không gộp phân phối chỉ vì hai nguồn cùng mô tả một chủ đề. Các kết quả và quyết định chính:
-
-| Quy luật | Kết quả thực nghiệm và đánh giá | Quyết định đề xuất và ứng dụng |
+| Quy luật | Kết quả thực nghiệm | Tham số |
 | :--- | :--- | :--- |
-| R01. Mua lại | UCI: 63,99% trong 3.880 khách có ≥2 đơn. H&M: 66,20% khách có ≥2 ngày mua; khoảng mua trung vị 52 ngày ở nhóm 2–4 ngày, 17 ngày ở nhóm ≥5 ngày. Hai nguồn có đơn vị khác nhau. | Khoảng mua phụ thuộc nhóm tần suất; UCI tham chiếu số đơn, H&M tham chiếu ngày mua. Ứng dụng vào lịch `orders`; chưa chốt tỷ trọng nhóm khách của shop VN. |
-| R02. Giỏ hàng | Olist: 96,67% đơn có dòng hàng chỉ chứa một product. UCI: trong 17.118 đơn, giỏ trung vị 15 mã, Quantity trung vị 3; nguồn có khách sỉ. | Tách kích thước giỏ và số lượng trong `order_items`, tổng tiền hình thành từ dòng hàng. Chưa chốt trọng số bán lẻ, giá VND và ánh xạ mã nguồn sang variant. |
-| R03. Nhu cầu sản phẩm | H&M: top 10% sản phẩm có bán chiếm 64,04% dòng mua. Tập trung theo shop của báo cáo thị trường không thay thế phép đo theo SKU. | Đã áp dụng mười nhóm trọng số thứ hạng; xáo thứ hạng bằng seed, chọn sản phẩm rồi variant. Phân bố đều trong nhóm và ánh xạ catalog vẫn là giả định; tỷ trọng cuối mẫu không được bảo đảm bằng số liệu nguồn. |
-| R04. Thời điểm mua | H&M: chỉ số dòng mua/ngày khoảng 1,41 ở tháng 6, 0,80 ở tháng 12; khảo sát Việt Nam bổ sung cửa sổ trước Tết và giới hạn theo ngành. | Đề xuất lịch Tết theo năm, tách nhu cầu nền/chiến dịch khi sinh `orders.created_at`. Chưa chốt hệ số mùa vụ VN, ngày đôi và giờ mua. |
-| R05. Thanh toán/kênh | Olist đo tỷ trọng giá trị thanh toán; khảo sát VN đo người sử dụng kênh và sở thích thanh toán. Các mẫu số không tương đương số đơn. | Dùng phương thức hợp lệ theo kênh trong `orders`/`payments`; chưa suy ra tỷ trọng online/POS, COD/VietQR hoặc thất bại thanh toán. |
-| R06. Giao nhận/đánh giá | Olist: thời gian giao trung vị 11,03 ngày, trễ 5,65%; điểm trung bình/đơn 4,28 khi đúng hẹn, 2,32 khi trễ. Đây là liên hệ quan sát ở Brazil. | Đề xuất thời gian giao có phân phối và điểm theo trải nghiệm. Áp dụng cho `shipments`/`product_reviews` cần chốt thời gian VN, ngày hẹn và ánh xạ review theo đơn sang item. |
-| R07. Khuyến mại/đổi trả | Nguồn VN định hướng động lực mua và lý do hậu mãi; chưa có tỷ lệ dùng voucher hoặc hoàn hàng phù hợp trên tổng đơn. | Giữ các tình huống nghiệp vụ của coupon, đổi trả và hoàn tiền; tỷ lệ kích hoạt để trống hoặc chốt thành giả định kịch bản. |
+| R01. Số đơn mỗi khách | Log-series lệch tối đa khoảng 1 điểm %, trong khi giả định "mọi khách cùng tốc độ" (Poisson) lệch 31 điểm %. α ước lượng từ 6 tháng dự báo đúng tỷ lệ khách mua một lần cho 3 và 12 tháng (lệch 1–3 điểm %). | θ = T/(α+T), α = 0,1141 năm |
+| R02. Khoảng cách mua lại | Khách mua ít lần có các đơn gần nhau hơn mức rải đều cả năm; một hệ số c bù được cho mọi k, sai số trung bình dưới 2%. | Mũ, trung bình T(1 − c/k)/(k+1), c = 0,518 |
+| R03. Độ bán chạy | Log(số bán) của sản phẩm bán đủ 12 tháng có dạng chuông; tỷ trọng top 10%/20% sản phẩm lệch 2–3,5 điểm %. Giá không liên quan độ bán chạy (Spearman 0,01). | LogNormal(0; 1,35) × hệ số nhóm hàng |
+| R04. Giỏ hàng | Số sản phẩm mỗi đơn theo phân phối hình học, lệch tối đa 1,6 điểm %; kích thước giỏ độc lập với khách. | p = 0,296; bảng biến thể/số lượng |
+| R05. Lịch | Black Friday gấp 5,55 (H&M) và 7,24 (Olist) lần ngày thường, ba ngày sau gấp khoảng 2,6 lần; hai nguồn không có hình dạng chung theo thứ trong tuần. | Ngày sale ×6,39; sau sale ×2,6; giờ theo Olist |
+| R06. Giao trễ và đánh giá | Giao đúng hẹn 62% chấm 5 sao; trễ trên 8 ngày 68% chấm 1 sao. | Bảng số sao theo mức trễ; tỷ lệ trễ 5,5% |
 
-Mục 6 notebook lưu bảng kết quả đầy đủ: số liệu, nguồn Việt Nam S01–S11, cách lấy mẫu, phần còn thiếu và bảng nghiệp vụ sử dụng. Việc lựa chọn quan hệ để mô phỏng không đồng nghĩa đã xác định mọi tham số. Các phân phối của từng nguồn được giữ riêng, chưa coi là phân phối người mua Việt Nam. Các giá trị chưa đủ căn cứ tiếp tục là giả định kịch bản; dữ liệu sinh theo quy luật là đầu ra của phương pháp.
+Ba preset `1m`, `10m`, `50m` dùng chung các quy luật trên và chỉ khác quy mô: 260.000, 2.600.000 và 13.000.000 khách có mua, tương ứng khoảng 1, 10 và 50 triệu đơn trong 12 tháng. Tổng số đơn là kết quả của R01, không phải đầu vào. Giá, thời gian giao, tỷ lệ hủy/COD/trả hàng, coupon và Tết là giả định; notebook đối chiếu chúng với số liệu Việt Nam công khai (báo cáo sàn, Metric, iPrice) nhưng không dùng các số đó để hiệu chỉnh.
 
-Phụ lục eCommerce Behavior dùng cohort phiên tháng 10/2019, có biên 1/11. Trong phiên có view, 6,23% đạt view → cart và 3,10% đạt đủ ba bước cùng sản phẩm, timestamp tăng nghiêm ngặt; trung vị xem–mua của đường đi hoàn thành là 2,18 phút. Kết quả này chỉ tham khảo hành trình, không suy thành số đơn, HTTP latency hoặc tỷ lệ hủy đơn.
+### **4.7.3. Quy luật duyệt web (access log)**
 
-### **4.7.3. Tự động hóa quy trình nạp dữ liệu và kiểm thử đường ống**
+Phân tích nằm trong [browsing_behavior_eda.ipynb](../generator/logs/notebooks/browsing_behavior_eda.ipynb), dùng eCommerce Behavior tháng 10/2019 (cohort 2–31/10, khoảng 9 triệu phiên). Tham số lấy theo nhóm phiên `apparel`, gần với shop thời trang nhất.
 
-CLI `export-sql` và Streamlit Generator Console hỗ trợ xuất dữ liệu SQL theo cấu hình. Console chạy lần lượt bước kiểm tra cấu hình/ghi manifest và xuất SQL, lưu trạng thái, log thực thi cùng checksum để theo dõi kết quả. Console không tự nạp dữ liệu vào cơ sở dữ liệu hoặc kích hoạt pipeline; việc nạp nguồn và kiểm tra đường ống là các bước riêng.
+| Quy luật | Kết quả thực nghiệm | Tham số |
+| :--- | :--- | :--- |
+| L1. Lưu lượng | Tỷ lệ phiên không mua trên phiên có mua ổn định theo ngày (13,6 với toàn bộ dữ liệu, 41,4 với `apparel`); giá trị phụ thuộc định nghĩa phiên `apparel` (31–52). | r = 41,39 |
+| L2. Lượt xem mỗi phiên | Phiên không mua theo log-series (lệch 1,3 điểm %); phiên có mua theo phân phối hình học (lệch 6,4 điểm %). | θ = 0,9239; p = 0,1044 |
+| L3. Nhịp request | Khoảng cách giữa hai sự kiện theo log-normal, lệch 4,4 điểm %. | Trung vị 36,2 giây; σ = 0,938 |
+
+Phễu giỏ hàng được đặt làm giả định vì nguồn ghi thiếu sự kiện giỏ và phép hiệu chỉnh không ổn định giữa các khối ngày. Hành trình nhiều phiên không được mô hình hóa vì hợp đồng log không có session id và các mart log chỉ đếm request.
 
 ## **4.8. Đánh giá kết quả, giới hạn hệ thống và hướng phát triển**
 

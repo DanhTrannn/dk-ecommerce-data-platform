@@ -8,7 +8,6 @@ Tài liệu này mô tả kiểm tra/phục hồi sau [setup.md](setup.md). Đ�
 |---|---|---|
 | Container | `make ps`, Compose health | Schema, quyền bucket/catalog, pipeline nghiệp vụ hoặc dữ liệu mới |
 | API | `/health/live`, `/health/ready` | Ready chỉ kiểm tra DB; không xác nhận Kafka/Trino/Gold |
-| Generator/import | Worker stage, checksum, dataset identity, receipt trạng thái commit | Sinh file không phải đã nạp; nạp không phải đã publish |
 | Airflow | DAG/task state, run/interval, gate và publication | Task green riêng lẻ không đủ để chứng nhận cả bộ mart |
 | CDC/Flink | Connector/task RUNNING, checkpoint, event theo key | Có job không chứng minh đã bắt đủ snapshot/change |
 | Lakehouse | Row count theo grain/run/snapshot, DQ/parity, manifest | Bronze count khác current source count; không cộng lịch sử làm tổng đơn |
@@ -33,8 +32,6 @@ Các curl cần service tương ứng đã bật; dùng port override nếu khá
 |---|---|
 | Container platform-app | Structured API log, request ID, lỗi nghiệp vụ/producer |
 | `data/events/dlq_access_logs.jsonl` | Event chưa xác nhận/offline/overload; chưa tự replay |
-| `data/generator/jobs/<job_id>/` | Config đóng băng, state, manifest, SQL, checksum và stage logs |
-| `jobs/<job_id>/imports/` | Import attempt/đích đã che password/receipt, unknown hoặc already_present |
 | `data/generator/scenarios/` | Scenario/run/attempt, idempotency key, order number và kết quả hậu kiểm |
 | `data/access-admin/audit.jsonl` | Binding management journal/readback và operation ID; không phải tamper-proof audit store |
 | `airflow-logs` | Task logs của Spark/DAG |
@@ -73,8 +70,7 @@ Không lấy current mart chưa publish để kết luận dashboard sai. Với 
 | Triệu chứng | Kiểm tra và xử lý đúng phạm vi |
 |---|---|
 | Compose báo thiếu biến | So `.env.example`, profile và biến bắt buộc; không thêm secret mặc định để làm config qua |
-| Image platform-app build lỗi profile cũ | Dùng Dockerfile hiện tại; generator 0.10 chỉ còn `configs`, không còn `generator/profiles` |
-| PostgreSQL healthy nhưng API thiếu bảng | Schema bootstrap/import/seed là bước riêng; không reset volume. Kiểm tra đang kết nối đúng DB/user |
+| PostgreSQL healthy nhưng API thiếu bảng | Schema bootstrap/seed là bước riêng; không reset volume. Kiểm tra đang kết nối đúng DB/user |
 | Đổi password env nhưng không login | Init PostgreSQL/seed/metadata không tự đổi password đã lưu; xác nhận credential retained trước khi rotate có kiểm soát |
 | Batch JDBC lỗi auth/permission | Reader password/env đúng và script `make source-reader` đã chạy sau đủ schema; credentials không được nhét vào JDBC URL |
 | Spark không thấy credential | Kiểm tra provisioning, consumer file đúng volume/UID/GID; không thay bằng MinIO root hoặc chmod mở rộng toàn bộ |
@@ -83,7 +79,7 @@ Không lấy current mart chưa publish để kết luận dashboard sai. Với 
 | Giá trị UUID không nối log–product | Xem 16-byte canonical và encoding UTF-8 cũ; resolver hỗ trợ cả hai. Muốn sửa toàn bộ current Silver phải init có kiểm soát |
 | Gold gate thất bại | Đọc failed check/key/cost/refund/lineage; sửa nguồn hoặc transform, chạy lại đúng writer/run. Không publish bỏ qua gate |
 | Dashboard nghiệp vụ không đổi sau UPDATE | CDC chỉ audit; chờ/chạy batch phù hợp và publication mới. Superset còn cần sync/mở URL mới |
-| API có request nhưng Landing trống | `KAFKA_ENABLED`, topic chung, producer/DLQ, job access RUNNING và checkpoint. Sinh/import SQL không tạo access log |
+| API có request nhưng Landing trống | `KAFKA_ENABLED`, topic chung, producer/DLQ, job access RUNNING và checkpoint. Seed dữ liệu không tạo access log |
 | Kafka phục hồi nhưng log cũ thiếu | Producer phục hồi chỉ gửi event mới; DLQ cũ cần thao tác replay riêng |
 | CDC không thấy bảng/change | Kiểm tra `make source-cdc`, publication đủ 27, FULL identity, connector/task status, topic public schema và Flink job đúng entrypoint |
 | Trino unavailable/permission denied | Kiểm tra Polaris/MinIO reader binding và credential; read-only write denial là đúng thiết kế |
@@ -96,9 +92,9 @@ Các lỗi kiểu dữ liệu/constraint không giải quyết bằng tắt FK, 
 
 ## 5. Phục hồi và replay
 
-### Generator, import và runner
+### Runner mô phỏng API
 
-Generation, import và scenario là worker độc lập. Mất process có thể chuyển interrupted/unknown. Import đã commit nhưng chưa ghi journal không được xem là rollback; kiểm tra dataset/receipt trước khi nạp lại. Dataset đã có được ghi already_present, không tạo một lần import thành công mới. Worker mất hoặc write timeout không tự replay checkout; dùng key/mã đơn đã ghi để xác minh. Nút dừng scenario ngăn lượt tiếp theo, không hủy transaction đang chạy.
+Scenario chạy bằng worker độc lập. Mất process có thể chuyển unknown. Worker mất hoặc write timeout không tự replay checkout; dùng key/mã đơn đã ghi để xác minh. Nút dừng scenario ngăn lượt tiếp theo, không hủy transaction đang chạy.
 
 ### Batch và publication
 
@@ -140,7 +136,7 @@ Superset/PublishedReader cần data file và snapshot manifest còn tồn tại.
 | `minio-data` | Object/data/metadata Iceberg |
 | `polaris-provision-state`, consumer credential volumes | Secret và ownership để chạy lại/khôi phục provisioning |
 | `kafka-data`, `flink-checkpoints` | Broker offsets, CDC transport và checkpoint state |
-| `./data` | SQL artifacts, job/import/scenario journals, DLQ và audit binding |
+| `./data` | Scenario journals, DLQ và audit binding |
 | `.env`/secret store | Credential, PII salt và Superset encryption secret phù hợp với dữ liệu đã lưu |
 
 `make down` giữ named volumes, không phải backup. Chưa nghiệm thu backup/restore đồng bộ nhiều hệ thống hoặc disaster recovery; cần kế hoạch riêng nếu dùng ngoài local PoC. Không commit backup/raw data/credential vào Git.
@@ -154,7 +150,7 @@ uv lock --check
 uvx ruff check .
 python3 -m compileall -q airflow/dags/
 docker compose --env-file .env.example --profile '*' config --quiet
-uv run --locked --package data-generator -- python -m unittest discover -s generator/tests -v
+# Test chỉ giữ local: mọi thư mục tests/ bị gitignore, trừ dbt data tests trong pipelines/dbt/tests/
 PYTHONPATH=pipelines/src:pipelines/tests uv run --locked --package batch-pipeline -- \
   python -m unittest discover -s pipelines/tests -v
 PYTHONPATH=services/platform-app/tests uv run --locked --package platform-app -- \
@@ -187,7 +183,7 @@ CI hiện có hai job: repository validation (sáu tổ hợp Compose gồm BI, 
 
 | Đường dữ liệu | Kết quả đã ghi nhận | Report local trong `data/pipeline-runs/` |
 |---|---|---|
-| Generator full preset/batch | 3.000 → 3.002 đơn sau hai COD; hai DAG 109/109 task; source–Silver 30/30, Gold 55/55; COD chưa thu không tăng net revenue | `tlcn-stack-25aa75d70a/report.json` |
+| Generator full preset/batch (generator 0.10, đã gỡ) | 3.000 → 3.002 đơn sau hai COD; hai DAG 109/109 task; source–Silver 30/30, Gold 55/55; COD chưa thu không tăng net revenue | `tlcn-stack-25aa75d70a/report.json` |
 | CDC PostgreSQL | 594 snapshot event khớp 27 nguồn, C/U/D/tombstone/transaction, history legacy, TaskManager/Connect restart; không tạo Silver/Gold | `tlcn-stack-085770b323/report.json` |
 | Log thực | 21 request, hai checkout/hai cart additions resolve, ba mart; retry/dedup, invalid retention, checkpoint recovery và last-good publication | `tlcn-stack-0ba785099b/report.json` |
 | Superset PoC | Hai publication/dashboard, 8 chart/phiên; Chromium 18 phản hồi chart/filter; số đơn 30 → 32, placed value 11.565.410 → 12.063.410 VND, net 8.618.410 và profit 5.347.230 giữ nguyên | `tlcn-stack-9b0e7fd0a7/report.json` |

@@ -1,1 +1,1 @@
-"""Streamlit views for the generator console."""
+"""Streamlit views for the Platform Console."""

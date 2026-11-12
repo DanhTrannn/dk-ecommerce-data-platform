@@ -9,8 +9,8 @@ Cập nhật theo codebase ngày **11/11/2026**. Các kết quả nghiệm thu �
 | Phần | Đã triển khai | Giới hạn hiện tại |
 |---|---|---|
 | Nguồn nghiệp vụ | FastAPI + PostgreSQL; catalog, tài khoản, giỏ, checkout, POS, tồn kho, giao vận, đổi trả, review | Có API không đồng nghĩa Streamlit đã tự động hóa mọi nghiệp vụ |
-| Generator | CLI 0.10, SQL PostgreSQL, cấu hình địa điểm, sampler trọng số sản phẩm H&M | Chỉ R03 đã áp dụng từ EDA; các tỷ lệ hành vi còn lại là giả định/kịch bản |
-| Streamlit | Sinh job, xem/tải kết quả, nạp SQL chủ động, runner mua online, quản trị binding quyền | Runner hiện mỗi lượt một khách mới/một SKU; chưa có fulfillment/POS/đổi trả tự động |
+| Generator | Notebook EDA và preset YAML: OLTP `1m`/`10m`/`50m` (R01–R06), access log (L1–L3) | Chưa có runtime sinh dữ liệu; CLI/SQL export/importer cũ đã gỡ, generator mới chờ triển khai |
+| Streamlit | Platform Console: runner mua online qua API, quản trị binding quyền | Runner hiện mỗi lượt một khách mới/một SKU; chưa có fulfillment/POS/đổi trả tự động |
 | Batch | PostgreSQL JDBC → staging → Bronze → Silver → Gold/mart → quality gate → publication | Cần chạy init trước; batch interval không tự backfill mọi lịch sử |
 | CDC | PostgreSQL WAL → Debezium → Kafka → Flink → Bronze audit | Không tự áp CDC vào OLTP Silver/Gold hoặc cập nhật dashboard nghiệp vụ |
 | Access log | API → Kafka → Flink Landing; Spark giờ xử lý Bronze/Silver/fact/ba mart và publication riêng | Producer opt-in; DLQ chưa tự replay; Landing và mart có độ mới khác nhau |
@@ -24,7 +24,7 @@ Không có marketplace đa người bán, thu thập dữ liệu đối thủ ho
 | Component | Vai trò | Mã nguồn/cấu hình chính |
 |---|---|---|
 | `platform-app` | Một container, hai process FastAPI/Streamlit; khi một process dừng thì container đóng process còn lại | [Dockerfile](../services/platform-app/Dockerfile), [package](../services/platform-app/src/platform_app/) |
-| Generator | Thư viện/CLI độc lập, không cần kết nối database để xuất SQL | [generator](../generator/src/generator/), [presets](../generator/configs/) |
+| Generator | Quy luật và preset cho dữ liệu tổng hợp; chưa có runtime | [generator](../generator/), [OLTP presets](../generator/oltp/configs/), [log rules](../generator/logs/configs/) |
 | PostgreSQL 16.8 | OLTP `ecommerce`; metadata `airflow`, `polaris`; metadata `superset` được tạo riêng khi bật BI | [schema](../database/schema.sql), [scripts](../infrastructure/postgres/) |
 | MinIO | Object storage cho staging và dữ liệu/metadata Iceberg | [provisioning/policy](../infrastructure/minio/) |
 | Polaris 1.8.0 | Iceberg REST catalog, namespace và quyền principal/catalog | [RBAC](../infrastructure/polaris/rbac.yml) |
@@ -36,13 +36,13 @@ Không có marketplace đa người bán, thu thập dữ liệu đối thủ ho
 | Superset 6.1.0 | Dashboard từ publication, metadata riêng trên PostgreSQL | [implementation](../infrastructure/superset/) |
 | `lakehouse-access` | API nội bộ để đọc/gán/gỡ binding MinIO/Polaris | [access_admin](../services/platform-app/src/platform_app/access_admin/) |
 
-Python workspace gồm `data-generator`, `platform-app`, `batch-pipeline`, dùng chung [uv.lock](../uv.lock). Spark, Flink, Airflow và Superset có image/runtime riêng; không cài Superset vào virtualenv ứng dụng. Superset bổ sung driver Trino/PostgreSQL bằng lock riêng và không cần Redis/Celery trong PoC.
+Python workspace gồm `platform-app`, `batch-pipeline`, dùng chung [uv.lock](../uv.lock). Spark, Flink, Airflow và Superset có image/runtime riêng; không cài Superset vào virtualenv ứng dụng. Superset bổ sung driver Trino/PostgreSQL bằng lock riêng và không cần Redis/Celery trong PoC.
 
 ## 3. Ba đường dữ liệu
 
 ### Batch OLTP
 
-1. Generator SQL được nạp chủ động hoặc API tạo/thay đổi dữ liệu PostgreSQL.
+1. API (hoặc seed catalog) tạo/thay đổi dữ liệu PostgreSQL; hiện chưa có công cụ nạp dữ liệu lịch sử.
 2. Spark reader SELECT-only đọc 27 bảng, phân trang theo khóa, mỗi trang tối đa 10.000 dòng.
 3. Init đọc toàn bộ; DAG định kỳ dùng cửa sổ UTC `[start, end)` do Airflow truyền. Parquet staging được thay mới cho từng bảng; đây không phải bản lưu trữ lịch sử.
 4. Bronze giữ các phiên bản nguồn chống trùng khi replay; Silver MERGE theo PK/cursor, typing và pseudonymization.
@@ -80,7 +80,7 @@ Superset dùng `mart_order_daily` và `mart_product_sales_daily` của cùng man
 ## 5. Định danh và quyền
 
 - API giao dịch dùng JWT cookie, CSRF cho ghi và role/store checks theo từng route. Endpoint internal có secret riêng. Không khẳng định đã có HTTPS/rate limit hoặc triển khai public an toàn chỉ từ cấu hình local.
-- Batch dùng PostgreSQL reader riêng; ứng dụng/importer dùng owner nghiệp vụ; CDC có role replication riêng. Không dùng Superset metadata owner làm account nguồn.
+- Batch dùng PostgreSQL reader riêng; ứng dụng/seed dùng owner nghiệp vụ; CDC có role replication riêng. Không dùng Superset metadata owner làm account nguồn.
 - Provisioning MinIO tạo bốn account Polaris/Spark/Flink/Trino với policy riêng. Workload không dùng root MinIO. Polaris tạo `spark_writer`, `flink_writer`, `trino_reader`, bốn volume credential consumer và state root riêng.
 - Provisioning khởi tạo tài nguyên còn thiếu; chạy lại giữ secret/quyền đã có, không phải bộ đồng bộ liên tục hoặc tự rotate.
 - Streamlit quản trị các binding có sẵn qua `lakehouse-access`. Backend kiểm tra nguồn auth, CSRF, revision, journal và readback. Không tạo account, sửa policy JSON hoặc xoay secret trong UI.
@@ -100,9 +100,9 @@ Service và port cụ thể lấy từ [Compose](../docker-compose.yml). Không 
 | Thư mục | Trách nhiệm |
 |---|---|
 | `services/platform-app/src/platform_app/api/` | Route/service giao dịch và HTTP observability |
-| `services/platform-app/src/platform_app/ui/` | Console, worker/journal, import và scenario API |
+| `services/platform-app/src/platform_app/ui/` | Platform Console: scenario API và quản trị quyền |
 | `services/platform-app/src/platform_app/access_admin/` | Quản trị binding riêng |
-| `generator/src/generator/` | Config/validation, catalog, giao dịch, SQL export và manifest |
+| `generator/` | Notebook EDA và preset YAML (`oltp/`, `logs/`) |
 | `pipelines/src/lakehouse/` | OLTP/log/streaming transforms, SQL templates, quality và publication |
 | `pipelines/src/jobs/` | Entry point thực thi trên engine |
 | `airflow/dags/` | Điều phối init/batch/log/hard-delete/maintenance |

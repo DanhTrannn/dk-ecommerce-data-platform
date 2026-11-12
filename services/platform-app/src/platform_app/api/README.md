@@ -23,7 +23,7 @@ docker compose --profile tools up -d --build platform-app
 curl -fsS http://localhost:8000/health/ready
 ```
 
-Profiles are additive with COMPOSE_PROFILES. The shared container starts Uvicorn and Streamlit without applying schemas or seeds. Compose connects FastAPI to PostgreSQL using psycopg2; the source schema, generator SQL and importer now target PostgreSQL; schema bootstrap remains explicit. API readiness checks database connectivity, not schema completeness, Kafka, Trino or Gold processing. See [SETUP](../../../../../docs/setup.md).
+Profiles are additive with COMPOSE_PROFILES. The shared container starts Uvicorn and Streamlit without applying schemas or seeds. Compose connects FastAPI to PostgreSQL using psycopg2; the source schema and seed target PostgreSQL; schema bootstrap remains explicit. API readiness checks database connectivity, not schema completeness, Kafka, Trino or Gold processing. See [SETUP](../../../../../docs/setup.md).
 
 ## Run on the host
 

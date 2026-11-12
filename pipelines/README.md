@@ -17,20 +17,15 @@ PostgreSQL source SQL has its own double-quoted identifiers in `sql_templates/po
 
 ### Isolated checks
 
+Tests under `pipelines/tests/` are kept local only: every `tests/` directory is gitignored except the dbt data tests in `pipelines/dbt/tests/`, which `dbt build` runs as quality gates.
+
 ```bash
 # Pure source SQL/config tests; no services or credentials
 PYTHONPATH=pipelines/src uv run --locked --all-packages -- \
   python -m unittest discover -s pipelines/tests -p test_postgres.py -v
-
-# Build the existing pinned runtime under a separate local test tag
-# Integration needs the cached postgres:16.8-alpine and MinIO images as well.
-docker build -f infrastructure/spark/Dockerfile -t tlcn-batch-postgres-check:local .
-RUN_POSTGRES_BATCH_TESTS=1 PYTHONPATH=pipelines/src \
-  uv run --locked --all-packages -- \
-  python -m unittest discover -s pipelines/tests -p test_postgres_batch.py -v
 ```
 
-The integration fixture uses an internal Docker network, temporary PostgreSQL/MinIO data and random credentials; no project data volumes or host ports. It tests reader provisioning/denials, paged full extraction, UUID/boolean/timestamp ingestion, offset-aware interval boundaries, empty staging replacement, replay, source-to-Silver reconciliation and existing Gold/quality/publication logic. The test uses an isolated local Iceberg Hadoop catalog rather than production Polaris; it does not establish Airflow scheduling, Polaris authorization, Trino/Superset serving or CDC delivery. `SPARK_TEST_IMAGE` and `POSTGRES_TEST_IMAGE` can select equivalent cached test images. Containers/network/temp files are cleaned on normal completion and test failures.
+The former Spark batch integration test (`test_postgres_batch.py`) has been removed.
 
 ### Full-stack acceptance (opt-in)
 
@@ -46,7 +41,7 @@ RUN_LAKEHOUSE_STACK_TESTS=1 PYTHONPATH=pipelines/src \
   python -m unittest discover -s pipelines/tests -p test_stack.py -v
 ```
 
-By default the source fixture reduces the preset to 30 orders. To accept the rewritten generator with the full scale configured in `small.yml`, add `STACK_USE_PRESET_SCALE=1` to the opt-in command (currently 500 customers, 60 products, 240 variants and 3,000 orders). This flag affects only the isolated test source, not production settings. The full-preset mode allows up to 60 minutes per DAG; the default reduced fixture retains its 25-minute limit. A failed/retrying task still fails the check immediately. The local report records generator version, configured scale, logical dataset identity and SQL SHA-256 alongside the import receipt.
+**Currently not runnable:** the stack fixture (`pipelines/tests/stack/runtime.py`) seeds its source with the removed `data-generator` package and `generator/configs/small.yml`; it needs the new OLTP generator. The fixture reduced the preset to 30 orders by default; `STACK_USE_PRESET_SCALE=1` used the full former `small.yml` scale (500 customers, 60 products, 240 variants and 3,000 orders). This flag affects only the isolated test source, not production settings. The full-preset mode allows up to 60 minutes per DAG; the default reduced fixture retains its 25-minute limit. A failed/retrying task still fails the check immediately. The local report records generator version, configured scale, logical dataset identity and SQL SHA-256 alongside the import receipt.
 
 `STACK_PLATFORM_IMAGE` and `STACK_AIRFLOW_IMAGE` override these test image tags. The test runs both 109-task OLTP DAGs: initial load, then a bounded interval containing two API-runner COD purchases. It compares publication-pinned fact/mart results through Trino, checks source-to-Silver parity, reader write denials, writer permission failure, order replay, quality rejection and same-run recovery. Reports/logs with known credentials redacted are kept under ignored `data/pipeline-runs/tlcn-stack-*/`. This is a small synthetic acceptance fixture, not a load test.
 
@@ -180,6 +175,8 @@ Trino SELECT/time travel worked; INSERT/DROP were denied. Revoking the Spark rol
 The check exposed the manual initial-run date-template issue and missing Trino connector read-only enforcement, both corrected here. It validates this small fixture and the manually triggered batch path only; it does not establish a production latency SLA, cron creation, CDC, log streaming or Superset readiness. Generated report: `data/pipeline-runs/tlcn-stack-2385ac19c1/report.json` (ignored, local).
 
 ### Rewritten generator acceptance — 09/11/2026
+
+Historical record: generator 0.10, its importer and `small.yml` have since been removed.
 
 After the EDA merge and application build repair, the full `small.yml` scale passed against actual PostgreSQL, Airflow/Spark, MinIO/Polaris and Trino: 500 configured customers, 60 products, 240 variants and 3,000 orders. The fixture imported SQL using the production transactional importer and recorded generator 0.10.0, dataset identity, configured scale and SQL SHA-256. The full-preset SQL fingerprint was reproducible across isolated attempts.
 

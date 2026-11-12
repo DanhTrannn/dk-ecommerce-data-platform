@@ -1,191 +1,68 @@
-# OLTP Data Generator
+# Synthetic Data Rules
 
-The Data Generator (`data-generator` package, v0.10.0) exports deterministic SQL data for the current PostgreSQL [schema](../database/schema.sql). The rewritten sampler uses H&M 2019 purchase counts by product-rank group; transferring those groups onto the synthetic catalog is a modeling assumption. Other behavioral values retain the previous scenario settings and are explicitly documented as assumptions in [generator parameter catalog](../docs/data.md#danh-mục-tham-số-generator).
+This directory holds the research and configuration for synthetic data. It does not contain a runtime generator: the previous `data-generator` package (SQL export, importer, Streamlit console) was removed. A new OLTP generator, and a historical access-log generator that reads OLTP data from PostgreSQL, will consume these presets later.
 
-Runtime responsibilities are grouped in `config.py`/`validation.py`, `catalog.py`, `transactions.py`, `sql_export.py`, `runner.py` and `cli.py`. The runtime does not read research CSVs or execute the notebook. Synthetic access-log generation and the old UCI profile modules remain removed. Artifacts retain the `postgresql-v1` metadata, validation, table locks and identity-sequence restart contract required by the existing importer.
-
----
-
-## Manual Export Workflow
-
-### Machine-readable summaries
-
-`run` and `export-sql` accept `--json` for job runners and other tools. The JSON summary is printed to stdout; the existing human-readable lines remain the default.
-
-```bash
-uv run --locked --package data-generator -- generator run \
-  --config generator/configs/small.yml \
-  --output data/generator/manifest \
-  --json
+```text
+generator/
+├── oltp/
+│   ├── configs/     1m.yml, 10m.yml, 50m.yml   purchase-behavior presets
+│   └── notebooks/   purchase_behavior_eda.ipynb
+└── logs/
+    ├── configs/     access_logs.yml             browsing-behavior rules
+    └── notebooks/   browsing_behavior_eda.ipynb
 ```
 
-### 1. Export SQL History
+Every YAML block carries a `source` label: `measured` (measured in the notebook), `transfer` (measured on a foreign source and applied to a Vietnamese fashion shop as an assumption) or `assumption` (scenario parameter without data).
 
-```bash
-uv run --locked --package data-generator -- generator export-sql \
-  --config generator/configs/small.yml \
-  --output data/generator/small.sql
-```
+## OLTP presets
 
-The output file is written to `data/generator/small.sql`.
+| Preset | Buying customers | Products | Expected orders (12 months) |
+|---|---|---|---|
+| `1m.yml` | 260,000 | 500 | ≈ 1,000,000 |
+| `10m.yml` | 2,600,000 | 1,000 | ≈ 10,000,000 |
+| `50m.yml` | 13,000,000 | 2,000 | ≈ 50,000,000 |
 
-### 2. Import into PostgreSQL
+Total orders are an outcome, not an input: expected orders = buying customers × 3.846 for 12 months of history (log-series purchase frequency). Changing `history_months` changes that factor. The three presets share all behavior rules and differ only in `scenario_id` and `scale`.
 
-Apply the [28-table source schema](../database/README.md) to an empty source database first. Configure host-reachable `API_DATABASE_URL` (`postgresql+psycopg2`) and `API_SECRET_KEY` using `.env.example`, then run from the repository root:
+Rules measured in [purchase_behavior_eda.ipynb](oltp/notebooks/purchase_behavior_eda.ipynb) (H&M online 2019, Olist 2017):
 
-```bash
-uv run --locked --package platform-app -- \
-  python -m platform_app.api.db.import_dataset data/generator/small.sql
-make seed
-```
+| Rule | Behavior | Parameter |
+|---|---|---|
+| R01 | Orders per customer: log-series, θ = T/(α+T) | α = 0.1141 years |
+| R02 | Gap between orders: exponential, mean T(1 − c/k)/(k+1) | c = 0.518 |
+| R03 | Product demand: LogNormal(0, σ) × category multiplier | σ = 1.35 |
+| R04 | Basket: geometric products per order; variant/quantity tables | p = 0.296 |
+| R05 | Sale days ×6.39, three days after ×2.6; flat weekdays; Olist hour profiles | — |
+| R06 | Review stars by delivery lateness (Olist table) | — |
 
-The importer accepts **trusted SQL emitted by this generator**, not arbitrary uploads. It checks the source schema, rejects an existing generation run, inserts with FK/CHECK enforcement, verifies counts/payment/return/stock consistency, and restarts identity sequences above loaded IDs without moving them backwards. All writes and sequence restarts share one transaction; a failure rolls them back. The JSON receipt includes SQL SHA-256, expected schema SHA-256, dataset identity, customer/order counts and placed order value (not realized revenue). Configured customers exclude the extra synthetic review moderator.
+Section 7 lists scenario assumptions (COD, cancellations, returns, coupons, delivery days, Tết) and section 7.1 cross-checks them against public Vietnamese figures; those figures are not used for calibration.
 
-Imports are serialized and take write-blocking locks on generated tables. Run bulk imports before concurrent application writers; the DB role must own the affected tables/sequences. Seeds may run before or after import, each in its own transaction. Rerunning a seed repairs missing reference rows without resetting existing credentials or inventory. Rerunning an import is rejected rather than merged. Existing ID/key collisions also fail; there is no destructive reset or data migration.
+## Access-log rules
 
-Streamlit can explicitly load a completed SQL job from **Kết quả & lịch sử → Nạp vào PostgreSQL**, using this same importer with artifact checksum/identity verification and a separate import journal. Generating a job never imports it automatically. The command above remains available for trusted artifacts outside the console. SQL format is `postgresql-v1`, also recorded in CLI JSON and manifests. Regenerate legacy MySQL SQL; it cannot be loaded into PostgreSQL. Historical SQL/logs from 0.8 have different dataset identities.
+[browsing_behavior_eda.ipynb](logs/notebooks/browsing_behavior_eda.ipynb) measures three rules on eCommerce Behavior (2–31 October 2019, `apparel` sessions) and writes them to `access_logs.yml`:
 
-### Cities and stores
+| Rule | Behavior | Parameter |
+|---|---|---|
+| L1 | Non-buying sessions = r × buying sessions | r = 41.39 (plausible 31–52 by session definition) |
+| L2 | Product views per session: geometric (buying), log-series (non-buying) | p = 0.1044; θ = 0.9239 |
+| L3 | Seconds between requests: log-normal | median 36.2 s, σ = 0.938 |
 
-Locations now belong to the generator. Default SQL includes the same five cities and six sample retail stores previously maintained by the location seed. To select a subset in a YAML configuration:
+Cart abandonment, product-view weights, request steps, anonymous share and sale-day traffic are assumptions (section 4). The last notebook cell asserts that the YAML matches the notebook values. The log contract has no session id, so multi-session journeys are not modeled.
 
-```yaml
-locations:
-  store_codes:
-    - HCM-CENTRE
-    - HN-CENTRE
-```
-
-Available codes: `HCM-CENTRE`, `HCM-NORTHEAST`, `HN-CENTRE`, `DN-CENTRE`, `CT-CENTRE`, `HP-CENTRE`. Only cities used by the selected stores are included. Omit `locations` to select all six stores, or use `locations: {store_codes: []}` to generate none. Codes are case-insensitive and normalized; unknown/duplicate codes are rejected. Streamlit exposes the same selection as **Cửa hàng tham chiếu**.
-
-SQL ensures cities before stores and resolves shared references by code. Later datasets reuse existing locations without changing IDs, names, addresses, active flags or timestamps. A store code already linked to another city aborts the transaction. New rows use the historical master-data timestamp. Location IDs depend on the target database; the SQL artifact and code selection remain deterministic. The generator takes table locks, allocates explicit IDs and restarts identity sequences transactionally; existing database records are not reset.
-
-SQL metadata, manifest, CLI summary and import receipt report selected city/store counts, including reused records, not the number newly inserted. Selection participates in dataset identity, so changing the selected stores produces a different dataset identity. Location selection does not assign orders/customers to cities or generate POS sales, store inventory, staff assignments or receipts. Those workflows remain separate. `make seed` continues to initialize application catalog/admin data; it no longer creates locations.
-
-### Synthetic Customer Accounts
-Generated active accounts use `customer.<index>.<logical-prefix>@web.local` and the synthetic-data password `Synthetic@12345`. No featured customer receives a reserved order quota or a special timeline; order allocation follows the configured customer classes.
-
-These are development data-source accounts. SQL records are generated data, not measurements of real customer activity.
-
-The rewritten generator uses a `dk-generator-v2` identity namespace so older configurations cannot accidentally reuse the previous dataset identity. Identity includes the full configuration and generator version. Existing datasets are not migrated or repaired automatically.
-
-### Business consistency
-
-- COD starts confirmed with a pending payment. Payment succeeds and `paid_at` is set on completion; cancelled or failed-delivery COD has no successful payment or cash refund. VietQR cancellation retains the original paid timestamp and records its refund.
-- Return lines reference the selected order item and variant. Refunds use the discounted unit price rounded to VND, matching the current API formula; completed monetary refunds have payment-linked records. A full refund of all ordered units marks the order returned. An exchange without another variant becomes a refund.
-- Each order has a checkout stock withdrawal; cancellations and failed deliveries have compensating movements. Passed returns add stock; modeled exchanges also withdraw the replacement SKU. Opening balance plus net movements equals closing stock. The arbitrary 500-unit inbound rows have been removed: opening stock is an explicit assumption sized from total withdrawals plus an 80–200 unit buffer, not a simulated receipt or measured replenishment policy.
-- Return creation/resolution fits between completion and the anchor. Order status history follows COD/VietQR paths.
-
-These checks establish internal consistency within the covered scenarios. Product demand now uses measured H&M rank-group weights; catalog transfer, customer order rescaling, COD/return selection and seasonality remain documented assumptions. POS, actual inbound receipts and API exchange execution are outside the generated scenarios. The generator supports 25 of the 28 schema tables, including selectable reference cities/stores. `store_inventory`, `inbound_receipts` and `inbound_receipt_items` remain outside the generated scenarios.
-
----
-
-## Dataset Scale Configurations
-
-The retained preset is:
-
-| Config | Customers | Products | Variants | Configured Orders | History |
-|---|---|---|---|---|---|
-| `small.yml` | 500 | 60 | 240 | 3,000 | 12 months |
-
----
-
-These are YAML inputs, not measured loaded row counts. Edit the preset or a copy to choose another scale. Dates follow `anchor_time`, not the date the command runs. `distributions.product_popularity` contains ten empirical purchase-count weights in descending rank groups; other behavioral values remain unchanged assumptions.
-
-## Vietnamese E-Commerce Behavioral Distributions
-
-The generator uses the following retail scenario assumptions:
-
-- **Timezone & Seasonality:** Uses `Asia/Ho_Chi_Minh` (stored as UTC). Models a configured Tet window, double-day campaigns (e.g. 9/9, 11/11, 12/12), and Black Friday. The fixed Tet window is an assumption, not a year-specific lunar-calendar lookup.
-- **Diurnal Rhythm:** Normal day peaks occur at 19:00–22:00. Campaign days feature 00:00–02:00 midnight spikes, lunch rushes (12:00), and evening surges.
-- **Customer Segmentation:** Customers are segmented into `loyal`, `regular`, and `one_off` cohorts with distinct purchase intervals, coupon affinity, review propensities, and cancellation rates.
-- **Review Behavior:** Reviews originate from completed order items, within the observation window and before a full return is resolved. Weights for approved/rejected status are 94/6; they are assumptions, not guaranteed final proportions.
-- **Soft Archive:** Simulates product and coupon lifecycle archives without breaking historical relational lineage.
-
----
-
-## Deterministic Identity Strategy
-
-- **Surrogate PKs:** Uses positive PostgreSQL `BIGINT` keys for internal joins and performant bulk imports.
-- **Public Identifiers:** Uses deterministic UUIDv5 for `public_id`, `logical_identity`, `generation_run_id`, and transaction idempotency keys.
-- **Business Keys:** Keeps human-readable `order_number`, SKU, slug, and coupon code identifiers.
-
-## Reference Dataset EDA (local notebook)
-
-The [EDA notebook](notebooks/reference_datasets_eda.ipynb) is organized by the behavior the generator needs to model: customers/repurchase, baskets, product demand, purchase timing, and transactions/after-sales. Each group follows **business question → research evidence → EDA → assessment → generation rule → project application**. Data preparation retains `describe()` and `null_count()`. The [Vietnam research report](../docs/data.md#9-hồ-sơ-nguồn-nghiên-cứu-generator) documents the source populations, measurements and limits; relevant findings are placed beside the notebook analysis. See the [plan](../docs/data.md#8-dữ-liệu-sinh-và-căn-cứ).
-
-UCI supplies invoice-level quantities and repurchase metrics; H&M supplies purchase-day patterns and product demand; Olist supplies baskets and delivery/review relationships. Their distributions remain separate: purchase days differ from orders, source product codes differ from project variants, and overseas measurements are not estimates for Vietnamese shoppers. eCommerce Behavior is retained in an appendix; log generation remains outside scope.
-
-Behavior analysis uses October 2019 with November 1 as boundary context. It excludes sessions touching October 1 or November 1, keeps the source `(user_id, user_session)` key and applies no inactivity timeout. The main funnel denominator is sessions with a view; timing statistics use completed session/product paths. No HTTP latency or order count is inferred from these events.
-
-Each result has a short Markdown finding. Group conclusions assess differences between sources, identify the proposed sampling rule and map it to business tables. Section 6 consolidates rules R01–R07 with empirical findings, Vietnam evidence, remaining assumptions and application targets. It distinguishes usable relationships from reference distributions and parameters still awaiting a decision. Code cells only load data, calculate statistics and plot; the notebook writes no CSV, figures or other files. Results and commentary stay in the notebook.
-
-UCI uses UK invoices in `[2010-12-01, 2011-12-01)`, preserving source time. Invoice metadata must have one timestamp/country and at most one known customer. Cancellations, nonpositive quantity/price and codes outside five digits plus up to two letters are excluded. Duplicate source rows and bulk purchases are retained; lines aggregate by invoice/stock code. Missing customer IDs remain in baskets but are excluded from repurchase metrics. Multiple invoices on one day remain distinct. This gift-retail source includes wholesalers; its distributions are not Vietnamese fashion-retail estimates.
-
-R03 is now implemented through ten H&M product-rank groups in the YAML. We integrate group weights over the target rank intervals, shuffle the rank-to-product assignment with the scenario seed, then select a product before selecting one of its remaining variants. This avoids giving a product extra demand solely because it has more variants. Uniform demand inside each rank group and transfer to a smaller catalog are explicit assumptions. Other rates remain the previous scenario assumptions; the Olist/UCI distributions and Vietnam surveys are not copied into unsupported local probabilities. A generator before/after comparison or holdout benchmark remains outside scope.
-
-From the repository root:
+## Running the notebooks
 
 ```bash
 uv sync --locked --group eda
+uv run --locked --group eda jupyter nbconvert --to notebook --execute --inplace \
+  generator/oltp/notebooks/purchase_behavior_eda.ipynb
+uv run --locked --group eda jupyter nbconvert --to notebook --execute --inplace \
+  generator/logs/notebooks/browsing_behavior_eda.ipynb
 ```
 
-Open the notebook in VS Code and select the repository's `.venv/bin/python` kernel, or use an existing local Jupyter installation with that kernel. No containers or running services are required. EDA dependencies are in the optional `eda` group; Seaborn brings Pandas as a transitive dependency, while analysis uses Polars.
+Or open them in VS Code with the repository `.venv/bin/python` kernel. No services are required. Notebooks locate the repository root through `.git` and read CSVs from `data/generator/eda/raw/`.
 
-Sources and local CSV locations:
+## Sources
 
-- [H&M](https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations/data): `data/generator/eda/raw/hm/transactions_train.csv` and `articles.csv`; images are not needed. The original competition download requires Kaggle authentication and applicable competition terms.
+- [H&M](https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations/data): `data/generator/eda/raw/hm/transactions_train.csv` and `articles.csv`. The original download requires Kaggle authentication and the competition terms. The local copy comes from the mirror [einrafh/hnm-fashion-recommendations-data](https://huggingface.co/datasets/einrafh/hnm-fashion-recommendations-data/tree/acde210b0090be673abdba5f989c48925c856f78) pinned at commit `acde210b`; sizes and SHA-256 were checked against its Git LFS pointers.
 - [Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce), CC BY-NC-SA 4.0: CSV files under `data/generator/eda/raw/olist/`.
-- [eCommerce Behavior](https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store): `2019-Oct.csv` and `2019-Nov.csv` under `data/generator/eda/raw/ecommerce_behavior/`. Follow the author's source-attribution requirements on the dataset page.
-- [UCI Online Retail](https://archive.ics.uci.edu/dataset/352/online%2Bretail), Chen, D. (2015), DOI `10.24432/C5BW33`, CC BY 4.0: `data/generator/eda/raw/uci/online_retail.csv`. The 541,909 rows were converted once from the official XLSX with Python's standard library; source columns/rows are retained and Excel dates become naive ISO timestamps. No spreadsheet dependency or runtime profile mechanism is added.
-
-UCI official archive SHA-256: `f5385cbb54bbebf7196389109c6b0621faab0c304e3702548165e71c84aede8b`; prepared CSV SHA-256: `9d6061248a4783cbd8aa464bdb3ff355efe60cf1b1924d6b8414f5980987c20f`. The archive/conversion tooling stays outside the repository; only the CSV remains under `data/`.
-
-The user-provided H&M mirror is [einrafh/hnm-fashion-recommendations-data](https://huggingface.co/datasets/einrafh/hnm-fashion-recommendations-data/tree/acde210b0090be673abdba5f989c48925c856f78), pinned to commit `acde210b0090be673abdba5f989c48925c856f78`. Downloaded CSV sizes and SHA-256 were checked against its Git LFS pointers; this verifies the mirror revision, not independent equality with the original Kaggle download. The data directory retains only source CSV files; downloaded archives, the duplicate clone, download metadata and previous EDA exports have been removed.
-
-The notebook contains analysis and minimal data-loading code. Large sources use Polars lazy scans; `describe()` collects only the selected price/date columns, and null counts use streaming aggregation. Setup instructions, source provenance and implementation progress stay outside the notebook. Edit `data_dir` if files are stored elsewhere.
-
-Analysis references, read through Kaggle's public notebook API:
-
-- [Relational Database — EDA & Data Preparation](https://www.kaggle.com/code/khusheekapoor/relational-database-eda-data-preparation): table-level missingness and relational structure.
-- [H&M EDA FIRST LOOK](https://www.kaggle.com/code/vanguarde/h-m-eda-first-look): separation of product/customer/transaction analysis and product-group exploration.
-- [ECommerce behavior data from multi category store](https://www.kaggle.com/code/varshnidevi/ecommerce-behavior-data-from-multi-category-store): missing category/brand, event counts and session journeys.
-
-These references guide questions and presentation. All results are recomputed locally. Basic profiling retains source rows and does not apply cleaning rules.
-
-To execute from a fresh kernel and save results in the same notebook:
-
-```bash
-uv run --locked --group eda jupyter nbconvert --to notebook --execute \
-  generator/notebooks/reference_datasets_eda.ipynb \
-  --inplace \
-  --ExecutePreprocessor.timeout=1800
-```
-
-Raw CSV files stay under the ignored `data/generator/eda/raw/` directory. Sources are documented above. Analysis results stay in notebook cells; source CSVs are not committed.
-
-## Regression Checks
-
-Run from the repository root, using Python's standard-library unittest runner:
-
-```bash
-uv run --locked --package data-generator -- python -m unittest discover -s generator/tests -v
-```
-
-The checks generate temporary datasets without contacting PostgreSQL, Kafka or external APIs. They cover payment/paid timestamps, return lineage/refunds, stock balances and nonnegative stock history, status continuity, single-variant/free-item edges, multiple seeds and INSERT batches, preset loading, deterministic SQL output and CLI summaries. Generated SQL files are removed with their temporary directories.
-
-Product-demand regression checks also verify probability preservation across catalog sizes, first-product selection independent of variant counts, and exhaustion without falling back to zero-weight products. These check sampling behavior rather than market representativeness. For actual PostgreSQL import and the full-preset Airflow/Polaris/Trino path, use the separate [integration acceptance](../pipelines/README.md#full-stack-acceptance-opt-in); pure generator tests alone do not establish those outcomes.
-
-## PostgreSQL and Lakehouse Acceptance
-
-On 09/11/2026 the rewritten generator passed 33 generator checks and PostgreSQL-backed platform acceptance (111 passed; two separate provider live tests skipped). The default `small.yml` export with 3,000 orders passed the real initial/interval Airflow DAGs, source reconciliation, Gold validation and publication-pinned Trino reads. Two API purchases increased published orders to 3,002 without recognizing unpaid COD revenue. The configured scale is 500 customers, 60 products and 240 variants; seeded auxiliary records are additional.
-
-For PostgreSQL import/API checks using the cached Compose PostgreSQL version:
-
-```bash
-RUN_POSTGRES_SCHEMA_TESTS=1 POSTGRES_TEST_IMAGE=postgres:16.8 \
-  uv run --locked --all-packages -- \
-  python -m unittest discover -s services/platform-app/tests -v
-```
-
-For the full batch path, follow the [stack image builds and opt-in command](../pipelines/README.md#full-stack-acceptance-opt-in) with `STACK_USE_PRESET_SCALE=1`. See the [post-merge evidence](../pipelines/README.md#rewritten-generator-acceptance--09112026) for financial totals, permission/replay/failure checks and scope. These outcomes establish internal consistency and pipeline integration; other behavioral distributions remain assumptions documented in generator parameter catalog.
+- [eCommerce Behavior](https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store): `2019-Oct.csv` and `2019-Nov.csv` under `data/generator/eda/raw/ecommerce_behavior/` (browsing notebook only; November is read only to detect sessions crossing midnight on 31 October). Follow the author's attribution requirements.

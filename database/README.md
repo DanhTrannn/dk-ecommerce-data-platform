@@ -1,6 +1,6 @@
 # PostgreSQL source schema
 
-`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; phần 2 bổ sung generator/seed/importer PostgreSQL; generator hiện ở 0.10 và đã tích hợp địa điểm vào SQL, được kiểm tra bằng database biệt lập. Các luồng API nghiệp vụ chính đã kiểm chứng trên PostgreSQL biệt lập; batch reader đã chuyển PostgreSQL; batch đã nghiệm thu riêng và CDC audit PostgreSQL đã kiểm chứng trên stack biệt lập; provisioning Lakehouse chạy chủ động bằng `make provision-lakehouse`. Xem [phạm vi API nguồn](../docs/architecture.md#1-phạm-vi-và-hiện-trạng). Không nạp SQL MySQL cũ vào schema này.
+`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Schema/ORM đã chuyển ở phần 1; generator/importer PostgreSQL của phần 2 đã bị gỡ cùng package `data-generator`, chỉ còn seed catalog. Các luồng API nghiệp vụ chính đã kiểm chứng trên PostgreSQL biệt lập; batch reader đã chuyển PostgreSQL; batch đã nghiệm thu riêng và CDC audit PostgreSQL đã kiểm chứng trên stack biệt lập; provisioning Lakehouse chạy chủ động bằng `make provision-lakehouse`. Xem [phạm vi API nguồn](../docs/architecture.md#1-phạm-vi-và-hiện-trạng). Không nạp SQL MySQL cũ vào schema này.
 
 ## Định nghĩa và tái lập
 
@@ -34,34 +34,26 @@ DDL chạy trong một transaction: tạo đủ bảng trước, thêm FK sau đ
 
 `API_DATABASE_URL` là cấu hình bắt buộc, dùng `postgresql+psycopg2`. `.env.example` có URL cho host; Compose inject URL riêng dùng hostname `postgres`. Session API đặt UTC và search_path public. Không chạy script nâng cấp timestamp MySQL cũ trên PostgreSQL.
 
-## Seed và nạp lịch sử
+## Seed và dữ liệu lịch sử
 
 Từ root repo, cấu hình `.env` cho `API_DATABASE_URL` host và `API_SECRET_KEY` như `.env.example`. Sau bootstrap schema:
 
 ```bash
-# Seed catalog/admin trong một transaction; địa điểm nằm trong SQL generator
+# Seed catalog/admin trong một transaction
 make seed
-uv run --locked --package data-generator -- generator export-sql \
-  --config generator/configs/small.yml --output data/generator/small.sql
-uv run --locked --package platform-app -- \
-  python -m platform_app.api.db.import_dataset data/generator/small.sql
 ```
 
-Trong container đã build mới, có thể dùng `docker compose exec -T platform-app python -m database.seeds.seed_catalog`. Seed địa điểm cũ đã được loại bỏ; `cities` và `stores` do generator xuất, mặc định 5 thành phố/6 cửa hàng. Chọn danh sách bằng `locations.store_codes` trong YAML hoặc trường Cửa hàng tham chiếu trên Streamlit; xem [generator guide](../generator/README.md#cities-and-stores). Nạp SQL từ container cần đường dẫn artifact bên trong container; job console ở `/data/generator/jobs/<job_id>/outputs/sql/`.
+Trong container đã build mới, có thể dùng `docker compose exec -T platform-app python -m database.seeds.seed_catalog`.
 
-Importer chỉ nhận SQL tin cậy do generator xuất, không phải sandbox hay công cụ chạy SQL tùy ý. Kiểm tra table/cột/type/nullability/identity, index, FK/CHECK và trigger đang bật trước khi ghi. Sau đó khóa nạp, từ chối generation run đã có, thực thi và đối soát trong một transaction. JSON receipt ghi SHA-256 artifact, SHA-256 schema **kỳ vọng từ ORM**, identity, số khách/đơn và tổng giá trị đơn đã đặt; đây không phải doanh thu thực thu. Khách được đếm theo generation run, không gồm moderator tổng hợp phụ trợ.
-
-Các cột identity thuộc 25 bảng được generator sử dụng được khởi động lại ít nhất ở MAX(id)+1, giữ mức sequence cao hơn nếu đã dùng trước đó. Dùng [`ALTER SEQUENCE RESTART`](https://www.postgresql.org/docs/16/sql-altersequence.html) vì rollback được cùng transaction; `setval` không có đặc tính đó. Bulk import chặn writer trên các bảng này và cần quyền sở hữu sequence; nên nạp trước khi chạy tác vụ ghi đồng thời. Lỗi SQL/đối soát hoặc file thiếu COMMIT sẽ rollback. Không đổi/xóa volume, sửa dữ liệu cũ hay tự chạy DAG. Import lại cùng generation run bị từ chối. Các dataset khác dùng chung địa điểm theo code, bổ sung bản ghi thiếu và giữ thông tin cũ; sai quan hệ store/city sẽ rollback. Địa điểm không được đếm là bản ghi mới: receipt ghi số địa điểm được chọn và xác minh. SQL 0.9 cũ vẫn nạp được nhưng không tự thêm địa điểm.
+**Hiện chưa có công cụ nạp dữ liệu lịch sử.** Package `data-generator` cũ, importer `platform_app.api.db.import_dataset` và chức năng nạp trên Streamlit đã bị gỡ. Generator OLTP mới sẽ đọc preset `generator/oltp/configs/*.yml`; xem [generator](../generator/README.md). Seed hiện tại **không tạo `cities`/`stores`** (trước đây do SQL generator cũ tạo), nên các luồng cần cửa hàng phải tự chuẩn bị địa điểm.
 
 Schema hiện bỏ hai CHECK tồn hiện tại không vượt tồn đầu: `opening_on_hand` là mốc cố định, nhập/nhận/trả hàng đi qua ledger. Database đã có schema cũ cần được cập nhật và đối soát riêng; bootstrap không tự nâng cấp hay sửa dữ liệu.
-
-Console cũng có thể nạp artifact của job: mở **Kết quả & lịch sử → Nạp vào PostgreSQL** sau khi sinh SQL thành công và job hoàn tất. Worker kiểm tra bản sao SQL theo checksum/dataset identity rồi gọi chính importer này; lưu receipt/lịch sử riêng, không ghi credential. Xem [hướng dẫn console](../services/platform-app/README.md#nạp-sql-vào-postgresql). Không tự tạo schema/seed hoặc tự nạp khi sinh file; trạng thái kết quả chưa xác định chặn tự nạp lại cùng dataset/đích.
 
 ## Hợp đồng dữ liệu
 
 - UUID native, nhận `uuid.UUID` hoặc chuỗi UUID qua ORM; không lưu binary 16 byte.
 - Thời gian `TIMESTAMP WITHOUT TIME ZONE` chứa UTC, tương thích cách API hiện tạo datetime UTC không tzinfo. Default/trigger dùng `timezone('UTC', statement_timestamp())`, không phụ thuộc timezone session.
-- Identity dùng `GENERATED BY DEFAULT`: nhận ID tường minh khi nạp lịch sử. Importer PostgreSQL đã đồng bộ identity sau khi nạp ID tường minh bằng `ALTER SEQUENCE … RESTART`, không giảm sequence. Các công cụ nạp ID tường minh khác vẫn phải tự xử lý sequence.
+- Identity dùng `GENERATED BY DEFAULT`: nhận ID tường minh khi nạp lịch sử. Công cụ nạp ID tường minh phải tự đồng bộ identity sau khi nạp (ví dụ `ALTER SEQUENCE … RESTART`, không giảm sequence).
 - Trường unsigned-32 cũ dùng BIGINT kèm CHECK 0..4294967295; các PK/tiền/unsigned-64 cũ dùng BIGINT không âm, giới hạn tối đa 2^63−1. VND vẫn là số nguyên.
 - Giữ computed column và unique guard cho mỗi khách chỉ một giỏ active. Khóa chuỗi unique dùng lower để giữ không phân biệt hoa/thường; không mô phỏng toàn bộ collation accent-insensitive của MySQL. Hành vi tra cứu/tìm kiếm thuộc phần nghiệm thu API sau.
 - `updated_at` tự tăng khi dữ liệu đổi mà timestamp không được đổi tường minh; timestamp lịch sử khác giá trị cũ được giữ. No-op không tăng, kể cả bảng có cột generated. Trigger timestamp không tự tạo ledger/history nghiệp vụ.
@@ -79,9 +71,9 @@ RUN_POSTGRES_SCHEMA_TESTS=1 uv run --locked --package platform-app -- \
   python -m unittest discover -s services/platform-app/tests -v
 ```
 
-Integration tests tự tạo PostgreSQL 16.8 biệt lập với `--network none`, dữ liệu tmpfs và Unix socket riêng; không publish port, không dùng database/volume thật và không tự pull image. Container và thư mục tạm được dọn sau khi chạy. Có thể chọn image PostgreSQL 16 đã có bằng `POSTGRES_TEST_IMAGE`.
+Integration tests (chỉ giữ local, không có trong git) tự tạo PostgreSQL 16.8 biệt lập với `--network none`, dữ liệu tmpfs và Unix socket riêng; không publish port, không dùng database/volume thật và không tự pull image. Container và thư mục tạm được dọn sau khi chạy. Có thể chọn image PostgreSQL 16 đã có bằng `POSTGRES_TEST_IMAGE`.
 
-Đã kiểm tra DDL/ORM reflection, identity cả cột không phải PK, UUID/JSON roundtrip, CHECK số/boolean/tiền/tồn, FK, unique hoa-thường, giỏ active và timestamp. Phần 2 kiểm tra nạp `small`/`month-test`, rollback dữ liệu và sequence khi lỗi cuối file/thiếu COMMIT, từ chối trùng, đối soát nghiệp vụ, seed trước/sau import và seed chạy lại. Phần 3 bổ sung HTTP workflow test checkout/POS/nhập–xuất–hoàn kho và ledger, retry, quyền store và tranh tồn. Chưa kiểm chứng pipeline đầu cuối hoặc dữ liệu thật.
+Đã kiểm tra DDL/ORM reflection, identity cả cột không phải PK, UUID/JSON roundtrip, CHECK số/boolean/tiền/tồn, FK, unique hoa-thường, giỏ active và timestamp. Phần 2 kiểm tra seed chạy lại; các kiểm tra importer cũ đã bị gỡ cùng importer. Phần 3 bổ sung HTTP workflow test checkout/POS/nhập–xuất–hoàn kho và ledger, retry, quyền store và tranh tồn. Chưa kiểm chứng pipeline đầu cuối hoặc dữ liệu thật.
 
 ## Tài khoản đọc cho batch PostgreSQL
 
