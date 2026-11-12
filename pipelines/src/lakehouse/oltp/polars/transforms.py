@@ -9,22 +9,11 @@ from lakehouse.oltp.polars.privacy import PII_PATTERN, record_json, token_expr, 
 from lakehouse.oltp.polars.schema import align_arrow, quarantine_schema
 from lakehouse.oltp.polars.validation import validate_rows
 
-REGIONS = ("Bình Tân", "Quận 1", "Quận 7", "Thủ Đức", "Gò Vấp", "Tân Bình", "Cầu Giấy", "Đống Đa", "Hoàn Kiếm")
-
 
 def prepare_silver(page, table, schema, run_id, observed, salt):
     frame = pl.from_arrow(page)
     order = [name for name in (table.cursor_field, "_silver_ingested_at", "_ingested_at_utc") if name in frame.columns]
     frame = frame.sort(order, nulls_last=False).unique(subset=[table.pk], keep="last", maintain_order=True)
-    if table.name == "orders":
-        region = pl.lit("Khu vực khác")
-        for name in reversed(REGIONS):
-            region = (
-                pl.when(pl.col("shipping_address_text").str.to_lowercase().str.contains(name.lower(), literal=True))
-                .then(pl.lit(name))
-                .otherwise(region)
-            )
-        frame = frame.with_columns(region.alias("shipping_region"))
     valid, invalid = validate_rows(frame, table)
     for name in table.pseudonymize:
         expression = token_expr(name, salt) if name in valid.columns else pl.lit(None, dtype=pl.String)
