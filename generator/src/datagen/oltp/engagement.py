@@ -77,16 +77,20 @@ def cart_tables(
     )
     opened = updated - _uniform(rng, policy.created_before_update_hours, count) * MICROS_PER_HOUR
     cart_ids = ids.take("carts", count)
-    active_carts = pl.DataFrame(
-        {
-            "cart_id": cart_ids,
-            "public_id": uuid4_strings(rng, count),
-            "customer_id": owners["customer_id"],
-            "status": "active",
-            "created_at": utc_series("created_at", opened),
-            "updated_at": utc_series("updated_at", updated),
-        }
-    ).with_columns(checked_out_at=pl.lit(None, dtype=pl.Datetime("us", "UTC")))
+    active_carts = (
+        pl.DataFrame(
+            {
+                "cart_id": cart_ids,
+                "public_id": uuid4_strings(rng, count),
+                "customer_id": owners["customer_id"],
+                "created_at": utc_series("created_at", opened),
+                "updated_at": utc_series("updated_at", updated),
+            }
+        )
+        # Constants are added as literals: a scalar in the constructor loses every column type when no cart exists.
+        .with_columns(status=pl.lit("active"), checked_out_at=pl.lit(None, dtype=pl.Datetime("us", "UTC")))
+        .select(checked_carts.columns)
+    )
     picks = _random_products(reference, rng, cart_ids, _uniform(rng, policy.active_item_count, count))
     variant = picks.join(reference.variants.select("product_id", "variant_id"), on="product_id", maintain_order="left")
     variant = variant.with_columns(key=pl.Series(rng.random(variant.height)))
