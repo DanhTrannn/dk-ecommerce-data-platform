@@ -1,5 +1,5 @@
 # Generator v2: mỗi khối ghi `source`:
-#   measured   = đo trong notebooks/reference_datasets_eda.ipynb (mục §)
+#   measured   = đo trong notebooks/purchase_behavior_eda.ipynb (mục §)
 #   transfer   = quy luật đo ở nguồn khác, áp sang shop Việt Nam như một giả định chuyển nguồn
 #   assumption = tham số kịch bản/chính sách, không có dữ liệu để ước lượng
 # Tổng số đơn KHÔNG phải đầu vào: là kết quả của customers.purchase_frequency × scale.buying_customers.
