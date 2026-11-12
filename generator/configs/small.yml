@@ -1,5 +1,5 @@
 # Generator v2: mỗi khối ghi `source`:
-#   measured   = ước lượng trong notebooks/reference_datasets_eda.ipynb (mục §)
+#   measured   = đo trong notebooks/reference_datasets_eda.ipynb (mục §)
 #   transfer   = quy luật đo ở nguồn khác, áp sang shop Việt Nam như một giả định chuyển nguồn
 #   assumption = tham số kịch bản/chính sách, không có dữ liệu để ước lượng
 # Tổng số đơn KHÔNG phải đầu vào: là kết quả của customers.purchase_frequency × scale.buying_customers.
@@ -20,22 +20,22 @@ customers:
     # Số đơn k ≥ 1 của khách đã mua ~ log-series(θ), θ = T/(α+T), T = history_months/12 (năm).
     model: zero_truncated_log_series
     alpha_years: 0.1141
-    source: measured  # §1, §1.1 — H&M online 2019; kiểm chứng ngoài mẫu 3/12 tháng
+    source: measured  # §1, §1.1 — H&M online 2019; α từ 6 tháng dự báo được 3 và 12 tháng
   repeat_gap:
     # Khoảng cách giữa hai đơn liên tiếp ~ Exponential(mean = T_days·(1 − c/k)/(k+1)), làm tròn ≥ 1 ngày.
     model: exponential
-    shrink_c: 0.517
-    source: measured  # §2, §2.1 — H&M online 2019; mô phỏng KS ≈ 0,05
+    shrink_c: 0.518
+    source: measured  # §2 — H&M online 2019; khách mua ít lần có đơn gần nhau hơn
 
 products:
   popularity:
     # Trọng số nhu cầu w ~ LogNormal(0, σ) × categories.<code>.demand_multiplier.
     model: lognormal
-    sigma: 1.408
-    source: measured  # §3.1 — sản phẩm H&M nữ bán đủ 12 tháng; ước lượng theo Lorenz
+    sigma: 1.35  # độ lệch chuẩn của log(số bán)
+    source: measured  # §3 — sản phẩm H&M nữ bán đủ 12 tháng
   categories:
     # product_share chia số sản phẩm; demand_multiplier = demand_share/product_share.
-    source: measured  # §3.2 — ánh xạ product_type H&M → nhóm shop là giả định
+    source: measured  # §3.1 — ánh xạ product_type H&M → nhóm shop là giả định
     ao: {product_share: 0.3487, demand_multiplier: 1.190}
     quan: {product_share: 0.1353, demand_multiplier: 1.723}
     dam: {product_share: 0.1954, demand_multiplier: 0.887}
@@ -44,7 +44,7 @@ products:
     giay: {product_share: 0.0524, demand_multiplier: 0.724}
     phu-kien: {product_share: 0.1112, demand_multiplier: 0.315}
     tui-xach: {product_share: 0.0243, demand_multiplier: 0.386}
-  price_independent_of_popularity: true  # measured §3.2 — Spearman ≈ 0,01
+  price_independent_of_popularity: true  # measured §3.1 — Spearman ≈ 0,01
   variants_per_product: 4  # assumption: tổ hợp size/màu trong catalog
   price_bands:  # assumption: giá VND không suy ra được từ giá chuẩn hóa H&M
     source: assumption
@@ -58,15 +58,12 @@ baskets:
   # Lấy mẫu độc lập với khách (Spearman ≈ 0,02, §4).
   source: transfer  # §4 — H&M online (shop một thương hiệu); Olist kiểu sàn cho giỏ nhỏ hơn nhiều
   products:
-    model: zero_truncated_nbd
-    r: 0.649
-    mean_m: 2.028
-  variants_per_product:
-    model: zero_truncated_log_series
-    theta: 0.1578
-  quantity_per_variant:
-    model: zero_truncated_log_series
-    theta: 0.2452
+    # Sau mỗi sản phẩm, thêm sản phẩm khác với xác suất 1 − p (trung bình 1/p ≈ 3,4).
+    model: geometric
+    p: 0.296
+  # Bảng tần suất % cho giá trị 1, 2, 3 (3 đại diện cho "3+").
+  variants_per_product: [92.1, 7.0, 1.0]
+  quantity_per_variant: [86.9, 11.6, 1.4]
 
 calendar:
   # Cường độ đặt đơn theo ngày = day_of_week × sale_events × tet.
@@ -78,11 +75,12 @@ calendar:
     normal: [0.0251, 0.0127, 0.0056, 0.0028, 0.0023, 0.0021, 0.0047, 0.0117, 0.0282, 0.0456, 0.0602, 0.0663, 0.0602, 0.0667, 0.0653, 0.0651, 0.0662, 0.0622, 0.0566, 0.0608, 0.0619, 0.0635, 0.0596, 0.0447]
     sale_day: [0.0468, 0.0315, 0.0136, 0.0043, 0.0034, 0.0026, 0.0077, 0.0145, 0.0349, 0.0468, 0.0638, 0.0476, 0.0544, 0.0646, 0.057, 0.0578, 0.0485, 0.0451, 0.0417, 0.0536, 0.0544, 0.0655, 0.074, 0.0663]
   sale_events:
-    # Hệ số đo trên Black Friday (H&M + Olist gộp); áp cho các ngày sale lớn ở VN là chuyển nguồn.
-    source: transfer  # §5 — ×5,98 (95% CI 4,06–8,81); 3 ngày sau ×2,54
-    event_day_multiplier: 5.98
+    # Black Friday ÷ trung vị 28 ngày trước, trung bình H&M (×5,55) và Olist (×7,24);
+    # áp cho các ngày sale lớn ở VN là chuyển nguồn.
+    source: transfer  # §5
+    event_day_multiplier: 6.39
     after_days: 3
-    after_multiplier: 2.54
+    after_multiplier: 2.6
     dates:
       - {name: '11-11', month: 11, day: 11}
       - {name: '12-12', month: 12, day: 12}
@@ -97,20 +95,21 @@ calendar:
     holiday_multiplier: 0.3
 
 fulfilment:
-  delivery_days:
-    model: lognormal
-    median_days: 3  # assumption: giao nội địa VN
-    sigma: 0.63  # transfer §6 — độ phân tán Olist 2017
-  sla_days: 7  # assumption: với median 3, σ 0,63 → khoảng 9% đơn trễ
+  on_time_delivery_days: [1, 4]  # assumption: giao nội địa VN, lấy đều
+  late_rate: 0.055  # transfer §6 — Olist 2017
+  late_buckets:  # transfer §6 — tỷ trọng % trong các đơn trễ; số ngày trễ lấy đều trong khoảng
+    late_1_3: {days: [1, 3], share: 29.2}
+    late_4_7: {days: [4, 7], share: 26.6}
+    late_8_plus: {days: [8, 14], share: 44.3}
 
 reviews:
-  rating:
-    # P(sao | L ngày trễ) = (1 − π)·on_time + π·dissatisfied, π = 1 − exp(−L/τ), L = max(0, giao − SLA).
-    model: late_dissatisfaction_mixture
-    tau_days: 3.15
-    on_time: [0.064, 0.028, 0.084, 0.208, 0.616]
-    dissatisfied: [0.669, 0.106, 0.098, 0.054, 0.072]
-    source: measured  # §6 — Olist 2017; sai lệch ≤ 6 điểm % theo nhóm trễ
+  rating_by_lateness:
+    # % số sao 1..5 theo mức trễ, đo trực tiếp.
+    source: measured  # §6 — Olist 2017
+    on_time: [6.4, 2.8, 8.4, 20.8, 61.6]
+    late_1_3: [26.2, 7.8, 13.4, 19.9, 32.8]
+    late_4_7: [55.9, 8.8, 10.1, 7.7, 17.4]
+    late_8_plus: [68.1, 9.8, 8.4, 5.3, 8.4]
   write_rate: 0.35  # assumption: Olist khảo sát mọi đơn
   status_weights: {approved: 94, rejected: 6}  # assumption
   delay_days: [1, 14]  # assumption
