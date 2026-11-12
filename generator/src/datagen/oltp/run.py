@@ -39,6 +39,10 @@ class AlreadyGenerated(Exception):
     pass
 
 
+class ManualOrdersPresent(Exception):
+    pass
+
+
 class BatchFailed(Exception):
     pass
 
@@ -135,6 +139,9 @@ def generate(preset: OltpPreset, connection, log=print) -> dict[str, int]:
     check_schema(connection)
     if has_synthetic_data(connection):
         raise AlreadyGenerated("Database đã có dữ liệu sinh; chạy 'datagen reset --yes' trước")
+    if has_manual_orders(connection):
+        # reset refuses such a database, so loading into it would leave no supported way back.
+        raise ManualOrdersPresent("Database có đơn do API tạo; generate chỉ chạy trên database chưa có đơn")
     ids = IdAllocator(next_ids(connection))
     timeline = build_timeline(preset)
     counts: dict[str, int] = {}

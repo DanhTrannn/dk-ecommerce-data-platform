@@ -5,7 +5,15 @@ import os
 import sys
 import time
 
-from datagen.oltp.run import RESET_TABLES, AlreadyGenerated, BatchFailed, ResetRefused, generate, reset
+from datagen.oltp.run import (
+    RESET_TABLES,
+    AlreadyGenerated,
+    BatchFailed,
+    ManualOrdersPresent,
+    ResetRefused,
+    generate,
+    reset,
+)
 from datagen.postgres import SchemaMismatch, connect
 from datagen.presets import OltpPreset, load_oltp_preset, preset_path
 from datagen.verify import ledger, rules
@@ -35,7 +43,7 @@ def _generate(preset: OltpPreset, connection) -> int:
     started = time.monotonic()
     try:
         counts = generate(preset, connection)
-    except (AlreadyGenerated, BatchFailed, SchemaMismatch) as error:
+    except (AlreadyGenerated, ManualOrdersPresent, BatchFailed, SchemaMismatch) as error:
         return _fail(str(error), 1)
     for table, rows in sorted(counts.items()):
         print(f"{table:<24}{rows:>14,}")
