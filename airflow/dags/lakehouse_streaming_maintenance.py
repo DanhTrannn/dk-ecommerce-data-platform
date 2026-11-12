@@ -18,7 +18,7 @@ def check_flink_streaming_health():
     required = tuple(
         filter(
             None,
-            os.environ.get("FLINK_REQUIRED_JOBS", "kafka_to_lakehouse_pure_streaming,oltp_cdc_to_bronze").split(","),
+            os.environ.get("FLINK_REQUIRED_JOBS", "kafka_to_lakehouse_pure_streaming").split(","),
         )
     )
     if not required:

@@ -29,8 +29,8 @@ x-airflow-common: &airflow-common
     POSTGRES_ECOMMERCE_READER_PASSWORD: ${POSTGRES_ECOMMERCE_READER_PASSWORD:-}
     MINIO_ENDPOINT: http://minio:9000
     MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
-    MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
-    MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
+    MINIO_BATCH_ACCESS_KEY: ${MINIO_BATCH_ACCESS_KEY:?set MINIO_BATCH_ACCESS_KEY}
+    MINIO_BATCH_SECRET_KEY: ${MINIO_BATCH_SECRET_KEY:?set MINIO_BATCH_SECRET_KEY}
     POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
     POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
     POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
@@ -40,7 +40,7 @@ x-airflow-common: &airflow-common
     - ./airflow/dags:/opt/airflow/dags:ro
     - ./pipelines:/opt/project/pipelines:ro
     - airflow-logs:/opt/airflow/logs
-    - polaris-spark-airflow-credentials:/run/polaris:ro
+    - polaris-batch-airflow-credentials:/run/polaris:ro
     - trino-ca:/run/trino-ca:ro
   networks: ["lakehouse-network"]
   depends_on:
@@ -89,7 +89,6 @@ x-flink-common: &flink-common
     MINIO_ENDPOINT: http://minio:9000
     KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     KAFKA_ACCESS_LOG_TOPIC: ${KAFKA_ACCESS_LOG_TOPIC:-ecommerce.access_logs}
-    CDC_TOPIC_PREFIX: ${CDC_TOPIC_PREFIX:-ecommerce}
     PYTHONPATH: /opt/project/pipelines/src
   networks: ["lakehouse-network"]
 
@@ -111,8 +110,8 @@ services:
       MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
       MINIO_POLARIS_ACCESS_KEY: ${MINIO_POLARIS_ACCESS_KEY:?set MINIO_POLARIS_ACCESS_KEY}
       MINIO_POLARIS_SECRET_KEY: ${MINIO_POLARIS_SECRET_KEY:?set MINIO_POLARIS_SECRET_KEY}
-      MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
-      MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
+      MINIO_BATCH_ACCESS_KEY: ${MINIO_BATCH_ACCESS_KEY:?set MINIO_BATCH_ACCESS_KEY}
+      MINIO_BATCH_SECRET_KEY: ${MINIO_BATCH_SECRET_KEY:?set MINIO_BATCH_SECRET_KEY}
       MINIO_FLINK_ACCESS_KEY: ${MINIO_FLINK_ACCESS_KEY:?set MINIO_FLINK_ACCESS_KEY}
       MINIO_FLINK_SECRET_KEY: ${MINIO_FLINK_SECRET_KEY:?set MINIO_FLINK_SECRET_KEY}
       MINIO_TRINO_ACCESS_KEY: ${MINIO_TRINO_ACCESS_KEY:?set MINIO_TRINO_ACCESS_KEY}
@@ -133,7 +132,6 @@ services:
   postgres:
     image: postgres:16.8
     profiles: ["core"]
-    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=4", "-c", "max_wal_senders=4"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
@@ -142,8 +140,6 @@ services:
       POSTGRES_ECOMMERCE_PASSWORD: ${POSTGRES_ECOMMERCE_PASSWORD:-password}
       POSTGRES_ECOMMERCE_READER_USER: ${POSTGRES_ECOMMERCE_READER_USER:-ecommerce_reader}
       POSTGRES_ECOMMERCE_READER_PASSWORD: ${POSTGRES_ECOMMERCE_READER_PASSWORD:-}
-      POSTGRES_CDC_USER: ${POSTGRES_CDC_USER:-debezium}
-      POSTGRES_CDC_PASSWORD: ${POSTGRES_CDC_PASSWORD:-password}
       POLARIS_DB_NAME: ${POLARIS_DB_NAME:-polaris}
       POLARIS_DB_USER: ${POLARIS_DB_USER:-polaris}
       AIRFLOW_DB_NAME: ${AIRFLOW_DB_NAME:-airflow}
@@ -160,7 +156,6 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
       - ./infrastructure/postgres/configure-source-reader.sh:/opt/project/configure-source-reader.sh:ro
-      - ./infrastructure/postgres/configure-source-cdc.sh:/opt/project/configure-source-cdc.sh:ro
       - ./infrastructure/postgres/configure-superset.sh:/opt/project/configure-superset.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres}"]
@@ -231,43 +226,6 @@ services:
       timeout: 10s
       retries: 30
       start_period: 15s
-    networks: ["lakehouse-network"]
-
-  batch-client:
-    build:
-      context: .
-      dockerfile: infrastructure/batch/Dockerfile
-    image: lakehouse-batch:0.1.0
-    profiles: ["batch"]
-    entrypoint: ["python"]
-    environment:
-      POSTGRES_SOURCE_HOST: postgres
-      POSTGRES_SOURCE_PORT: "5432"
-      POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
-      POSTGRES_ECOMMERCE_READER_USER: ${POSTGRES_ECOMMERCE_READER_USER:-ecommerce_reader}
-      POSTGRES_ECOMMERCE_READER_PASSWORD: ${POSTGRES_ECOMMERCE_READER_PASSWORD:-}
-      MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
-      POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
-      POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
-      POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
-      SILVER_PSEUDONYMIZE_SALT: ${SILVER_PSEUDONYMIZE_SALT:-}
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
-      MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
-      POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
-      POLARS_MAX_THREADS: "2"
-      TRINO_CA_FILE: /run/trino-ca/ca.pem
-      DBT_TRINO_HOST: trino
-      DBT_TRINO_PASSWORD: ${DBT_TRINO_PASSWORD:?set DBT_TRINO_PASSWORD}
-    command: ["-c", "import time; time.sleep(86400)"]
-    volumes:
-      - polaris-spark-client-credentials:/run/polaris:ro
-      - trino-ca:/run/trino-ca:ro
-      - ./pipelines:/opt/project/pipelines:ro
-    depends_on:
-      polaris:
-        condition: service_healthy
     networks: ["lakehouse-network"]
 
   airflow-init:
@@ -349,8 +307,8 @@ services:
     environment:
       POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
       TRINO_INTERNAL_SECRET: ${TRINO_INTERNAL_SECRET:?set TRINO_INTERNAL_SECRET}
-      MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
-      MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
+      MINIO_BATCH_ACCESS_KEY: ${MINIO_BATCH_ACCESS_KEY:?set MINIO_BATCH_ACCESS_KEY}
+      MINIO_BATCH_SECRET_KEY: ${MINIO_BATCH_SECRET_KEY:?set MINIO_BATCH_SECRET_KEY}
       POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
       MINIO_TRINO_ACCESS_KEY: ${MINIO_TRINO_ACCESS_KEY:?set MINIO_TRINO_ACCESS_KEY}
       MINIO_TRINO_SECRET_KEY: ${MINIO_TRINO_SECRET_KEY:?set MINIO_TRINO_SECRET_KEY}
@@ -397,8 +355,7 @@ services:
       AIRFLOW_UID: ${AIRFLOW_UID:-50000}
     volumes:
       - polaris-provision-state:/run/polaris-state
-      - polaris-spark-client-credentials:/run/polaris-output/spark-client
-      - polaris-spark-airflow-credentials:/run/polaris-output/spark-airflow
+      - polaris-batch-airflow-credentials:/run/polaris-output/batch-airflow
       - polaris-flink-credentials:/run/polaris-output/flink
       - polaris-trino-reader-credentials:/run/polaris-output/trino-reader
       - polaris-trino-writer-credentials:/run/polaris-output/trino-writer
@@ -422,7 +379,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
       MINIO_POLARIS_ACCESS_KEY: ${MINIO_POLARIS_ACCESS_KEY:?set MINIO_POLARIS_ACCESS_KEY}
-      MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
+      MINIO_BATCH_ACCESS_KEY: ${MINIO_BATCH_ACCESS_KEY:?set MINIO_BATCH_ACCESS_KEY}
       MINIO_FLINK_ACCESS_KEY: ${MINIO_FLINK_ACCESS_KEY:?set MINIO_FLINK_ACCESS_KEY}
       MINIO_TRINO_ACCESS_KEY: ${MINIO_TRINO_ACCESS_KEY:?set MINIO_TRINO_ACCESS_KEY}
       ACCESS_ADMIN_AUDIT_PATH: /data/access-admin/audit.jsonl
@@ -575,50 +532,6 @@ services:
     restart: "no"
     networks: ["lakehouse-network"]
 
-  debezium-connect:
-    build:
-      context: .
-      dockerfile: infrastructure/debezium/Dockerfile
-      args:
-        DEBEZIUM_VERSION: 3.0.8.Final
-    image: lakehouse-debezium-connect:3.0.8
-    profiles: ["streaming"]
-    environment:
-      KAFKA_HEAP_OPTS: ${CDC_CONNECT_HEAP_OPTS:--Xms256m -Xmx512m}
-    ports:
-      - "${CDC_CONNECT_BIND_ADDRESS:-127.0.0.1}:${CDC_CONNECT_PORT:-8086}:8083"
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8083'"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    depends_on:
-      kafka:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-    networks: ["lakehouse-network"]
-
-  debezium-init:
-    image: alpine/curl:8.21.0
-    profiles: ["streaming"]
-    scale: 0  # Run manually with docker compose run.
-    entrypoint: ["/bin/sh", "/opt/debezium/register-connector.sh"]
-    environment:
-      DEBEZIUM_CONNECT_URL: http://debezium-connect:8083
-      POSTGRES_CDC_USER: ${POSTGRES_CDC_USER:-debezium}
-      POSTGRES_CDC_PASSWORD: ${POSTGRES_CDC_PASSWORD:-password}
-      POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
-      CDC_TOPIC_PREFIX: ${CDC_TOPIC_PREFIX:-ecommerce}
-    volumes:
-      - ./infrastructure/debezium/register-connector.sh:/opt/debezium/register-connector.sh:ro
-    depends_on:
-      debezium-connect:
-        condition: service_healthy
-    restart: "no"
-    networks: ["lakehouse-network"]
-
   flink-jobmanager:
     <<: *flink-common
     command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/docker-entrypoint.sh", "jobmanager"]
@@ -675,30 +588,6 @@ services:
       flink-taskmanager:
         condition: service_started
 
-  flink-cdc-submit:
-    <<: *flink-common
-    profiles: ["streaming"]
-    scale: 0  # Run manually with docker compose run.
-    command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/opt/project/flink/bin/submit-job.sh"]
-    environment:
-      <<: *flink-environment
-      JOB_SCRIPT: /opt/project/pipelines/src/jobs/cdc/postgres_cdc_to_bronze.py
-      JOB_NAME_PATTERN: oltp_cdc_to_bronze
-      POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
-    restart: "no"
-    volumes:
-      - ./pipelines:/opt/project/pipelines:ro
-      - polaris-flink-credentials:/run/polaris:ro
-      - flink-checkpoints:/opt/flink/checkpoints
-    depends_on:
-      debezium-init:
-        condition: service_completed_successfully
-      flink-jobmanager:
-        condition: service_healthy
-      flink-taskmanager:
-        condition: service_started
-
-
 networks:
   lakehouse-network:
     name: lakehouse-network
@@ -710,8 +599,7 @@ volumes:
   minio-data:
   postgres-data:
   polaris-provision-state:
-  polaris-spark-client-credentials:
-  polaris-spark-airflow-credentials:
+  polaris-batch-airflow-credentials:
   polaris-flink-credentials:
   polaris-trino-reader-credentials:
   airflow-logs:

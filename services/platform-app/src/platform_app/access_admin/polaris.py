@@ -5,7 +5,7 @@ from urllib.parse import quote
 from platform_app.api.core.errors import AppError
 from platform_app.provisioning.client import PolarisClient
 
-PRINCIPALS = {"spark_writer", "flink_writer", "trino_reader"}
+PRINCIPALS = {"batch_writer", "flink_writer", "trino_reader"}
 PROTECTED_ROLES = {"service_admin", "catalog_admin"}
 PRIVILEGES = {
     "CATALOG_MANAGE_CONTENT",

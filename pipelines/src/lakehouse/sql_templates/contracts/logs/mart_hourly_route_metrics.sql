@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS {{mart_hourly_route_metrics_table}} (
     p95_duration_ms         DOUBLE                          COMMENT '95th percentile duration in milliseconds',
     p99_duration_ms         DOUBLE                          COMMENT '99th percentile duration in milliseconds',
     _gold_ingested_at       TIMESTAMP                       COMMENT 'UTC timestamp when aggregation was recorded',
-    _source_run_id          STRING                          COMMENT 'Airflow/Spark execution batch run ID'
+    _source_run_id          STRING                          COMMENT 'Airflow batch run ID'
 )
 USING iceberg
 PARTITIONED BY (metric_date)

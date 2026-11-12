@@ -2,6 +2,8 @@
 
 ---
 
+> **Ghi chú hiện trạng (12/11/2026):** engine batch Spark đã được thay bằng Polars/PyIceberg và dbt trên Trino; luồng CDC (Debezium, Flink CDC, đồng bộ hard delete) đã bị gỡ. Báo cáo giữ thiết kế tại thời điểm viết; hiện trạng xem [architecture.md](architecture.md).
+
 # **CHƯƠNG 1. TỔNG QUAN ĐỀ TÀI**
 
 ## **1.1. Tính cấp thiết của đề tài**

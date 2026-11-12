@@ -2,9 +2,9 @@
 
 Package Python `platform_app` tách `api/` (FastAPI) và `ui/` (Streamlit), cùng dùng một `pyproject.toml`.
 
-Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và Streamlit (`PLATFORM_APP_PORT`, mặc định 8501). Chuẩn bị thư mục `data/generator` với quyền ghi cho `PLATFORM_APP_UID`/`PLATFORM_APP_GID`. Khởi động bằng `bash /app/start.sh`; nếu một process thoát thì process còn lại cũng dừng. Healthcheck kiểm tra cả `/health/live` của FastAPI và `/_stcore/health` của Streamlit. Schema/ORM đã chuyển PostgreSQL và được kiểm tra biệt lập, xem [database guide](../../database/README.md). Startup không tự tạo schema hoặc seed; seed PostgreSQL đã được kiểm tra biệt lập; các luồng API nghiệp vụ chính đã được kiểm chứng trên PostgreSQL biệt lập; batch và log API thực đã có nghiệm thu stack biệt lập; xem phạm vi bằng chứng trong [operations](../../docs/operations.md#8-bằng-chứng-nghiệm-thu-đã-ghi-nhận).
+Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và Streamlit (`PLATFORM_APP_PORT`, mặc định 8501). Chuẩn bị thư mục `data/scenarios` với quyền ghi cho `PLATFORM_APP_UID`/`PLATFORM_APP_GID`. Khởi động bằng `bash /app/start.sh`; nếu một process thoát thì process còn lại cũng dừng. Healthcheck kiểm tra cả `/health/live` của FastAPI và `/_stcore/health` của Streamlit. Schema/ORM đã chuyển PostgreSQL và được kiểm tra biệt lập, xem [database guide](../../database/README.md). Startup không tự tạo schema hoặc seed; các luồng API nghiệp vụ chính đã được kiểm chứng trên PostgreSQL biệt lập.
 
-`API_DATABASE_URL` bắt buộc khi chạy API, dùng `postgresql+psycopg2`. Không còn fallback URL/mật khẩu MySQL trong code. Session dùng UTC và schema public; `/health/ready` hiện chỉ kiểm tra kết nối, chưa kiểm tra schema nghiệp vụ.
+`API_DATABASE_URL` bắt buộc khi chạy API, dùng `postgresql+psycopg2`. Session dùng UTC và schema public; `/health/ready` hiện chỉ kiểm tra kết nối, chưa kiểm tra schema nghiệp vụ.
 
 Streamlit **Platform Console** có hai màn hình: **Mô phỏng API** (mua online qua API thật) và **Quản trị quyền** (binding Polaris/MinIO hiện có). Chức năng sinh và nạp dataset SQL của console cũ đã bị gỡ cùng package `data-generator`.
 
@@ -23,7 +23,7 @@ uv lock
 uv run --locked --package platform-app platform-app
 ```
 
-Mở `http://localhost:8501`. Run mô phỏng API được lưu dưới `data/generator/scenarios/`; đổi thư mục bằng `GENERATOR_CONSOLE_DATA_DIR` (xem bảng biến môi trường).
+Mở `http://localhost:8501`. Run mô phỏng API được lưu dưới `data/scenarios/`; đổi thư mục bằng `PLATFORM_APP_SCENARIOS_DIR` (xem bảng biến môi trường).
 
 Có thể chạy trực tiếp Streamlit nếu package đã được cài:
 
@@ -45,7 +45,7 @@ make up PROFILES=core
 docker compose --profile core up -d --build platform-app
 ```
 
-Mở `http://localhost:8501` (đổi `PLATFORM_APP_PORT` nếu cần). Thư mục host `./data` được mount vào `/data`; run mô phỏng nằm tại `./data/generator/scenarios/`. Container chạy bằng UID/GID cấu hình trong `.env` (`PLATFORM_APP_UID`, `PLATFORM_APP_GID`) để file trên host không bị root sở hữu.
+Mở `http://localhost:8501` (đổi `PLATFORM_APP_PORT` nếu cần). Thư mục host `./data` được mount vào `/data`; run mô phỏng nằm tại `./data/scenarios/`. Container chạy bằng UID/GID cấu hình trong `.env` (`PLATFORM_APP_UID`, `PLATFORM_APP_GID`) để file trên host không bị root sở hữu.
 
 Healthcheck dùng `http://localhost:8501/_stcore/health`.
 
@@ -53,12 +53,10 @@ Có thể build riêng image ứng dụng bằng `docker compose --profile core 
 
 ## Biến môi trường
 
-Tên biến giữ tiền tố `GENERATOR_CONSOLE_` từ console cũ.
-
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
-| `GENERATOR_CONSOLE_DATA_DIR` | `<repo>/data/generator/jobs` | Mốc thư mục dữ liệu; run mô phỏng API lưu ở thư mục `scenarios/` cùng cấp |
-| `GENERATOR_CONSOLE_REPO_ROOT` | suy ra từ package | Working directory cho worker mô phỏng |
+| `PLATFORM_APP_SCENARIOS_DIR` | `<repo>/data/scenarios` | Thư mục lưu run mô phỏng API |
+| `PLATFORM_APP_REPO_ROOT` | suy ra từ package | Working directory cho worker mô phỏng |
 
 ## Kiểm tra
 
@@ -85,7 +83,7 @@ Mở **Mô phỏng API**, chọn số lượt mua (1–1.000), số lượng m�
 - `SCENARIO_API_BASE_URL`: origin API, mặc định `http://127.0.0.1:8000`; không có credential, query hoặc path. Không chỉnh đích trên form. Nếu API chạy cổng khác trên host, sửa biến này; Compose dùng cổng nội bộ 8000.
 - `SCENARIO_HTTP_TIMEOUT_SECONDS`: timeout HTTP mặc định 15 giây (1–120). Không tự retry request; không dùng proxy môi trường hoặc tự theo redirect.
 - Cookie name lấy từ cấu hình `API_CSRF_COOKIE_NAME` của API; origin/domain/Secure phải cho phép cookie hoạt động. API từ xa cần cùng cấu hình cookie ở worker.
-- Run JSON lưu tại thư mục `scenarios/` cùng cấp với `GENERATOR_CONSOLE_DATA_DIR` (mặc định `data/generator/scenarios/<run_id>.json`).
+- Run JSON lưu tại `PLATFORM_APP_SCENARIOS_DIR` (mặc định `data/scenarios/<run_id>.json`).
 
 Mỗi lượt có email riêng `scenario-<run_id>-<index>@example.com`, tạo tài khoản rồi đăng nhập bằng API. Mật khẩu ngẫu nhiên, cookie và token chỉ ở bộ nhớ; không ghi journal. Runner đọc catalog qua API, chọn variant đầu tiên đủ tồn trong tối đa 20 trang sản phẩm, PUT giỏ hàng, quote và checkout với idempotency key riêng đã lưu trước khi gọi. Một client/cookie jar riêng cho mỗi lượt. Khoảng nghỉ áp dụng giữa hai lượt hoàn tất, không phải giới hạn request/giây.
 
@@ -114,7 +112,7 @@ Streamlit gọi service nội bộ `lakehouse-access:8010`, tách khỏi source 
 Phạm vi:
 
 - Polaris: xem ba workload principal, principal role, catalog role và grant hiện tại; gán/gỡ principal role, catalog role, hoặc chín quyền catalog đã được hỗ trợ. Root, `service_admin`, `catalog_admin` và role `system$...` không là đối tượng sửa trên giao diện.
-- MinIO: xem bốn workload account cấu hình qua `MINIO_*_ACCESS_KEY`, trạng thái, direct policy và group membership; xem JSON của bốn policy `lakehouse-{polaris,spark,flink,trino}` và gán/gỡ chúng. Policy JSON là read-only; không có API tạo/xóa account, sửa policy, đổi password/secret hoặc chỉnh group.
+- MinIO: xem bốn workload account cấu hình qua `MINIO_*_ACCESS_KEY`, trạng thái, direct policy và group membership; xem JSON của bốn policy `lakehouse-{polaris,batch,flink,trino}` và gán/gỡ chúng. Policy JSON là read-only; không có API tạo/xóa account, sửa policy, đổi password/secret hoặc chỉnh group.
 - Hiển thị **liên kết trực tiếp**, không tính đầy đủ quyền hiệu lực từ mọi role/group/policy. Gỡ một grant/policy không chứng minh toàn bộ quyền truy cập đã mất nếu còn đường kế thừa khác.
 
 Quyền hiển thị là snapshot của lần tải; dùng **Tải lại quyền** khi có thao tác từ công cụ khác. Backend đọc lại trạng thái và so revision trước khi ghi; revision lệch trả 409 và yêu cầu tải lại. Một thay đổi chỉ tác động một liên kết, sau đó đọc lại để xác minh; không tự retry khi mất kết nối hoặc chưa rõ kết quả. Khóa file serialize các thao tác của backend dùng chung audit path, không phải khóa mọi Console/API bên ngoài.

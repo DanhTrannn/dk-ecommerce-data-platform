@@ -3,14 +3,14 @@
 import streamlit as st
 from pydantic import ValidationError
 
-from platform_app.ui.paths import jobs_root
+from platform_app.ui.paths import scenarios_root
 from platform_app.ui.scenarios.config import PurchaseConfig, ScenarioSettings
 from platform_app.ui.scenarios.store import ACTIVE, ScenarioStore, ScenarioStoreError
 
 
 @st.fragment(run_every=2)
 def render():
-    store = ScenarioStore(jobs_root().parent / "scenarios")
+    store = ScenarioStore(scenarios_root())
     st.subheader("Mô phỏng mua hàng qua API")
     st.caption("Mỗi lượt tạo khách hàng mới → đăng nhập → chọn hàng còn tồn → giỏ hàng → checkout → xác minh đơn.")
     try:

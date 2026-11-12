@@ -13,7 +13,7 @@ from platform_app.api.modules.admin.branch_inventory_schemas import UpdateStockR
 from platform_app.api.modules.admin.schemas import RefillInventoryRequest
 
 
-def check_store_inventory_permission(actor: Customer, target_store_id: int, target_city_id: int) -> None:
+def check_store_inventory_permission(actor: Customer, target_store_id: int) -> None:
     if actor.role == "admin":
         return
     if actor.role == "store_manager":
@@ -28,7 +28,7 @@ def adjust_branch_stock(actor: Customer, payload: UpdateStockRequest) -> None:
         store = db.get(Store, payload.store_id)
         if store is None:
             raise not_found("Không tìm thấy cửa hàng.")
-        check_store_inventory_permission(actor, payload.store_id, store.city_id)
+        check_store_inventory_permission(actor, payload.store_id)
         inventory = db.scalar(
             select(StoreInventory)
             .where(

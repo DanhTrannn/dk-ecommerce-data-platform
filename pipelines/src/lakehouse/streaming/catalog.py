@@ -77,12 +77,13 @@ def register_polaris_catalog(
     log.info("Registered Iceberg REST catalog '%s' via Polaris at %s", catalog_name, polaris_uri)
 
 
-def ensure_medallion_namespaces(
+def ensure_landing_namespace(
     t_env: StreamTableEnvironment,
     catalog_name: str = "lakehouse",
 ) -> None:
-    """Ensure Landing, Bronze, Silver, and Gold databases exist in the catalog."""
-    for ns in ["landing", "bronze", "silver", "gold"]:
-        t_env.execute_sql(
-            render_sql("flink/operations/create_database.sql", catalog_name=identifier(catalog_name), ns=identifier(ns))
+    """Ensure the Landing database, the only one Flink writes, exists in the catalog."""
+    t_env.execute_sql(
+        render_sql(
+            "flink/operations/create_database.sql", catalog_name=identifier(catalog_name), ns=identifier("landing")
         )
+    )

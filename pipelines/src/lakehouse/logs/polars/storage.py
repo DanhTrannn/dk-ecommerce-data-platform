@@ -97,9 +97,8 @@ def publish(catalog, prefix, run_id, snapshots, sources, checks, *, observed, la
     return row
 
 
-def pinned_catalog(catalog, prefix, source, run_id=None):
-    namespace = ns(prefix, "system") if source == "native" else "system"
-    silver = ns(prefix, "silver") if source == "native" else "silver"
+def pinned_catalog(catalog, prefix, run_id=None):
+    namespace, silver = ns(prefix, "system"), ns(prefix, "silver")
     publication_name = f"lakehouse.{namespace}.analytics_publications"
     publication = catalog.load_table((namespace, "analytics_publications"))
     snapshot = capture(publication)

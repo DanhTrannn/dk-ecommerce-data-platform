@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS {{fact_web_events_table}} (
     is_server_error         BOOLEAN                         COMMENT 'True if HTTP status is 5xx',
     is_slow_request         BOOLEAN                         COMMENT 'True if duration_ms >= 1000ms',
     _gold_ingested_at       TIMESTAMP                       COMMENT 'UTC timestamp when record was written to Gold',
-    _source_run_id          STRING                          COMMENT 'Airflow/Spark execution batch run ID'
+    _source_run_id          STRING                          COMMENT 'Airflow batch run ID'
 )
 USING iceberg
 PARTITIONED BY (days(event_ts))

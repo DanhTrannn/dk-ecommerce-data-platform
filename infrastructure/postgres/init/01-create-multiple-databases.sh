@@ -20,11 +20,3 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${POLARIS_DB_NAME:
   -v polaris_user="${POLARIS_DB_USER:-polaris}" <<'SQL'
 CREATE SCHEMA polaris_schema AUTHORIZATION :"polaris_user";
 SQL
-
-# Publication/replica identity and SELECT grants are configured explicitly after
-# business schema bootstrap by make source-cdc; CDC does not own source tables.
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${POSTGRES_ECOMMERCE_DB:-ecommerce}" \
-  -v cdc_user="${POSTGRES_CDC_USER:-debezium}" \
-  -v cdc_password="${POSTGRES_CDC_PASSWORD:-password}" <<'SQL'
-CREATE ROLE :"cdc_user" WITH LOGIN REPLICATION PASSWORD :'cdc_password';
-SQL

@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS {{mart_daily_product_demand_table}} (
     unique_visitors_count   BIGINT                          COMMENT 'Distinct actor count interacting with product',
     cart_to_view_rate_pct   DOUBLE                          COMMENT 'Conversion percentage from view to cart add',
     _gold_ingested_at       TIMESTAMP                       COMMENT 'UTC timestamp when aggregation was recorded',
-    _source_run_id          STRING                          COMMENT 'Airflow/Spark execution batch run ID'
+    _source_run_id          STRING                          COMMENT 'Airflow batch run ID'
 )
 USING iceberg
 PARTITIONED BY (metric_date)

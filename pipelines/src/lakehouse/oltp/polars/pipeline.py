@@ -1,4 +1,4 @@
-"""Explicit 27-source Bronze/Silver migration run in isolated namespaces."""
+"""Bronze/Silver ingestion of the 27 configured source tables."""
 
 from lakehouse.utils.namespaces import namespace as ns
 import re
@@ -9,7 +9,7 @@ import pyarrow.parquet as pq
 
 from lakehouse.oltp.polars.privacy import required_salt
 from lakehouse.oltp.polars.source import source_pages
-from lakehouse.oltp.polars.writer import PROPERTIES, evolve_bronze, guard_bronze, ingest_page
+from lakehouse.oltp.polars.writer import PROPERTIES, evolve_bronze, ingest_page
 from lakehouse.utils.config import SOURCE_TABLES
 from lakehouse.utils.postgres import namespace_lock, source_query
 
@@ -63,10 +63,6 @@ def run_batch(catalog, connection, prefix, *, bucket, run_id, tables=None, start
 def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size, salt):
     for layer in ("bronze", "silver", "quarantine"):
         catalog.create_namespace_if_not_exists(ns(prefix, layer))
-    for table in specs:
-        target = (ns(prefix, "bronze"), table.name)
-        if catalog.table_exists(target):
-            guard_bronze(catalog.load_table(target))
     observed, staged, results = datetime.now(UTC), {}, {}
     for table in specs:
         pages, count = [], 0

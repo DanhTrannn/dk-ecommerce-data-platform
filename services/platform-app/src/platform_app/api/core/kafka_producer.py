@@ -20,7 +20,6 @@ _ACCESS_LOG_TOPIC: str = os.getenv("KAFKA_ACCESS_LOG_TOPIC", "ecommerce.access_l
 _DLQ_FILE_PATH: str = os.getenv("KAFKA_DLQ_FILE_PATH", "data/events/dlq_access_logs.jsonl")
 
 _producer = None  # AIOKafkaProducer instance, lazily created
-_dropped_events_count: int = 0
 _pending: set[asyncio.Task] = set()
 _reconnect_task: asyncio.Task | None = None
 _RECONNECT_SECONDS = 5
@@ -28,22 +27,8 @@ _DELIVERY_TIMEOUT_SECONDS = 10
 _MAX_PENDING = 256
 
 
-def get_dropped_events_count() -> int:
-    """Return the total number of events dropped or routed to DLQ."""
-    return _dropped_events_count
-
-
-def reset_dropped_events_count() -> None:
-    """Reset the dropped events counter (for testing/monitoring)."""
-    global _dropped_events_count
-    _dropped_events_count = 0
-
-
 def record_dropped_event(event: dict[str, Any], reason: str) -> None:
-    """Increment drop counter and append event to local Dead-Letter Queue file."""
-    global _dropped_events_count
-    _dropped_events_count += 1
-
+    """Append an undelivered event to the local Dead-Letter Queue file."""
     dlq_path = os.getenv("KAFKA_DLQ_FILE_PATH", _DLQ_FILE_PATH)
     try:
         os.makedirs(os.path.dirname(os.path.abspath(dlq_path)), exist_ok=True)

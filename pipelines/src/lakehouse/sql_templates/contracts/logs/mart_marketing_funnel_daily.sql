@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS {{mart_marketing_funnel_daily_table}} (
     overall_conversion_rate_pct DOUBLE                      COMMENT 'Overall conversion percentage from view to order',
     unique_visitors         BIGINT                          COMMENT 'Unique actor count',
     _gold_ingested_at       TIMESTAMP                       COMMENT 'UTC timestamp when record was written to Gold',
-    _source_run_id          STRING                          COMMENT 'Airflow/Spark execution batch run ID'
+    _source_run_id          STRING                          COMMENT 'Airflow batch run ID'
 )
 USING iceberg
 PARTITIONED BY (metric_date)

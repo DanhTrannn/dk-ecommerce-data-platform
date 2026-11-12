@@ -1,7 +1,7 @@
 {{ config(materialized='ephemeral') }}
 WITH products AS (
   SELECT product_id,name,slug,
-    CASE WHEN length(public_id)=16 THEN lower(to_hex(public_id)) ELSE replace(lower(from_utf8(public_id)),'-','') END uuid
+    CASE WHEN length(public_id)=16 THEN lower(to_hex(public_id)) END uuid
   FROM {{ pinned('products') }}
 ), tokens AS (
   SELECT product_id,name,slug token FROM products
@@ -9,7 +9,7 @@ WITH products AS (
   UNION ALL SELECT product_id,name,CAST(product_id AS varchar) FROM products
 ), product_map AS (SELECT DISTINCT product_id,name,token FROM tokens), variants AS (
   SELECT v.product_id,p.name,
-    CASE WHEN length(v.public_id)=16 THEN lower(to_hex(v.public_id)) ELSE replace(lower(from_utf8(v.public_id)),'-','') END token
+    CASE WHEN length(v.public_id)=16 THEN lower(to_hex(v.public_id)) END token
   FROM {{ pinned('product_variants') }} v LEFT JOIN products p ON v.product_id=p.product_id
 ), keyed AS (
   SELECT e.*,

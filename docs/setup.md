@@ -4,7 +4,7 @@ Lệnh bên dưới chạy từ root repo. Xem [architecture.md](architecture.md
 
 ## 1. Chuẩn bị môi trường
 
-Cần Docker Engine/Compose có BuildKit, Python 3.11 và `uv`. Node.js 22 chỉ cần nếu phát triển frontend cũ. Version image/package lấy từ [Compose](../docker-compose.yml), [workspace](../pyproject.toml) và lock files; không cài Spark/Flink/Superset vào venv API.
+Cần Docker Engine/Compose có BuildKit, Python 3.11 và `uv`. Node.js 22 chỉ cần nếu phát triển frontend cũ. Version image/package lấy từ [Compose](../docker-compose.yml), [workspace](../pyproject.toml) và lock files; không cài Flink/Superset vào venv API.
 
 ```bash
 cp .env.example .env
@@ -38,9 +38,8 @@ Compose dùng hostname nội bộ `postgres`, `kafka`, `trino`; URL host trong `
 ```bash
 make build
 make up PROFILES=core
-make up PROFILES=core,batch
 # Chỉ bật khi cần streaming hoặc BI:
-make up PROFILES=core,batch,streaming
+make up PROFILES=core,streaming
 make up PROFILES=core,bi
 ```
 
@@ -62,7 +61,7 @@ MinIO/Polaris bootstrap là lệnh chủ động, không phải tác dụng ph�
 
 ## 3. Khởi tạo schema và nạp dữ liệu
 
-PostgreSQL init tạo database/user `ecommerce`, `airflow`, `polaris` và role CDC. Nó **không** tạo bảng nghiệp vụ hoặc seed; metadata Superset cần bước riêng. DDL sau chỉ áp dụng lên source database trống:
+PostgreSQL init tạo database/user `ecommerce`, `airflow`, `polaris`. Nó **không** tạo bảng nghiệp vụ hoặc seed; metadata Superset cần bước riêng. DDL sau chỉ áp dụng lên source database trống:
 
 ```bash
 docker compose exec -T postgres sh -c \
@@ -77,7 +76,7 @@ uv run --locked --package platform-app -- \
   python -m platform_app.api.db.schema --output database/schema.sql --check
 ```
 
-Không dùng DDL bootstrap để nâng cấp volume đang có, và không nhập SQL MySQL cũ. Đổi schema thực cần thao tác/migration được review riêng.
+Không dùng DDL bootstrap để nâng cấp volume đang có. Đổi schema thực cần thao tác/migration được review riêng.
 
 ### Seed và dữ liệu lịch sử
 
@@ -100,7 +99,7 @@ Mở Streamlit tại `http://127.0.0.1:8501`; FastAPI `/docs` tại port 8000 n�
 - Mô phỏng API: khách mới → catalog → giỏ → quote → checkout → hậu kiểm; chưa tự fulfillment/POS/đổi trả.
 - Quản trị quyền: đăng nhập bằng admin/system_admin nguồn, xem và gán/gỡ binding đã hỗ trợ.
 
-Nguồn cần catalog active và tồn kho đủ để runner mua hàng. Không tự replay thao tác ghi có kết quả chưa rõ. Run mô phỏng được ghi dưới `data/generator/scenarios/` để tiếp tục xem sau restart.
+Nguồn cần catalog active và tồn kho đủ để runner mua hàng. Không tự replay thao tác ghi có kết quả chưa rõ. Run mô phỏng được ghi dưới `data/scenarios/` để tiếp tục xem sau restart.
 
 Chạy local thay Docker:
 
@@ -119,11 +118,11 @@ Sau schema/provisioning, áp dụng env/mount hiện tại của PostgreSQL và 
 
 ```bash
 make source-reader
-docker compose --profile core --profile batch up -d \
+docker compose --profile core up -d \
   airflow-api-server airflow-scheduler airflow-dag-processor trino
 ```
 
-Batch reader chỉ SELECT 27 bảng; `customer_credentials` bị loại. Spark/Airflow cần reader password, MinIO Spark key, Polaris credential file và salt PII. Chạy lần đầu bằng DAG thủ công:
+Batch reader chỉ SELECT 27 bảng; `customer_credentials` bị loại. Airflow (môi trường batch Polars/PyIceberg/dbt) cần reader password, MinIO batch key, Polaris credential file và salt PII. Chạy lần đầu bằng DAG thủ công:
 
 ```bash
 docker compose exec -T airflow-scheduler airflow dags trigger init_lakehouse_oltp
@@ -150,19 +149,7 @@ Nếu kích hoạt interval DAG qua Airflow API v2, phải cung cấp interval h
 
 Đây không thay thế full init/backfill và không khẳng định mọi manual trigger không có interval đều chạy được. Auth/API trigger được dùng trong stack helper `pipelines/tests/stack/runtime.py` (test chỉ có ở local).
 
-## 5. CDC và access log
-
-### CDC PostgreSQL
-
-```bash
-make source-cdc
-docker compose --profile core --profile streaming up -d \
-  kafka debezium-connect flink-jobmanager flink-taskmanager
-docker compose --profile core --profile streaming run --rm debezium-init
-docker compose --profile core --profile streaming run --rm flink-cdc-submit
-```
-
-Source setup yêu cầu đủ 27 bảng trước khi quản lý role/publication/FULL identity; connector dùng publication có sẵn. Entrypoint là `postgres_cdc_to_bronze.py`, tên job `oltp_cdc_to_bronze`. Job submit detached trả về trong khi stream vẫn chạy. Không reset slot/topic/group khi chỉ muốn chạy lại.
+## 5. Access log
 
 ### Log API thực
 
@@ -182,7 +169,7 @@ Gọi API/runner và đối chiếu `X-Request-ID` với Landing. Sau publicatio
 docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_logs_marts
 ```
 
-Bật lịch hourly trong Airflow khi cần. Flink chỉ append Landing; Spark mới làm Bronze/Silver/fact/mart và publication. Health probes không sinh event. DLQ cũ chưa được replay tự động khi Kafka phục hồi.
+Bật lịch hourly trong Airflow khi cần. Flink chỉ append Landing; job `build_logs_gold` làm Bronze/Silver/fact, dbt dựng mart rồi publication. Health probes không sinh event. DLQ cũ chưa được replay tự động khi Kafka phục hồi.
 
 ## 6. Superset tùy chọn
 
@@ -221,7 +208,7 @@ Port dưới đây là mặc định, cần xem override/bind address trong `.en
 | PostgreSQL | `localhost:5432` |
 | Lakehouse access admin | Nội bộ `lakehouse-access:8010`, không publish port |
 
-Không liệt kê Storefront/Polaris Console như service đang được Compose chạy. MySQL đã được thay bởi PostgreSQL ở stack hiện tại. Một số port PostgreSQL/Kafka/Flink trong Compose không bind localhost; kiểm tra trước khi dùng trên máy có public interface. Đây là cấu hình local, không phải production recipe.
+Không liệt kê Storefront/Polaris Console như service đang được Compose chạy. Một số port PostgreSQL/Kafka/Flink trong Compose không bind localhost; kiểm tra trước khi dùng trên máy có public interface. Đây là cấu hình local, không phải production recipe.
 
 ```bash
 make ps
@@ -233,71 +220,22 @@ make down
 
 `make stop` là alias của thao tác down trong Makefile, không phải `docker compose stop`. Không dùng xóa volume như bước khắc phục mặc định.
 
-## 8. Runtime thử Polars/PyIceberg
+## 8. Chạy job batch bằng CLI
 
-Spark vẫn chạy các DAG hiện tại. Pilot Python không cần bật profile/service mới; cài extra và build image chỉ khi kiểm chứng chuyển engine:
-
-```bash
-uv sync --locked --all-packages --extra polars
-docker build -f infrastructure/batch/Dockerfile -t tlcn-polars-pilot:local .
-```
-
-Không có biến môi trường production mới trong bước này; pilot dùng reader, MinIO workload và file credential Polaris hiện có, với cấu hình phù hợp môi trường riêng. Lệnh nghiệm thu stack biệt lập, CLI và các image cần cache nằm trong [pipeline guide](../pipelines/README.md#polars--pyiceberg-migration-pilot). Chưa đổi tên account `spark_writer` hoặc thay runtime Airflow.
-
-### CLI Bronze/Silver cho 27 nguồn
-
-Sau khi cấu hình reader, storage/catalog, credential file và salt PII cho môi trường riêng:
+DAG gọi các job dưới đây bằng `PIPELINE_PYTHON` (venv Polars/PyIceberg/dbt trong image Airflow). Chạy tay trong container scheduler, vốn đã có reader, Polaris credential file, MinIO batch key và salt PII:
 
 ```bash
-PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline --extra polars -- \
-  python -m jobs.oltp.run_polars_batch \
-  --namespace-prefix polars_batch_local --run-id initial
+# Bronze/Silver cho 27 nguồn (thêm --interval-start/--interval-end cho interval [start,end); --table để chọn nhóm)
+docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.oltp.run_polars_batch \
+  --namespace-prefix serving --run-id <run_id>'
+
+# Gold bằng dbt/Trino, quality gate và publication (--verify-only để chỉ audit)
+docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.oltp.build_oltp_gold \
+  --namespace-prefix serving --run-id <run_id> --as-of 2026-11-10T10:00:00Z'
+
+# Log: Landing → Bronze/Silver/fact → ba mart → publication log
+docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.logs.build_logs_gold \
+  --namespace-prefix serving --run-id <run_id> --as-of 2026-11-10T10:00:00Z'
 ```
 
-Thêm `--interval-start` và `--interval-end` để đọc interval `[start,end)`; lặp `--table orders --table payments` nếu chỉ chọn một nhóm. Không chấp nhận bảng ngoài whitelist hoặc prefix namespace serving. Pilot categories cũ giữ CLI riêng. Native batch chưa nối vào DAG; Gold native chạy riêng theo lệnh bên dưới, còn log/maintenance tiếp tục dùng Spark. Cần giữ các file schema Silver trong SQL resources khi build image, dù runtime Python không thực thi Spark SQL.
-
-
-### CLI Gold và kiểm tra chất lượng native
-
-Chạy sau Bronze/Silver đủ 27 bảng, trong cùng môi trường riêng đã cấu hình reader, Polaris và MinIO workload:
-
-```bash
-PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline --extra polars -- \
-  python -m jobs.oltp.run_polars_gold \
-  --namespace-prefix polars_batch_local --run-id gold_initial \
-  --as-of 2026-11-10T10:00:00Z
-```
-
-Thay `--as-of` bằng mốc nghiệp vụ phù hợp dữ liệu đang kiểm chứng; lệnh không tự đồng bộ với thời điểm nguồn. `--batch-date YYYY-MM-DD` là tùy chọn cho ngày logic audit. Thêm `--verify-only` để audit các snapshot hiện có mà không rebuild hoặc publication. Gate thất bại làm CLI lỗi sau khi lưu audit; publication trước đó được giữ nguyên. Không có biến môi trường mới. Giữ SQL resources trong image vì schema native còn sử dụng các hợp đồng đó.
-
-```bash
-# Rebuild image trước khi nghiệm thu stack.
-RUN_POLARS_GOLD_STACK_TESTS=1 PYTHONPATH=pipelines/src \
-  uv run --locked --all-packages --extra polars -- \
-  python -m unittest discover -s pipelines/tests -p test_polars_gold_stack.py -v
-```
-
-Đây là publication migration riêng, chưa kết nối Superset, reader serving hoặc DAG hiện tại. Không dùng lệnh này như thao tác cutover production.
-
-
-### CLI ba mart access log native
-
-Cài extra/build image như phần trên. Cần có `lakehouse.gold.fact_web_events` đã được pipeline Spark tạo và một publication OLTP batch hợp lệ; CLI không tự ingest Landing hoặc bootstrap source.
-
-```bash
-PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline --extra polars -- \
-  python -m jobs.logs.run_polars_marts \
-  --namespace-prefix polars_batch_local --run-id logs_initial \
-  --as-of 2026-11-11T10:00:00Z \
-  --catalog-source native
-```
-
-Thay mốc `--as-of` theo dữ liệu đang nghiệm thu, giữ nguyên khi retry. Mặc định chọn publication batch mới nhất trong `<prefix>_system.analytics_publications`; `--catalog-run-id` chỉ định một lần công bố. Dùng `--catalog-source serving` nếu chọn catalog trong `lakehouse.system.analytics_publications`. Đích vẫn luôn là namespace migration. `--verify-only` kiểm tra mart hiện có, không rebuild hoặc publish. Không có biến môi trường hoặc dependency mới; dùng reader/catalog/storage workload hiện có.
-
-```bash
-RUN_POLARS_LOGS_STACK_TESTS=1 PYTHONPATH=pipelines/src \
-  uv run --locked --all-packages --extra polars -- \
-  python -m unittest discover -s pipelines/tests -p test_polars_logs_stack.py -v
-```
-
-Fixture tạo nguồn/API/PostgreSQL/MinIO/Polaris/Trino riêng và dùng Spark client tham chiếu. Nó lấy envelope API thật từ DLQ qua handoff nội bộ của kiểm thử; không khởi động Kafka/Flink/Airflow và không phải nghiệm thu replay broker/DLQ tự động.
+Prefix khác `serving` phải có dạng `polars_batch_*` để chạy thử trong namespace riêng. Giữ nguyên `--as-of` khi retry. Gate thất bại làm job lỗi sau khi lưu audit; publication trước đó được giữ nguyên.

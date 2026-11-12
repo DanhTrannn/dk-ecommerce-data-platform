@@ -12,8 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
     PATH="/app/.venv/bin:$PATH" \
-    GENERATOR_CONSOLE_REPO_ROOT=/app \
-    GENERATOR_CONSOLE_DATA_DIR=/data/generator/jobs
+    PLATFORM_APP_REPO_ROOT=/app \
+    PLATFORM_APP_SCENARIOS_DIR=/data/scenarios
 
 WORKDIR /app
 
