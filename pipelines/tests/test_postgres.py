@@ -1,16 +1,16 @@
-"""Pure PostgreSQL source SQL/config checks; no network or Spark required."""
+"""Pure PostgreSQL source SQL/config checks; no network required."""
 
 import os
 import unittest
 from unittest.mock import patch
 
 from lakehouse.utils.config import SOURCE_TABLES
-from lakehouse.utils.postgres import identifier, jdbc_options, page_query, source_query
+from lakehouse.utils.postgres import identifier, reader_settings, page_query, source_query
 from lakehouse.utils.sql import render_sql
 
 
 class PostgresSourceTests(unittest.TestCase):
-    def test_credentials_are_not_embedded_in_url(self):
+    def test_credentials_are_separate_reader_settings(self):
         with patch.dict(
             os.environ,
             {
@@ -22,17 +22,16 @@ class PostgresSourceTests(unittest.TestCase):
             },
             clear=True,
         ):
-            options = jdbc_options()
-        self.assertEqual(options["url"], "jdbc:postgresql://postgres:5432/retail%20data")
-        self.assertNotIn("secret", options["url"])
+            options = reader_settings()
+        self.assertEqual(options["dbname"], "retail data")
+        self.assertEqual(options["host"], "postgres")
         self.assertEqual(options["password"], "secret@:/?#")
-        self.assertEqual(options["readOnlyMode"], "always")
-        self.assertEqual(options["currentSchema"], "public")
+        self.assertEqual(options["user"], "reader")
 
     def test_missing_credentials_fail_without_values_in_error(self):
         with patch.dict(os.environ, {"POSTGRES_ECOMMERCE_READER_PASSWORD": "private"}, clear=True):
             with self.assertRaises(ValueError) as caught:
-                jdbc_options()
+                reader_settings()
         self.assertNotIn("private", str(caught.exception))
 
     def test_half_open_interval_normalizes_offsets(self):
@@ -61,7 +60,7 @@ class PostgresSourceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             page_query("SELECT 1", "order_id", "1; DROP TABLE orders", 2)
 
-    def test_source_identifiers_do_not_use_spark_backticks(self):
+    def test_source_identifiers_use_postgresql_quotes(self):
         self.assertEqual(
             render_sql("postgres/table_count.sql", table_spec_name=identifier("orders")).strip(),
             'SELECT COUNT(*) AS cnt FROM "public"."orders"',

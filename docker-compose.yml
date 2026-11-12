@@ -2,8 +2,6 @@ x-airflow-common: &airflow-common
   build:
     context: .
     dockerfile: infrastructure/airflow/Dockerfile
-    args:
-      ICEBERG_VERSION: ${ICEBERG_VERSION:-1.10.1}
   image: lakehouse-airflow:3.3.2
   profiles: ["core"]
   user: "${AIRFLOW_UID:-50000}:0"
@@ -19,13 +17,16 @@ x-airflow-common: &airflow-common
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-change-me-airflow-secret}
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-change-me-airflow-jwt-secret}
     PYTHONPATH: /opt/project/pipelines/src
+    POLARS_MAX_THREADS: "2"
+    TRINO_CA_FILE: /run/trino-ca/ca.pem
+    DBT_ARTIFACTS_DIR: /opt/airflow/logs/dbt
+    DBT_TRINO_HOST: trino
+    DBT_TRINO_PASSWORD: ${DBT_TRINO_PASSWORD:?set DBT_TRINO_PASSWORD}
     POSTGRES_SOURCE_HOST: postgres
     POSTGRES_SOURCE_PORT: "5432"
     POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
     POSTGRES_ECOMMERCE_READER_USER: ${POSTGRES_ECOMMERCE_READER_USER:-ecommerce_reader}
     POSTGRES_ECOMMERCE_READER_PASSWORD: ${POSTGRES_ECOMMERCE_READER_PASSWORD:-}
-    SPARK_MASTER_URL: ${SPARK_MASTER_URL:-local[2]}
-    AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type":"spark","host":"${SPARK_MASTER_URL:-local[2]}"}'
     MINIO_ENDPOINT: http://minio:9000
     MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
     MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
@@ -40,6 +41,7 @@ x-airflow-common: &airflow-common
     - ./pipelines:/opt/project/pipelines:ro
     - airflow-logs:/opt/airflow/logs
     - polaris-spark-airflow-credentials:/run/polaris:ro
+    - trino-ca:/run/trino-ca:ro
   networks: ["lakehouse-network"]
   depends_on:
     postgres:
@@ -59,10 +61,14 @@ x-superset-common: &superset-common
     SUPERSET_DB_USER: ${SUPERSET_DB_USER:-superset}
     SUPERSET_DB_PASSWORD: ${SUPERSET_DB_PASSWORD:-}
     SUPERSET_TRINO_HOST: trino
-    SUPERSET_TRINO_PORT: "8080"
-    SUPERSET_TRINO_USER: superset_reader
+    SUPERSET_TRINO_PORT: "8443"
+    TRINO_CA_FILE: /run/trino-ca/ca.pem
+    SUPERSET_TRINO_USER: analytics_reader
+    TRINO_READER_PASSWORD: ${TRINO_READER_PASSWORD:?set TRINO_READER_PASSWORD}
     SUPERSET_COOKIE_SECURE: ${SUPERSET_COOKIE_SECURE:-false}
     SUPERSET_PROXY_FIX: ${SUPERSET_PROXY_FIX:-false}
+  volumes:
+    - trino-ca:/run/trino-ca:ro
   networks: ["lakehouse-network"]
 
 x-flink-common: &flink-common
@@ -227,17 +233,14 @@ services:
       start_period: 15s
     networks: ["lakehouse-network"]
 
-  spark-client:
+  batch-client:
     build:
       context: .
-      dockerfile: infrastructure/spark/Dockerfile
-      args:
-        ICEBERG_VERSION: ${ICEBERG_VERSION:-1.10.1}
-    image: lakehouse-spark:3.5.9-iceberg-${ICEBERG_VERSION:-1.10.1}
+      dockerfile: infrastructure/batch/Dockerfile
+    image: lakehouse-batch:0.1.0
     profiles: ["batch"]
-    entrypoint: ["/opt/project/spark/with-polaris-credentials.sh"]
+    entrypoint: ["python"]
     environment:
-      SPARK_MASTER_URL: ${SPARK_MASTER_URL:-local[2]}
       POSTGRES_SOURCE_HOST: postgres
       POSTGRES_SOURCE_PORT: "5432"
       POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
@@ -246,16 +249,21 @@ services:
       MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
       POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
       POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
+      POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
       SILVER_PSEUDONYMIZE_SALT: ${SILVER_PSEUDONYMIZE_SALT:-}
       AWS_REGION: ${AWS_REGION:-us-east-1}
-      PYTHONPATH: /opt/project/pipelines/src
       MINIO_ENDPOINT: http://minio:9000
       MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
       MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
       POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
-    command: ["sleep", "infinity"]
+      POLARS_MAX_THREADS: "2"
+      TRINO_CA_FILE: /run/trino-ca/ca.pem
+      DBT_TRINO_HOST: trino
+      DBT_TRINO_PASSWORD: ${DBT_TRINO_PASSWORD:?set DBT_TRINO_PASSWORD}
+    command: ["-c", "import time; time.sleep(86400)"]
     volumes:
       - polaris-spark-client-credentials:/run/polaris:ro
+      - trino-ca:/run/trino-ca:ro
       - ./pipelines:/opt/project/pipelines:ro
     depends_on:
       polaris:
@@ -321,23 +329,46 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  trino-auth-init:
+    image: lakehouse-platform-app:0.1.0
+    profiles: ["core"]
+    user: "0:0"
+    entrypoint: ["python", "-m", "platform_app.provisioning.trino"]
+    environment:
+      TRINO_READER_PASSWORD: ${TRINO_READER_PASSWORD:?set TRINO_READER_PASSWORD}
+      DBT_TRINO_PASSWORD: ${DBT_TRINO_PASSWORD:?set DBT_TRINO_PASSWORD}
+    volumes:
+      - trino-auth:/run/trino-auth
+      - trino-ca:/run/trino-ca
+    networks: ["lakehouse-network"]
+
   trino:
     image: trinodb/trino:483
     profiles: ["core"]
     entrypoint: ["/bin/sh", "/opt/trino/start.sh"]
     environment:
       POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
+      TRINO_INTERNAL_SECRET: ${TRINO_INTERNAL_SECRET:?set TRINO_INTERNAL_SECRET}
+      MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY:?set MINIO_SPARK_ACCESS_KEY}
+      MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY:?set MINIO_SPARK_SECRET_KEY}
       POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
       MINIO_TRINO_ACCESS_KEY: ${MINIO_TRINO_ACCESS_KEY:?set MINIO_TRINO_ACCESS_KEY}
       MINIO_TRINO_SECRET_KEY: ${MINIO_TRINO_SECRET_KEY:?set MINIO_TRINO_SECRET_KEY}
     ports:
-      - "${TRINO_BIND_ADDRESS:-127.0.0.1}:${TRINO_PORT:-8084}:8080"
+      - "${TRINO_BIND_ADDRESS:-127.0.0.1}:${TRINO_PORT:-8084}:8443"
     volumes:
       - ./infrastructure/trino/start.sh:/opt/trino/start.sh:ro
       - ./infrastructure/trino/config.properties:/etc/trino/config.properties:ro
+      - ./infrastructure/trino/password-authenticator.properties:/etc/trino/password-authenticator.properties:ro
+      - ./infrastructure/trino/access-control.properties:/etc/trino/access-control.properties:ro
+      - ./infrastructure/trino/access-rules.json:/etc/trino/access-rules.json:ro
+      - trino-auth:/run/trino-auth:ro
+      - polaris-trino-writer-credentials:/run/polaris-writer:ro
       - ./infrastructure/trino/catalog:/etc/trino/catalog:ro
       - polaris-trino-reader-credentials:/run/polaris:ro
     depends_on:
+      trino-auth-init:
+        condition: service_completed_successfully
       polaris:
         condition: service_healthy
     healthcheck:
@@ -370,6 +401,7 @@ services:
       - polaris-spark-airflow-credentials:/run/polaris-output/spark-airflow
       - polaris-flink-credentials:/run/polaris-output/flink
       - polaris-trino-reader-credentials:/run/polaris-output/trino-reader
+      - polaris-trino-writer-credentials:/run/polaris-output/trino-writer
     networks: ["lakehouse-network"]
 
 
@@ -418,6 +450,9 @@ services:
     profiles: ["core"]
     user: "${PLATFORM_APP_UID:-1000}:${PLATFORM_APP_GID:-1000}"
     environment:
+      API_TRINO_URL: https://trino:8443
+      TRINO_CA_FILE: /run/trino-ca/ca.pem
+      TRINO_READER_PASSWORD: ${TRINO_READER_PASSWORD:?set TRINO_READER_PASSWORD}
       HOME: /tmp
       API_DATABASE_URL: postgresql+psycopg2://${POSTGRES_ECOMMERCE_USER:-ecommerce_app}:${POSTGRES_ECOMMERCE_PASSWORD:-password}@postgres:5432/${POSTGRES_ECOMMERCE_DB:-ecommerce}
       API_SECRET_KEY: ${API_SECRET_KEY:?set API_SECRET_KEY}
@@ -439,6 +474,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
+      - trino-ca:/run/trino-ca:ro
       - ./data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; [urllib.request.urlopen(url, timeout=5).read() for url in ('http://localhost:8000/health/live', 'http://localhost:8501/_stcore/health')]"]
@@ -668,6 +704,9 @@ networks:
     name: lakehouse-network
 
 volumes:
+  trino-ca:
+  trino-auth:
+  polaris-trino-writer-credentials:
   minio-data:
   postgres-data:
   polaris-provision-state:

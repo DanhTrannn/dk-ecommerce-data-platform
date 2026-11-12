@@ -1,26 +1,32 @@
-"""Process Landing through Bronze/Silver/fact, then publish three log marts."""
+"""Native Landing through Bronze/Silver/fact and three published log marts."""
 
 import argparse
-import sys
+import json
+import os
+from contextlib import closing
+from datetime import UTC, datetime
 
-from lakehouse.logs.pipeline import run_logs_marts
-from lakehouse.utils.spark import spark_session
-
-
-def parse_args(args):
-    parser = argparse.ArgumentParser(description="Process access-log layers and publish a complete log-mart snapshot set")
-    parser.add_argument("--run-id", required=True)
-    parser.add_argument("--as-of", help="Fixed UTC observation time; defaults to invocation time")
-    return parser.parse_args(args)
+from lakehouse.logs.pipeline import run_logs
+from lakehouse.utils.iceberg import iceberg_catalog
+from lakehouse.utils.postgres import postgres_reader
 
 
 def main():
-    args = parse_args(sys.argv[1:])
-    spark = spark_session("build_logs_gold_marts")
-    try:
-        run_logs_marts(spark, args.run_id, as_of=args.as_of)
-    finally:
-        spark.stop()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--namespace-prefix", default="serving")
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--as-of", default=None)
+    args = parser.parse_args()
+    with closing(postgres_reader()) as connection:
+        result = run_logs(
+            iceberg_catalog(),
+            connection,
+            args.namespace_prefix,
+            bucket=os.environ["MINIO_LAKEHOUSE_BUCKET"],
+            run_id=args.run_id,
+            as_of=args.as_of or datetime.now(UTC).isoformat(),
+        )
+    print("NATIVE_LOG_RESULT " + json.dumps(result, default=str), flush=True)
 
 
 if __name__ == "__main__":

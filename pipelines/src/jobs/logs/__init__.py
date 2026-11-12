@@ -1,1 +1,1 @@
-"""Logs Spark Jobs Package."""
+"""Native access-log ingestion and analytical jobs."""

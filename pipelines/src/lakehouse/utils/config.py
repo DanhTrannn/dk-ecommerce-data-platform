@@ -1,6 +1,4 @@
-import os
 from dataclasses import dataclass
-from pathlib import Path
 
 MUTABLE_CURSOR = "updated_at"
 APPEND_ONLY_CURSOR = "created_at"
@@ -47,15 +45,6 @@ APPEND_ONLY_TABLES = frozenset(
 
 KNOWN_TABLES = MUTABLE_TABLES | APPEND_ONLY_TABLES
 EXPECTED_CURSOR = {name: (MUTABLE_CURSOR if name in MUTABLE_TABLES else APPEND_ONLY_CURSOR) for name in KNOWN_TABLES}
-
-
-class ConfigError(Exception):
-    pass
-
-
-@dataclass(frozen=True)
-class LandingSpec:
-    oltp_prefix: str
 
 
 @dataclass(frozen=True)
@@ -113,83 +102,3 @@ SOURCE_TABLES = [
     TableSpec("inbound_receipt_items", "created_at", "item_id", "append_only", "silver_inbound_receipt_items"),
     TableSpec("shipment_attempts", "created_at", "attempt_id", "append_only", "silver_shipment_attempts"),
 ]
-
-
-@dataclass(frozen=True)
-class Config:
-    landing: LandingSpec
-    tables: tuple[TableSpec, ...]
-
-    def table(self, name: str) -> TableSpec | None:
-        for table in self.tables:
-            if table.name == name:
-                return table
-        return None
-
-    @property
-    def bucket(self) -> str:
-        return os.environ["MINIO_LAKEHOUSE_BUCKET"]
-
-    @property
-    def jdbc_options(self) -> dict[str, str]:
-        from lakehouse.utils.postgres import jdbc_options
-
-        return jdbc_options()
-
-
-def config_path() -> Path:
-    env_path = os.environ.get("PIPELINE_CONFIG_PATH")
-    if env_path:
-        return Path(env_path)
-    return Path(__file__).resolve().parents[3] / "config" / "default.yml"
-
-
-def _validate(config: Config) -> None:
-    names = [table.name for table in config.tables]
-    if len(names) != len(set(names)):
-        raise ConfigError(f"duplicate table names: {names}")
-
-    unknown = set(names) - KNOWN_TABLES
-    if unknown:
-        raise ConfigError(f"unknown tables in catalogue: {sorted(unknown)}")
-
-    missing = KNOWN_TABLES - set(names)
-    if missing:
-        raise ConfigError(f"catalogue phải khai đủ {len(KNOWN_TABLES)} bảng, thiếu: {sorted(missing)}")
-
-    for table in config.tables:
-        if not table.pk:
-            raise ConfigError(f"{table.name}: pk bắt buộc")
-        if table.mutability not in ("mutable", "append_only"):
-            raise ConfigError(f"{table.name}: mutability phải là mutable/append_only, được '{table.mutability}'")
-        expected = EXPECTED_CURSOR[table.name]
-        if table.cursor_field != expected:
-            raise ConfigError(
-                f"{table.name}: cursor_field phải là {expected} cho mutability={table.mutability}, được '{table.cursor_field}'"
-            )
-        if not table.silver_table.startswith(SILVER_PREFIX):
-            raise ConfigError(
-                f"{table.name}: silver_table phải có tiền tố '{SILVER_PREFIX}', được '{table.silver_table}'"
-            )
-
-    silver_names = [table.silver_table for table in config.tables]
-    if len(silver_names) != len(set(silver_names)):
-        raise ConfigError(f"silver_table bị trùng: {silver_names}")
-
-
-def load_config(path: str | Path | None = None) -> Config:
-    import yaml
-
-    file_path = Path(path) if path else config_path()
-    if not file_path.is_file():
-        raise ConfigError(f"config not found: {file_path}")
-    raw = yaml.safe_load(file_path.read_text(encoding="utf-8"))
-
-    try:
-        landing = LandingSpec(**raw["landing"])
-    except (KeyError, TypeError) as exc:
-        raise ConfigError(f"cấu trúc {file_path.name} không hợp lệ: {exc}") from exc
-
-    config = Config(landing=landing, tables=tuple(SOURCE_TABLES))
-    _validate(config)
-    return config

@@ -13,7 +13,7 @@ TABLES = ("mart_hourly_route_metrics", "mart_daily_product_demand", "mart_market
 def schema(name):
     if name not in TABLES:
         raise ValueError("Unknown native log mart")
-    return ddl_schema(f"spark/logs/{name}.sql")
+    return ddl_schema(f"contracts/logs/{name}.sql")
 
 
 def count_when(condition, name):

@@ -23,7 +23,7 @@ def required_salt():
 def token(value, salt):
     if value is None:
         return None
-    # Spark trim removes U+0020; using Python strip() would also remove tabs/newlines.
+    # Stable tokens trim U+0020 only; strip() would also remove tabs/newlines.
     normalized = str(value).strip(" ").lower()
     return hashlib.sha256((salt + ":" + normalized).encode()).hexdigest()
 

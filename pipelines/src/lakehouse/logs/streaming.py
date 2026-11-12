@@ -1,4 +1,4 @@
-"""Append raw access-log envelopes to Landing; Spark owns downstream layers."""
+"""Append raw access-log envelopes to Landing; Native ingestion and dbt own downstream layers."""
 
 import logging
 import os

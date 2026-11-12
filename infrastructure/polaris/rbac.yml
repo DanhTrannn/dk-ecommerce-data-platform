@@ -108,3 +108,7 @@ credential_outputs:
     directory: /run/polaris-output/trino-reader
     uid: 1000
     gid: 1000
+  - principal: spark_writer
+    directory: /run/polaris-output/trino-writer
+    uid: 1000
+    gid: 1000

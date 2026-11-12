@@ -2,7 +2,7 @@
 
 The sink is an immutable audit log: inserts, updates, deletes, initial snapshot
 records and Debezium tombstones are retained with Kafka and WAL coordinates.
-The existing Spark batch path remains the authoritative backfill/reconciliation
+The native batch path remains the authoritative backfill/reconciliation
 path; downstream consumers can deterministically order and replay this table.
 """
 

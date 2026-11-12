@@ -1,5 +1,6 @@
 """Iceberg writes preserve source versions, newer current state and quarantine identity."""
 
+from lakehouse.utils.namespaces import namespace as ns
 import polars as pl
 from pyiceberg.expressions import In, IsNull, NotEqualTo, Or
 from pyiceberg.transforms import DayTransform
@@ -41,7 +42,7 @@ def quarantine_table(catalog, namespace):
 
 
 def ingest_page(catalog, prefix, table, page, run_id, observed, salt):
-    bronze = catalog.load_table((prefix + "_bronze", table.name))
+    bronze = catalog.load_table((ns(prefix, "bronze"), table.name))
     guard_bronze(bronze)
     evolve_bronze(bronze, page.schema)
     if page.num_rows:
@@ -52,9 +53,9 @@ def ingest_page(catalog, prefix, table, page, run_id, observed, salt):
 def merge_silver(catalog, prefix, table, page, run_id, observed, salt):
     schema = silver_schema(table)
     silver = catalog.create_table_if_not_exists(
-        (prefix + "_silver", table.silver_table), schema=schema, properties=PROPERTIES
+        (ns(prefix, "silver"), table.silver_table), schema=schema, properties=PROPERTIES
     )
-    rejected = quarantine_table(catalog, prefix + "_quarantine")
+    rejected = quarantine_table(catalog, ns(prefix, "quarantine"))
     delta, violations = prepare_silver(page, table, schema, run_id, observed, salt)
     if violations.num_rows:
         violations = (

@@ -1,1 +1,1 @@
-"""OLTP Spark Jobs Package."""
+"""OLTP ingestion and dbt publication jobs."""

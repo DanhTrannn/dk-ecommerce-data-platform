@@ -1,98 +1,137 @@
-"""Process Landing through persisted layers, validate marts and publish snapshots."""
+"""Native log ingestion and dbt rollups with an independently published product catalog."""
 
-import json
-from datetime import datetime, timezone
+from lakehouse.utils.namespaces import namespace as ns
+from datetime import UTC, datetime
 
-from pyspark.sql import functions as F
+import polars as pl
 
-from lakehouse.logs.gold import (
-    FACT_WEB_EVENTS_TABLE,
-    MART_DAILY_PRODUCT_DEMAND_TABLE,
-    MART_HOURLY_ROUTE_METRICS_TABLE,
-    MART_MARKETING_FUNNEL_DAILY_TABLE,
-    build_mart_daily_product_demand,
-    build_mart_hourly_route_metrics,
-    build_mart_marketing_funnel_daily,
-    ensure_logs_gold_tables,
-)
-from lakehouse.logs.ingestion import ingest_log_layers
-from lakehouse.logs.product_identity import resolve_product_events
-from lakehouse.logs.publication import publish_logs
+from lakehouse.utils.snapshots import capture, read_snapshot
+from lakehouse.oltp.polars.pipeline import validate_run
+from lakehouse.utils.postgres import namespace_lock
+from .polars.identity import AmbiguousProductIdentity
+from .polars.marts import TABLES, build_all, schema
+from lakehouse.analytics.dbt import ensure_target, run_models
+from .polars.quality import input_checks, output_checks, result
+from .polars.storage import audit, pinned_catalog, publish
+
+FACT = "lakehouse.gold.fact_web_events"
 
 
-def run_logs_marts(spark, run_id, *, as_of=None):
-    ensure_logs_gold_tables(spark)
-    observed = datetime.fromisoformat(as_of.replace("Z", "+00:00")) if isinstance(as_of, str) else as_of
-    observed = observed or datetime.now(timezone.utc)
-    if observed.tzinfo is not None:
-        observed = observed.astimezone(timezone.utc).replace(tzinfo=None)
-    layer_inputs = ingest_log_layers(spark, run_id, as_of=observed)
-    refs = spark.sql(f"SELECT snapshot_id FROM {FACT_WEB_EVENTS_TABLE}.refs WHERE name='main'").collect()
-    if refs:
-        events = spark.read.option("snapshot-id", str(refs[0].snapshot_id)).table(FACT_WEB_EVENTS_TABLE)
-    else:
-        events = spark.table(FACT_WEB_EVENTS_TABLE).where("false")
-    events = events.filter(F.col("event_ts") <= F.lit(observed)).cache()
-    try:
-        shape = events.agg(F.count("*").alias("n"), F.countDistinct("event_id").alias("ids")).first()
-        if shape.n != shape.ids or events.filter(F.col("event_date").isNull()).limit(1).count():
-            raise ValueError("Log event IDs must be unique/non-null, with a valid event date")
-        publication = spark.sql("""SELECT snapshots_json FROM lakehouse.system.analytics_publications
-            ORDER BY published_at DESC LIMIT 1""").first()
-        if not publication:
-            raise ValueError("Publish the OLTP catalog before resolving product identities")
-        source_snapshots = json.loads(publication.snapshots_json)
+def enforce(catalog, prefix, run_id, checks):
+    audit(catalog, prefix, run_id, checks)
+    if any(c["status"] != "PASSED" for c in checks):
+        raise ValueError(
+            "Native log quality gate failed: " + ", ".join(c["check_name"] for c in checks if c["status"] != "PASSED")
+        )
 
-        def catalog(table):
-            target = f"lakehouse.silver.silver_{table}"
-            snapshot = source_snapshots[target]
-            return (
-                spark.read.option("snapshot-id", str(snapshot)).table(target)
-                if snapshot
-                else spark.table(target).where("false")
-            )
 
-        products, variants = catalog("products"), catalog("product_variants")
-        frames = [
-            (MART_HOURLY_ROUTE_METRICS_TABLE, build_mart_hourly_route_metrics(events, run_id)),
-            (
-                MART_DAILY_PRODUCT_DEMAND_TABLE,
-                build_mart_daily_product_demand(events, run_id, products=products, variants=variants),
-            ),
-            (MART_MARKETING_FUNNEL_DAILY_TABLE, build_mart_marketing_funnel_daily(events, run_id)),
-        ]
-        for target, frame in frames:
-            frame.select(*spark.table(target).columns).writeTo(target).overwrite(F.lit(True))
-        # Full replacement also clears stale partitions on an empty source.
-        # Publish only after validating every output against these same inputs.
-        for target, expected in frames:
-            columns = [c for c in expected.columns if c not in {"_gold_ingested_at", "_source_run_id"}]
-            actual = spark.table(target).select(*columns)
-            expected = expected.select(*columns)
-            if expected.exceptAll(actual).limit(1).count() or actual.exceptAll(expected).limit(1).count():
-                raise ValueError(f"Log mart parity failed: {target}")
-        resolved = resolve_product_events(events, products, variants)
-        if resolved.count() != shape.n:
-            raise ValueError("Catalog identity mapping multiplied log events")
-        summary = events.agg(F.max("event_ts").alias("latest")).first()
-        inputs = {**layer_inputs, FACT_WEB_EVENTS_TABLE: refs[0].snapshot_id if refs else None}
-        inputs.update(
-            {
-                k: source_snapshots[k]
-                for k in ["lakehouse.silver.silver_products", "lakehouse.silver.silver_product_variants"]
+def run_marts(
+    catalog,
+    connection,
+    prefix,
+    *,
+    bucket,
+    run_id,
+    as_of,
+    catalog_source="native",
+    catalog_run_id=None,
+    verify_only=False,
+    layer_snapshots=None,
+):
+    validate_run(prefix, run_id, bucket, 10000)
+    if catalog_source not in {"native", "serving"}:
+        raise ValueError("Catalog source must be native or serving")
+    observed = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
+    if observed.tzinfo is None:
+        raise ValueError("Log --as-of must include timezone")
+    observed = observed.astimezone(UTC)
+    with namespace_lock(connection, prefix):
+        catalog.create_namespace_if_not_exists(ns(prefix, "gold"))
+        catalog.create_namespace_if_not_exists(ns(prefix, "system"))
+        fact_name = f"lakehouse.{ns(prefix, 'gold')}.fact_web_events" if layer_snapshots is not None else FACT
+        fact = catalog.load_table(tuple(fact_name.split(".")[1:]))
+        fact_snapshot = layer_snapshots[fact_name] if layer_snapshots is not None else capture(fact)
+        events = read_snapshot(fact, fact_snapshot)
+        timestamps = result("event_timestamp_present", events["event_ts"].null_count())
+        enforce(catalog, prefix, run_id, [timestamps])
+        events = events.filter(pl.col("event_ts") <= observed)
+        checks = [timestamps, *input_checks(events)]
+        enforce(catalog, prefix, run_id, checks[1:])
+        (products, variants), sources, source_run = pinned_catalog(catalog, prefix, catalog_source, catalog_run_id)
+        sources[fact_name] = fact_snapshot
+        sources.update(layer_snapshots or {})
+        try:
+            expected = build_all(events, products, variants, run_id)
+        except AmbiguousProductIdentity as exc:
+            audit(catalog, prefix, run_id, [result("product_identity_cardinality", 1)])
+            raise ValueError("Native log identity gate failed") from exc
+        for name in TABLES:
+            ensure_target(catalog, prefix, name, schema(name))
+        if not verify_only:
+            inputs = {
+                "products": next(v for k, v in sources.items() if k.endswith(".silver_products")),
+                "product_variants": next(v for k, v in sources.items() if k.endswith(".silver_product_variants")),
+                "fact_web_events": fact_snapshot,
             }
+            run_models(
+                prefix,
+                run_id,
+                observed,
+                inputs,
+                group="logs",
+                silver_schema=next(k.split(".")[1] for k in sources if k.endswith(".silver_products")),
+                events_schema=fact_name.split(".")[1],
+            )
+        snapshots, actual = {}, {}
+        for name in TABLES:
+            table = catalog.load_table((ns(prefix, "gold"), name))
+            own_snapshot = capture(table)
+            snapshots[f"lakehouse.{ns(prefix, 'gold')}.{name}"] = own_snapshot
+            actual[name] = read_snapshot(table, own_snapshot)
+        outputs = output_checks(events, expected, actual)
+        enforce(catalog, prefix, run_id, outputs)
+        checks.extend(outputs)
+        publication = (
+            None
+            if verify_only
+            else publish(
+                catalog,
+                prefix,
+                run_id,
+                snapshots,
+                sources,
+                checks,
+                observed=observed,
+                latest=events["event_ts"].max(),
+            )
         )
-        publish_logs(
-            spark,
-            run_id,
-            [target for target, _ in frames],
-            observed_at=observed,
-            source_at=summary.latest,
-            source_snapshots=inputs,
+        return dict(
+            events=events.height,
+            catalog_run_id=source_run,
+            checks=checks,
+            publication=publication,
+            snapshots=snapshots,
+            source_snapshots=sources,
         )
-        print(
-            f"[{run_id}] Published three log marts from {shape.n} events; OLTP publication/offsets retained",
-            flush=True,
+
+
+def run_logs(catalog, connection, prefix, *, bucket, run_id, as_of):
+    """One writer boundary for native ingestion, audit and log publication."""
+    from .polars.ingestion import ingest
+
+    validate_run(prefix, run_id, bucket, 10000)
+    observed = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
+    if observed.tzinfo is None:
+        raise ValueError("Log --as-of must include timezone")
+    observed = observed.astimezone(UTC)
+    with namespace_lock(connection, prefix):
+        snapshots = ingest(catalog, prefix, run_id, observed=observed)
+        return run_marts(
+            catalog,
+            connection,
+            prefix,
+            bucket=bucket,
+            run_id=run_id,
+            as_of=observed.isoformat(),
+            layer_snapshots=snapshots,
         )
-    finally:
-        events.unpersist()

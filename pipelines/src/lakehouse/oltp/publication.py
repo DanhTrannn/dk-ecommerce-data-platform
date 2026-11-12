@@ -1,41 +1,53 @@
-"""Publish one validated set of OLTP snapshots for batch analytics readers."""
+"""Publish only the exact audited native snapshot set, keeping schema-v3 field semantics."""
 
+from lakehouse.utils.namespaces import namespace as ns
 import json
+from datetime import datetime, UTC
 
-from lakehouse.oltp.gold.schema import GOLD_TABLE_DDL
-from lakehouse.utils.sql import literal
+import pyarrow as pa
 
-SCHEMA_VERSION = 3
-PUBLICATIONS = "lakehouse.system.analytics_publications"
+from lakehouse.oltp.polars.writer import PROPERTIES
+from lakehouse.utils.config import SOURCE_TABLES
+from lakehouse.oltp.gold.schema import TABLES
+
+PUBLICATION_SCHEMA = pa.schema(
+    [
+        ("run_id", pa.string()),
+        ("published_at", pa.timestamp("us", tz="UTC")),
+        ("source_event_at", pa.timestamp("us", tz="UTC")),
+        ("snapshots_json", pa.string()),
+        ("offsets_json", pa.string()),
+        ("changed_tables_json", pa.string()),
+        ("schema_version", pa.int32()),
+        ("source_mode", pa.string()),
+    ]
+)
 
 
-def ensure_publications(spark):
-    spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.system")
-    spark.sql(f"""CREATE TABLE IF NOT EXISTS {PUBLICATIONS} (
-        run_id STRING, published_at TIMESTAMP, source_event_at TIMESTAMP,
-        snapshots_json STRING, offsets_json STRING, changed_tables_json STRING,
-        schema_version INT, source_mode STRING
-    ) USING iceberg TBLPROPERTIES ('format-version'='2')""")
-    existing = set(spark.table(PUBLICATIONS).columns)
-    for name, kind in (("schema_version", "INT"), ("source_mode", "STRING")):
-        if name not in existing:
-            spark.sql(f"ALTER TABLE {PUBLICATIONS} ADD COLUMN {name} {kind}")
-
-
-def publish(spark, cfg, run_id, *, mode, source_at=None, offsets=None, changed=()):
-    ensure_publications(spark)
-    targets = {f"lakehouse.silver.{table.silver_table}" for table in cfg.tables}
-    targets.update(f"lakehouse.gold.{name}" for name in GOLD_TABLE_DDL)
-    snapshots = {}
-    for target in sorted(targets):
-        rows = spark.sql(f"SELECT snapshot_id FROM {target}.refs WHERE name='main'").collect()
-        snapshots[target] = rows[0].snapshot_id if rows else None
-    source = f"TIMESTAMP {literal(str(source_at))}" if source_at else "CAST(NULL AS TIMESTAMP)"
-    spark.sql(f"""MERGE INTO {PUBLICATIONS} t USING (
-        SELECT {literal(run_id)} AS run_id, current_timestamp() AS published_at, {source} AS source_event_at,
-        {literal(json.dumps(snapshots))} AS snapshots_json, {literal(json.dumps(offsets or {}))} AS offsets_json,
-        {literal(json.dumps(sorted(changed)))} AS changed_tables_json,
-        {SCHEMA_VERSION} AS schema_version, {literal(mode)} AS source_mode
-        ) s ON t.run_id = s.run_id AND t.source_mode = s.source_mode
-        WHEN MATCHED THEN UPDATE SET *
-        WHEN NOT MATCHED THEN INSERT *""")
+def publish(catalog, prefix, run_id, snapshots, summary):
+    if summary["status"] != "PASSED" or summary["failed_checks"] or summary["total_checks"] != 55:
+        raise ValueError("A complete successful native quality gate is required")
+    expected = {f"lakehouse.{ns(prefix, 'silver')}.{t.silver_table}" for t in SOURCE_TABLES}
+    expected.update(f"lakehouse.{ns(prefix, 'gold')}.{name}" for name in TABLES)
+    if set(snapshots) != expected:
+        raise ValueError("Publication requires all 27 Silver and 27 Gold snapshots from this namespace")
+    for name, snapshot in snapshots.items():
+        table = catalog.load_table(tuple(name.split(".")[1:]))
+        if snapshot is not None:
+            if type(snapshot) is not int or snapshot <= 0 or table.snapshot_by_id(snapshot) is None:
+                raise ValueError("An audited snapshot is no longer readable")
+    target = catalog.create_table_if_not_exists(
+        (ns(prefix, "system"), "analytics_publications"), schema=PUBLICATION_SCHEMA, properties=PROPERTIES
+    )
+    row = dict(
+        run_id=run_id,
+        published_at=datetime.now(UTC),
+        source_event_at=None,
+        snapshots_json=json.dumps(snapshots, sort_keys=True),
+        offsets_json="{}",
+        changed_tables_json="[]",
+        schema_version=3,
+        source_mode="batch",
+    )
+    target.upsert(pa.Table.from_pylist([row], schema=target.schema().as_arrow()), join_cols=["run_id", "source_mode"])
+    return row

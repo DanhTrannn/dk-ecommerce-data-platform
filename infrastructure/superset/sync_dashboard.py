@@ -10,14 +10,20 @@ from dashboard import chart_payload, layout
 
 def trino_connection():
     from trino.dbapi import connect
+    from trino.auth import BasicAuthentication
 
     return connect(
         host=os.environ.get("SUPERSET_TRINO_HOST", "trino"),
-        port=int(os.environ.get("SUPERSET_TRINO_PORT", "8080")),
-        user=os.environ.get("SUPERSET_TRINO_USER", "superset_reader"),
+        port=int(os.environ.get("SUPERSET_TRINO_PORT", "8443")),
+        user=os.environ.get("SUPERSET_TRINO_USER", "analytics_reader"),
         catalog="lakehouse",
         schema="gold",
         timezone="UTC",
+        http_scheme="https",
+        verify=os.environ["TRINO_CA_FILE"],
+        auth=BasicAuthentication(
+            os.environ.get("SUPERSET_TRINO_USER", "analytics_reader"), os.environ["TRINO_READER_PASSWORD"]
+        ),
         request_timeout=60,
     )
 
@@ -78,11 +84,14 @@ def sync():
                     database_name="Retail Lakehouse (read only)",
                     sqlalchemy_uri=URL.create(
                         "trino",
-                        username=os.environ.get("SUPERSET_TRINO_USER", "superset_reader"),
+                        username=os.environ.get("SUPERSET_TRINO_USER", "analytics_reader"),
                         host=os.environ.get("SUPERSET_TRINO_HOST", "trino"),
-                        port=int(os.environ.get("SUPERSET_TRINO_PORT", "8080")),
+                        port=int(os.environ.get("SUPERSET_TRINO_PORT", "8443")),
+                        password=os.environ["TRINO_READER_PASSWORD"],
                         database="lakehouse/gold",
+                        query={"http_scheme": "https"},
                     ).render_as_string(hide_password=False),
+                    extra=json.dumps({"engine_params": {"connect_args": {"verify": os.environ["TRINO_CA_FILE"]}}}),
                     expose_in_sqllab=False,
                     allow_dml=False,
                     allow_ctas=False,

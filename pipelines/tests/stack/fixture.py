@@ -77,13 +77,10 @@ class StackFixture:
         data = self.work / "data"
         data.mkdir(mode=0o777)
         data.chmod(0o777)
-        spark_conf = self.work / "spark-conf"
-        spark_conf.mkdir()
-        (spark_conf / "spark-defaults.conf").write_text("spark.sql.shuffle.partitions 4\nspark.default.parallelism 2\n")
         base = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
         services = {name: {"ports": Replace([])} for name, service in base["services"].items() if service.get("ports")}
         platform = os.environ.get("STACK_PLATFORM_IMAGE", "tlcn-platform-stack-check:local")
-        airflow = os.environ.get("STACK_AIRFLOW_IMAGE", "tlcn-airflow-stack-check:local")
+        airflow = os.environ.get("STACK_AIRFLOW_IMAGE", "tlcn-airflow-native:local")
         for name in ("airflow-init", "airflow-api-server", "airflow-scheduler", "airflow-dag-processor"):
             services.setdefault(name, {}).update(
                 image=airflow,
@@ -93,19 +90,20 @@ class StackFixture:
                     "AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL": "5",
                     "AIRFLOW__DAG_PROCESSOR__MIN_FILE_PROCESS_INTERVAL": "5",
                     "AIRFLOW__DAG_PROCESSOR__PARSING_PROCESSES": "1",
-                    "SPARK_CONF_DIR": "/opt/test-spark-conf",
                     "OPENBLAS_NUM_THREADS": "1",
                     "OMP_NUM_THREADS": "1",
                 },
-                volumes=[f"{spark_conf}:/opt/test-spark-conf:ro", f"{ROOT}/pipelines/tests/stack:/opt/stack-checks:ro"],
+                volumes=[f"{ROOT}/pipelines/tests/stack:/opt/stack-checks:ro"],
             )
-        services["airflow-scheduler"]["mem_limit"] = "6g"
+        services["airflow-scheduler"]["mem_limit"] = "2g"
         services["trino"]["mem_limit"] = "3g"
         services["polaris"]["mem_limit"] = "2g"
         services["lakehouse-provision"] = {
             "image": platform,
             "volumes": [f"{ROOT}/pipelines/tests/stack:/stack-checks:ro"],
         }
+        services["trino-auth-init"] = {"image": platform}
+        services["batch-client"] = {"image": os.environ.get("NATIVE_BATCH_IMAGE", "tlcn-native-batch:local")}
         services["platform-app"].update(
             image=platform,
             environment={
@@ -115,7 +113,9 @@ class StackFixture:
                 "STACK_AIRFLOW_PASSWORD": variables["AIRFLOW_ADMIN_PASSWORD"],
                 "STACK_USE_PRESET_SCALE": "1" if os.environ.get("STACK_USE_PRESET_SCALE") == "1" else "0",
             },
-            volumes=Replace([f"{data}:/data", f"{ROOT}/pipelines/tests/stack:/stack-checks:ro"]),
+            volumes=Replace(
+                [f"{data}:/data", f"{ROOT}/pipelines/tests/stack:/stack-checks:ro", "trino-ca:/run/trino-ca:ro"]
+            ),
         )
         self.secrets.append(variables["API_SECRET_KEY"])
         override = self.work / "override.yml"
@@ -173,14 +173,6 @@ class StackFixture:
             raise RuntimeError("Acceptance helper did not return a result")
         return json.loads(lines[-1])
 
-    def spark(self, mode, *, check=True):
-        result = self.command(
-            ["exec", "-T", "airflow-scheduler", "spark-submit", "/opt/stack-checks/spark_checks.py", mode],
-            check=check,
-            timeout=300,
-        )
-        return self.result(result.stdout) if result.returncode == 0 else None
-
     def permission(self, action):
         result = self.command(
             [
@@ -198,70 +190,6 @@ class StackFixture:
             ]
         )
         return self.result(result.stdout)
-
-    def denied_writer(self):
-        result = self.command(
-            [
-                "exec",
-                "-T",
-                "airflow-scheduler",
-                "spark-submit",
-                "/opt/stack-checks/spark_checks.py",
-                "permission-check",
-            ],
-            check=False,
-            timeout=180,
-        )
-        output = (result.stdout + result.stderr).lower()
-        assert result.returncode != 0 and any(value in output for value in ("403", "forbidden", "denied")), (
-            "Expected an actual catalog permission failure"
-        )
-        return {"writer_permission_denied": True}
-
-    def failed_gate(self, run_id):
-        result = self.command(
-            [
-                "exec",
-                "-T",
-                "airflow-scheduler",
-                "spark-submit",
-                "/opt/project/pipelines/src/jobs/oltp/run_gold_quality_gate.py",
-                "--run-id",
-                run_id,
-                "--batch-date",
-                datetime.now(UTC).date().isoformat(),
-            ],
-            check=False,
-            timeout=300,
-        )
-        assert result.returncode != 0 and "GOLD QUALITY GATE FAILURE" in result.stdout + result.stderr, (
-            "Expected a quality-gate rejection"
-        )
-        assert "additive_order_mart_counts" in result.stdout + result.stderr, (
-            "Expected placed-value parity to reject corruption"
-        )
-        return {"publication_gate_failed": True, "check": "additive_order_mart_counts"}
-
-    def replay_orders(self, run_id):
-        for script, extra in (
-            ("ingest_oltp_to_bronze.py", []),
-            ("ingest_oltp_silver.py", ["--run-id", run_id]),
-        ):
-            self.command(
-                [
-                    "exec",
-                    "-T",
-                    "airflow-scheduler",
-                    "spark-submit",
-                    "/opt/project/pipelines/src/jobs/oltp/" + script,
-                    "--config-path",
-                    "/opt/project/pipelines/config/default.yml",
-                    "--table",
-                    "orders",
-                    *extra,
-                ],
-                timeout=300,
-            )
 
     def sql(self, database_variable, statement):
         result = self.command(
@@ -358,7 +286,7 @@ class StackFixture:
         self.runtime("airflow", "--action", "wait", "--dag", "init_lakehouse_oltp")
         self.runtime("airflow", "--action", "wait", "--dag", "lakehouse_oltp_pipeline")
 
-    def wait_run(self, dag, run_id, timeout=None, *, expected_tasks=109):
+    def wait_run(self, dag, run_id, timeout=None, *, expected_tasks=2):
         if timeout is None:
             timeout = 3600 if self.environment.get("STACK_USE_PRESET_SCALE") == "1" else 1500
         started = time.monotonic()

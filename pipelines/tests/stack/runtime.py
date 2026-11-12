@@ -79,7 +79,7 @@ def trino():
     from platform_app.api.modules.analytics.reader import PublishedReader
     from platform_app.api.modules.analytics.trino_client import TrinoClient
 
-    client = TrinoClient(base_url="http://trino:8080", user="stack_acceptance")
+    client = TrinoClient(base_url="https://trino:8443", user="stack_acceptance")
     deadline = time.monotonic() + 90
     while not client.is_healthy():
         if time.monotonic() > deadline:
@@ -98,7 +98,7 @@ def trino():
 def query(sql):
     from platform_app.api.modules.analytics.trino_client import TrinoClient
 
-    return TrinoClient(base_url="http://trino:8080", user="stack_acceptance").execute_query(sql)
+    return TrinoClient(base_url="https://trino:8443", user="stack_acceptance").execute_query(sql)
 
 
 def query_denied(sql):

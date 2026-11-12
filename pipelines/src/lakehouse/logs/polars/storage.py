@@ -1,15 +1,14 @@
 """Iceberg writes, append-only log audits and independently pinned publication."""
 
+from lakehouse.utils.namespaces import namespace as ns
 import json
 from datetime import UTC, datetime
 
 import pyarrow as pa
-from pyiceberg.transforms import IdentityTransform
 
-from lakehouse.oltp.polars.gold.storage import capture, read_snapshot
-from lakehouse.oltp.polars.schema import align_arrow
+from lakehouse.utils.snapshots import capture, read_snapshot
 from lakehouse.oltp.polars.writer import PROPERTIES
-from .marts import TABLES, schema
+from .marts import TABLES
 from .quality import REQUIRED_CHECKS
 
 AUDIT_SCHEMA = pa.schema(
@@ -35,18 +34,9 @@ PUBLICATION_SCHEMA = pa.schema(
 )
 
 
-def write_mart(catalog, prefix, name, frame):
-    table = catalog.create_table_if_not_exists((prefix + "_gold", name), schema=schema(name), properties=PROPERTIES)
-    if not table.spec().fields:
-        with table.update_spec() as update:
-            update.add_field("metric_date", IdentityTransform(), "metric_date")
-    table.overwrite(align_arrow(frame.to_arrow(), table.schema()))
-    return table
-
-
 def audit(catalog, prefix, run_id, checks):
     target = catalog.create_table_if_not_exists(
-        (prefix + "_system", "logs_quality_results"), schema=AUDIT_SCHEMA, properties=PROPERTIES
+        (ns(prefix, "system"), "logs_quality_results"), schema=AUDIT_SCHEMA, properties=PROPERTIES
     )
     now = datetime.now(UTC)
     rows = [dict(run_id=run_id, checked_at=now, **check) for check in checks]
@@ -64,7 +54,7 @@ def require_readable(catalog, snapshots):
 
 
 def publish(catalog, prefix, run_id, snapshots, sources, checks, *, observed, latest):
-    expected = {f"lakehouse.{prefix}_gold.{name}" for name in TABLES}
+    expected = {f"lakehouse.{ns(prefix, 'gold')}.{name}" for name in TABLES}
     if (
         set(snapshots) != expected
         or len(checks) != len(REQUIRED_CHECKS)
@@ -79,13 +69,19 @@ def publish(catalog, prefix, run_id, snapshots, sources, checks, *, observed, la
             f"lakehouse.{silver}.silver_products",
             f"lakehouse.{silver}.silver_product_variants",
         }
-        for system, silver in ((prefix + "_system", prefix + "_silver"), ("system", "silver"))
+        for system, silver in ((ns(prefix, "system"), ns(prefix, "silver")), ("system", "silver"))
     ]
+    predecessors = {
+        f"lakehouse.{ns(prefix, layer)}.{name}"
+        for layer, name in (("landing", "access_logs"), ("bronze", "web_events"), ("silver", "silver_logs"))
+    }
+    native_fact = f"lakehouse.{ns(prefix, 'gold')}.fact_web_events"
+    allowed += [(keys - {"lakehouse.gold.fact_web_events"}) | {native_fact} | predecessors for keys in allowed]
     if set(sources) not in allowed:
         raise ValueError("Publication requires the fact and all three published catalog references")
     require_readable(catalog, {**sources, **snapshots})
     target = catalog.create_table_if_not_exists(
-        (prefix + "_system", "logs_analytics_publications"), schema=PUBLICATION_SCHEMA, properties=PROPERTIES
+        (ns(prefix, "system"), "logs_analytics_publications"), schema=PUBLICATION_SCHEMA, properties=PROPERTIES
     )
     row = dict(
         run_id=run_id,
@@ -102,8 +98,8 @@ def publish(catalog, prefix, run_id, snapshots, sources, checks, *, observed, la
 
 
 def pinned_catalog(catalog, prefix, source, run_id=None):
-    namespace = prefix + "_system" if source == "native" else "system"
-    silver = prefix + "_silver" if source == "native" else "silver"
+    namespace = ns(prefix, "system") if source == "native" else "system"
+    silver = ns(prefix, "silver") if source == "native" else "silver"
     publication_name = f"lakehouse.{namespace}.analytics_publications"
     publication = catalog.load_table((namespace, "analytics_publications"))
     snapshot = capture(publication)

@@ -20,4 +20,8 @@ done
 export POLARIS_CLIENT_ID="$POLARIS_TRINO_CLIENT_ID"
 export POLARIS_CLIENT_SECRET="$POLARIS_TRINO_CLIENT_SECRET"
 
+# A separate workload file backs the writer catalog; BI cannot access it through SQL ACLs.
+. /run/polaris-writer/clients.env
+export POLARIS_WRITER_CLIENT_ID="$POLARIS_SPARK_CLIENT_ID"
+export POLARIS_WRITER_CLIENT_SECRET="$POLARIS_SPARK_CLIENT_SECRET"
 exec /usr/lib/trino/bin/run-trino

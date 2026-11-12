@@ -1,108 +1,43 @@
-"""Source interval -> reusable staging -> Bronze -> incremental Silver -> Gold."""
+"""Native PostgreSQL/Silver ingestion followed by dbt/Trino Gold publication."""
 
 import os
 from datetime import timedelta
 import pendulum
 from airflow import DAG
-from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
-from airflow.utils.task_group import TaskGroup
+from airflow.providers.standard.operators.bash import BashOperator
 
-from lakehouse.utils.config import SOURCE_TABLES
-from lakehouse.oltp.gold.schema import GOLD_TABLE_DDL
-
-CONFIG_PATH = os.environ.get("PIPELINE_CONFIG_PATH", "/opt/project/pipelines/config/default.yml")
-JOBS = "/opt/project/pipelines/src/jobs/oltp/"
-RUN = "{{ run_id }}"
+PYTHON = os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/python")
 DATE = "{{ data_interval_start.astimezone(dag.timezone).strftime('%Y-%m-%d') }}"
-
+ENV = {
+    "PIPELINE_RUN_ID": "{{ run_id }}",
+    "PIPELINE_AS_OF": "{{ dag_run.start_date.isoformat() }}",
+    "PIPELINE_BATCH_DATE": DATE,
+    "PIPELINE_START": '{{ data_interval_start.isoformat() if data_interval_start else "" }}',
+    "PIPELINE_END": '{{ data_interval_end.isoformat() if data_interval_end else "" }}',
+}
 
 with DAG(
     dag_id="lakehouse_oltp_pipeline",
-    default_args={"owner": "lakehouse", "retries": 2, "retry_delay": timedelta(minutes=2)},
     schedule="0 3 * * *",
+    default_args={"owner": "lakehouse", "retries": 2, "retry_delay": timedelta(minutes=2)},
     catchup=False,
     max_active_runs=1,
-    max_active_tasks=3,
+    max_active_tasks=1,
     start_date=pendulum.datetime(2026, 8, 15, tz="Asia/Ho_Chi_Minh"),
-    tags=["lakehouse", "oltp", "batch"],
+    tags=["lakehouse", "oltp", "native"],
 ) as dag:
-    with TaskGroup(group_id="staging") as staging:
-        for table in SOURCE_TABLES:
-            SparkSubmitOperator(
-                task_id=table.name,
-                application=JOBS + "extract_oltp.py",
-                application_args=[
-                    "--config-path",
-                    CONFIG_PATH,
-                    "--table",
-                    table.name,
-                    "--interval-start",
-                    "{{ data_interval_start.isoformat() }}",
-                    "--interval-end",
-                    "{{ data_interval_end.isoformat() }}",
-                ],
-            )
-    with TaskGroup(group_id="bronze") as bronze:
-        for table in SOURCE_TABLES:
-            SparkSubmitOperator(
-                task_id=table.name,
-                application=JOBS + "ingest_oltp_to_bronze.py",
-                application_args=["--config-path", CONFIG_PATH, "--table", table.name],
-            )
-    with TaskGroup(group_id="silver") as silver:
-        for table in SOURCE_TABLES:
-            SparkSubmitOperator(
-                task_id=table.silver_table,
-                application=JOBS + "ingest_oltp_silver.py",
-                application_args=["--config-path", CONFIG_PATH, "--table", table.name, "--run-id", RUN],
-            )
-    with TaskGroup(group_id="gold") as gold:
-        gold_tasks = {}
-        for table in GOLD_TABLE_DDL:
-            if table.startswith("mart_"):
-                continue
-            gold_tasks[table] = SparkSubmitOperator(
-                task_id=table,
-                application=JOBS + "build_oltp_gold.py",
-                application_args=[
-                    "--table",
-                    table,
-                    "--run-id",
-                    RUN,
-                    "--snapshot-date",
-                    DATE,
-                    "--as-of",
-                    "{{ dag_run.start_date.isoformat() }}",
-                ],
-            )
-        gold_tasks["fact_order_item"] >> gold_tasks["fact_order"]
-        gold_tasks["fact_inventory_daily_snapshot"] >> gold_tasks["fact_inventory_current"]
-    with TaskGroup(group_id="mart") as mart:
-        mart_tasks = {}
-        for table in GOLD_TABLE_DDL:
-            if not table.startswith("mart_"):
-                continue
-            mart_tasks[table] = SparkSubmitOperator(
-                task_id=table,
-                application=JOBS + "build_oltp_gold.py",
-                application_args=[
-                    "--table",
-                    table,
-                    "--run-id",
-                    RUN,
-                    "--snapshot-date",
-                    DATE,
-                    "--as-of",
-                    "{{ dag_run.start_date.isoformat() }}",
-                ],
-            )
-        mart_tasks["mart_inventory_current"] >> [
-            mart_tasks["mart_inventory_summary"],
-            mart_tasks["mart_store_overview"],
-        ]
-    publish = SparkSubmitOperator(
-        task_id="validate_and_publish",
-        application=JOBS + "run_gold_quality_gate.py",
-        application_args=["--config-path", CONFIG_PATH, "--run-id", RUN, "--batch-date", DATE],
+    ingest = BashOperator(
+        task_id="ingest_source",
+        env=ENV,
+        append_env=True,
+        bash_command=PYTHON
+        + ' -m jobs.oltp.run_polars_batch --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --interval-start "$PIPELINE_START" --interval-end "$PIPELINE_END"',
     )
-    staging >> bronze >> silver >> gold >> mart >> publish
+    publish = BashOperator(
+        task_id="build_validate_publish",
+        env=ENV,
+        append_env=True,
+        bash_command=PYTHON
+        + ' -m jobs.oltp.build_oltp_gold --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --as-of "$PIPELINE_AS_OF" --batch-date "$PIPELINE_BATCH_DATE"',
+    )
+    ingest >> publish

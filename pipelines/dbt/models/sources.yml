@@ -1,0 +1,65 @@
+version: 2
+sources:
+- name: silver
+  database: lakehouse_etl
+  schema: '{{ var(''silver_schema'', ''silver'') }}'
+  tables:
+  - name: customers
+    identifier: silver_customers
+  - name: categories
+    identifier: silver_categories
+  - name: products
+    identifier: silver_products
+  - name: product_variants
+    identifier: silver_product_variants
+  - name: carts
+    identifier: silver_carts
+  - name: cart_items
+    identifier: silver_cart_items
+  - name: wishlist_items
+    identifier: silver_wishlist_items
+  - name: orders
+    identifier: silver_orders
+  - name: order_items
+    identifier: silver_order_items
+  - name: payments
+    identifier: silver_payments
+  - name: order_status_history
+    identifier: silver_order_status_history
+  - name: inventory
+    identifier: silver_inventory
+  - name: coupons
+    identifier: silver_coupons
+  - name: coupon_redemptions
+    identifier: silver_coupon_redemptions
+  - name: refunds
+    identifier: silver_refunds
+  - name: product_reviews
+    identifier: silver_product_reviews
+  - name: cities
+    identifier: silver_cities
+  - name: stores
+    identifier: silver_stores
+  - name: store_inventory
+    identifier: silver_store_inventory
+  - name: delivery_staff
+    identifier: silver_delivery_staff
+  - name: shipments
+    identifier: silver_shipments
+  - name: return_requests
+    identifier: silver_return_requests
+  - name: return_items
+    identifier: silver_return_items
+  - name: inventory_transactions
+    identifier: silver_inventory_transactions
+  - name: inbound_receipts
+    identifier: silver_inbound_receipts
+  - name: inbound_receipt_items
+    identifier: silver_inbound_receipt_items
+  - name: shipment_attempts
+    identifier: silver_shipment_attempts
+- name: events
+  database: lakehouse_etl
+  schema: '{{ var(''gold_schema'', ''gold'') }}'
+  tables:
+  - name: fact_web_events

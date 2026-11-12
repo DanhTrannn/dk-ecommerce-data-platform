@@ -18,9 +18,18 @@ class BIStack(StackFixture):
                 image=os.environ.get("BI_TEST_IMAGE", "lakehouse-superset:6.1.0"),
                 environment={"SUPERSET_ADMIN_USER": "admin"},
                 mem_limit="2g",
-                volumes=[f"{ROOT}/infrastructure/superset/tests:/bi-checks:ro"],
+                volumes=[
+                    f"{ROOT}/infrastructure/superset/tests:/bi-checks:ro",
+                    f"{ROOT}/infrastructure/superset:/app/project:ro",
+                ],
             )
-        services["spark-client"] = {"volumes": [f"{ROOT}/infrastructure/superset/tests:/bi-checks:ro"]}
+        services["batch-client"] = {
+            "volumes": [f"{ROOT}/infrastructure/superset/tests:/bi-checks:ro"],
+            "environment": {
+                "PYTHONPATH": "/opt/project/pipelines/src",
+                "DBT_PROJECT_DIR": "/opt/project/pipelines/dbt",
+            },
+        }
         extra = self.work / "bi.yml"
         extra.write_text(yaml.safe_dump({"services": services}))
         self.base.extend(["--profile", "bi", "-f", str(extra)])
@@ -69,14 +78,11 @@ class BIStack(StackFixture):
                 "--rm",
                 "--no-deps",
                 "-T",
-                "spark-client",
-                "/opt/spark/bin/spark-submit",
-                "--conf",
-                "spark.sql.shuffle.partitions=4",
-                "/bi-checks/spark_checks.py",
+                "batch-client",
+                "/bi-checks/native_checks.py",
                 mode,
             ],
-            timeout=1200,
+            timeout=1800,
         )
         return self.result(result.stdout)
 

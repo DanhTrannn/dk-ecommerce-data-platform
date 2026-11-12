@@ -1,1 +1,1 @@
-"""Lakehouse Spark Jobs Package."""
+"""Lakehouse native and streaming job entrypoints."""

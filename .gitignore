@@ -62,3 +62,10 @@ htmlcov/
 test-reports/
 
 AGENTS.md
+
+# dbt generated artifacts
+**/dbt/target/
+**/dbt/logs/
+**/dbt/dbt_packages/
+!pipelines/dbt/tests/
+!pipelines/dbt/tests/*.sql

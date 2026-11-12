@@ -8,7 +8,7 @@ all: up
 help:
 	@echo "D&K E-Commerce Lakehouse Platform"
 	@echo "  make up                        Start core services and wait for readiness"
-	@echo "  make up PROFILES=core,batch     Add local Spark client"
+	@echo "  make up PROFILES=core,batch     Add native batch client"
 	@echo "  make up PROFILES=core,batch,streaming  Start data profiles"
 	@echo "  make build                     Build all project images"
 	@echo "  make down                      Stop all groups; retain volumes"

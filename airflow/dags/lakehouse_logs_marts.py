@@ -1,23 +1,24 @@
-"""Hourly Landing-first log processing, independent of maintenance."""
+"""Hourly native log ingestion and dbt/Trino publication."""
 
+import os
 from datetime import timedelta
-
 import pendulum
 from airflow import DAG
-from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+from airflow.providers.standard.operators.bash import BashOperator
 
 with DAG(
     dag_id="lakehouse_logs_marts",
-    default_args={"owner": "lakehouse", "retries": 1, "retry_delay": timedelta(minutes=2)},
     schedule="0 * * * *",
-    start_date=pendulum.datetime(2026, 8, 15, tz="Asia/Ho_Chi_Minh"),
     catchup=False,
     max_active_runs=1,
-    description="Landing -> Bronze -> Silver -> fact -> three published log marts; independent of maintenance",
-    tags=["lakehouse", "logs", "marts"],
+    default_args={"owner": "lakehouse", "retries": 1, "retry_delay": timedelta(minutes=2)},
+    start_date=pendulum.datetime(2026, 8, 15, tz="Asia/Ho_Chi_Minh"),
+    tags=["lakehouse", "logs", "native"],
 ) as dag:
-    SparkSubmitOperator(
+    BashOperator(
         task_id="rollup_logs_gold_marts",
-        application="/opt/project/pipelines/src/jobs/logs/build_logs_gold.py",
-        application_args=["--run-id", "logs-{{ run_id }}", "--as-of", "{{ dag_run.start_date.isoformat() }}"],
+        append_env=True,
+        env={"PIPELINE_RUN_ID": "logs-{{ run_id }}", "PIPELINE_AS_OF": "{{ dag_run.start_date.isoformat() }}"},
+        bash_command=os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/python")
+        + ' -m jobs.logs.build_logs_gold --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --as-of "$PIPELINE_AS_OF"',
     )

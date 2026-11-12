@@ -1,5 +1,6 @@
 """Explicit 27-source Bronze/Silver migration run in isolated namespaces."""
 
+from lakehouse.utils.namespaces import namespace as ns
 import re
 from datetime import UTC, datetime
 
@@ -23,9 +24,9 @@ def selected_tables(names=None):
 
 
 def validate_run(prefix, run_id, bucket, page_size):
-    if not re.fullmatch(r"polars_batch_[a-z0-9_]{1,40}", prefix):
-        raise ValueError("Migration requires a dedicated polars_batch_* namespace prefix")
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", run_id):
+    if prefix != "serving" and not re.fullmatch(r"polars_batch_[a-z0-9_]{1,40}", prefix):
+        raise ValueError("Use serving or a dedicated polars_batch_* namespace prefix")
+    if run_id in {".", ".."} or not re.fullmatch(r"[A-Za-z0-9_.~:+@=-]{1,250}", run_id):
         raise ValueError("Run ID must be a path-safe identifier")
     if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
         raise ValueError("Invalid batch bucket")
@@ -61,9 +62,9 @@ def run_batch(catalog, connection, prefix, *, bucket, run_id, tables=None, start
 
 def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size, salt):
     for layer in ("bronze", "silver", "quarantine"):
-        catalog.create_namespace_if_not_exists(prefix + "_" + layer)
+        catalog.create_namespace_if_not_exists(ns(prefix, layer))
     for table in specs:
-        target = (prefix + "_bronze", table.name)
+        target = (ns(prefix, "bronze"), table.name)
         if catalog.table_exists(target):
             guard_bronze(catalog.load_table(target))
     observed, staged, results = datetime.now(UTC), {}, {}
@@ -72,7 +73,7 @@ def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end
         for index, source in enumerate(source_pages(connection, table, start, end, page_size=page_size)):
             page = add_lineage(source, table, observed)
             bronze = catalog.create_table_if_not_exists(
-                (prefix + "_bronze", table.name), schema=page.schema, properties=PROPERTIES
+                (ns(prefix, "bronze"), table.name), schema=page.schema, properties=PROPERTIES
             )
             evolve_bronze(bronze, page.schema)
             path = f"s3://{bucket}/landing/polars-batch/{prefix}/{run_id}/{table.name}/page-{index:06}.parquet"
@@ -84,7 +85,7 @@ def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end
         results[table.name] = {"source_rows": count, "pages": len(pages), "valid": 0, "quarantined": 0}
     # No Bronze/Silver data commit until every selected source table is staged successfully.
     for table in specs:
-        bronze = catalog.load_table((prefix + "_bronze", table.name))
+        bronze = catalog.load_table((ns(prefix, "bronze"), table.name))
         for path in staged[table.name]:
             with bronze.io.new_input(path).open() as stream:
                 page = pq.read_table(stream)
@@ -92,8 +93,8 @@ def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end
             for name in ("valid", "quarantined"):
                 results[table.name][name] += outcome[name]
         results[table.name].update(
-            bronze_rows=catalog.load_table((prefix + "_bronze", table.name)).scan().count(),
-            silver_rows=catalog.load_table((prefix + "_silver", table.silver_table)).scan().count(),
+            bronze_rows=catalog.load_table((ns(prefix, "bronze"), table.name)).scan().count(),
+            silver_rows=catalog.load_table((ns(prefix, "silver"), table.silver_table)).scan().count(),
         )
         print(f"POLARS_BATCH table={table.name} source_rows={results[table.name]['source_rows']}", flush=True)
     return {"namespace_prefix": prefix, "run_id": run_id, "tables": results, "published": False}

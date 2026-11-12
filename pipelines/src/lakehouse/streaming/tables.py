@@ -9,9 +9,7 @@ log = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from pyflink.table import StreamTableEnvironment
 
-STREAMING_TABLE_DDLS = (
-    load_sql("flink/tables/lakehouse_landing_access_logs.sql"),
-)
+STREAMING_TABLE_DDLS = (load_sql("flink/tables/lakehouse_landing_access_logs.sql"),)
 CDC_TABLE_DDLS = (load_sql("flink/tables/lakehouse_bronze_oltp_cdc_events.sql"),)
 
 

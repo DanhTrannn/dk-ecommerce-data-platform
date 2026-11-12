@@ -15,7 +15,7 @@ if AVAILABLE:
 
     from lakehouse.logs.polars.identity import resolve
     from lakehouse.logs.polars.marts import TABLES, build_all, schema
-    from lakehouse.logs.polars.pipeline import run_marts
+    from lakehouse.logs.pipeline import run_marts
     from lakehouse.logs.polars.quality import REQUIRED_CHECKS, input_checks, output_checks
     from lakehouse.logs.polars.storage import PUBLICATION_SCHEMA, pinned_catalog, publish
     from lakehouse.oltp.polars.schema import ddl_schema
@@ -35,10 +35,11 @@ def catalog_frames(legacy=False):
 
     products = typed(
         [dict(product_id=1, name="Áo thử nghiệm", slug="ao-thun", public_id=encode(PRODUCT_UUID))],
-        "spark/silver/silver_products.sql",
+        "contracts/silver/silver_products.sql",
     )
     variants = typed(
-        [dict(variant_id=7, product_id=1, public_id=encode(VARIANT_UUID))], "spark/silver/silver_product_variants.sql"
+        [dict(variant_id=7, product_id=1, public_id=encode(VARIANT_UUID))],
+        "contracts/silver/silver_product_variants.sql",
     )
     return products, variants
 
@@ -66,7 +67,7 @@ def facts(rows):
         )
         row.update(changes)
         values.append(row)
-    return typed(values, "spark/logs/fact_web_events.sql")
+    return typed(values, "contracts/logs/fact_web_events.sql")
 
 
 @unittest.skipUnless(AVAILABLE, "install batch-pipeline[polars] for native log checks")

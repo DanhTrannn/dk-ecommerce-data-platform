@@ -1,1 +1,0 @@
-({{result_id}}, {{run_id}}, DATE {{batch_date}}, {{phase}}, {{check_name}}, {{dataset}}, {{severity}}, {{observed}}, {{expected}}, {{variance}}, {{failed_rows}}, {{status}}, {{details}}, TIMESTAMP {{checked_at}})
