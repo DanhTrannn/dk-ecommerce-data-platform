@@ -11,7 +11,7 @@ Cập nhật theo codebase ngày **11/11/2026**. Các kết quả nghiệm thu �
 | Nguồn nghiệp vụ | FastAPI + PostgreSQL; catalog, tài khoản, giỏ, checkout, POS, tồn kho, giao vận, đổi trả, review | Có API không đồng nghĩa Streamlit đã tự động hóa mọi nghiệp vụ |
 | Generator | Notebook EDA và preset YAML: OLTP `1m`/`10m`/`50m` (R01–R06), access log (L1–L3) | Chưa có runtime sinh dữ liệu; CLI/SQL export/importer cũ đã gỡ, generator mới chờ triển khai |
 | Streamlit | Platform Console: runner mua online qua API, quản trị binding quyền | Runner hiện mỗi lượt một khách mới/một SKU; chưa có fulfillment/POS/đổi trả tự động |
-| Batch | PostgreSQL JDBC → staging → Bronze → Silver → Gold/mart → quality gate → publication | Cần chạy init trước; batch interval không tự backfill mọi lịch sử |
+| Batch | PostgreSQL (psycopg2, theo trang) → Bronze → Silver → Gold/mart → quality gate → publication | Cần chạy init trước; batch interval không tự backfill mọi lịch sử |
 | Access log | API → Kafka → Flink Landing; batch native xử lý Bronze/Silver/fact, dbt dựng ba mart, publication riêng | Producer opt-in; DLQ chưa tự replay; Landing và mart có độ mới khác nhau |
 | BI | Superset 6.1.0 qua Trino, PoC doanh thu với hai mart/bốn KPI/bốn chart | Admin-only, chưa bao phủ 18 mart/RBAC cửa hàng; sync tạo URL mới theo publication |
 | Frontend cũ | Next.js/React/ECharts còn trong `services/storefront`, vẫn có CI | Không có service Compose; các trang gọi API BI đã bỏ không còn hoạt động |
@@ -27,7 +27,7 @@ Không có marketplace đa người bán, thu thập dữ liệu đối thủ ho
 | PostgreSQL 16.8 | OLTP `ecommerce`; metadata `airflow`, `polaris`; metadata `superset` được tạo riêng khi bật BI | [schema](../database/schema.sql), [scripts](../infrastructure/postgres/) |
 | MinIO | Object storage cho staging và dữ liệu/metadata Iceberg | [provisioning/policy](../infrastructure/minio/) |
 | Polaris 1.8.0 | Iceberg REST catalog, namespace và quyền principal/catalog | [RBAC](../infrastructure/polaris/rbac.yml) |
-| Polars 2.1 / PyIceberg 0.12 | Đọc nguồn, Bronze/Silver, quality audit, publication và maintenance trong process job | [lakehouse](../pipelines/src/lakehouse/), [jobs](../pipelines/src/jobs/), [image](../infrastructure/batch/) |
+| Polars 2.1 / PyIceberg 0.12 | Đọc nguồn, Bronze/Silver, quality audit, publication và maintenance trong process job | [lakehouse](../pipelines/src/lakehouse/), [jobs](../pipelines/src/jobs/), [image](../infrastructure/airflow/Dockerfile) |
 | dbt 1.11 (dbt-trino) | Dựng Gold/mart trên Trino; dbt tests là một phần của quality gate | [dbt project](../pipelines/dbt/) |
 | Airflow 3.3.2 | API/UI, scheduler và DAG processor riêng; LocalExecutor | [DAGs](../airflow/dags/), [image](../infrastructure/airflow/) |
 | Kafka 3.8 | Vận chuyển log API từ producer tới Flink | [Compose](../docker-compose.yml) |
@@ -36,7 +36,7 @@ Không có marketplace đa người bán, thu thập dữ liệu đối thủ ho
 | Superset 6.1.0 | Dashboard từ publication, metadata riêng trên PostgreSQL | [implementation](../infrastructure/superset/) |
 | `lakehouse-access` | API nội bộ để đọc/gán/gỡ binding MinIO/Polaris | [access_admin](../services/platform-app/src/platform_app/access_admin/) |
 
-Python workspace gồm `platform-app`, `batch-pipeline`, dùng chung [uv.lock](../uv.lock). Batch (Polars/PyIceberg/dbt), Flink, Airflow và Superset có image/runtime riêng; không cài Superset vào virtualenv ứng dụng. Superset bổ sung driver Trino/PostgreSQL bằng lock riêng và không cần Redis/Celery trong PoC.
+Python workspace gồm `platform-app`, `batch-pipeline`, dùng chung [uv.lock](../uv.lock). Airflow (kèm venv batch Polars/PyIceberg/dbt), Flink và Superset có image/runtime riêng; không cài Superset vào virtualenv ứng dụng. Superset bổ sung driver Trino/PostgreSQL bằng lock riêng và không cần Redis/Celery trong PoC.
 
 ## 3. Hai đường dữ liệu
 
@@ -45,7 +45,7 @@ Python workspace gồm `platform-app`, `batch-pipeline`, dùng chung [uv.lock](.
 1. API (hoặc seed catalog) tạo/thay đổi dữ liệu PostgreSQL; hiện chưa có công cụ nạp dữ liệu lịch sử.
 2. Reader PostgreSQL SELECT-only (psycopg2) đọc 27 bảng, phân trang theo khóa, mỗi trang tối đa 10.000 dòng; Polars xử lý, PyIceberg commit.
 3. Init đọc toàn bộ; DAG định kỳ dùng cửa sổ UTC `[start, end)` do Airflow truyền.
-4. Bronze giữ các phiên bản nguồn chống trùng khi replay; Silver MERGE theo PK/cursor, typing và pseudonymization.
+4. Bronze giữ các phiên bản nguồn chống trùng khi replay; Silver upsert theo PK/cursor, typing và pseudonymization.
 5. dbt trên Trino xây dimension/fact/mart từ Silver đã ghim snapshot; quality gate kiểm tra rồi công bố một manifest snapshot.
 6. Trino/API đọc snapshot đã công bố. Superset sync tạo bộ assets cố định theo manifest đó.
 
@@ -83,7 +83,6 @@ Superset dùng `mart_order_daily` và `mart_product_sales_daily` của cùng man
 | Profile | Service |
 |---|---|
 | `core` | PostgreSQL, MinIO, Polaris/bootstrap, Airflow/init, Trino, platform-app, lakehouse-access; provisioning chạy thủ công scale 0 |
-| `batch` | Client CLI Polars/PyIceberg/dbt local, dùng kèm core |
 | `streaming` | Kafka/topic init, Flink JM/TM; submit job scale 0 |
 | `bi` | Superset web; init/sync scale 0, dùng kèm core |
 
@@ -104,7 +103,7 @@ Service và port cụ thể lấy từ [Compose](../docker-compose.yml). Không 
 
 ### Engine batch
 
-Image `infrastructure/batch/Dockerfile` chứa Polars 2.1.0, PyIceberg 0.12.0, PyArrow và dbt-trino; Airflow dùng cùng môi trường qua `PIPELINE_PYTHON`. Chi tiết job, kiểm tra và giới hạn ở [pipelines README](../pipelines/README.md).
+Image Airflow (`infrastructure/airflow/Dockerfile`) chứa venv riêng `/opt/pipeline-venv` với Polars 2.1.0, PyIceberg 0.12.0, PyArrow và dbt-trino theo `uv.lock`; DAG gọi venv này qua `PIPELINE_PYTHON`. Venv tách khỏi Python của Airflow vì hai bên cần phiên bản khác nhau cho pyarrow, boto3, pydantic, sqlparse. Chi tiết job, kiểm tra và giới hạn ở [pipelines README](../pipelines/README.md).
 
 ## 7. Phần chưa hoàn tất
 

@@ -76,13 +76,13 @@ Catalog mặc định `lakehouse`, bucket theo `MINIO_LAKEHOUSE_BUCKET` (mặc �
 
 | Tầng | Batch OLTP | Access log |
 |---|---|---|
-| Landing/staging | Parquet `landing/oltp/staging/<table>` dùng lại cho lần đọc kế; không phải lịch sử bất biến | `landing.access_logs` append raw envelope và projected fields, giữ cả payload không hợp lệ/lặp |
+| Landing/staging | Parquet `landing/polars-batch/<prefix>/<run_id>/<table>/page-*.parquet` theo từng run; không phải lịch sử bất biến | `landing.access_logs` append raw envelope và projected fields, giữ cả payload không hợp lệ/lặp |
 | Bronze | `<table>` giữ source versions và `_source_system=postgresql_ecommerce`, metadata nguồn/ingestion | `bronze.web_events` giữ raw hash, typed envelope, `_validation_error`; distinct raw payload |
-| Silver | `silver_<table>` MERGE theo PK/cursor; giữ state mới hơn, PII tokenization | `silver.silver_logs` chỉ event hợp lệ, dedup theo immutable request ID |
+| Silver | `silver_<table>` upsert theo PK/cursor; giữ state mới hơn, PII tokenization | `silver.silver_logs` chỉ event hợp lệ, dedup theo immutable request ID |
 | Gold | 6 dimension + 6 fact + 15 mart nghiệp vụ | `fact_web_events` + 3 mart log |
 | System/quarantine | Kết quả DQ, publication; dòng vi phạm được cách ly | Publication log độc lập; raw lỗi vẫn ở Bronze |
 
-Batch interval dùng UTC có timezone `[start,end)`; append-only đọc `created_at`, mutable đọc `updated_at`. Extract phân trang theo PK 10.000 dòng và materialize từng trang trước khi ghi. Trang đầu thay staging, kể cả interval rỗng. Bronze chống lặp theo source PK/cursor; Silver đọc delta tương ứng, không ghi đè state mới bằng backfill cũ. Gold được xây lại, quality gate chạy rồi mới publish.
+Batch interval dùng UTC có timezone `[start,end)`; append-only đọc `created_at`, mutable đọc `updated_at`. Extract phân trang theo PK 10.000 dòng; mọi trang của mọi bảng được ghi staging trước, rồi mới ghi Bronze/Silver. Interval rỗng không xóa lịch sử. Bronze chống lặp theo source PK/cursor; Silver đọc delta tương ứng, không ghi đè state mới bằng backfill cũ. Gold được xây lại, quality gate chạy rồi mới publish.
 
 Silver chuẩn hóa UUID JDBC dạng chuỗi thành **16 bytes** theo schema phân tích BINARY hiện có. Resolver log hỗ trợ cả encoding đúng và bytes của chuỗi UUID từ các lần batch cũ. Interval chỉ chuẩn hóa các dòng được đọc; cần init có kiểm soát nếu muốn chuẩn hóa toàn bộ current state. Không tự sửa snapshot lịch sử.
 
@@ -90,11 +90,9 @@ PII của customer, đơn và nhân sự được chuẩn hóa lower/trim rồi 
 
 ### Batch Polars/PyIceberg
 
-Pilot `categories` tái sử dụng catalog nguồn: phân trang theo PK, interval `[start,end)`, staging riêng theo namespace/run, Bronze theo `(category_id, updated_at)` và Silver theo PK với điều kiện cursor không cũ hơn state hiện có. UUID Silver là 16 bytes; `slug` không có trong nguồn được điền NULL theo schema phân tích. Interval rỗng tạo staging typed rỗng, không xóa lịch sử. Mỗi invocation được khóa theo namespace bằng PostgreSQL session advisory lock.
+Mỗi lần chạy khóa theo namespace bằng PostgreSQL session advisory lock. Schema Bronze đọc từ metadata cursor PostgreSQL, UUID giữ dạng chuỗi ở Bronze; schema Silver đọc hợp đồng cột trong `sql_templates/contracts` qua adapter chỉ hỗ trợ các kiểu đã khai báo và từ chối kiểu khác. JSON nguồn được giữ dạng văn bản, không parse rồi serialize lại. Schema mới phải được review trước khi mở rộng adapter.
 
-CLI pilot categories vẫn fail khi thiếu key/code/name. CLI batch 27 nguồn là bước mở rộng riêng: schema Bronze đọc từ metadata PostgreSQL, UUID giữ dạng chuỗi ở Bronze; schema Silver đọc hợp đồng cột hiện có qua adapter giới hạn các kiểu dữ liệu đã khai báo. Adapter không chạy SQL và từ chối kiểu chưa hỗ trợ. JSON nguồn được giữ dạng văn bản như JDBC, không parse rồi serialize lại. Schema mới phải được review trước khi mở rộng adapter.
-
-Native batch dedup theo PK/cursor/thời gian ingest, giữ guard chống backfill cũ, chuyển các quy tắc validation hiện có và ghi nhiều mã lỗi theo thứ tự hiện tại. Token SHA-256 giữ trim ký tự space U+0020, lowercase, salt và NULL; tạo `shipping_region` trước khi bỏ địa chỉ gốc. Quarantine chỉ giữ JSON đã token hóa các cột PII theo pattern hiện có, bỏ trường NULL, dedup bằng source table/record/mã lỗi và partition theo ngày. Không có thêm cam kết ẩn danh cho nội dung free-text/JSON.
+Batch dedup theo PK/cursor/thời gian ingest, giữ guard chống backfill cũ và ghi nhiều mã lỗi validation theo thứ tự cố định. Token SHA-256 giữ trim ký tự space U+0020, lowercase, salt và NULL; tạo `shipping_region` trước khi bỏ địa chỉ gốc. Quarantine chỉ giữ JSON đã token hóa các cột PII theo pattern hiện có, bỏ trường NULL, dedup bằng source table/record/mã lỗi và partition theo ngày. Không có thêm cam kết ẩn danh cho nội dung free-text/JSON.
 
 DAG chạy với prefix `serving`; CLI nhận prefix khác để chạy thử trong namespace riêng. Việc stage toàn bộ nguồn hoàn tất trước khi merge dữ liệu, nhưng các commit bảng vẫn độc lập, không phải transaction đa bảng. Đọc nguồn theo trang không đồng nghĩa snapshot giao dịch nhất quán toàn bộ 27 bảng khi nguồn đang thay đổi.
 

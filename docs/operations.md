@@ -69,7 +69,7 @@ Không lấy current mart chưa publish để kết luận dashboard sai. Với 
 | Compose báo thiếu biến | So `.env.example`, profile và biến bắt buộc; không thêm secret mặc định để làm config qua |
 | PostgreSQL healthy nhưng API thiếu bảng | Schema bootstrap/seed là bước riêng; không reset volume. Kiểm tra đang kết nối đúng DB/user |
 | Đổi password env nhưng không login | Init PostgreSQL/seed/metadata không tự đổi password đã lưu; xác nhận credential retained trước khi rotate có kiểm soát |
-| Batch JDBC lỗi auth/permission | Reader password/env đúng và script `make source-reader` đã chạy sau đủ schema; credentials không được nhét vào JDBC URL |
+| Batch đọc PostgreSQL lỗi auth/permission | Reader password/env đúng và script `make source-reader` đã chạy sau đủ schema; không đưa credential vào URL kết nối |
 | Job batch không thấy credential | Kiểm tra provisioning, consumer file đúng volume/UID/GID; không thay bằng MinIO root hoặc chmod mở rộng toàn bộ |
 | Silver lỗi salt | Cấp `SILVER_PSEUDONYMIZE_SALT` ổn định; không bỏ pseudonymization để job qua |
 | Thiếu staging/interval | Chạy init nếu chưa có nền; manual interval phải có UTC start/end; interval rỗng hợp lệ không xóa lịch sử Bronze/Silver |

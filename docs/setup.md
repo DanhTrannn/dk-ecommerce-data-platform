@@ -38,9 +38,8 @@ Compose dùng hostname nội bộ `postgres`, `kafka`, `trino`; URL host trong `
 ```bash
 make build
 make up PROFILES=core
-make up PROFILES=core,batch
 # Chỉ bật khi cần streaming hoặc BI:
-make up PROFILES=core,batch,streaming
+make up PROFILES=core,streaming
 make up PROFILES=core,bi
 ```
 
@@ -119,7 +118,7 @@ Sau schema/provisioning, áp dụng env/mount hiện tại của PostgreSQL và 
 
 ```bash
 make source-reader
-docker compose --profile core --profile batch up -d \
+docker compose --profile core up -d \
   airflow-api-server airflow-scheduler airflow-dag-processor trino
 ```
 
@@ -223,20 +222,20 @@ make down
 
 ## 8. Chạy job batch bằng CLI
 
-DAG gọi các job dưới đây bằng `PIPELINE_PYTHON`; có thể chạy tay với cùng cấu hình reader, Polaris credential file, MinIO batch key và salt PII:
+DAG gọi các job dưới đây bằng `PIPELINE_PYTHON` (venv Polars/PyIceberg/dbt trong image Airflow). Chạy tay trong container scheduler, vốn đã có reader, Polaris credential file, MinIO batch key và salt PII:
 
 ```bash
 # Bronze/Silver cho 27 nguồn (thêm --interval-start/--interval-end cho interval [start,end); --table để chọn nhóm)
-PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline -- \
-  python -m jobs.oltp.run_polars_batch --namespace-prefix serving --run-id <run_id>
+docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.oltp.run_polars_batch \
+  --namespace-prefix serving --run-id <run_id>'
 
 # Gold bằng dbt/Trino, quality gate và publication (--verify-only để chỉ audit)
-PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline -- \
-  python -m jobs.oltp.build_oltp_gold --namespace-prefix serving --run-id <run_id> --as-of 2026-11-10T10:00:00Z
+docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.oltp.build_oltp_gold \
+  --namespace-prefix serving --run-id <run_id> --as-of 2026-11-10T10:00:00Z'
 
 # Log: Landing → Bronze/Silver/fact → ba mart → publication log
-PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline -- \
-  python -m jobs.logs.build_logs_gold --namespace-prefix serving --run-id <run_id> --as-of 2026-11-10T10:00:00Z
+docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.logs.build_logs_gold \
+  --namespace-prefix serving --run-id <run_id> --as-of 2026-11-10T10:00:00Z'
 ```
 
 Prefix khác `serving` phải có dạng `polars_batch_*` để chạy thử trong namespace riêng. Giữ nguyên `--as-of` khi retry. Gate thất bại làm job lỗi sau khi lưu audit; publication trước đó được giữ nguyên.

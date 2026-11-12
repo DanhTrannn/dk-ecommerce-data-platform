@@ -33,7 +33,7 @@ The current interface is a **Streamlit Platform Console** for running online pur
 
 - **Synthetic data rules:** EDA notebooks derive purchase rules (H&M, Olist) and browsing rules (eCommerce Behavior) into YAML presets for OLTP (`1m`/`10m`/`50m` orders per year) and access logs. The SQL generator that consumes them is not implemented yet; see [generator/README.md](generator/README.md).
 - **Source workflows:** Retained APIs cover authentication, products, cart/checkout, POS, stock, inbound receipts, payments, delivery, returns and reviews. Streamlit currently automates online purchase attempts; it does not automate every retained API workflow.
-- **Incremental batch:** Fixed Airflow intervals, paginated JDBC staging, Bronze history, Silver typing/deduplication/MERGE and PII pseudonymization, followed by Gold rebuilds and validation.
+- **Incremental batch:** Fixed Airflow intervals, paginated PostgreSQL reads, Bronze history, Silver typing/deduplication/upsert and PII pseudonymization, followed by Gold rebuilds and validation.
 - **Open Lakehouse:** Iceberg snapshots, Polaris access control, MinIO workload accounts, Trino read-only access, and scheduled maintenance for an explicit table subset.
 - **Data quality and publication:** Reconciliation, quality results and publication manifests keep analytical reads tied to validated snapshots. There are 15 OLTP marts and three access-log marts.
 - **HTTP observability:** Real request capture, local delivery DLQ, Landing retention, deduplication and three HTTP/product/funnel marts. Published and provisional HTTP analytics retain separate contracts.
@@ -86,7 +86,7 @@ docker compose exec -T postgres sh -c \
 
 make seed
 make source-reader
-make up PROFILES=core,batch
+make up
 ```
 
 There is currently no bulk dataset import: the previous generator and its SQL importer were removed, and the new generator is pending. `make seed` supplies application catalog/bootstrap accounts, with optional admin credentials supplied to the host process; it does not create cities or stores. Existing databases are not migrated automatically. See [database/README.md](database/README.md) before importing into a nonempty database.
@@ -122,8 +122,7 @@ Open the dashboard URL returned by sync. Each dashboard is pinned to one publica
 
 | Profile | Responsibility |
 |---|---|
-| `core` | PostgreSQL, MinIO, Polaris, Airflow, Trino, platform-app and internal lakehouse-access; explicit provisioning jobs |
-| `batch` | Local Polars/PyIceberg/dbt CLI client, used together with core |
+| `core` | PostgreSQL, MinIO, Polaris, Airflow (with the Polars/PyIceberg/dbt runtime), Trino, platform-app and internal lakehouse-access; explicit provisioning jobs |
 | `streaming` | Kafka and Flink; the job submission service runs manually |
 | `bi` | Superset web and explicit initialization/publication-sync jobs |
 

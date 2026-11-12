@@ -228,43 +228,6 @@ services:
       start_period: 15s
     networks: ["lakehouse-network"]
 
-  batch-client:
-    build:
-      context: .
-      dockerfile: infrastructure/batch/Dockerfile
-    image: lakehouse-batch:0.1.0
-    profiles: ["batch"]
-    entrypoint: ["python"]
-    environment:
-      POSTGRES_SOURCE_HOST: postgres
-      POSTGRES_SOURCE_PORT: "5432"
-      POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
-      POSTGRES_ECOMMERCE_READER_USER: ${POSTGRES_ECOMMERCE_READER_USER:-ecommerce_reader}
-      POSTGRES_ECOMMERCE_READER_PASSWORD: ${POSTGRES_ECOMMERCE_READER_PASSWORD:-}
-      MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
-      POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
-      POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
-      POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
-      SILVER_PSEUDONYMIZE_SALT: ${SILVER_PSEUDONYMIZE_SALT:-}
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_BATCH_ACCESS_KEY: ${MINIO_BATCH_ACCESS_KEY:?set MINIO_BATCH_ACCESS_KEY}
-      MINIO_BATCH_SECRET_KEY: ${MINIO_BATCH_SECRET_KEY:?set MINIO_BATCH_SECRET_KEY}
-      POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
-      POLARS_MAX_THREADS: "2"
-      TRINO_CA_FILE: /run/trino-ca/ca.pem
-      DBT_TRINO_HOST: trino
-      DBT_TRINO_PASSWORD: ${DBT_TRINO_PASSWORD:?set DBT_TRINO_PASSWORD}
-    command: ["-c", "import time; time.sleep(86400)"]
-    volumes:
-      - polaris-batch-client-credentials:/run/polaris:ro
-      - trino-ca:/run/trino-ca:ro
-      - ./pipelines:/opt/project/pipelines:ro
-    depends_on:
-      polaris:
-        condition: service_healthy
-    networks: ["lakehouse-network"]
-
   airflow-init:
     <<: *airflow-common
     command:
@@ -392,7 +355,6 @@ services:
       AIRFLOW_UID: ${AIRFLOW_UID:-50000}
     volumes:
       - polaris-provision-state:/run/polaris-state
-      - polaris-batch-client-credentials:/run/polaris-output/batch-client
       - polaris-batch-airflow-credentials:/run/polaris-output/batch-airflow
       - polaris-flink-credentials:/run/polaris-output/flink
       - polaris-trino-reader-credentials:/run/polaris-output/trino-reader
@@ -637,7 +599,6 @@ volumes:
   minio-data:
   postgres-data:
   polaris-provision-state:
-  polaris-batch-client-credentials:
   polaris-batch-airflow-credentials:
   polaris-flink-credentials:
   polaris-trino-reader-credentials:

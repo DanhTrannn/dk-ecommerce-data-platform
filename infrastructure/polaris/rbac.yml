@@ -93,10 +93,6 @@ principals:
 
 credential_outputs:
   - principal: batch_writer
-    directory: /run/polaris-output/batch-client
-    uid: 185
-    gid: 185
-  - principal: batch_writer
     directory: /run/polaris-output/batch-airflow
     uid: "${AIRFLOW_UID:-50000}"
     gid: 0
