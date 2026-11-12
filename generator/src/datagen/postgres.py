@@ -84,7 +84,9 @@ def copy_tables(connection, tables: dict[str, pl.DataFrame]) -> dict[str, int]:
             if frame is None or frame.height == 0:
                 continue
             columns = ", ".join(frame.columns)
-            cursor.copy_expert(f"COPY public.{table} ({columns}) FROM STDIN WITH (FORMAT csv, HEADER true)", _csv(frame))
+            cursor.copy_expert(
+                f"COPY public.{table} ({columns}) FROM STDIN WITH (FORMAT csv, HEADER true)", _csv(frame)
+            )
             counts[table] = frame.height
     return counts
 

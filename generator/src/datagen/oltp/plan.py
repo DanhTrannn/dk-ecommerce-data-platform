@@ -82,7 +82,9 @@ def build_timeline(preset: OltpPreset) -> Timeline:
     weights = np.array(
         [preset.calendar.day_of_week.weights[d.weekday()] * _day_multiplier(d, sales, preset) for d in days]
     )
-    starts = [datetime.combine(d, datetime.min.time(), zone).astimezone(ZoneInfo("UTC")).replace(tzinfo=None) for d in days]
+    starts = [
+        datetime.combine(d, datetime.min.time(), zone).astimezone(ZoneInfo("UTC")).replace(tzinfo=None) for d in days
+    ]
     return Timeline(
         history_start=preset.history_start,
         anchor=preset.anchor_time,

@@ -440,9 +440,13 @@ LOAD_ORDER: tuple[str, ...] = (
 )
 
 
-def conform(table: str, frame: pl.DataFrame) -> pl.DataFrame:
-    """Select the table's columns in declared order with declared types; reject missing or extra columns."""
+def conform(table: str, frame: pl.DataFrame, null_columns: tuple[str, ...] = ()) -> pl.DataFrame:
+    """Select the table's columns in declared order with declared types; reject missing or extra columns.
+
+    null_columns names the columns the caller deliberately leaves NULL; only those are added.
+    """
     schema = SCHEMAS[table]
+    frame = frame.with_columns(pl.lit(None, dtype=schema[name]).alias(name) for name in null_columns)
     missing = [name for name in schema if name not in frame.columns]
     extra = [name for name in frame.columns if name not in schema]
     if missing or extra:

@@ -41,3 +41,13 @@ def sample_frequency_table(rng: np.random.Generator, percentages: Sequence[float
     """Values 1..len(percentages) drawn with the given (not necessarily normalised) weights."""
     weights = np.asarray(percentages, dtype=np.float64)
     return rng.choice(np.arange(1, len(weights) + 1), size=size, p=weights / weights.sum())
+
+
+def split_by_shares(total: int, shares: Sequence[float]) -> np.ndarray:
+    """Integer split of total proportional to shares (largest remainder method; ties go to the earlier share)."""
+    weights = np.asarray(shares, dtype=np.float64)
+    exact = total * weights / weights.sum()
+    counts = np.floor(exact).astype(np.int64)
+    order = np.argsort(-(exact - counts), kind="stable")
+    counts[order[: total - counts.sum()]] += 1
+    return counts
