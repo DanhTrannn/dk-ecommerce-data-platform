@@ -46,13 +46,15 @@ products:
     tui-xach: {product_share: 0.0243, demand_multiplier: 0.386}
   price_independent_of_popularity: true  # measured §3.1 — Spearman ≈ 0,01
   variants_per_product: 4  # assumption: tổ hợp size/màu trong catalog
-  price_bands:  # assumption: giá VND không suy ra được từ giá chuẩn hóa H&M
+  price_bands:
+    # Trung bình ≈ 234.000 đ: cao hơn mặt bằng thời trang nữ trên sàn (≈ 119.000–207.000 đ/sản phẩm,
+    # Metric 10/2025 qua tin dẫn lại, §7.1) vì là shop thương hiệu. Giá H&M là thang chuẩn hóa, không dùng được.
     source: assumption
     bands:
-      - {min_vnd: 79000, max_vnd: 199000, weight: 30}
-      - {min_vnd: 199000, max_vnd: 399000, weight: 40}
-      - {min_vnd: 399000, max_vnd: 699000, weight: 20}
-      - {min_vnd: 699000, max_vnd: 2500000, weight: 10}
+      - {min_vnd: 79000, max_vnd: 149000, weight: 35}
+      - {min_vnd: 149000, max_vnd: 249000, weight: 35}
+      - {min_vnd: 249000, max_vnd: 399000, weight: 20}
+      - {min_vnd: 399000, max_vnd: 799000, weight: 10}
 
 baskets:
   # Lấy mẫu độc lập với khách (Spearman ≈ 0,02, §4).
@@ -95,7 +97,7 @@ calendar:
     holiday_multiplier: 0.3
 
 fulfilment:
-  on_time_delivery_days: [1, 4]  # assumption: giao nội địa VN, lấy đều
+  on_time_delivery_days: [2, 6]  # assumption, lấy đều; iPrice/Parcel Perform: VN trung bình 5–6 ngày (§7.1)
   late_rate: 0.055  # transfer §6 — Olist 2017
   late_buckets:  # transfer §6 — tỷ trọng % trong các đơn trễ; số ngày trễ lấy đều trong khoảng
     late_1_3: {days: [1, 3], share: 29.2}
