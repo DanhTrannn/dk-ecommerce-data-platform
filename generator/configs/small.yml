@@ -3,6 +3,7 @@
 #   transfer   = quy luật đo ở nguồn khác, áp sang shop Việt Nam như một giả định chuyển nguồn
 #   assumption = tham số kịch bản/chính sách, không có dữ liệu để ước lượng
 # Tổng số đơn KHÔNG phải đầu vào: là kết quả của customers.purchase_frequency × scale.buying_customers.
+# Ước lượng: đơn kỳ vọng = buying_customers × (−θ/((1−θ)·ln(1−θ))), θ = T/(α+T); T = 1 năm → 3,846 đơn/khách.
 schema_version: 2
 scenario_id: small-fashion-v2
 seed: 20260724
@@ -11,8 +12,8 @@ history_months: 12
 business_timezone: Asia/Ho_Chi_Minh
 
 scale:
-  buying_customers: 500
-  registered_without_order: 50  # assumption: H&M chỉ quan sát khách đã mua (§7)
+  buying_customers: 500  # ≈ 1.923 đơn kỳ vọng
+  registered_without_order_ratio: 0.1  # assumption: tài khoản chưa mua / khách đã mua; H&M chỉ quan sát khách đã mua (§7)
   products: 60
 
 customers:
