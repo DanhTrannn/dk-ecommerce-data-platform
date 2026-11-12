@@ -7,7 +7,8 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16.8-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Apache Kafka](https://img.shields.io/badge/Apache_Kafka-3.8-231F20?style=flat-square&logo=apachekafka&logoColor=white)](https://kafka.apache.org)
 [![Apache Flink](https://img.shields.io/badge/Apache_Flink-1.19-E6526F?style=flat-square&logo=apacheflink&logoColor=white)](https://flink.apache.org)
-[![Apache Spark](https://img.shields.io/badge/Apache_Spark-3.5.9-E25A1C?style=flat-square&logo=apachespark&logoColor=white)](https://spark.apache.org)
+[![Polars](https://img.shields.io/badge/Polars-2.1.0-CD792C?style=flat-square&logo=polars&logoColor=white)](https://pola.rs)
+[![dbt](https://img.shields.io/badge/dbt-1.11-FF694B?style=flat-square&logo=dbt&logoColor=white)](https://www.getdbt.com)
 [![Apache Iceberg](https://img.shields.io/badge/Apache_Iceberg-1.10.1-blue?style=flat-square&logo=apache&logoColor=white)](https://iceberg.apache.org)
 [![Apache Polaris](https://img.shields.io/badge/Apache_Polaris-1.8.0-teal?style=flat-square&logo=apache&logoColor=white)](https://polaris.apache.org)
 [![Trino](https://img.shields.io/badge/Trino-483-DD00A1?style=flat-square&logo=trino&logoColor=white)](https://trino.io)
@@ -26,7 +27,7 @@
 
 The current interface is a **Streamlit Platform Console** for running online purchase scenarios against the API and managing existing Lakehouse access bindings. An optional **Apache Superset sales PoC** reads two published sales marts. The legacy Next.js application remains in source and CI, but is not started by Compose; its retired business BI endpoints are no longer available.
 
-> **Three separate data paths:** Airflow/Spark batch is the only writer of the serving OLTP Silver/Gold namespaces. PostgreSQL CDC records Bronze audit events. API access logs flow through Kafka/Flink to Landing, then through a separate Spark pipeline and publication. CDC capture alone does not refresh sales dashboards.
+> **Two separate data paths:** Airflow-scheduled batch (Polars/PyIceberg ingestion, dbt on Trino for Gold) is the only writer of the serving OLTP Silver/Gold namespaces. API access logs flow through Kafka/Flink to Landing, then through a separate native pipeline and publication.
 
 ## Features
 
@@ -35,8 +36,7 @@ The current interface is a **Streamlit Platform Console** for running online pur
 - **Incremental batch:** Fixed Airflow intervals, paginated JDBC staging, Bronze history, Silver typing/deduplication/MERGE and PII pseudonymization, followed by Gold rebuilds and validation.
 - **Open Lakehouse:** Iceberg snapshots, Polaris access control, MinIO workload accounts, Trino read-only access, and scheduled maintenance for an explicit table subset.
 - **Data quality and publication:** Reconciliation, quality results and publication manifests keep analytical reads tied to validated snapshots. There are 15 OLTP marts and three access-log marts.
-- **CDC audit:** Debezium captures changes from 27 PostgreSQL source tables; Flink preserves before/after payloads and transport/source metadata in Bronze. A separate manual batch DAG handles a bounded cart/wishlist hard-delete case.
-- **HTTP observability:** Real request capture, local delivery DLQ, Landing retention, Spark deduplication and three HTTP/product/funnel marts. Published and provisional HTTP analytics retain separate contracts.
+- **HTTP observability:** Real request capture, local delivery DLQ, Landing retention, deduplication and three HTTP/product/funnel marts. Published and provisional HTTP analytics retain separate contracts.
 - **Sales BI:** Superset provides four KPI cards and four charts over two publication-pinned sales marts. Viewer/store permissions and the remaining BI areas are pending.
 
 ## Tech Stack
@@ -44,8 +44,8 @@ The current interface is a **Streamlit Platform Console** for running online pur
 | Area | Technologies |
 |---|---|
 | Source and console | Python 3.11, FastAPI, SQLAlchemy, Streamlit, PostgreSQL 16.8 |
-| Batch and orchestration | Apache Spark 3.5.9, Apache Airflow 3.3.2 |
-| Change and event capture | Debezium 3.0.8, Apache Kafka 3.8, Apache Flink 1.19 |
+| Batch and orchestration | Polars 2.1.0, PyIceberg 0.12.0, dbt 1.11 (dbt-trino), Apache Airflow 3.3.2 |
+| Event capture | Apache Kafka 3.8, Apache Flink 1.19 |
 | Storage and catalog | MinIO, Apache Iceberg 1.10.1, Apache Polaris 1.8.0 |
 | Analytics and BI | Trino 483, Apache Superset 6.1.0 |
 | Tooling | Docker Compose, uv workspace/lockfile, Ruff, unittest, GitHub Actions |
@@ -77,7 +77,7 @@ make provision-lakehouse
 
 ### Initialize the source
 
-Service startup does not apply the source schema, seeds, reader grants or CDC configuration. For a fresh business database:
+Service startup does not apply the source schema, seeds or reader grants. For a fresh business database:
 
 ```bash
 docker compose exec -T postgres sh -c \
@@ -101,7 +101,7 @@ docker compose exec -T airflow-scheduler airflow dags trigger init_lakehouse_olt
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_pipeline
 ```
 
-DAGs start paused. Do not overlap full initialization and incremental runs. For streaming, enable the additional profile and run source CDC setup, connector registration and Flink submission explicitly. Real HTTP capture also requires `KAFKA_ENABLED=true`; access-log processing has its own DAG. The exact startup/recovery steps are in [setup.md](docs/setup.md) and [operations.md](docs/operations.md).
+DAGs start paused. Do not overlap full initialization and incremental runs. For streaming, enable the additional profile and submit the Flink access-log job explicitly. Real HTTP capture also requires `KAFKA_ENABLED=true`; access-log processing has its own DAG. The exact startup/recovery steps are in [setup.md](docs/setup.md) and [operations.md](docs/operations.md).
 
 ### Optional Superset
 
@@ -123,8 +123,8 @@ Open the dashboard URL returned by sync. Each dashboard is pinned to one publica
 | Profile | Responsibility |
 |---|---|
 | `core` | PostgreSQL, MinIO, Polaris, Airflow, Trino, platform-app and internal lakehouse-access; explicit provisioning jobs |
-| `batch` | Local Spark client, used together with core |
-| `streaming` | Kafka, Connect and Flink; connector/job submission services run manually |
+| `batch` | Local Polars/PyIceberg/dbt CLI client, used together with core |
+| `streaming` | Kafka and Flink; the job submission service runs manually |
 | `bi` | Superset web and explicit initialization/publication-sync jobs |
 
 | Interface | Default local address |
@@ -136,7 +136,7 @@ Open the dashboard URL returned by sync. Each dashboard is pinned to one publica
 | Superset, when enabled | <http://127.0.0.1:8088> |
 | MinIO API / console | <http://127.0.0.1:9000> / <http://127.0.0.1:9001> |
 | Polaris catalog / health | <http://127.0.0.1:8181/api/catalog> / <http://127.0.0.1:8182/q/health> |
-| Flink / Debezium Connect | <http://localhost:8085> / <http://127.0.0.1:8086> |
+| Flink | <http://localhost:8085> |
 
 Kafka host clients use `localhost:9094`; containers use `kafka:9092`. PostgreSQL defaults to host port 5432. `lakehouse-access:8010` is internal and has no published host port. Bind addresses/ports are configurable; see setup before using this local stack on an externally reachable machine.
 
@@ -144,13 +144,12 @@ Kafka host clients use `localhost:9094`; containers use `kafka:9092`. PostgreSQL
 
 | Path | Processing | Result |
 |---|---|---|
-| OLTP batch | PostgreSQL → Spark staging/Bronze → Silver → Gold → quality gate/publication | Six dimensions, six facts and 15 business marts; Trino/Superset read published snapshots |
-| PostgreSQL CDC | WAL → Debezium → Kafka → Flink | Immutable Bronze change audit; no continuous Gold materialization |
-| API access logs | FastAPI → Kafka → Flink Landing → Spark Bronze/Silver/Gold | HTTP fact and three marts, with an independent publication |
+| OLTP batch | PostgreSQL → Polars/PyIceberg Bronze → Silver → dbt/Trino Gold → quality gate/publication | Six dimensions, six facts and 15 business marts; Trino/Superset read published snapshots |
+| API access logs | FastAPI → Kafka → Flink Landing → native Bronze/Silver/fact → dbt marts | HTTP fact and three marts, with an independent publication |
 
-The source has 28 tables; 27 are configured for analytical extraction and CDC, excluding `customer_credentials`. Mutable and append-only sources use different cursors. Currency is VND; business time uses Asia/Ho_Chi_Minh, with UTC handling defined per pipeline. Generated transactions, API-created transactions and observed request logs have distinct provenance.
+The source has 28 tables; 27 are configured for analytical extraction, excluding `customer_credentials`. Mutable and append-only sources use different cursors. Currency is VND; business time uses Asia/Ho_Chi_Minh, with UTC handling defined per pipeline. Generated transactions, API-created transactions and observed request logs have distinct provenance.
 
-Publication gates prevent a failed refresh from replacing the last accepted manifest. Superset SQL pins snapshot IDs; expired snapshots require operational coordination. Current CDC and log acceptance results establish bounded integration behavior, not production availability or latency guarantees. Details: [architecture](docs/architecture.md), [data model and KPI contracts](docs/data.md), [operational evidence and limits](docs/operations.md).
+Publication gates prevent a failed refresh from replacing the last accepted manifest. Superset SQL pins snapshot IDs; expired snapshots require operational coordination. Current log acceptance results establish bounded integration behavior, not production availability or latency guarantees. Details: [architecture](docs/architecture.md), [data model and KPI contracts](docs/data.md), [operational evidence and limits](docs/operations.md).
 
 ### Repository structure
 
@@ -161,7 +160,7 @@ Publication gates prevent a failed refresh from replacing the last accepted mani
 │   └── storefront/         # Legacy Next.js application
 ├── generator/              # EDA notebooks and YAML presets: oltp/ (purchases), logs/ (browsing)
 ├── database/               # PostgreSQL schema and explicit seeds
-├── pipelines/              # Spark batch, Flink streaming, source contracts and tests
+├── pipelines/              # Polars/PyIceberg batch, dbt project, Flink streaming and source contracts
 ├── airflow/                # DAGs and Airflow runtime
 ├── infrastructure/         # Storage, catalog, streaming, Trino and Superset configuration
 ├── docs/                   # Four technical references and the retained final report
@@ -185,7 +184,7 @@ FastAPI retains source write operations and the lookups needed to supply their I
 
 Both require `admin`/`system_admin`. Streamlit access administration uses the internal service to inspect and assign/revoke supported existing bindings; account creation, arbitrary policy editing and secret rotation are outside its current scope.
 
-The optional **Polars + PyIceberg migration runtime** includes the categories pilot and an all-27-source Bronze/Silver CLI with validation, PII pseudonymization and quarantine. It also builds all 27 Gold tables, persists 55 quality checks and publishes validated snapshot manifests in isolated migration namespaces. It stays outside scheduled serving and the current BI readers. Setup, opt-in checks and limitations are in the [pipeline guide](pipelines/README.md#polars--pyiceberg-migration-pilot). An additional native CLI builds the three log marts from the persisted serving fact and a pinned published catalog. Spark still performs log ingestion and scheduled serving; the native outputs have separate publication and are not connected to current BI readers.
+Scheduled serving runs natively: Polars/PyIceberg ingest the 27 sources into Bronze/Silver with validation, PII pseudonymization and quarantine; dbt on Trino builds Gold, quality checks gate each run and validated snapshot manifests are published. The three log marts follow the same pattern from the Flink Landing table. See the [pipeline guide](pipelines/README.md).
 
 ## Development Commands
 

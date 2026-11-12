@@ -114,7 +114,7 @@ Streamlit gọi service nội bộ `lakehouse-access:8010`, tách khỏi source 
 Phạm vi:
 
 - Polaris: xem ba workload principal, principal role, catalog role và grant hiện tại; gán/gỡ principal role, catalog role, hoặc chín quyền catalog đã được hỗ trợ. Root, `service_admin`, `catalog_admin` và role `system$...` không là đối tượng sửa trên giao diện.
-- MinIO: xem bốn workload account cấu hình qua `MINIO_*_ACCESS_KEY`, trạng thái, direct policy và group membership; xem JSON của bốn policy `lakehouse-{polaris,spark,flink,trino}` và gán/gỡ chúng. Policy JSON là read-only; không có API tạo/xóa account, sửa policy, đổi password/secret hoặc chỉnh group.
+- MinIO: xem bốn workload account cấu hình qua `MINIO_*_ACCESS_KEY`, trạng thái, direct policy và group membership; xem JSON của bốn policy `lakehouse-{polaris,batch,flink,trino}` và gán/gỡ chúng. Policy JSON là read-only; không có API tạo/xóa account, sửa policy, đổi password/secret hoặc chỉnh group.
 - Hiển thị **liên kết trực tiếp**, không tính đầy đủ quyền hiệu lực từ mọi role/group/policy. Gỡ một grant/policy không chứng minh toàn bộ quyền truy cập đã mất nếu còn đường kế thừa khác.
 
 Quyền hiển thị là snapshot của lần tải; dùng **Tải lại quyền** khi có thao tác từ công cụ khác. Backend đọc lại trạng thái và so revision trước khi ghi; revision lệch trả 409 và yêu cầu tải lại. Một thay đổi chỉ tác động một liên kết, sau đó đọc lại để xác minh; không tự retry khi mất kết nối hoặc chưa rõ kết quả. Khóa file serialize các thao tác của backend dùng chung audit path, không phải khóa mọi Console/API bên ngoài.
