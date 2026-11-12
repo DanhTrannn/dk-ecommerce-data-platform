@@ -1,132 +1,146 @@
-# SQL demo: trọng số H&M product_code và Olist thời trang là tham chiếu; các chính sách/tỷ lệ khác là giả định.
-scenario_id: small-repurchase-v2
-dataset_size: small
+# Generator v2: mỗi khối ghi `source`:
+#   measured   = ước lượng trong notebooks/reference_datasets_eda.ipynb (mục §)
+#   transfer   = quy luật đo ở nguồn khác, áp sang shop Việt Nam như một giả định chuyển nguồn
+#   assumption = tham số kịch bản/chính sách, không có dữ liệu để ước lượng
+# Tổng số đơn KHÔNG phải đầu vào: là kết quả của customers.purchase_frequency × scale.buying_customers.
+schema_version: 2
+scenario_id: small-fashion-v2
 seed: 20260724
 anchor_time: '2026-07-01T00:00:00+00:00'
 history_months: 12
-modes:
-- seed_master
-- historical_transactions
-- repurchase_history
-scale:
-  customers: 500
-  products: 60
-  variants: 240
-  orders: 3000
-distributions:
-  business_timezone: Asia/Ho_Chi_Minh
-  day_of_week: [0.9, 0.95, 1.0, 1.05, 1.2, 1.5, 1.4]
-  hour_of_day: [0.05, 0.02, 0.02, 0.02, 0.03, 0.05, 0.09, 0.14, 0.18, 0.2, 0.22, 0.26, 0.28, 0.26, 0.24, 0.24, 0.27, 0.34, 0.5, 0.72, 0.95, 1.1, 1.0, 0.6]
-  seasonality:
-    tet:
-      month_start: 1
-      day_start: 25
-      month_end: 2
-      day_end: 18
-      peak: 2.8
-    sales:
-    - {after_days: 0, boost: 4.0, day: 1, month: 1, name: 1-1}
-    - {after_days: 0, boost: 4.0, day: 2, month: 2, name: 2-2}
-    - {after_days: 0, boost: 4.0, day: 3, month: 3, name: 3-3}
-    - {after_days: 0, boost: 4.0, day: 4, month: 4, name: 4-4}
-    - {after_days: 0, boost: 4.0, day: 5, month: 5, name: 5-5}
-    - {after_days: 0, boost: 4.0, day: 6, month: 6, name: 6-6}
-    - {after_days: 0, boost: 4.0, day: 7, month: 7, name: 7-7}
-    - {after_days: 0, boost: 4.0, day: 8, month: 8, name: 8-8}
-    - {after_days: 0, boost: 4.8, day: 9, month: 9, name: 9-9}
-    - {after_days: 0, boost: 4.8, day: 10, month: 10, name: 10-10}
-    - {after_days: 0, boost: 4.8, day: 11, month: 11, name: 11-11}
-    - {after_days: 0, boost: 4.8, day: 12, month: 12, name: 12-12}
-    - {after_days: 2, boost: 3.2, day: null, month: 11, name: black_friday, week_index: 4, weekday: 4}
-  categories:
-    ao: 22
-    dam: 18
-    vay: 15
-    quan: 14
-    khoac: 12
-    phu-kien: 9
-    giay: 5
-    tui-xach: 5
-  product_popularity: [12268604, 2147935, 947086, 482513, 264938, 146864, 79113, 38985, 16192, 4700]
-  price_bands:
-  - min_vnd: 79000
-    max_vnd: 199000
-    weight: 30
-  - min_vnd: 199000
-    max_vnd: 399000
-    weight: 40
-  - min_vnd: 399000
-    max_vnd: 699000
-    weight: 20
-  - min_vnd: 699000
-    max_vnd: 2500000
-    weight: 10
-  order_size: [1310, 87, 8, 4]
-  quantity_per_item: [1489, 29, 3, 2, 1]
-  customers:
-    loyal:
-      share: 0.15
-      orders_per_year:
-      - 4
-      - 10
-      interval_days:
-      - 20
-      - 60
-      campaign_affinity: 0.72
-    regular:
-      share: 0.35
-      orders_per_year:
-      - 2
-      - 4
-      interval_days:
-      - 45
-      - 120
-      campaign_affinity: 0.48
-    one_off:
-      interval_days: [1, 1]
-      share: 0.5
-      orders_per_year:
-      - 1
-      - 1
-      campaign_affinity: 0.38
-  campaign_hour_of_day: [2.8, 1.2, 0.22, 0.08, 0.05, 0.06, 0.1, 0.16, 0.22, 0.28, 0.34, 0.55, 1.35, 0.72, 0.36, 0.3, 0.36, 0.48, 0.72, 1.1, 1.65, 2.05, 1.8, 1.3]
-  coupons:
-    usage_rate: 0.25
-    campaign_usage_rate: 0.45
-    percentage: 10
-    campaign_percentage: 15
-    minimum_subtotal_vnd: 199000
-  reviews:
-    write_rate: 0.35
-    rating_weights:
-    - 2
-    - 5
-    - 13
-    - 38
-    - 42
-    status_weights:
-      approved: 94
-      rejected: 6
-    delay_days:
-    - 1
-    - 14
-  outcomes:
-    cancellation_rate: 0.08
-    cod_rate: 0.6
-    cod_failure_rate: 0.08
-    return_rate: 0.06
-    exchange_rate: 0.5
-    cancellation_reasons:
-      Đặt nhầm size hoặc màu: 28
-      Muốn thay đổi địa chỉ nhận hàng: 18
-      Tìm thấy lựa chọn phù hợp hơn: 18
-      Áp nhầm mã giảm giá: 14
-      Không còn nhu cầu mua: 22
+business_timezone: Asia/Ho_Chi_Minh
 
-# Chính sách và khoảng lấy mẫu của generator; không tự đổi cấu hình API nguồn.
+scale:
+  buying_customers: 500
+  registered_without_order: 50  # assumption: H&M chỉ quan sát khách đã mua (§7)
+  products: 60
+
+customers:
+  purchase_frequency:
+    # Số đơn k ≥ 1 của khách đã mua ~ log-series(θ), θ = T/(α+T), T = history_months/12 (năm).
+    model: zero_truncated_log_series
+    alpha_years: 0.1141
+    source: measured  # §1, §1.1 — H&M online 2019; kiểm chứng ngoài mẫu 3/12 tháng
+  repeat_gap:
+    # Khoảng cách giữa hai đơn liên tiếp ~ Exponential(mean = T_days·(1 − c/k)/(k+1)), làm tròn ≥ 1 ngày.
+    model: exponential
+    shrink_c: 0.517
+    source: measured  # §2, §2.1 — H&M online 2019; mô phỏng KS ≈ 0,05
+
+products:
+  popularity:
+    # Trọng số nhu cầu w ~ LogNormal(0, σ) × categories.<code>.demand_multiplier.
+    model: lognormal
+    sigma: 1.408
+    source: measured  # §3.1 — sản phẩm H&M nữ bán đủ 12 tháng; ước lượng theo Lorenz
+  categories:
+    # product_share chia số sản phẩm; demand_multiplier = demand_share/product_share.
+    source: measured  # §3.2 — ánh xạ product_type H&M → nhóm shop là giả định
+    ao: {product_share: 0.3487, demand_multiplier: 1.190}
+    quan: {product_share: 0.1353, demand_multiplier: 1.723}
+    dam: {product_share: 0.1954, demand_multiplier: 0.887}
+    khoac: {product_share: 0.0758, demand_multiplier: 0.656}
+    vay: {product_share: 0.0569, demand_multiplier: 0.814}
+    giay: {product_share: 0.0524, demand_multiplier: 0.724}
+    phu-kien: {product_share: 0.1112, demand_multiplier: 0.315}
+    tui-xach: {product_share: 0.0243, demand_multiplier: 0.386}
+  price_independent_of_popularity: true  # measured §3.2 — Spearman ≈ 0,01
+  variants_per_product: 4  # assumption: tổ hợp size/màu trong catalog
+  price_bands:  # assumption: giá VND không suy ra được từ giá chuẩn hóa H&M
+    source: assumption
+    bands:
+      - {min_vnd: 79000, max_vnd: 199000, weight: 30}
+      - {min_vnd: 199000, max_vnd: 399000, weight: 40}
+      - {min_vnd: 399000, max_vnd: 699000, weight: 20}
+      - {min_vnd: 699000, max_vnd: 2500000, weight: 10}
+
+baskets:
+  # Lấy mẫu độc lập với khách (Spearman ≈ 0,02, §4).
+  source: transfer  # §4 — H&M online (shop một thương hiệu); Olist kiểu sàn cho giỏ nhỏ hơn nhiều
+  products:
+    model: zero_truncated_nbd
+    r: 0.649
+    mean_m: 2.028
+  variants_per_product:
+    model: zero_truncated_log_series
+    theta: 0.1578
+  quantity_per_variant:
+    model: zero_truncated_log_series
+    theta: 0.2452
+
+calendar:
+  # Cường độ đặt đơn theo ngày = day_of_week × sale_events × tet.
+  day_of_week:
+    source: measured  # §5 — không có hình dạng chung giữa H&M/Olist/eCommerce → để đều
+    weights: [1, 1, 1, 1, 1, 1, 1]
+  hour_of_day:
+    source: transfer  # §5 — Olist 2017, giờ địa phương; ngày sale có đỉnh 0–1h
+    normal: [0.0251, 0.0127, 0.0056, 0.0028, 0.0023, 0.0021, 0.0047, 0.0117, 0.0282, 0.0456, 0.0602, 0.0663, 0.0602, 0.0667, 0.0653, 0.0651, 0.0662, 0.0622, 0.0566, 0.0608, 0.0619, 0.0635, 0.0596, 0.0447]
+    sale_day: [0.0468, 0.0315, 0.0136, 0.0043, 0.0034, 0.0026, 0.0077, 0.0145, 0.0349, 0.0468, 0.0638, 0.0476, 0.0544, 0.0646, 0.057, 0.0578, 0.0485, 0.0451, 0.0417, 0.0536, 0.0544, 0.0655, 0.074, 0.0663]
+  sale_events:
+    # Hệ số đo trên Black Friday (H&M + Olist gộp); áp cho các ngày sale lớn ở VN là chuyển nguồn.
+    source: transfer  # §5 — ×5,98 (95% CI 4,06–8,81); 3 ngày sau ×2,54
+    event_day_multiplier: 5.98
+    after_days: 3
+    after_multiplier: 2.54
+    dates:
+      - {name: '11-11', month: 11, day: 11}
+      - {name: '12-12', month: 12, day: 12}
+      - {name: black_friday, month: 11, weekday: 3, week_index: 4, offset_days: 1}  # ngày sau thứ Năm thứ tư
+  tet:
+    # Không có dữ liệu VN theo ngày; ngày Tết âm lịch ghi tường minh cho từng năm trong lịch sử.
+    source: assumption
+    dates: ['2026-02-17']
+    before_days: 14
+    before_multiplier: 1.5
+    holiday_days: 5
+    holiday_multiplier: 0.3
+
+fulfilment:
+  delivery_days:
+    model: lognormal
+    median_days: 3  # assumption: giao nội địa VN
+    sigma: 0.63  # transfer §6 — độ phân tán Olist 2017
+  sla_days: 7  # assumption: với median 3, σ 0,63 → khoảng 9% đơn trễ
+
+reviews:
+  rating:
+    # P(sao | L ngày trễ) = (1 − π)·on_time + π·dissatisfied, π = 1 − exp(−L/τ), L = max(0, giao − SLA).
+    model: late_dissatisfaction_mixture
+    tau_days: 3.15
+    on_time: [0.064, 0.028, 0.084, 0.208, 0.616]
+    dissatisfied: [0.669, 0.106, 0.098, 0.054, 0.072]
+    source: measured  # §6 — Olist 2017; sai lệch ≤ 6 điểm % theo nhóm trễ
+  write_rate: 0.35  # assumption: Olist khảo sát mọi đơn
+  status_weights: {approved: 94, rejected: 6}  # assumption
+  delay_days: [1, 14]  # assumption
+
+# Tham số kịch bản: không nguồn nào đo được cho shop VN (§7). Là xác suất lấy mẫu, không phải thống kê.
+outcomes:
+  source: assumption
+  cancellation_rate: 0.08
+  cod_rate: 0.6
+  cod_failure_rate: 0.08
+  return_rate: 0.06
+  exchange_rate: 0.5
+  cancellation_reasons:
+    Đặt nhầm size hoặc màu: 28
+    Muốn thay đổi địa chỉ nhận hàng: 18
+    Tìm thấy lựa chọn phù hợp hơn: 18
+    Áp nhầm mã giảm giá: 14
+    Không còn nhu cầu mua: 22
+
+coupons:
+  source: assumption
+  usage_rate: 0.25
+  sale_day_usage_rate: 0.45
+  percentage: 10
+  sale_day_percentage: 15
+  minimum_subtotal_vnd: 199000
+
+# Chính sách vận hành và khoảng lấy mẫu; không đổi cấu hình API nguồn.
 policies:
   history:
-    days_per_month: 30
     master_data_lead_days: 30
   customers:
     house_number_range: [1, 999]
@@ -137,10 +151,7 @@ policies:
   catalog:
     archive_rate: 0.05
     price_step_vnd: 1000
-    variant_price_step_vnd: 5000
-    cost_ratio_base: 0.35
-    cost_ratio_step: 0.01
-    cost_ratio_levels: 11
+    cost_ratio_range: [0.35, 0.45]  # lấy đều mỗi biến thể, không theo chỉ số biến thể
   shipping:
     fee_vnd: 30000
     free_from_subtotal_vnd: 500000
@@ -150,17 +161,14 @@ policies:
     cod_block_after_failures: 3
   timing:
     cancellation_min_age_hours: 2
-    completion_min_age_days: 5
     confirmation_min_age_hours: 8
     failure_min_age_days: 3
     confirmation_delay_hours: [2, 18]
-    completion_delay_hours: [24, 96]
     cancellation_delay_minutes: [15, 480]
-    campaign_pull_days: 7
     minute_of_hour: [0, 59]
   returns:
-    item_selection: first
-    replacement_selection: first
+    item_selection: uniform  # tránh lệch: luôn chọn món đầu theo variant_id
+    replacement_selection: uniform
     quantity: 1
     request_delay_days: 2
     processing_delay_days: 1
@@ -172,7 +180,7 @@ policies:
     minimum_total_usage_limit: 100
     extra_total_usage_limit: 100
     ordinary_customer_usage_limit: 10
-    campaign_customer_usage_limit: 1
+    sale_day_customer_usage_limit: 1
   reviews:
     extra_delay_hours: [0, 23]
     moderation_delay_hours: [1, 48]
