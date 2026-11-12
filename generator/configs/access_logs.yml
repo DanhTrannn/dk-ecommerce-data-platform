@@ -8,6 +8,7 @@ window_days: 30  # assumption: log lịch sử phủ 30 ngày cuối của lịc
 sessions:
   source: transfer
   # L1 §1: phiên không mua = value × phiên có mua (r ổn định theo ngày; toàn bộ dữ liệu cho 13,6).
+  # Nhạy với định nghĩa phiên apparel: khoảng hợp lý 31,2–51,5; value quyết định tổng lưu lượng log.
   non_buying_per_buying:
     value: 41.29
   # L2 §2: số lượt xem sản phẩm mỗi phiên (≥ 1).
@@ -21,10 +22,13 @@ sessions:
 
 funnel:
   # L3 §3: hiệu chỉnh ghi nhận thiếu không ổn định giữa hai khối ngày
-  # (lệch 7,1 điểm % > ngưỡng 5) → dùng số gộp cả tháng làm giả định.
+  # (lệch 7,1 điểm % > ngưỡng 5) → dùng số gộp cả tháng (đã hiệu chỉnh) làm giả định.
+  # Biểu diễn theo từng loại phiên để ghép được với sessions.non_buying_per_buying bất kỳ;
+  # tỷ lệ "thêm giỏ thì mua" là kết quả suy ra (≈ 0,48 với r = 13,6; ≈ 0,25 với r = 41,3).
   source: assumption
-  purchase_given_cart: 0.4834
-  non_buying_cart_rate: 0.075
+  non_buying_cart_rate: 0.075  # phần phiên không mua có thêm giỏ
+  abandoned_items_per_buying_session: 0.0868  # sản phẩm thêm giỏ nhưng không mua, mỗi phiên có mua
+  cart_items_per_non_buying_cart_session: 1.0654  # sản phẩm trong giỏ của phiên không mua có thêm giỏ
 
 timing:
   source: transfer
