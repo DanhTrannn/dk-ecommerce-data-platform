@@ -1,4 +1,4 @@
-.PHONY: all up start build down stop restart ps logs status seed source-reader source-cdc provision-minio provision-polaris provision-lakehouse typecheck help superset-db superset-init superset-sync
+.PHONY: all up start build down stop restart ps logs status seed source-reader provision-minio provision-polaris provision-lakehouse typecheck help superset-db superset-init superset-sync
 
 PROFILES ?= core
 export COMPOSE_PROFILES := $(PROFILES)
@@ -16,7 +16,6 @@ help:
 	@echo "  make ps / make logs            Inspect all groups"
 	@echo "  make provision-lakehouse        Initialize missing MinIO/Polaris resources explicitly"
 	@echo "  make source-reader             Configure the dedicated PostgreSQL batch reader"
-	@echo "  make source-cdc                Configure CDC grants, publication and replica identity"
 	@echo "  make seed                      Run source seeds (business schema required)"
 	@echo "  make superset-db               Create dedicated Superset metadata storage"
 	@echo "  make superset-init             Initialize BI metadata and first admin explicitly"
@@ -55,9 +54,6 @@ seed:
 
 source-reader:
 	@docker compose exec -T postgres sh /opt/project/configure-source-reader.sh
-
-source-cdc:
-	@docker compose exec -T postgres sh /opt/project/configure-source-cdc.sh
 
 provision-minio:
 	@docker compose exec -T --user 0:0 minio sh /opt/project/minio/provision.sh

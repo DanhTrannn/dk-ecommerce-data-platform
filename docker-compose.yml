@@ -89,7 +89,6 @@ x-flink-common: &flink-common
     MINIO_ENDPOINT: http://minio:9000
     KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     KAFKA_ACCESS_LOG_TOPIC: ${KAFKA_ACCESS_LOG_TOPIC:-ecommerce.access_logs}
-    CDC_TOPIC_PREFIX: ${CDC_TOPIC_PREFIX:-ecommerce}
     PYTHONPATH: /opt/project/pipelines/src
   networks: ["lakehouse-network"]
 
@@ -133,7 +132,6 @@ services:
   postgres:
     image: postgres:16.8
     profiles: ["core"]
-    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=4", "-c", "max_wal_senders=4"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
@@ -142,8 +140,6 @@ services:
       POSTGRES_ECOMMERCE_PASSWORD: ${POSTGRES_ECOMMERCE_PASSWORD:-password}
       POSTGRES_ECOMMERCE_READER_USER: ${POSTGRES_ECOMMERCE_READER_USER:-ecommerce_reader}
       POSTGRES_ECOMMERCE_READER_PASSWORD: ${POSTGRES_ECOMMERCE_READER_PASSWORD:-}
-      POSTGRES_CDC_USER: ${POSTGRES_CDC_USER:-debezium}
-      POSTGRES_CDC_PASSWORD: ${POSTGRES_CDC_PASSWORD:-password}
       POLARIS_DB_NAME: ${POLARIS_DB_NAME:-polaris}
       POLARIS_DB_USER: ${POLARIS_DB_USER:-polaris}
       AIRFLOW_DB_NAME: ${AIRFLOW_DB_NAME:-airflow}
@@ -160,7 +156,6 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
       - ./infrastructure/postgres/configure-source-reader.sh:/opt/project/configure-source-reader.sh:ro
-      - ./infrastructure/postgres/configure-source-cdc.sh:/opt/project/configure-source-cdc.sh:ro
       - ./infrastructure/postgres/configure-superset.sh:/opt/project/configure-superset.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres}"]
@@ -575,50 +570,6 @@ services:
     restart: "no"
     networks: ["lakehouse-network"]
 
-  debezium-connect:
-    build:
-      context: .
-      dockerfile: infrastructure/debezium/Dockerfile
-      args:
-        DEBEZIUM_VERSION: 3.0.8.Final
-    image: lakehouse-debezium-connect:3.0.8
-    profiles: ["streaming"]
-    environment:
-      KAFKA_HEAP_OPTS: ${CDC_CONNECT_HEAP_OPTS:--Xms256m -Xmx512m}
-    ports:
-      - "${CDC_CONNECT_BIND_ADDRESS:-127.0.0.1}:${CDC_CONNECT_PORT:-8086}:8083"
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8083'"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    depends_on:
-      kafka:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-    networks: ["lakehouse-network"]
-
-  debezium-init:
-    image: alpine/curl:8.21.0
-    profiles: ["streaming"]
-    scale: 0  # Run manually with docker compose run.
-    entrypoint: ["/bin/sh", "/opt/debezium/register-connector.sh"]
-    environment:
-      DEBEZIUM_CONNECT_URL: http://debezium-connect:8083
-      POSTGRES_CDC_USER: ${POSTGRES_CDC_USER:-debezium}
-      POSTGRES_CDC_PASSWORD: ${POSTGRES_CDC_PASSWORD:-password}
-      POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
-      CDC_TOPIC_PREFIX: ${CDC_TOPIC_PREFIX:-ecommerce}
-    volumes:
-      - ./infrastructure/debezium/register-connector.sh:/opt/debezium/register-connector.sh:ro
-    depends_on:
-      debezium-connect:
-        condition: service_healthy
-    restart: "no"
-    networks: ["lakehouse-network"]
-
   flink-jobmanager:
     <<: *flink-common
     command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/docker-entrypoint.sh", "jobmanager"]
@@ -674,30 +625,6 @@ services:
         condition: service_healthy
       flink-taskmanager:
         condition: service_started
-
-  flink-cdc-submit:
-    <<: *flink-common
-    profiles: ["streaming"]
-    scale: 0  # Run manually with docker compose run.
-    command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/opt/project/flink/bin/submit-job.sh"]
-    environment:
-      <<: *flink-environment
-      JOB_SCRIPT: /opt/project/pipelines/src/jobs/cdc/postgres_cdc_to_bronze.py
-      JOB_NAME_PATTERN: oltp_cdc_to_bronze
-      POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
-    restart: "no"
-    volumes:
-      - ./pipelines:/opt/project/pipelines:ro
-      - polaris-flink-credentials:/run/polaris:ro
-      - flink-checkpoints:/opt/flink/checkpoints
-    depends_on:
-      debezium-init:
-        condition: service_completed_successfully
-      flink-jobmanager:
-        condition: service_healthy
-      flink-taskmanager:
-        condition: service_started
-
 
 networks:
   lakehouse-network:

@@ -20,7 +20,6 @@ TABLE_PROFILES = {
         "bronze.web_events",
         "silver.silver_logs",
         "gold.fact_web_events",
-        "bronze.oltp_cdc_events",
         "gold.mart_hourly_route_metrics",
         "gold.mart_daily_product_demand",
         "gold.mart_marketing_funnel_daily",
