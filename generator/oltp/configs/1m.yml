@@ -4,7 +4,7 @@
 #   assumption = tham số kịch bản/chính sách, không có dữ liệu để ước lượng
 # Tổng số đơn KHÔNG phải đầu vào: là kết quả của customers.purchase_frequency × scale.buying_customers.
 # Ước lượng: đơn kỳ vọng = buying_customers × (−θ/((1−θ)·ln(1−θ))), θ = T/(α+T); T = 1 năm → 3,846 đơn/khách.
-schema_version: 2
+schema_version: 3
 scenario_id: 1m-fashion-v2
 seed: 20260724
 anchor_time: '2026-07-01T00:00:00+00:00'
@@ -17,6 +17,7 @@ scale:
   registered_without_order_ratio: 0.1  # assumption: tài khoản chưa mua / khách đã mua; H&M chỉ quan sát khách đã mua (§7)
   # assumption: quy mô catalog; log-normal σ = 1,35 đã kiểm tra ở 60–2.000 sản phẩm (top 10% lệch ≈ 2,5 điểm %)
   products: 500
+  stores: 5  # assumption: số cửa hàng, chia cho thành phố theo locations.cities
 
 customers:
   purchase_frequency:
@@ -142,6 +143,25 @@ coupons:
   sale_day_percentage: 15
   minimum_subtotal_vnd: 199000
 
+# Địa điểm và bán tại quầy (POS): không có dữ liệu đo cho shop VN; mọi giá trị là tham số kịch bản.
+locations:
+  source: assumption
+  cities:  # tỷ trọng khách, địa chỉ giao hàng và cửa hàng; tổng = 1
+    - {code: HCM, name: Hồ Chí Minh, share: 0.40}
+    - {code: HN, name: Hà Nội, share: 0.30}
+    - {code: DN, name: Đà Nẵng, share: 0.10}
+    - {code: HP, name: Hải Phòng, share: 0.07}
+    - {code: BD, name: Bình Dương, share: 0.07}
+    - {code: CT, name: Cần Thơ, share: 0.06}
+
+pos:
+  source: assumption
+  orders_per_online_order: 0.15  # đơn POS cộng thêm vào đơn online
+  walk_in_rate: 0.7  # đơn POS không gắn tài khoản khách
+  payment_methods: {cash: 50, card: 30, vietqr: 20}
+  opening_hours: [9, 21]  # giờ Việt Nam
+  staff_per_store: 3
+
 # Chính sách vận hành và khoảng lấy mẫu; không đổi cấu hình API nguồn.
 policies:
   history:
@@ -164,13 +184,14 @@ policies:
     attempt_interval_hours: 6
     failure_after_days: 2
     cod_block_after_failures: 3
+    delivery_staff: 20  # assumption: số nhân viên giao hàng
   timing:
-    cancellation_min_age_hours: 2
-    confirmation_min_age_hours: 8
-    failure_min_age_days: 3
     confirmation_delay_hours: [2, 18]
     cancellation_delay_minutes: [15, 480]
     minute_of_hour: [0, 59]
+    payment_delay_minutes: [1, 15]  # assumption: VietQR, từ lúc đặt đến lúc trả tiền
+    dispatch_delay_hours: [2, 24]  # assumption: từ lúc xác nhận đến lúc xuất giao
+    completion_delay_hours: [1, 48]  # assumption: từ lúc giao đến lúc hoàn tất
   returns:
     item_selection: uniform  # tránh lệch: luôn chọn món đầu theo variant_id
     replacement_selection: uniform
@@ -179,6 +200,7 @@ policies:
     processing_delay_days: 1
   inventory:
     buffer_units: [80, 200]
+    store_buffer_units: [5, 20]  # assumption: lượng đệm mỗi biến thể tại mỗi cửa hàng
   coupons:
     start_before_history_days: 1
     valid_after_anchor_days: 365
@@ -201,6 +223,7 @@ policies:
     removal_rate: 0.18
     removed_after_days: [0, 14]
   carts:
+    active_cart_rate: 0.15  # assumption: phần khách đang có giỏ dở
     checkout_lead_minutes: [5, 10080]
     stale_rate: 0.65
     stale_before_anchor_days: [2, 20]
