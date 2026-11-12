@@ -20,12 +20,13 @@ from datagen.oltp.orders import draw_order_items, draw_order_times, price_orders
 from datagen.oltp.plan import CustomerBatch, IdAllocator, Timeline, build_timeline, customer_batches
 from datagen.oltp.pos import draw_pos_lifecycle, pos_order_counts
 from datagen.oltp.reference import Reference, build_reference
-from datagen.oltp.tables import conform
+from datagen.oltp.tables import LOAD_ORDER, conform
 from datagen.postgres import (
     analyze,
     category_ids,
     check_schema,
     copy_tables,
+    has_manual_orders,
     has_synthetic_data,
     next_ids,
     sync_sequences,
@@ -40,6 +41,13 @@ class AlreadyGenerated(Exception):
 
 class BatchFailed(Exception):
     pass
+
+
+class ResetRefused(Exception):
+    pass
+
+
+RESET_TABLES = (*LOAD_ORDER, "customer_credentials")
 
 
 def online_batch(
@@ -191,4 +199,13 @@ def _update_coupons(preset: OltpPreset, connection, usage: pl.DataFrame) -> None
             usage.rows(),
             template="(%s::bigint, %s::bigint, %s::timestamptz)",
         )
+    connection.commit()
+
+
+def reset(connection) -> None:
+    """Empty every table the generator loads, plus customer credentials; refused once the API has created orders."""
+    if has_manual_orders(connection):
+        raise ResetRefused("Database có đơn do API tạo; reset bị từ chối")
+    with connection.cursor() as cursor:
+        cursor.execute(f"TRUNCATE {', '.join(RESET_TABLES)} RESTART IDENTITY CASCADE")
     connection.commit()

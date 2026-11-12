@@ -1,11 +1,11 @@
-"""Command line: datagen generate|verify --preset <name>."""
+"""Command line: datagen generate|verify --preset <name>, and datagen reset --yes."""
 
 import argparse
 import os
 import sys
 import time
 
-from datagen.oltp.run import AlreadyGenerated, BatchFailed, generate
+from datagen.oltp.run import RESET_TABLES, AlreadyGenerated, BatchFailed, ResetRefused, generate, reset
 from datagen.postgres import SchemaMismatch, connect
 from datagen.presets import OltpPreset, load_oltp_preset, preset_path
 from datagen.verify import ledger, rules
@@ -21,6 +21,8 @@ def _parser() -> argparse.ArgumentParser:
     verify_parser = commands.add_parser("verify", help="check the generated data against the preset (read only)")
     for command in (generate_parser, verify_parser):
         command.add_argument("--preset", required=True, help="preset name, e.g. 1m, 10m, 50m")
+    reset_parser = commands.add_parser("reset", help="empty every table of the D&K database")
+    reset_parser.add_argument("--yes", action="store_true", help="confirm that all rows are deleted")
     return parser
 
 
@@ -47,21 +49,36 @@ def _verify(preset: OltpPreset, connection) -> int:
     return 0 if all(c.passed for c in checks) else 1
 
 
-COMMANDS = {"generate": _generate, "verify": _verify}
+def _reset(connection) -> int:
+    try:
+        reset(connection)
+    except ResetRefused as error:
+        return _fail(str(error), 1)
+    print(f"Đã xóa trắng {len(RESET_TABLES)} bảng")
+    return 0
+
+
+PRESET_COMMANDS = {"generate": _generate, "verify": _verify}
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    is_reset = args.command == "reset"
+    if is_reset and not args.yes:
+        return _fail(f"Thêm --yes để xác nhận xóa trắng {len(RESET_TABLES)} bảng", 2)
     url = os.environ.get(DATABASE_URL_VARIABLE)
     if not url:
         return _fail(f"Thiếu biến môi trường {DATABASE_URL_VARIABLE}", 2)
-    path = preset_path(args.preset)
-    if not path.exists():
-        return _fail(f"Không có preset {args.preset} ({path})", 2)
-    preset = load_oltp_preset(path)
+    if not is_reset:
+        path = preset_path(args.preset)
+        if not path.exists():
+            return _fail(f"Không có preset {args.preset} ({path})", 2)
+        preset = load_oltp_preset(path)
     connection = connect(url)
     try:
-        return COMMANDS[args.command](preset, connection)
+        if is_reset:
+            return _reset(connection)
+        return PRESET_COMMANDS[args.command](preset, connection)
     finally:
         connection.close()
 
