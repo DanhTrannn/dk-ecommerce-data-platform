@@ -88,8 +88,8 @@ def orphan_files(table, *, cutoff, delete=False):
     client = boto3.client(
         "s3",
         endpoint_url=os.environ["MINIO_ENDPOINT"],
-        aws_access_key_id=os.environ["MINIO_SPARK_ACCESS_KEY"],
-        aws_secret_access_key=os.environ["MINIO_SPARK_SECRET_KEY"],
+        aws_access_key_id=os.environ["MINIO_BATCH_ACCESS_KEY"],
+        aws_secret_access_key=os.environ["MINIO_BATCH_SECRET_KEY"],
         region_name=os.environ.get("AWS_REGION", "us-east-1"),
     )
     candidates = []

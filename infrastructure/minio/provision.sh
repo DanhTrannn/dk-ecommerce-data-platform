@@ -43,9 +43,9 @@ ensure_identity() {
 }
 
 # Validate all keys first; do not accidentally attach multiple workload scopes to one user.
-[ "$(printf '%s\n' "${MINIO_POLARIS_ACCESS_KEY:?}" "${MINIO_SPARK_ACCESS_KEY:?}" "${MINIO_FLINK_ACCESS_KEY:?}" "${MINIO_TRINO_ACCESS_KEY:?}" | sort -u | wc -l)" -eq 4 ] || fail 'workload identities must be distinct'
+[ "$(printf '%s\n' "${MINIO_POLARIS_ACCESS_KEY:?}" "${MINIO_BATCH_ACCESS_KEY:?}" "${MINIO_FLINK_ACCESS_KEY:?}" "${MINIO_TRINO_ACCESS_KEY:?}" | sort -u | wc -l)" -eq 4 ] || fail 'workload identities must be distinct'
 ensure_identity polaris "$MINIO_POLARIS_ACCESS_KEY" "${MINIO_POLARIS_SECRET_KEY:?}"
-ensure_identity spark "$MINIO_SPARK_ACCESS_KEY" "${MINIO_SPARK_SECRET_KEY:?}"
+ensure_identity batch "$MINIO_BATCH_ACCESS_KEY" "${MINIO_BATCH_SECRET_KEY:?}"
 ensure_identity flink "$MINIO_FLINK_ACCESS_KEY" "${MINIO_FLINK_SECRET_KEY:?}"
 ensure_identity trino "$MINIO_TRINO_ACCESS_KEY" "${MINIO_TRINO_SECRET_KEY:?}"
 echo 'MinIO provisioning complete; existing data and IAM settings retained.'

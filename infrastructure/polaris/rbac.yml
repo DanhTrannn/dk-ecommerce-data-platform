@@ -25,7 +25,7 @@ namespaces:
 
 # Catalog roles and their privileges on the catalog
 catalog_roles:
-  spark_writer_catalog_role:
+  batch_writer_catalog_role:
     grants:
       - type: catalog
         privilege: CATALOG_MANAGE_CONTENT
@@ -56,9 +56,9 @@ catalog_roles:
 
 # Principal roles and the catalog roles they inherit
 principal_roles:
-  spark_writer_role:
+  batch_writer_role:
     catalog_roles:
-      - spark_writer_catalog_role
+      - batch_writer_catalog_role
 
   trino_reader_role:
     catalog_roles:
@@ -70,12 +70,12 @@ principal_roles:
 
 # Principals, their principal role assignments, and output credential mappings
 principals:
-  spark_writer:
+  batch_writer:
     principal_roles:
-      - spark_writer_role
+      - batch_writer_role
     credentials_export:
-      client_id_var: POLARIS_SPARK_CLIENT_ID
-      client_secret_var: POLARIS_SPARK_CLIENT_SECRET
+      client_id_var: POLARIS_BATCH_CLIENT_ID
+      client_secret_var: POLARIS_BATCH_CLIENT_SECRET
 
   flink_writer:
     principal_roles:
@@ -92,12 +92,12 @@ principals:
       client_secret_var: POLARIS_TRINO_CLIENT_SECRET
 
 credential_outputs:
-  - principal: spark_writer
-    directory: /run/polaris-output/spark-client
+  - principal: batch_writer
+    directory: /run/polaris-output/batch-client
     uid: 185
     gid: 185
-  - principal: spark_writer
-    directory: /run/polaris-output/spark-airflow
+  - principal: batch_writer
+    directory: /run/polaris-output/batch-airflow
     uid: "${AIRFLOW_UID:-50000}"
     gid: 0
   - principal: flink_writer
@@ -108,7 +108,7 @@ credential_outputs:
     directory: /run/polaris-output/trino-reader
     uid: 1000
     gid: 1000
-  - principal: spark_writer
+  - principal: batch_writer
     directory: /run/polaris-output/trino-writer
     uid: 1000
     gid: 1000

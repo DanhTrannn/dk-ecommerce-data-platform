@@ -8,7 +8,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 from platform_app.api.core.errors import AppError
 
-POLICIES = {"lakehouse-polaris", "lakehouse-spark", "lakehouse-flink", "lakehouse-trino"}
+POLICIES = {"lakehouse-polaris", "lakehouse-batch", "lakehouse-flink", "lakehouse-trino"}
 
 
 def canonical_policy(value):
