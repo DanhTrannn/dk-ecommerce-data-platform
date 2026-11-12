@@ -1,57 +1,159 @@
-# Chỉ số và giả định của generator
+# Quy luật và cấu hình sinh dữ liệu
 
-## Trạng thái và cách đọc
+Generator **0.11.0** sinh dữ liệu lịch sử dưới dạng SQL cho [schema PostgreSQL](../../database/schema.sql). Cấu hình chạy tập trung tại [small.yml](../../generator/configs/small.yml); tài liệu này ghi giá trị preset, cách áp dụng, căn cứ và giới hạn hiện tại.
 
-Generator 0.11 dùng schema PostgreSQL (`database/schema.sql`). YAML `generator/configs/small.yml` là cấu hình chạy; tài liệu này ghi giá trị, ý nghĩa và căn cứ. Xuất SQL và nạp qua importer/console vẫn là hai thao tác riêng.
+Generator kết hợp quy tắc nghiệp vụ, lấy mẫu theo trọng số, xác suất có điều kiện và lịch mua mô phỏng. Runtime không đọc CSV nghiên cứu hay chạy notebook.
 
-**Mục tiêu:** dữ liệu đúng nghiệp vụ, có đặc tính mua hàng hợp lý và đủ ca hủy/đổi trả/giao thất bại để trình diễn phân tích. R02 dùng Olist thời trang, R03 dùng H&M product_code làm tham chiếu; các chính sách shop và tỷ lệ demo được chủ động đặt. Không cần tìm dataset hoặc fit mô hình cho mọi hằng số, không khẳng định khớp thị trường VN 100%.
+## Cách đọc cấu hình
 
-- **Thực nghiệm:** số đo trực tiếp từ cohort EDA, chỉ có ý nghĩa trong phạm vi nguồn.
-- **Giả định:** giá trị nhóm chủ động chọn cho kịch bản, gồm cả giá trị được giữ từ bản trước; không nhận là thống kê thị trường.
-- **Kỹ thuật/nghiệp vụ:** điều khiển quy mô, tái lập hoặc bảo đảm quan hệ dữ liệu; không phải thống kê thị trường.
+- **Trọng số:** chuẩn hóa theo `p_i = w_i / tổng w`, không bắt buộc đầu ra đạt đúng tỷ trọng.
+- **Tỷ lệ:** xác suất lấy mẫu trên tập bản ghi đủ điều kiện, không phải quota.
+- **Khoảng `[min, max]`:** lấy cả hai đầu.
+- **Thực nghiệm:** số đo từ cohort EDA, chỉ có ý nghĩa trong phạm vi nguồn.
+- **Giả định/chính sách:** giá trị chủ động chọn cho shop và demo; chưa phải thống kê thị trường Việt Nam.
+- **Kỹ thuật/nghiệp vụ:** quy mô, định danh và ràng buộc nhất quán.
 
-Trọng số được chuẩn hóa khi lấy mẫu: `p_i = w_i / tổng w`. Một trọng số không tự là tỷ lệ kết quả cuối cùng khi còn có điều kiện đủ tuổi đơn, giá tối thiểu, cắt cửa sổ quan sát hoặc giới hạn số mặt hàng.
+`distributions` chứa trọng số/tỷ lệ; `policies` chứa chính sách và khoảng lấy mẫu. Khi đổi kịch bản, sửa YAML. YAML chỉ điều khiển generator, không tự thay chính sách API nguồn.
 
-## Nơi cấu hình tập trung
+## 1. Quy mô và cửa sổ lịch sử
 
-[small.yml](../../generator/configs/small.yml) là nguồn cấu hình chạy. `distributions` giữ trọng số/tỷ lệ đã có; `policies` chứa các giá trị kịch bản vừa chuyển khỏi code. Các con số trong tài liệu là mặc định tham khảo; khi chỉnh kịch bản, sửa YAML.
+| Cấu hình | Giá trị | Ý nghĩa |
+|---|---|---|
+| `scenario_id` | `small-repurchase-v2` | Tên kịch bản |
+| `dataset_size` | `small` | Nhãn quy mô; số dòng do `scale` quyết định |
+| `seed` | `20260724` | Tái lập lựa chọn ngẫu nhiên |
+| `anchor_time` | `2026-07-01T00:00:00+00:00` | Mốc cuối lịch sử |
+| `history_months` | 12 | Số tháng quy ước |
+| `policies.history.days_per_month` | 30 | Số ngày mỗi tháng quy ước |
+| `policies.history.master_data_lead_days` | 30 | Tạo master trước đầu lịch sử |
+| `distributions.business_timezone` | `Asia/Ho_Chi_Minh` | Giờ mua/ngày chiến dịch; timestamp lưu UTC |
+| `scale.customers` | 500 | Khách, chưa gồm tài khoản kiểm duyệt bổ sung |
+| `scale.products` | 60 | Sản phẩm |
+| `scale.variants` | 240 | Variant |
+| `scale.orders` | 3.000 | Tổng đơn mục tiêu |
+| `modes` | `seed_master`, `historical_transactions`, `repurchase_history` | Nhãn cấu hình/manifest, chưa phải ba luồng xuất độc lập |
 
-| Khối | Nội dung |
-|---|---|
-| `policies.history` | Ngày/tháng quy ước và số ngày tạo master trước lịch sử |
-| `policies.customers`, `policies.catalog` | Lấy mẫu tên/trạng thái/địa chỉ, tuổi tài khoản, archive, bước giá và giá vốn |
-| `policies.shipping` | Phí/miễn phí ship, số lần giao lỗi, khoảng thử giao, thời gian thất bại và ngưỡng khóa COD |
-| `policies.timing` | Tuổi đơn đủ điều kiện, thời gian xác nhận/hoàn tất/hủy, cửa sổ kéo về chiến dịch và phút mua |
-| `policies.returns` | `first`/`random` cho item/variant thay thế, quantity và độ trễ yêu cầu/xử lý |
-| `policies.inventory` | Khoảng tồn đệm |
-| `policies.coupons`, `policies.reviews` | Hạn mức/hiệu lực coupon, giờ chờ review và kiểm duyệt |
-| `policies.wishlist`, `policies.carts` | Tỷ lệ tạo/xóa, số item/quantity và các khoảng thời gian |
+Lịch sử mặc định dài **360 ngày: 06/07/2025 00:00 → 01/07/2026 00:00 UTC**. Tài khoản, master và giỏ checkout có thể được tạo trước cửa sổ giao dịch; coupon thường có hiệu lực vượt anchor. Ngày dữ liệu phụ thuộc anchor, không phụ thuộc ngày chạy lệnh.
 
-Khoảng `[min, max]` lấy cả hai đầu. Số lần giao phải nằm trong 1–3 theo schema; thời gian phải hợp lệ. Quantity trả giới hạn theo số đã mua; tiền hoàn không vượt payment. Danh sách tên/mẫu sản phẩm, kiểu trạng thái, mã định danh và ràng buộc nhất quán vẫn thuộc code. YAML này chỉ điều khiển generator, không tự đổi chính sách API nguồn.
+## 2. Khách hàng và mua lại — giả định
 
-## 1. Quy mô và thời gian
+Các nhóm thuộc `distributions.customers`:
 
-| Chỉ số | Giá trị preset | Ý nghĩa | Phân loại |
-|---|---|---|---|
-| `scenario_id` | `small-repurchase-v2` | Tên kịch bản, dùng để nhận diện đầu ra | Kỹ thuật |
-| `dataset_size` | `small` | Nhãn quy mô; không tự suy ra số dòng | Kỹ thuật |
-| `seed` | 20260724 | Hạt giống để tái lập các lựa chọn ngẫu nhiên | Kỹ thuật |
-| `anchor_time` | `2026-07-01T00:00:00+00:00` | Mốc cuối lịch sử được sinh | Kỹ thuật |
-| `history_months` | 12 | Cửa sổ lịch sử; code cũ quy ước một tháng = 30 ngày | Giả định |
-| `modes` | `seed_master`, `historical_transactions`, `repurchase_history` | Nhãn kịch bản trong cấu hình/manifest; chưa tự chứng minh có ba đường chạy độc lập | Kỹ thuật |
-| `scale.customers` | 500 | Số khách mua hàng; tài khoản phục vụ quản trị có thể là dòng bổ sung | Quy mô |
-| `scale.products` | 60 | Số sản phẩm trong catalog | Quy mô |
-| `scale.variants` | 240 | Số tổ hợp size/màu của sản phẩm | Quy mô |
-| `scale.orders` | 3000 | Tổng đơn mục tiêu; có thể xung đột khoảng đơn theo nhóm khách | Quy mô |
-| `business_timezone` | `Asia/Ho_Chi_Minh` | Múi giờ dùng cho giờ mua và ngày chiến dịch; timestamp lưu theo UTC | Ngữ cảnh VN |
+| Nhóm | `share` | `orders_per_year` | `interval_days` | `campaign_affinity` |
+|---|---:|---|---|---:|
+| `loyal` | 15% | `[4, 10]` | `[20, 60]` | 0,72 |
+| `regular` | 35% | `[2, 4]` | `[45, 120]` | 0,48 |
+| `one_off` | 50% | `[1, 1]` | `[1, 1]` | 0,38 |
 
-## 2. Thời điểm mua và chiến dịch — giả định
+Chia khách theo tỷ trọng, lấy số đơn trong khoảng rồi **co giãn phân bổ để khớp `scale.orders`**. Khoảng đơn không bảo đảm số đơn cuối cùng; khách `one_off` vẫn có thể có nhiều đơn. Khoảng mua có thể bị rút ngắn để xếp đủ đơn trong cửa sổ và trước thời điểm inactive. Khách inactive trước cửa sổ không được phân bổ đơn.
 
-`day_of_week`, từ thứ Hai đến Chủ nhật: **[0,9; 0,95; 1; 1,05; 1,2; 1,5; 1,4]**. Giá trị lớn làm ngày đó dễ được chọn hơn; chưa đo được đường theo thứ tại shop VN.
+`campaign_affinity` là xác suất thử kéo lần mua về chiến dịch gần đó, không phải xác suất dùng coupon.
 
-Hai bộ trọng số theo giờ, thứ tự từ 00h đến 23h:
+Các khóa trong `policies.customers`:
 
-| Giờ | Ngày thường | Ngày chiến dịch |
+| Cấu hình | Giá trị | Cách áp dụng |
+|---|---|---|
+| `female_name_rate` | 0,8 | Chọn tên nữ; không phải cơ cấu giới tính đã đo |
+| `inactive_rate` | 0,04 | Xác suất inactive; khách đầu tiên luôn active |
+| `created_before_history_days` | `[1, 180]` | Tạo tài khoản trước đầu lịch sử |
+| `inactive_before_anchor_days` | `[1, 60]` | Inactive trước anchor; giữ thời điểm tạo trước inactive |
+| `house_number_range` | `[1, 999]` | Số nhà |
+
+Tên và địa chỉ ghép từ danh sách cố định. Đường/phường/quận được chọn độc lập trong bối cảnh TP.HCM, chưa bảo đảm mọi tổ hợp đúng địa giới. Ngoài khách cấu hình có **một tài khoản kiểm duyệt và 10 nhân viên giao hàng**. Khách active có thông tin đăng nhập demo, mật khẩu được băm.
+
+## 3. Catalog, variant và giá — chính sách mô phỏng
+
+`distributions.categories` là trọng số tạo catalog, không phải tỷ trọng đơn hàng/doanh thu:
+
+| Danh mục | Trọng số |
+|---|---:|
+| `ao` — Áo | 22 |
+| `dam` — Đầm | 18 |
+| `vay` — Váy | 15 |
+| `quan` — Quần | 14 |
+| `khoac` — Khoác | 12 |
+| `phu-kien` — Phụ kiện | 9 |
+| `giay` — Giày | 5 |
+| `tui-xach` — Túi xách | 5 |
+
+`distributions.price_bands` chọn dải theo `weight`, rồi lấy giá nền trong `min_vnd`–`max_vnd`:
+
+| `min_vnd` | `max_vnd` | `weight` |
+|---:|---:|---:|
+| 79.000 | 199.000 | 30 |
+| 199.000 | 399.000 | 40 |
+| 399.000 | 699.000 | 20 |
+| 699.000 | 2.500.000 | 10 |
+
+Các khóa trong `policies.catalog`:
+
+| Cấu hình | Giá trị | Cách áp dụng |
+|---|---|---|
+| `archive_rate` | 0,05 | Archive `floor(products × archive_rate)` tại anchor; giữ lịch sử |
+| `price_step_vnd` | 1.000 | Bước lấy giá nền |
+| `variant_price_step_vnd` | 5.000 | Tăng giá theo thứ tự variant, chặn tại giá tối đa |
+| `cost_ratio_base` | 0,35 | Tỷ lệ giá vốn khởi đầu |
+| `cost_ratio_step` | 0,01 | Bước tăng tỷ lệ giá vốn |
+| `cost_ratio_levels` | 11 | Số mức trước khi lặp |
+
+```text
+Giá variant = min(giá tối đa, giá nền + thứ tự variant × 5.000)
+Giá vốn = int(giá variant × (0,35 + (thứ tự variant % 11) × 0,01))
+```
+
+Thứ tự variant bắt đầu từ 0. Variant chia đều cho sản phẩm, phần dư theo thứ tự. Từ vựng cố định gồm size `XS, S, M, L, XL` và màu `BLACK, WHITE, RED, GREEN, BLUE, YELLOW, PINK, PURPLE, ORANGE, BROWN, GRAY, BEIGE`; tối đa 60 tổ hợp/sản phẩm.
+
+**Giới hạn preset:** 240 variant/60 product = 4 variant/product. Code lấy tổ hợp theo thứ tự size rồi màu nên **cả 240 variant đều là XS**, với bốn màu BLACK/WHITE/RED/GREEN. Giá vốn tương ứng là **35–38% giá bán**; 35–45% là toàn bộ dải tỷ lệ công thức có thể tạo.
+
+## 4. Nhu cầu sản phẩm và giỏ hàng — tham chiếu EDA
+
+Luồng chọn hàng: **product khác nhau theo trọng số → một variant ngẫu nhiên/product → quantity**. Chọn product không hoàn lại; số variant không nhân thêm nhu cầu product.
+
+`distributions.product_popularity` dùng số dòng mua của 10 nhóm thứ hạng H&M 2019 ở cấp `product_code`:
+
+```text
+[12268604, 2147935, 947086, 482513, 264938,
+ 146864, 79113, 38985, 16192, 4700]
+```
+
+Code chuẩn hóa và tích trọng số theo khoảng thứ hạng catalog đích; xáo thứ hạng bằng seed. Product trọng số 0 bị loại. Nguồn có 70.739 article thuộc 33.324 product_code; top 10% product chiếm **74,82% dòng mua**. Đây là số đo nguồn, không buộc đầu ra hoặc doanh thu generator đạt cùng tỷ trọng.
+
+`distributions.order_size` lấy từ 1.409 giỏ Olist 2017 thuần thời trang:
+
+| Product khác nhau/đơn | Trọng số | Xác suất lấy mẫu |
+|---|---:|---:|
+| 1 | 1.310 | 92,97% |
+| 2 | 87 | 6,17% |
+| 3 | 8 | 0,57% |
+| 4 | 4 | 0,28% |
+
+Số product thực tế bị chặn theo số product khả dụng có trọng số dương.
+
+`distributions.quantity_per_item` lấy từ 1.524 cặp đơn–product Olist thời trang:
+
+| Quantity | Trọng số | Xác suất lấy mẫu |
+|---|---:|---:|
+| 1 | 1.489 | 97,70% |
+| 2 | 29 | 1,90% |
+| 3 | 3 | 0,20% |
+| 4 | 2 | 0,13% |
+| 5 | 1 | 0,07% |
+
+**Giả định chuyển nguồn:** áp H&M/Olist sang shop của repo, chọn variant đồng đều và dùng chung phân phối quantity. Olist cohort chủ yếu túi/phụ kiện, chỉ 30 đơn có quần áo nữ; chưa đại diện riêng shop nữ Việt Nam. UCI chỉ đối chiếu, không trực tiếp điều khiển giỏ runtime. Chưa thêm quan hệ thực nghiệm giá/giỏ→quantity hoặc quy đổi giá BRL sang VND.
+
+Cohort và phép tính nằm ở [notebook EDA, mục 2.4 và 3.3](../../generator/notebooks/reference_datasets_eda.ipynb). Phạm vi nằm ở [kế hoạch EDA](GENERATOR_EDA_PLAN.md).
+
+## 5. Thời điểm mua và chiến dịch — giả định
+
+`distributions.day_of_week`, thứ Hai → Chủ nhật:
+
+```text
+[0.9, 0.95, 1.0, 1.05, 1.2, 1.5, 1.4]
+```
+
+Trọng số giờ trong `distributions.hour_of_day` và `distributions.campaign_hour_of_day`:
+
+| Giờ | Ngày thường | Chiến dịch |
 |---|---:|---:|
 | 00 | 0,05 | 2,80 |
 | 01 | 0,02 | 1,20 |
@@ -78,162 +180,219 @@ Hai bộ trọng số theo giờ, thứ tự từ 00h đến 23h:
 | 22 | 1,00 | 1,80 |
 | 23 | 0,60 | 1,30 |
 
-| Chỉ số | Giá trị giữ từ bản cũ | Ý nghĩa |
+`distributions.seasonality`:
+
+| Chiến dịch | Cấu hình |
+|---|---|
+| `tet` | `month_start=1`, `day_start=25`, `month_end=2`, `day_end=18`, `peak=2.8` |
+| `sales`: ngày đôi 1/1–8/8 | `name=1-1`…`8-8`, `month=day=1`…`8`, `boost=4.0`, `after_days=0` |
+| `sales`: ngày đôi 9/9–12/12 | `name=9-9`…`12-12`, `month=day=9`…`12`, `boost=4.8`, `after_days=0` |
+| `sales`: Black Friday | `name=black_friday`, `month=11`, `day=null`, `weekday=4`, `week_index=4`, `boost=3.2`, `after_days=2` |
+
+Ngày mua đầu được lấy theo **thứ × hệ số Tết × các hệ số chiến dịch đang áp dụng**. Hệ số Tết cao nhất giữa cửa sổ rồi giảm về hai đầu; chiến dịch trùng ngày có thể nhân chồng. Các lần mua sau dựa vào khoảng mua của nhóm và có thể kéo về chiến dịch.
+
+`policies.timing.campaign_pull_days=7` tìm trong khoảng ±7 ngày; `policies.timing.minute_of_hour=[0,59]` chọn phút đồng đều trong giờ.
+
+**Giới hạn:** Tết dùng 25/01–18/02 dương lịch cố định, chưa theo lịch âm từng năm. Black Friday dùng thứ Sáu thứ tư tháng 11, chưa bảo đảm đúng ngày thực tế mọi năm. Nghiên cứu Việt Nam cung cấp bối cảnh cho mùa vụ, chưa xác định các hệ số trên.
+
+## 6. Coupon, phí ship và tổng tiền — chính sách shop
+
+Chỉ sinh coupon thường và coupon chiến dịch, đều giảm phần trăm. Các khóa trong `distributions.coupons`:
+
+| Cấu hình | Giá trị | Cách áp dụng |
 |---|---|---|
-| `tet.month_start/day_start` | 1/25 | Bắt đầu cửa sổ Tết giả định: 25/01 dương lịch |
-| `tet.month_end/day_end` | 2/18 | Kết thúc ngày 18/02 dương lịch; chưa phải lịch Tết từng năm |
-| `tet.peak` | 2,8 | Hệ số trọng số ở giữa cửa sổ, giảm về hai đầu |
-| Ngày đôi 1/1–8/8 | `boost=4`, `after_days=0` | Tăng trọng số đúng ngày chiến dịch |
-| Ngày đôi 9/9–12/12 | `boost=4,8`, `after_days=0` | Tăng trọng số đúng ngày chiến dịch |
-| Black Friday | Thứ Sáu thứ tư tháng 11; `boost=3,2`, `after_days=2` | Chiến dịch kéo dài ngày chính và hai ngày sau |
-| Cửa sổ kéo lần mua về chiến dịch | ±7 ngày | Tìm ngày chiến dịch gần lần mua dự kiến; phụ thuộc `campaign_affinity` |
-| Phút mua | 0–59, đồng đều | Độ phân tán timestamp trong giờ đã chọn |
+| `usage_rate` | 0,25 | Xác suất dùng coupon thường khi đủ điều kiện |
+| `campaign_usage_rate` | 0,45 | Xác suất dùng coupon chiến dịch khi đủ điều kiện |
+| `percentage` | 10 | Phần trăm giảm coupon thường |
+| `campaign_percentage` | 15 | Phần trăm giảm coupon chiến dịch |
+| `minimum_subtotal_vnd` | 199.000 | Ngưỡng tiền hàng trước giảm giá |
 
-Nghiên cứu Việt Nam hỗ trợ xem xét giai đoạn trước Tết, chưa xác định các hệ số trên. Trong bản cũ, trọng số ngày nhân theo thứ × Tết × chiến dịch; các chiến dịch trùng ngày có thể nhân chồng. Đây là cơ chế kịch bản, chưa phải các tác động độc lập đã đo.
+Các khóa trong `policies.coupons`:
 
-## 3. Catalog, giá và giỏ hàng — chính sách và tham chiếu
-
-| Chỉ số | Giá trị | Ý nghĩa |
+| Cấu hình | Giá trị | Cách áp dụng |
 |---|---|---|
-| Tỷ trọng tạo catalog `categories` | áo 22; đầm 18; váy 15; quần 14; khoác 12; phụ kiện 9; giày 5; túi 5 | Xác suất gán nhóm khi tạo sản phẩm; khác tỷ trọng đơn hoặc doanh thu |
-| `price_bands[0]` | 79.000–199.000 VND; trọng số 30 | Dải giá nền sản phẩm |
-| `price_bands[1]` | 199.000–399.000 VND; trọng số 40 | Dải giá nền sản phẩm |
-| `price_bands[2]` | 399.000–699.000 VND; trọng số 20 | Dải giá nền sản phẩm |
-| `price_bands[3]` | 699.000–2.500.000 VND; trọng số 10 | Dải giá nền sản phẩm |
-| Bước giá | 1.000 VND | Độ chia khi lấy giá trong dải |
-| Chênh giá variant | +5.000 VND theo thứ tự variant, chặn ở giá tối đa | Cách tạo giá khác nhau giữa size/màu |
-| Giá vốn variant | 35%–45% giá bán theo thứ tự variant | Giá vốn mô phỏng, chưa phải số liệu biên lợi nhuận thực tế |
-| `order_size` | 1/2/3/4 product: trọng số [1310, 87, 8, 4] | Tham chiếu 1.409 giỏ Olist thời trang; chọn product khác nhau trước variant, giới hạn theo số product có trọng số dương |
-| `quantity_per_item` | 1/2/3/4/5 đơn vị: trọng số [1489, 29, 3, 2, 1] | Tham chiếu cặp đơn–product Olist; áp vào một variant/product là giả định |
-| Phí giao hàng | 30.000 VND; miễn nếu subtotal ≥500.000 VND | Phí tính theo tiền hàng trước giảm giá |
-| Size/màu | 5 size, 12 màu; tối đa 60 variant/sản phẩm | Tổ hợp hợp lệ của catalog; không phải tỷ lệ nhu cầu theo size/màu |
-| Phân bổ variant | Chia đều cho sản phẩm, phần dư theo thứ tự | Đáp ứng đúng tổng variant cấu hình |
-| Lưu trữ sản phẩm | `floor(products/20)` | Khoảng 5% catalog được archive cuối cửa sổ; lịch sử giao dịch vẫn giữ |
+| `start_before_history_days` | 1 | Coupon thường bắt đầu trước đầu lịch sử |
+| `valid_after_anchor_days` | 365 | Coupon thường hết hạn sau anchor |
+| `minimum_total_usage_limit` | 100 | Sàn hạn mức tổng |
+| `extra_total_usage_limit` | 100 | Cộng vào số đơn để tính hạn mức tổng |
+| `ordinary_customer_usage_limit` | 10 | Lần dùng/khách/coupon thường |
+| `campaign_customer_usage_limit` | 1 | Lần dùng/khách/coupon chiến dịch |
 
-Giỏ/quantity dùng Olist thời trang làm tham chiếu như mục 9; UCI có khách sỉ nên chỉ đối chiếu. Chuyển sang product/variant của repo vẫn là giả định. Giá trị đơn được tính từ dòng hàng, không lấy riêng một AOV cố định.
+Hạn mức tổng mỗi coupon = `max(minimum_total_usage_limit, scale.orders + extra_total_usage_limit)`; preset là **3.100**. Coupon chiến dịch hiệu lực ngày chính và `after_days`.
 
-## 4. Khách hàng và mua lại — giả định
+Ưu tiên coupon chiến dịch đủ điều kiện. Nếu lần lấy mẫu không dùng thì không thử tiếp coupon thường. Hiệu lực xét tại thời điểm đặt, kể cả coupon hiện đã archive. Hủy/giao thất bại giải phóng redemption; released không chiếm hạn mức. Đổi/trả không tự giải phóng.
 
-| Nhóm | Tỷ trọng | Khoảng đơn cấu hình/năm | Khoảng mua | `campaign_affinity` |
-|---|---:|---|---|---:|
-| `loyal` | 15% | 4–10 | 20–60 ngày | 0,72 |
-| `regular` | 35% | 2–4 | 45–120 ngày | 0,48 |
-| `one_off` | 50% | 1 | Không cấu hình khoảng mua lại | 0,38 |
+Các khóa tính phí trong `policies.shipping`: `fee_vnd=30000`, `free_from_subtotal_vnd=500000`.
 
-`campaign_affinity` là xác suất thử kéo lần mua về chiến dịch gần đó, không phải tỷ lệ đơn dùng coupon. Các nhãn nhóm là lựa chọn kịch bản, chưa được phân loại từ khách Việt.
+```text
+subtotal = tổng(đơn giá × quantity)
+discount = subtotal × phần trăm giảm, chia nguyên 100
+shipping = 0 nếu subtotal ≥ 500.000đ; ngược lại 30.000đ
+total = subtotal − discount + shipping
+```
 
-**Giới hạn được giữ thành giả định:** số đơn được lấy trong khoảng rồi co giãn theo tỷ lệ để khớp `scale.orders`; vì vậy các khoảng trên là đầu vào phân bổ, không bảo đảm số đơn cuối cùng hoặc nhóm `one_off` chỉ có một đơn. Lịch mua còn bị giới hạn bởi cửa sổ lịch sử, thời điểm tài khoản ngừng hoạt động và số đơn còn phải sinh; khoảng mua thực tế có thể ngắn hơn khoảng cấu hình. Tài khoản đã inactive trước cửa sổ không được phân bổ đơn; tổng đơn phân bổ cho các tài khoản còn thời gian hợp lệ.
+Mức giảm bằng 0 thì không gắn coupon. Miễn ship xét subtotal trước giảm giá. AOV hình thành từ dòng hàng, không lấy mẫu riêng.
 
-| Chỉ số bổ sung | Giá trị bản cũ | Ý nghĩa |
+## 7. Vòng đời đơn, thanh toán và giao hàng — giả định demo
+
+Các khóa trong `distributions.outcomes`:
+
+| Cấu hình | Giá trị | Tập áp dụng |
 |---|---|---|
-| Tỷ lệ tên nữ | 80% | Cách tạo tên cho bối cảnh catalog; không phải cơ cấu khách Việt đã đo |
-| Khách inactive | Khoảng 4%, khách đầu tiên luôn active | Trạng thái tài khoản mô phỏng |
-| Tuổi tài khoản trước cửa sổ | 1–180 ngày | Tạo tài khoản trước giao dịch |
-| Thời điểm chuyển inactive | 1–60 ngày trước anchor | Giới hạn cuối lịch mua; thời điểm tạo tài khoản được giữ trước mốc này |
-| Địa chỉ | Số nhà 1–999; danh sách đường/phường/quận chọn độc lập tại TP.HCM | Địa chỉ tổng hợp; chưa bảo đảm ánh xạ địa giới hợp lệ |
-| Tài khoản bổ sung | Một người kiểm duyệt; 10 nhân viên giao hàng | Phục vụ quan hệ FK và kịch bản giao nhận/review |
+| `cancellation_rate` | 0,08 | Đơn đủ ít nhất 2 giờ |
+| `cod_rate` | 0,60 | Khách chưa bị khóa COD tại thời điểm đặt; còn lại VietQR |
+| `cod_failure_rate` | 0,08 | Đơn COD chưa hủy, đủ ít nhất 3 ngày |
+| `return_rate` | 0,06 | Đơn hoàn tất còn đủ thời gian xử lý đổi/trả |
+| `exchange_rate` | 0,50 | Ca đổi/trả có variant thay thế; không có thì refund |
 
-## 5. Coupon — chính sách và giả định demo
+`cancellation_reasons` là trọng số trên các đơn đã chọn hủy:
 
-Chỉ sinh coupon thường và coupon chiến dịch, đều giảm phần trăm. Không còn welcome/midnight hoặc hệ số theo nhóm khách.
+| Lý do | Trọng số |
+|---|---:|
+| Đặt nhầm size hoặc màu | 28 |
+| Muốn thay đổi địa chỉ nhận hàng | 18 |
+| Tìm thấy lựa chọn phù hợp hơn | 18 |
+| Áp nhầm mã giảm giá | 14 |
+| Không còn nhu cầu mua | 22 |
 
-| Chỉ số | Giá trị | Ý nghĩa |
+Các khóa thời gian còn lại trong `policies.timing`:
+
+| Cấu hình | Giá trị | Cách áp dụng |
 |---|---|---|
-| `usage_rate` / `campaign_usage_rate` | 0,25 / 0,45 | Xác suất dùng trên đơn có coupon đủ điều kiện; ưu tiên coupon chiến dịch nếu có |
-| `percentage` / `campaign_percentage` | 10 / 15 | Mức giảm % của hai loại coupon, là chính sách shop |
-| `minimum_subtotal_vnd` | 199.000 VND | Ngưỡng tiền hàng trước giảm giá |
-| Hạn mức mỗi khách | 10 lần coupon thường; 1 lần mỗi coupon chiến dịch | Kiểm tra số lần đã redeemed, released không chiếm hạn mức |
-| Tổng hạn mức mỗi coupon | `max(100, orders+100)` | Hạn mức demo, không phải số liệu nhu cầu |
-| Thời gian | Coupon thường: trước cửa sổ 1 ngày đến anchor +365 ngày; chiến dịch: ngày chính và `after_days` | Coupon hết hạn được archive; giao dịch lịch sử vẫn xét hiệu lực tại thời điểm đặt |
+| `cancellation_min_age_hours` | 2 | Tuổi đơn tối thiểu để xét hủy |
+| `completion_min_age_days` | 5 | Đủ tuổi thì hoàn tất nếu không hủy/giao thất bại |
+| `confirmation_min_age_hours` | 8 | Ngưỡng xét xác nhận VietQR chưa hoàn tất |
+| `failure_min_age_days` | 3 | Tuổi đơn tối thiểu để xét giao thất bại |
+| `confirmation_delay_hours` | `[2, 18]` | Xác nhận VietQR sau đặt; COD xác nhận khi đặt |
+| `completion_delay_hours` | `[24, 96]` | Hoàn tất sau xác nhận |
+| `cancellation_delay_minutes` | `[15, 480]` | Hủy sau đặt |
 
-Tỷ lệ cuối cùng còn phụ thuộc ngưỡng tiền, thời gian và hạn mức; không bảo đảm 25%/45% mọi đơn. Tiền giảm = subtotal × phần trăm chia nguyên 100. Mức giảm bằng 0 thì không gắn coupon. Phí giao là 30.000 VND, miễn khi subtotal ≥500.000 VND — chính sách shop, không lấy từ EDA.
+Các khóa giao nhận còn lại trong `policies.shipping`:
 
-## 6. Vòng đời đơn — giả định demo có mẫu số rõ
-
-| Chỉ số/điều kiện | Giá trị | Mẫu số hoặc quy tắc |
+| Cấu hình | Giá trị | Cách áp dụng |
 |---|---|---|
-| `outcomes.cancellation_rate` | 0,08 | Đơn đủ tuổi ≥2 giờ; một xác suất chung, không cộng hệ số nhóm khách/coupon |
-| `outcomes.cod_rate` | 0,60 | Chọn COD khi khách chưa bị khóa tại thời điểm đặt; còn lại VietQR |
-| `outcomes.cod_failure_rate` | 0,08 | Đơn COD chưa hủy, đủ tuổi ≥3 ngày; mỗi đơn lỗi có ba lần giao thất bại |
-| `outcomes.return_rate` | 0,06 | Đơn đã hoàn tất, còn ít nhất 3 ngày để tạo và xử lý đổi/trả trước anchor |
-| `outcomes.exchange_rate` | 0,50 | Trong các ca đổi/trả có variant thay thế; không có thì refund |
-| `cancellation_reasons` | nhầm size/màu 28; địa chỉ 18; lựa chọn khác 18; nhầm mã 14; hết nhu cầu 22 | Trọng số lý do, chỉ áp dụng cho đơn đã chọn hủy |
-| Hoàn tất | Đơn ≥5 ngày nếu không hủy/giao thất bại | Đơn mới hơn còn paid/confirmed; không còn xác suất 3% giữ đơn cũ chưa hoàn tất |
-| Xác nhận | COD ngay khi đặt; VietQR sau 2–18 giờ nếu đơn ≥8 giờ hoặc đã hoàn tất | Mốc giới hạn bởi anchor |
-| Hoàn tất / hủy | Xác nhận +24–96 giờ / đặt +15–480 phút | Mốc giả định, giới hạn bởi anchor |
-| Giao thất bại | Hai ngày sau xác nhận/đặt; ba lần thử cách nhau 6 giờ | Ghi cả shipment và attempt, mẫu số tỷ lệ là đơn, không phải số lần thử |
-| Khóa COD | Ba đơn giao thất bại đã xảy ra trước/tại thời điểm đặt | Đơn tiếp theo dùng VietQR; giữ snapshot boom_count/is_cod_blocked đến anchor |
-| Kênh | Online | Địa điểm tham chiếu không đồng nghĩa đã sinh giao dịch POS |
+| `failed_attempts` | 3 | Số attempt của đơn giao thất bại |
+| `attempt_interval_hours` | 6 | Khoảng giữa các lần thử, tính từ dispatch |
+| `failure_after_days` | 2 | Thất bại sau xác nhận/đặt |
+| `cod_block_after_failures` | 3 | Khóa COD sau số đơn giao thất bại đã xảy ra tại thời điểm đặt |
 
-Các tỷ lệ là xác suất lấy mẫu theo seed, không phải quota và không cộng thẳng do khác mẫu số. Chúng được chọn để demo có tình huống phân tích, không phải ước lượng thị trường. COD chỉ có payment succeeded/paid_at khi hoàn tất; VietQR thanh toán lúc đặt và có refund nếu hủy sau thanh toán. Không tự thêm mô phỏng lỗi cổng thanh toán.
+Các mốc được chặn để không vượt anchor. Đơn gần anchor có thể còn `paid`/`confirmed`; không dùng xác suất riêng để giữ đơn cũ chưa hoàn tất. Trạng thái được sinh gồm `paid`, `confirmed`, `completed`, `cancelled`, `failed_delivery`, `returned`.
 
-## 7. Review và đổi trả — giả định demo
+- Mỗi đơn có một payment. VietQR thành công lúc đặt; hủy sau thanh toán có refund. COD chỉ thành công khi hoàn tất; COD chưa giao thành công giữ payment pending.
+- Sinh shipment cho đơn hoàn tất hoặc giao thất bại. Thành công có một attempt; thất bại theo `failed_attempts`. Nhân viên phân công luân phiên.
+- Chỉ đếm thất bại đã xảy ra để khóa COD, không dùng thất bại tương lai. Đơn sau khi bị khóa dùng VietQR.
+- Có `order_status_history` với các mốc tương ứng. Kênh giao dịch hiện là online.
 
-| Chỉ số | Giá trị | Ý nghĩa |
+Các tỷ lệ có mẫu số khác nhau, không cộng thành một phân phối trạng thái. Chưa mô phỏng lỗi cổng thanh toán hay mọi trạng thái trung gian của API.
+
+## 8. Đổi/trả và hoàn tiền — giả định demo
+
+Các khóa trong `policies.returns`:
+
+| Cấu hình | Giá trị | Cách áp dụng |
 |---|---|---|
-| `reviews.write_rate` | 0,35 | Xác suất thử tạo review trên từng item đã hoàn tất, dùng chung mọi nhóm khách |
-| `rating_weights` | [2, 5, 13, 38, 42] | Trọng số điểm 1–5; chưa phụ thuộc giao nhận |
-| `status_weights` | approved 94; rejected 6 | Kịch bản kiểm duyệt |
-| `delay_days` | 1–14 ngày, cộng 0–23 giờ | Sau hoàn tất; vượt anchor hoặc từ lúc hoàn trả toàn bộ được xử lý thì bỏ review |
-| Kiểm duyệt từ chối | Sau review 1–48 giờ | Có metadata người kiểm duyệt, chặn bởi anchor |
-| Item/số lượng trả | Mặc định `first`, một đơn vị | Chỉnh qua `policies.returns`; quantity không vượt số đã mua, exchange chọn variant khác cùng product |
-| Tạo/xử lý yêu cầu | Hoàn tất +2 ngày, thêm 1 ngày xử lý | Không vượt anchor |
-| Tiền hoàn | Giá một đơn vị sau phân bổ giảm giá, làm tròn VND × quantity trả | Giới hạn bởi payment; refund chỉ gắn payment succeeded, đổi hàng không hoàn tiền |
+| `item_selection` | `first` | Chọn item đầu; hỗ trợ `random` |
+| `replacement_selection` | `first` | Chọn variant thay thế đầu; hỗ trợ `random` |
+| `quantity` | 1 | Chặn theo quantity đã mua |
+| `request_delay_days` | 2 | Tạo yêu cầu sau hoàn tất |
+| `processing_delay_days` | 1 | Xử lý sau yêu cầu |
 
-Hoàn toàn bộ hàng chuyển đơn thành returned; đổi hàng hoặc hoàn một phần vẫn giữ completed. Nguồn Olist có review theo đơn và ngày hẹn giao; repo review theo item và chưa có ngày hẹn. SLA giữ null; chưa ánh xạ quan hệ giao trễ→điểm review hay thêm schema để lấp thiếu dữ liệu.
+Chỉ xét xác suất 6% khi đơn hoàn tất còn đủ **2 + 1 ngày** trước anchor. Mỗi yêu cầu chọn một item. Đổi hàng chọn variant khác cùng product; không có variant thay thế thì refund. Yêu cầu sinh ra được xử lý hoàn tất, kiểm tra hàng đạt.
 
-## 8. Wishlist, giỏ chưa checkout và tồn kho — giả định
+- Nhập lại hàng trả; đổi hàng xuất thêm variant thay thế.
+- Tiền hoàn = `round(đơn giá × (1 − discount/subtotal)) × quantity trả`, chặn theo payment; subtotal bằng 0 thì tiền hoàn bằng 0.
+- Refund tiền chỉ gắn payment succeeded. Đổi hàng không hoàn tiền và chưa mô phỏng thanh toán chênh lệch giá.
+- Hoàn toàn bộ hàng chuyển đơn thành `returned`; hoàn một phần/đổi hàng giữ `completed`.
 
-| Chỉ số | Giá trị bản cũ | Ý nghĩa |
+Refund do hủy VietQR được sinh riêng, nên số refund không nhất thiết bằng số yêu cầu trả hàng.
+
+## 9. Review — giả định demo
+
+Các khóa trong `distributions.reviews`:
+
+| Cấu hình | Giá trị | Cách áp dụng |
 |---|---|---|
-| Khách có wishlist | 55% | Xác suất tạo wishlist |
-| Sản phẩm/wishlist | 1–5, không vượt catalog | Số sản phẩm của mỗi khách được chọn |
-| Phần wishlist gắn với giao dịch | Mục tiêu 40%, ít nhất một khi có lịch sử đơn chưa hủy; chặn bởi số sản phẩm có giao dịch | Các lựa chọn còn lại vẫn có thể trùng lịch sử, nên tỷ lệ cuối không bảo đảm 40%; chưa đo chuyển đổi |
-| Thêm trước khi mua | 1–30 ngày và 0–23 giờ | Timestamp wishlist, chặn đầu cửa sổ |
-| Thêm lại trước khi mua | 0–7 ngày sau lần đầu | Giữ thời điểm không vượt lần mua |
-| Thêm lại khi chưa mua | 0–29 ngày sau lần đầu | Giữ thời điểm không vượt anchor |
-| Xóa wishlist chưa mua | 18% | Chọn `is_present=false` |
-| Thời gian xóa | 0–14 ngày sau lần thêm cuối | Giữ thứ tự thời gian và không vượt anchor |
-| Giỏ gắn với đơn | Tạo trước đặt 5–10.080 phút | Giỏ đã checkout, khác giỏ active |
-| Giỏ active | Một giỏ cho mỗi khách active | Tạo dữ liệu giỏ chưa checkout |
-| Giỏ active cũ | 65% chọn cập nhật 2–20 ngày trước anchor | Proxy giỏ ít hoạt động; không phải funnel bỏ giỏ đã đo |
-| Giỏ active gần đây | Cập nhật 1–12 giờ trước anchor | Nhóm còn lại |
-| Tuổi giỏ so với cập nhật | 1–72 giờ | Thời gian tạo giỏ active |
-| Item giỏ active | 1–3 variant, mỗi variant 1–3 đơn vị | Số lượng giỏ chưa checkout |
-| Tồn đệm mỗi variant | 80–200 đơn vị | Giả định đủ hàng cho lịch sử; không phải chính sách bổ sung hàng |
-| Tồn đầu | Tổng xuất kho, gồm hàng đổi, + tồn đệm | Bảo đảm lịch sử không âm |
-| Tồn cuối | Tồn đầu + tổng biến động | Ràng buộc đối soát tồn kho |
+| `write_rate` | 0,35 | Xác suất thử viết trên từng item đã hoàn tất |
+| `rating_weights` | `[2, 5, 13, 38, 42]` | Trọng số điểm 1–5 |
+| `status_weights` | `approved: 94`, `rejected: 6` | Trọng số trạng thái kiểm duyệt |
+| `delay_days` | `[1, 14]` | Số ngày sau hoàn tất |
 
-## 9. Tham chiếu thực nghiệm đã áp dụng
+Các khóa trong `policies.reviews`: `extra_delay_hours=[0,23]` cộng vào thời gian viết; `moderation_delay_hours=[1,48]` cho review bị từ chối, chặn tại anchor và gắn người kiểm duyệt.
 
-| Thành phần | Nguồn và giá trị | Phần chuyển nguồn là giả định |
+Bỏ review nếu vượt anchor hoặc thời điểm viết từ lúc đơn đã hoàn trả toàn bộ. Nội dung chọn từ mẫu theo điểm. Điểm chưa phụ thuộc trải nghiệm giao nhận. Schema chưa có ngày hẹn giao để suy ra SLA; phần thiếu dữ liệu giữ null.
+
+## 10. Wishlist và giỏ hàng — giả định
+
+Các khóa trong `policies.wishlist`:
+
+| Cấu hình | Giá trị | Cách áp dụng |
 |---|---|---|
-| `product_popularity` | H&M 2019, product_code: `[12268604, 2147935, 947086, 482513, 264938, 146864, 79113, 38985, 16192, 4700]` | Product_code→product giả lập; chuyển catalog và chọn variant |
-| `order_size` | 1.409 đơn Olist 2017 thuần fashion_: [1310, 87, 8, 4] cho 1–4 product | Marketplace Brazil, chủ yếu túi/phụ kiện; chưa đại diện riêng shop nữ VN |
-| `quantity_per_item` | 1.524 cặp đơn–product Olist thời trang: [1489, 29, 3, 2, 1] cho quantity 1–5 | Dùng một variant/product và một phân phối quantity chung |
+| `creation_rate` | 0,55 | Xác suất tạo wishlist/khách |
+| `item_count` | `[1, 5]` | Số product, chặn theo catalog |
+| `purchased_share` | 0,4 | Mục tiêu chủ động chọn từ lịch sử đơn chưa hủy |
+| `minimum_purchased_items` | 1 | Tối thiểu khi có product phù hợp, chặn theo số item/tập khả dụng |
+| `added_before_purchase_days` | `[1, 30]` | Thêm trước lần mua, chặn đầu lịch sử |
+| `added_before_purchase_hours` | `[0, 23]` | Giờ cộng thêm vào khoảng trên |
+| `readded_after_days` | `[0, 7]` | Thêm lại sau lần đầu, không vượt lần mua |
+| `unpurchased_readded_after_days` | `[0, 29]` | Thêm lại product chưa mua, không vượt anchor |
+| `removal_rate` | 0,18 | Xác suất xóa product chưa mua |
+| `removed_after_days` | `[0, 14]` | Xóa sau lần thêm cuối, không vượt anchor |
 
-70.739 article H&M đã bán thuộc 33.324 product_code. Top 10% article chiếm 64,04% dòng mua; top 10% product_code chiếm 74,82%. Bản 0.11 dùng cấp product_code. Hai con số khác mẫu số định danh, không phải đo mức cải thiện generator.
+Product gắn với giao dịch được đánh dấu bỏ khỏi wishlist tại lần mua đã lưu. Phần chọn ngẫu nhiên còn lại vẫn có thể trùng lịch sử mua nên **40% không phải tỷ lệ chuyển đổi đầu ra**. Wishlist là trạng thái/timestamp, chưa phải đầy đủ chuỗi sự kiện hành vi.
 
-Trọng số nhóm thứ hạng được chuẩn hóa rồi tích theo khoảng thứ hạng của catalog đích; thứ hạng product được xáo bằng seed. Chọn product trước rồi một variant hợp lệ/product; số variant không nhân thêm nhu cầu product. Một đơn không lặp product. Product trọng số 0 bị loại; số product được giới hạn bởi tập khả dụng. Chọn nhiều product không hoàn lại hoặc giới hạn catalog có thể đổi tỷ trọng đầu ra, không buộc doanh thu/số lượng top 10% phải đạt 74,82%.
+Các khóa trong `policies.carts`:
 
-Mẫu H&M chỉ có mã đã bán, chưa đo tỷ lệ product không có nhu cầu. Olist thời trang có 92,97% giỏ một product và 97,70% cặp đơn–product một đơn vị; chỉ 30 đơn có quần áo nữ. Chưa có cơ sở thêm hệ số giá/giỏ→quantity hoặc quy đổi giá BRL sang VND. UCI tiếp tục là nguồn đối chiếu, không dùng làm phân phối giỏ bán lẻ.
+| Cấu hình | Giá trị | Cách áp dụng |
+|---|---|---|
+| `checkout_lead_minutes` | `[5, 10080]` | Giỏ checkout tạo trước đặt |
+| `stale_rate` | 0,65 | Xác suất giỏ active cũ |
+| `stale_before_anchor_days` | `[2, 20]` | Giỏ cũ cập nhật trước anchor |
+| `recent_before_anchor_hours` | `[1, 12]` | Giỏ còn lại cập nhật trước anchor |
+| `created_before_update_hours` | `[1, 72]` | Tạo giỏ trước cập nhật |
+| `active_item_count` | `[1, 3]` | Số variant, chặn theo catalog |
+| `active_quantity` | `[1, 3]` | Quantity mỗi variant |
 
-Chi tiết cohort/phép tính ở [notebook, mục 2.4 và 3.3](../../generator/notebooks/reference_datasets_eda.ipynb). R01 và R04–R07 giữ vai trò tham khảo; các giá trị runtime tương ứng là giả định/chính sách demo, không chờ nghiên cứu mọi hằng số mới chạy được.
+Mỗi khách active có một giỏ active, ngoài các giỏ đã checkout theo đơn. Tỷ lệ giỏ cũ chưa phải tỷ lệ bỏ giỏ đã đo từ thực nghiệm.
 
-## 10. Chỉ số kỹ thuật và giới hạn phạm vi
+## 11. Tồn kho và biến động kho — giả định đủ hàng
 
-- UUIDv5, logical identity và generation run ID dùng để nhận diện dataset và các bản ghi liên quan; không phải checkpoint fetch hoặc tỷ lệ nghiệp vụ. Namespace `dk-generator-v2` phân biệt bản viết lại; identity lấy từ toàn bộ cấu hình và phiên bản. Khối khóa số được suy từ identity; importer PostgreSQL từ chối dataset đã nạp; không tự ghi đè hoặc reset dữ liệu.
-- Tổng tiền, thanh toán, hoàn tiền, trạng thái và biến động kho phải nhất quán; seed không thay thế các kiểm tra này.
-- INSERT ghi tối đa 1.000 dòng/lệnh; buffer giao dịch xả sau 1.000 đơn. Đây là kích thước ghi SQL, không phải chunk extract của pipeline. File SQL ghi tạm rồi thay thế đầu ra khi hoàn tất; không phải checkpoint/retry theo chunk.
-- Generator hỗ trợ 25/28 bảng, gồm `cities`/`stores` tham chiếu theo `locations.store_codes` (mặc định 5 thành phố, 6 cửa hàng; có thể chọn rỗng). Không sinh `store_inventory`, `inbound_receipts`, `inbound_receipt_items`. Không tự thêm phân phối địa lý/POS/nhập hàng khi chưa có căn cứ hoặc quyết định nghiệp vụ.
-- Chưa có chỉ số hiệu quả dự báo, mức tương đồng toàn thị trường VN hoặc tỷ lệ cải thiện generator được đo. Các phân phối EDA và giả định có vai trò riêng.
+`policies.inventory.buffer_units=[80,200]` là tồn đệm ngẫu nhiên mỗi variant.
 
-## 11. Trạng thái triển khai và kiểm chứng
+- Checkout xuất kho, kể cả đơn còn chờ xử lý.
+- Hủy/giao thất bại nhập bù.
+- Trả hàng nhập lại quantity trả; đổi hàng xuất variant thay thế.
 
-Đã áp dụng quy luật product/giỏ ở trên và rút gọn coupon/review/outcomes trong generator 0.11. Không thay schema, importer, API hoặc pipeline; không thêm dependency. Cấu hình cũ cần chuyển sang các khối `outcomes`, `coupons`, `reviews` hiện tại, không có lớp tương thích tự động.
+```text
+Tồn đầu = tổng lượng xuất trong lịch sử, gồm hàng đổi + tồn đệm
+Tồn cuối = tồn đầu + tổng biến động kho
+```
 
-Tiêu chí: SQL tái lập; product không lặp và giới hạn theo catalog; quantity nguyên dương; tỷ lệ 0/1 đúng điều kiện tuổi đơn, COD và khóa COD; bảo toàn tiền/FK/kho; nạp được bằng importer PostgreSQL. Test bổ sung giữ ngoài Git, không làm benchmark cũ/mới.
+Cách này tính ngược tồn đầu để bảo đảm đủ hàng, chưa mô phỏng nhập bổ sung hay mất doanh thu do hết hàng. Giá vốn là giả định tại variant, chưa phải lịch sử nhập hàng/giá vốn bình quân được sinh từ thực nghiệm.
 
-Kiểm chứng đợt 09/11/2026: 30 test generator hiện có và 9 test bổ sung đạt; bộ 113 test platform trên PostgreSQL 16.8 biệt lập không lỗi (2 live test hạ tầng bỏ qua). Với preset 500 khách/60 product/240 variant/3.000 đơn, seed 20260724 và anchor 01/07/2026: 221 đơn hủy, 117 giao thất bại, 150 yêu cầu đổi/trả (82 exchange, 68 refund). Đây là kết quả một lượt demo tái lập, không phải tỷ lệ thị trường hay benchmark cải thiện.
+## 12. Địa điểm và phạm vi bảng
 
-Lượt tập trung YAML: các giá trị mặc định trên được giữ trong `policies`; các test bổ sung kiểm tra thay đổi cấu hình thực sự tác động đầu ra, kể cả trả nhiều đơn vị, wishlist nhỏ và chiến dịch ở biên ngày. Các tham số chính sách cũng tham gia identity và config đóng băng của job.
+`locations.store_codes` là cấu hình tùy chọn:
+
+| Thành phố | Mã cửa hàng |
+|---|---|
+| TP.HCM | `HCM-CENTRE`, `HCM-NORTHEAST` |
+| Hà Nội | `HN-CENTRE` |
+| Đà Nẵng | `DN-CENTRE` |
+| Cần Thơ | `CT-CENTRE` |
+| Hải Phòng | `HP-CENTRE` |
+
+Không khai báo thì chọn cả 6 cửa hàng/5 thành phố. Dùng `locations: {store_codes: []}` để không chọn; chỉ sinh thành phố có cửa hàng được chọn. Mã được chuẩn hóa; mã không biết hoặc trùng bị từ chối. Dữ liệu địa điểm có sẵn được tái sử dụng theo mã.
+
+Generator hỗ trợ **25/28 bảng nguồn**. Chưa sinh `store_inventory`, `inbound_receipts`, `inbound_receipt_items`. Chọn địa điểm chưa tự phân bổ khách/đơn theo vùng, giao dịch POS hoặc tồn cửa hàng. Phần sinh log đã bỏ; access log từ API là luồng riêng.
+
+## 13. Tái lập, xuất SQL và ranh giới cấu hình
+
+- Seed, toàn bộ cấu hình và phiên bản tham gia dataset identity. UUIDv5/`generation_run_id` nhận diện bộ dữ liệu và bản ghi; không phải checkpoint pipeline. Namespace là `dk-generator-v2`.
+- Cùng cấu hình/seed/phiên bản tái lập được dữ liệu và SQL; `generated_at` của manifest vẫn thay đổi. ID địa điểm được giải quyết theo mã trong database đích.
+- SQL dùng PostgreSQL, tiền nguyên VND, timestamp UTC. INSERT tối đa 1.000 dòng/lệnh; buffer xả sau 1.000 đơn. Đây là kích thước ghi SQL, không phải chunk extract.
+- File SQL ghi tạm rồi thay thế khi hoàn tất. Import có transaction, khóa bảng, kiểm tra quan hệ/tiền/refund/kho và cập nhật sequence. Xuất và import là hai bước riêng; importer từ chối dataset đã nạp hoặc xung đột khóa, không tự reset/ghi đè.
+- Validation yêu cầu khách/product ≥1; đơn ≥0; product ≤ variant ≤ product ×60; trọng số hữu hạn không âm và tổng dương; tỷ lệ hợp lệ; khoảng thời gian hợp lệ. Số lần giao từ 1–3 và phải khớp độ trễ; quantity trả/tiền hoàn bị giới hạn theo dữ liệu đã mua/thanh toán.
+- Các khóa `policies` bắt buộc đọc từ YAML, không có giá trị dự phòng trong Python. Console giữ chúng trong cấu hình đóng băng; trình sửa nâng cao hiện chỉ sửa `distributions`, nên sửa `policies` tại preset.
+- Danh sách tên, mẫu sản phẩm/review, size/màu, trạng thái schema, ID, SQL, băm mật khẩu và ràng buộc nhất quán vẫn thuộc code. Không phải mọi chi tiết kỹ thuật đều là cấu hình kịch bản.
+
+Căn cứ trực tiếp đang áp dụng là **nhu cầu theo thứ hạng H&M và giỏ/quantity Olist**. Các tỷ lệ còn lại là giả định/chính sách demo. Chưa có phép đo chứng minh mức tương đồng toàn thị trường Việt Nam hoặc tỷ lệ cải thiện generator. Cách xuất/nạp xem [README generator](../../generator/README.md); hồ sơ bối cảnh Việt Nam xem [nghiên cứu Việt Nam](GENERATOR_VIETNAM_RESEARCH.md).

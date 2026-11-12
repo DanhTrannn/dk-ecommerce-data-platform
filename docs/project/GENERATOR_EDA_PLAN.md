@@ -197,4 +197,4 @@ Kiểm chứng bản tích hợp: 30 test generator và 113 test platform đạt
 
 ## Hướng tinh gọn và SQL demo — 09/11/2026
 
-Người dùng chọn dùng nghiên cứu vừa đủ, các chính sách shop/tỷ lệ thiếu bằng chứng được chủ động đặt làm giả định. Generator 0.11 áp dụng R02 Olist thời trang và R03 H&M product_code; coupon thường/chiến dịch, một tỷ lệ review và các xác suất hủy/COD/đổi trả rõ mẫu số thay modulo/hệ số phụ. Không mở rộng EDA để fit mọi tham số; giữ các phân tích đã có làm tham khảo. [Phạm vi/tiến độ](../references/synthetic-data-research-plan.md) và [chỉ số runtime](GENERATOR_METRICS.md) là nơi theo dõi hiện tại. Chưa mở rộng API/log/streaming.
+Người dùng chọn dùng nghiên cứu vừa đủ, các chính sách shop/tỷ lệ thiếu bằng chứng được chủ động đặt làm giả định. Generator 0.11 áp dụng R02 Olist thời trang và R03 H&M product_code; coupon thường/chiến dịch, một tỷ lệ review và các xác suất hủy/COD/đổi trả rõ mẫu số thay modulo/hệ số phụ. Không mở rộng EDA để fit mọi tham số; giữ các phân tích đã có làm tham khảo. [Chỉ số runtime](GENERATOR_METRICS.md) là nơi theo dõi hiện tại. Chưa mở rộng API/log/streaming.
