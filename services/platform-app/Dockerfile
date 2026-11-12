@@ -19,6 +19,7 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock .python-version ./
 COPY pipelines/pyproject.toml pipelines/pyproject.toml
+COPY generator/pyproject.toml generator/pyproject.toml
 COPY services/platform-app/pyproject.toml services/platform-app/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-workspace --package platform-app
