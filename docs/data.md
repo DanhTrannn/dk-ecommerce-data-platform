@@ -18,7 +18,7 @@ Không dùng chung `generation_run_id`, Airflow `run_id` và HTTP `request.id` n
 PostgreSQL có **28 bảng**. [ORM](../services/platform-app/src/platform_app/api/models/) và [DDL](../database/schema.sql) là nơi tra cột, CHECK, FK, index và default đầy đủ; không giữ một bản sao bảng cột dễ lệch code trong tài liệu.
 
 - UUID nguồn là native UUID; tiền/ID chủ yếu BIGINT, trạng thái được ràng buộc bằng CHECK/FK/UNIQUE. Số ID tự sinh dùng identity.
-- `TIMESTAMP WITHOUT TIME ZONE` lưu UTC; API/session và trigger `updated_at` hỗ trợ hợp đồng này. Trigger không tự tạo ledger/history nghiệp vụ.
+- Thời gian là `TIMESTAMPTZ`; API ghi UTC có tzinfo, trigger `updated_at` dùng `statement_timestamp()`. Trigger không tự tạo ledger/history nghiệp vụ.
 - Công cụ nạp ID tường minh phải đồng bộ sequence trong cùng transaction với dữ liệu. Schema bootstrap chỉ dành cho database trống, không phải migration/reset cho volume đang có.
 - Số dư tồn = `opening_on_hand` + tổng ledger theo variant/location; tồn đầu không phải trần tồn. Phiếu nhập và hoàn hàng có thể làm tăng tồn.
 
@@ -27,12 +27,12 @@ PostgreSQL có **28 bảng**. [ORM](../services/platform-app/src/platform_app/ap
 | Định danh | `customers`; `customer_credentials` gắn customer, chỉ dùng auth và bị loại khỏi analytics |
 | Catalog | `categories` → `products` → `product_variants` |
 | Khám phá/mua | `carts` → `cart_items`; `wishlist_items` gắn customer/product |
-| Đơn/thanh toán | `orders` → `order_items`, `order_status_history`, `payments`; `refunds` gắn payment/đơn |
+| Đơn/thanh toán | `orders` → `order_items`, `order_status_history`, `payments`; `refunds` gắn payment, refund trả hàng gắn thêm `return_id` |
 | Coupon/review | `coupons`, `coupon_redemptions`; `product_reviews` gắn mua hàng và product |
 | Địa điểm/kho | `cities`, `stores`, `inventory`, `store_inventory`; tồn theo variant và location |
-| Nhập/ledger | `inbound_receipts` → `inbound_receipt_items`; `inventory_transactions` ghi biến động |
+| Nhập/ledger | `inbound_receipts` → `inbound_receipt_items`; `inventory_transactions` ghi biến động, trỏ tới đơn/phiếu nhập/yêu cầu trả hàng nguồn |
 | Giao hàng | `delivery_staff`, `shipments` → `shipment_attempts` |
-| Đổi trả | `return_requests` → `return_items`, liên kết đơn/item; refund có vòng đời riêng |
+| Đổi trả | `return_requests` → `return_items`, liên kết đơn/item; mỗi yêu cầu có tối đa một refund riêng |
 
 Checkout ghi đơn/item/payment/history, trừ tồn và xử lý coupon trong transaction. COD bắt đầu confirmed/pending, hoàn tất mới ghi nhận thu tiền; hủy chưa thu không tự sinh refund. Giao thất bại/hủy/nhận trả phải có biến động kho phù hợp. API khóa hàng và retry lỗi transaction theo policy hiện có; không coi dữ liệu SQL nhập tay là đã đi qua API.
 
@@ -92,7 +92,7 @@ PII của customer, đơn và nhân sự được chuẩn hóa lower/trim rồi 
 
 Mỗi lần chạy khóa theo namespace bằng PostgreSQL session advisory lock. Schema Bronze đọc từ metadata cursor PostgreSQL, UUID giữ dạng chuỗi ở Bronze; schema Silver đọc hợp đồng cột trong `sql_templates/contracts` qua adapter chỉ hỗ trợ các kiểu đã khai báo và từ chối kiểu khác. JSON nguồn được giữ dạng văn bản, không parse rồi serialize lại. Schema mới phải được review trước khi mở rộng adapter.
 
-Batch dedup theo PK/cursor/thời gian ingest, giữ guard chống backfill cũ và ghi nhiều mã lỗi validation theo thứ tự cố định. Token SHA-256 giữ trim ký tự space U+0020, lowercase, salt và NULL; tạo `shipping_region` trước khi bỏ địa chỉ gốc. Quarantine chỉ giữ JSON đã token hóa các cột PII theo pattern hiện có, bỏ trường NULL, dedup bằng source table/record/mã lỗi và partition theo ngày. Không có thêm cam kết ẩn danh cho nội dung free-text/JSON.
+Batch dedup theo PK/cursor/thời gian ingest, giữ guard chống backfill cũ và ghi nhiều mã lỗi validation theo thứ tự cố định. Token SHA-256 giữ trim ký tự space U+0020, lowercase, salt và NULL. Gold lấy `shipping_region` là tên thành phố từ `orders.shipping_city_id`, không dò địa chỉ gốc. Quarantine chỉ giữ JSON đã token hóa các cột PII theo pattern hiện có, bỏ trường NULL, dedup bằng source table/record/mã lỗi và partition theo ngày. Không có thêm cam kết ẩn danh cho nội dung free-text/JSON.
 
 DAG chạy với prefix `serving`; CLI nhận prefix khác để chạy thử trong namespace riêng. Việc stage toàn bộ nguồn hoàn tất trước khi merge dữ liệu, nhưng các commit bảng vẫn độc lập, không phải transaction đa bảng. Đọc nguồn theo trang không đồng nghĩa snapshot giao dịch nhất quán toàn bộ 27 bảng khi nguồn đang thay đổi.
 
@@ -132,7 +132,7 @@ Dimension nghiệp vụ: `dim_date`, `dim_customer`, `dim_product`, `dim_variant
 | `mart_inventory_summary` | Tổng quan tại mốc quan sát; một summary key |
 | `mart_store_overview` | Một cửa hàng, số dư và tổng quan theo mốc build |
 | `mart_operations_summary` | Một summary, thời gian chờ tại `operations_observed_at` |
-| `mart_cod_region_daily` | Ngày shipment UTC × vùng địa chỉ đơn COD |
+| `mart_cod_region_daily` | Ngày shipment UTC × thành phố giao của đơn COD (thiếu thì `Khu vực khác`) |
 | `mart_marketing_summary` | Một summary tại `marketing_observed_at` |
 | `mart_coupon_usage` | Một coupon, usage và cửa sổ redemption |
 | `mart_product_review_summary` | Một sản phẩm, số review và negative window |
