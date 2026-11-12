@@ -120,3 +120,19 @@ def customer_batches(preset: OltpPreset) -> list[CustomerBatch]:
         batches.append(CustomerBatch(len(batches), count, buyers_through - buyers_done))
         buyers_done = buyers_through
     return batches
+
+
+MICROS_PER_SECOND = 1_000_000
+MICROS_PER_MINUTE = 60 * MICROS_PER_SECOND
+MICROS_PER_HOUR = 60 * MICROS_PER_MINUTE
+MICROS_PER_DAY = 24 * MICROS_PER_HOUR
+
+
+def utc_micros(moment: datetime) -> np.int64:
+    """A timezone-aware datetime as microseconds since the Unix epoch."""
+    return np.datetime64(moment.astimezone(ZoneInfo("UTC")).replace(tzinfo=None), "us").astype(np.int64)
+
+
+def utc_series(name: str, micros: np.ndarray) -> pl.Series:
+    """Epoch microseconds as a UTC datetime column; NaN-free int64 input, use mask_null for missing values."""
+    return pl.Series(name, np.asarray(micros, dtype=np.int64)).cast(pl.Datetime("us", "UTC"))
