@@ -69,10 +69,12 @@ def category_ids(connection) -> dict[str, int]:
         return dict(cursor.fetchall())
 
 
-def _csv(frame: pl.DataFrame) -> io.StringIO:
+def _csv(frame: pl.DataFrame) -> io.BytesIO:
     # Quoting every string keeps '' apart from NULL, which COPY reads as an unquoted empty field.
-    text = frame.write_csv(quote_style="non_numeric", datetime_format="%Y-%m-%dT%H:%M:%S%.6f%:z")
-    return io.StringIO(text)
+    buffer = io.BytesIO()
+    frame.write_csv(buffer, quote_style="non_numeric", datetime_format="%Y-%m-%dT%H:%M:%S%.6f%:z")
+    buffer.seek(0)
+    return buffer
 
 
 def copy_tables(connection, tables: dict[str, pl.DataFrame]) -> dict[str, int]:
