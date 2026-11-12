@@ -247,7 +247,7 @@ Hệ thống phục vụ 5 nhóm tác nhân chính:
 | **Cấp quản lý (Managers / Executives)** | Xem các báo cáo phân tích tổng thể về doanh thu, lợi nhuận, hiệu quả kho vận, phễu marketing và đánh giá sản phẩm. |
 | **Kỹ sư vận hành dữ liệu (Data Engineer)** | Giám sát trạng thái các đường ống dữ liệu, kiểm tra chất lượng dữ liệu, thực hiện bảo trì định kỳ và quản lý quyền truy cập catalog. |
 
-![Sơ đồ bối cảnh hệ thống](diagram/context.svg)
+![Sơ đồ bối cảnh hệ thống](../assets/report/context.svg)
 
 ### **3.1.3. Yêu cầu chức năng**
 
@@ -282,34 +282,34 @@ Hệ thống phân rã các trường hợp sử dụng thành ba phân hệ ch�
 2. **Phân hệ Quản trị & POS**: Phục vụ nghiệp vụ bán hàng tại quầy, quản trị kho và vận hành đơn hàng.
 3. **Phân hệ Quản trị Dữ liệu & BI**: Phục vụ các nhà quản lý và kỹ sư dữ liệu trong việc khai thác báo cáo và điều phối hệ thống.
 
-![Sơ đồ Use Case Storefront](diagram/uc-storefront.svg)
+![Sơ đồ Use Case Storefront](../assets/report/uc-storefront.svg)
 
-![Sơ đồ Use Case Quản trị](diagram/uc-admin.svg)
+![Sơ đồ Use Case Quản trị](../assets/report/uc-admin.svg)
 
-![Sơ đồ Use Case BI và Dữ liệu](diagram/uc-data-bi.svg)
+![Sơ đồ Use Case BI và Dữ liệu](../assets/report/uc-data-bi.svg)
 
 ### **3.2.2. Sơ đồ hoạt động (Activity Diagram) các nghiệp vụ cốt lõi**
 
 * **Quy trình Đặt hàng và Thanh toán (Checkout Workflow)**: Khách hàng tiến hành checkout → Backend kiểm tra tính hợp lệ của giỏ hàng, áp dụng mã coupon và kiểm tra tồn kho bằng khóa bi quan → Khởi tạo đơn hàng ở trạng thái `pending` → Tạm giữ tồn kho → Tạo bản ghi thanh toán tương ứng (chờ chuyển khoản VietQR hoặc ghi nhận COD) → Hoàn tất đơn hàng.
 
-![Sơ đồ hoạt động Checkout](diagram/activity-checkout-commit.svg)
+![Sơ đồ hoạt động Checkout](../assets/report/activity-checkout-commit.svg)
 
 * **Quy trình Bán hàng tại quầy (POS Workflow)**: Thu ngân chọn chi nhánh → Quét mã vạch sản phẩm → Hệ thống tự động kiểm tra tồn kho thực tế tại cửa hàng → Áp dụng chiết khấu → Xác nhận thanh toán → Trừ tồn kho chi nhánh tức thời và sinh hóa đơn bán lẻ.
 
-![Sơ đồ hoạt động POS](diagram/activity-pos.svg)
+![Sơ đồ hoạt động POS](../assets/report/activity-pos.svg)
 
 * **Quy trình Đổi trả và Hoàn tiền (Returns Workflow)**: Khách hàng tạo yêu cầu đổi trả kèm lý do → Quản trị viên duyệt yêu cầu → Nhân viên kho tiếp nhận và kiểm định chất lượng hàng hoàn → Nếu đạt chuẩn, hệ thống thực hiện hoàn kho và khởi tạo lệnh hoàn tiền (Refund) hoặc đổi sản phẩm mới.
 
-![Sơ đồ hoạt động Đổi trả](diagram/activity-returns.svg)
+![Sơ đồ hoạt động Đổi trả](../assets/report/activity-returns.svg)
 
 ### **3.2.3. Sơ đồ tuần tự (Sequence Diagram) các luồng xử lý**
 
 * **Luồng giao dịch Checkout**: Minh họa sự tương tác đồng bộ giữa Trình duyệt người dùng, FastAPI Backend, MySQL Database và Message Broker Kafka (phát sinh Access Log).
 * **Luồng truy vấn báo cáo BI**: Minh họa quy trình an toàn khi Dashboard gửi yêu cầu lấy số liệu: API kiểm tra quyền người dùng → Đọc snapshot ID mới nhất từ bảng công bố → Gửi câu lệnh truy vấn tới Trino → Trino đọc metadata Iceberg trên Polaris và quét dữ liệu Parquet trên MinIO → Trả kết quả JSON về giao diện để vẽ biểu đồ ECharts.
 
-![Sơ đồ tuần tự Checkout](diagram/seq-checkout.svg)
+![Sơ đồ tuần tự Checkout](../assets/report/seq-checkout.svg)
 
-![Sơ đồ tuần tự Dashboard Serving](diagram/seq-dashboard.svg)
+![Sơ đồ tuần tự Dashboard Serving](../assets/report/seq-dashboard.svg)
 
 ## **3.3. Thiết kế kiến trúc tổng thể**
 
@@ -317,7 +317,7 @@ Hệ thống phân rã các trường hợp sử dụng thành ba phân hệ ch�
 
 Hệ thống được thiết kế theo mô hình kiến trúc phân lớp hiện đại, tách bạch rõ ràng giữa tầng thu nhận giao dịch trực tuyến (Online Transaction Processing) và tầng phân tích xử lý dữ liệu lớn (Online Analytical Processing).
 
-![Sơ đồ kiến trúc tổng thể toàn hệ thống](diagram/architecture-overview.png)
+![Sơ đồ kiến trúc tổng thể toàn hệ thống](../assets/report/architecture-overview.png)
 
 ### **3.3.2. Kiến trúc thành phần ứng dụng thương mại điện tử**
 
@@ -332,7 +332,7 @@ Hệ thống được thiết kế theo mô hình kiến trúc phân lớp hiệ
 * Module `returns`: Quản lý yêu cầu trả hàng, kiểm định sản phẩm và tạo giao dịch hoàn tiền.
 * Middleware `access_logger`: Tự động bắt mọi request HTTP, làm sạch thông tin định danh (PII) và gửi sự kiện bất đồng bộ vào Kafka topic `ecommerce.access_logs`.
 
-![Sơ đồ kiến trúc Web](diagram/architecture-web.svg)
+![Sơ đồ kiến trúc Web](../assets/report/architecture-web.svg)
 
 ### **3.3.3. Kiến trúc nền tảng Data Lakehouse và phục vụ phân tích**
 
@@ -346,7 +346,7 @@ Nền tảng Data Lakehouse được tổ chức trên MinIO S3 với bucket duy
 
 Tầng phục vụ phân tích sử dụng Trino kết nối qua Polaris. Dịch vụ API phân tích (`analytics module`) duy trì một bộ nhớ đệm (In-memory Cache) kết hợp cơ chế dự phòng an toàn (Bounded Fallback): trong trường hợp Trino gặp sự cố kết nối, API sẽ trả về dữ liệu phân tích gần nhất còn trong thời hạn hợp lệ kèm cờ cảnh báo `degraded: true`, bảo đảm trải nghiệm người dùng trên Dashboard không bị gián đoạn hoàn toàn.
 
-![Sơ đồ kiến trúc Lakehouse](diagram/lakehouse.png)
+![Sơ đồ kiến trúc Lakehouse](../assets/report/lakehouse.png)
 
 ### **3.3.4. Mô hình tương tác giữa các luồng dữ liệu**
 
@@ -361,11 +361,11 @@ Hệ thống điều phối 6 luồng dữ liệu chính hoạt động nhịp n
 | **5. Access Log Stream**| FastAPI Middleware → Kafka topic `ecommerce.access_logs` → Flink StatementSet | Thời gian thực (Checkpoint 10s) | Sự kiện truy cập mạng HTTP của người dùng | Ghi đồng thời vào 4 bảng Iceberg (Landing, Bronze, Silver, Gold Fact) |
 | **6. Log Mart Rollup** | Spark đọc `fact_web_events` và snapshot danh mục Silver → Tính toán và công bố | Chạy mỗi giờ | Fact log và dữ liệu sản phẩm | 3 Data Marts nhật ký truy cập đã công bố |
 
-![Sơ đồ luồng Batch](diagram/flow-batch.svg)
+![Sơ đồ luồng Batch](../assets/report/flow-batch.svg)
 
-![Sơ đồ luồng CDC](diagram/flow-cdc.svg)
+![Sơ đồ luồng CDC](../assets/report/flow-cdc.svg)
 
-![Sơ đồ luồng Access Log](diagram/flow-access-log.svg)
+![Sơ đồ luồng Access Log](../assets/report/flow-access-log.svg)
 
 ## **3.4. Thiết kế cơ sở dữ liệu giao dịch (OLTP)**
 
@@ -384,9 +384,9 @@ Cơ sở dữ liệu giao dịch MySQL được thiết kế chuẩn hóa mức 
 
 Sơ đồ ERD quan niệm phản ánh mối liên kết chặt chẽ giữa các cụm thực thể, bảo đảm toàn vẹn khóa ngoại và hỗ trợ truy xuất thông tin hai chiều giữa khách hàng, đơn hàng, kho bãi và giao vận.
 
-![Sơ đồ ERD Bán hàng](diagram/erd-conceptual-sales.svg)
+![Sơ đồ ERD Bán hàng](../assets/report/erd-conceptual-sales.svg)
 
-![Sơ đồ ERD Tồn kho](diagram/erd-conceptual-stock.svg)
+![Sơ đồ ERD Tồn kho](../assets/report/erd-conceptual-stock.svg)
 
 ### **3.4.3. Thiết kế lược đồ cơ sở dữ liệu vật lý MySQL (28 bảng)**
 
@@ -451,7 +451,7 @@ Lakehouse tiếp nhận hai luồng dữ liệu chính:
 
 ### **3.5.3. Thiết kế các tầng dữ liệu Medallion**
 
-![Sơ đồ phân tầng Medallion](diagram/medallion.svg)
+![Sơ đồ phân tầng Medallion](../assets/report/medallion.svg)
 
 Hệ thống phân cấp các tầng dữ liệu rõ ràng:
 * **Bronze**: Ghi nhận toàn bộ dữ liệu thô. Áp dụng kỹ thuật MERGE phiên bản nguồn dựa trên cặp khóa `(PK, change_timestamp)`, bảo đảm không phát sinh bản ghi trùng lặp khi chạy lại một khoảng thời gian.
@@ -469,7 +469,7 @@ Mô hình tầng Gold được chuẩn hóa gồm:
   * `dim_delivery_staff`: Hồ sơ nhân sự giao hàng và khu vực hoạt động.
   * `dim_customer`: Thông tin khách hàng đã được băm định danh an toàn.
 
-![Sơ đồ Star Schema Bán hàng](diagram/gold-sales.svg)
+![Sơ đồ Star Schema Bán hàng](../assets/report/gold-sales.svg)
 
 * **6 Bảng Fact cốt lõi**:
   * `fact_order_item`: Grain là từng dòng hàng trong đơn mua, đo lường số lượng bán, doanh thu gộp, chiết khấu và giá vốn hàng bán.
@@ -480,7 +480,7 @@ Mô hình tầng Gold được chuẩn hóa gồm:
   * `fact_inventory_current`: Grain là SKU × Cửa hàng/Kho, phản ánh tồn kho khả dụng và tồn kho thực tế tức thời.
   * *(Bổ sung)* `fact_web_events`: Grain là từng sự kiện truy cập HTTP của người dùng do Flink streaming ghi nhận.
 
-![Sơ đồ Star Schema Vận hành](diagram/gold-operations.svg)
+![Sơ đồ Star Schema Vận hành](../assets/report/gold-operations.svg)
 
 * **Hệ thống 17 Data Marts chuyên biệt**:
   1. *Nhóm Kinh doanh (3 marts)*: `mart_sales_daily`, `mart_order_daily`, `mart_product_sales_daily`.
@@ -489,18 +489,18 @@ Mô hình tầng Gold được chuẩn hóa gồm:
   4. *Nhóm Marketing giao dịch (3 marts)*: `mart_marketing_summary`, `mart_coupon_usage`, `mart_product_review_summary`.
   5. *Nhóm Phân tích nhật ký truy cập (3 marts)*: `mart_hourly_route_metrics`, `mart_daily_product_demand`, `mart_marketing_funnel_daily`.
 
-![Sơ đồ Data Marts OLTP](diagram/gold-marts.svg)
+![Sơ đồ Data Marts OLTP](../assets/report/gold-marts.svg)
 
-![Sơ đồ Data Marts Access Log](diagram/gold-log-marts.svg)
+![Sơ đồ Data Marts Access Log](../assets/report/gold-log-marts.svg)
 
 ### **3.5.5. Thiết kế quy trình kiểm soát chất lượng dữ liệu và bảo mật thông tin**
 
-![Sơ đồ kiểm soát chất lượng Quality Gates](diagram/quality-gates.svg)
+![Sơ đồ kiểm soát chất lượng Quality Gates](../assets/report/quality-gates.svg)
 
 * **Cơ chế Quality Gate**: Triển khai tập trung tại `pipelines/src/lakehouse/oltp/quality/gate.py`. Sau khi xây dựng xong các bảng tầng Gold, Spark thực thi tự động bộ 18 bài kiểm tra chất lượng. Kết quả được lưu trữ vào bảng `lakehouse.system.data_quality_results`. Chỉ khi không có lỗi nghiêm trọng nào phát sinh, tiến trình mới cập nhật snapshot ID mới vào bảng `lakehouse.system.publication_snapshots`.
 * **Bảo mật và phân quyền hạ tầng**: Thiết lập chính sách RBAC cho từng công cụ tính toán thông qua Polaris REST Catalog (Spark có quyền đọc/ghi Bronze-Silver-Gold; Flink có quyền ghi Access Log; Trino chỉ có quyền đọc tầng Gold và Silver). MinIO áp dụng chính sách Bucket Policy hạn chế tối đa việc truy cập trực tiếp vào các file dữ liệu thô.
 
-![Sơ đồ bảo mật RBAC](diagram/security-engines.svg)
+![Sơ đồ bảo mật RBAC](../assets/report/security-engines.svg)
 
 ## **3.6. Thiết kế giao diện người dùng và hệ thống Dashboard**
 
@@ -511,7 +511,7 @@ Giao diện Storefront được thiết kế theo xu hướng hiện đại, chu
 * Trang chi tiết sản phẩm (`/products/[slug]`): Hiển thị hình ảnh chất lượng cao, bộ chọn biến thể hai chiều (chọn màu tự lọc size khả dụng và ngược lại), bảng hướng dẫn chọn kích cỡ (Size Guide) và khu vực đánh giá nhận xét của khách hàng.
 * Giỏ hàng và Thanh toán (`/checkout`): Thiết kế giao diện 2 cột tinh gọn, hỗ trợ chọn địa chỉ phân cấp hành chính Việt Nam (Tỉnh/Thành → Quận/Huyện → Phường/Xã) và phương thức thanh toán linh hoạt (VietQR động NAPAS 247 hoặc COD).
 
-![Sơ đồ giao diện Storefront](diagram/ui-products.svg)
+![Sơ đồ giao diện Storefront](../assets/report/ui-products.svg)
 
 ### **3.6.2. Thiết kế giao diện Quản trị Admin và Bán hàng tại quầy POS**
 
@@ -520,7 +520,7 @@ Giao diện Storefront được thiết kế theo xu hướng hiện đại, chu
 
 ### **3.6.3. Thiết kế hệ thống Dashboard BI phân quyền theo 7 vai trò**
 
-![Sơ đồ Dashboard BI](diagram/ui-dashboard-sales.svg)
+![Sơ đồ Dashboard BI](../assets/report/ui-dashboard-sales.svg)
 
 Hệ thống BI Hub phân tách thành 7 góc nhìn bảng điều khiển độc lập:
 1. **Executive Dashboard**: Dành cho Ban giám đốc, hiển thị tổng quan doanh thu thuần, tăng trưởng lợi nhuận gộp, tổng số đơn hàng, giá trị đơn trung bình (AOV) và tỷ lệ thanh toán COD.
@@ -726,15 +726,15 @@ Dịch vụ phân tích trong Backend kết nối với Apache Trino thông qua 
 
 ### **4.7.1. Bộ sinh dữ liệu mô phỏng bán lẻ thời trang Việt Nam**
 
-Để phục vụ kiểm thử và trình diễn hệ thống, nhóm phát triển gói `data-generator` (phiên bản 0.11.0), sinh dữ liệu SQL từ cấu hình YAML, có seed để tái lập kết quả.
+Để phục vụ kiểm thử và trình diễn hệ thống, nhóm phát triển gói `data-generator` (phiên bản 0.10.0), sinh dữ liệu SQL từ cấu hình YAML, có seed để tái lập kết quả.
 
 Cơ sở nghiên cứu để thiết kế bộ sinh dữ liệu gồm ba phần:
 
 * **Bằng chứng định lượng từ dữ liệu thực tế:** EDA Olist, H&M và UCI Online Retail đo giỏ hàng, số lượng, mua lại, nhu cầu sản phẩm và giao nhận/đánh giá trên từng cohort. eCommerce Behavior được giữ ở phụ lục tham khảo vì sinh log ngoài phạm vi hiện tại.
-* **Bằng chứng nghiên cứu tại Việt Nam:** Thống kê mức sống, khảo sát tiêu dùng và báo cáo thị trường bổ sung căn cứ về chi tiêu, mua đa kênh, thanh toán, mùa vụ Tết và hậu mãi. [Hồ sơ nghiên cứu](project/GENERATOR_VIETNAM_RESEARCH.md) ghi đối tượng, đơn vị đo và giới hạn của từng nguồn; không chuyển tỷ lệ người trả lời hoặc doanh số thành xác suất theo đơn.
+* **Bằng chứng nghiên cứu tại Việt Nam:** Thống kê mức sống, khảo sát tiêu dùng và báo cáo thị trường bổ sung căn cứ về chi tiêu, mua đa kênh, thanh toán, mùa vụ Tết và hậu mãi. [Hồ sơ nghiên cứu](data.md#9-hồ-sơ-nguồn-nghiên-cứu-generator) ghi đối tượng, đơn vị đo và giới hạn của từng nguồn; không chuyển tỷ lệ người trả lời hoặc doanh số thành xác suất theo đơn.
 * **Giả định kịch bản của nhóm:** Những tham số chưa có bằng chứng phù hợp, như giá VND của shop, tỷ lệ COD/VietQR, hệ số chiến dịch và phân phối giờ mua, cần được chốt rõ là giả định trước khi triển khai. Không coi chúng là ước lượng đại diện cho thị trường Việt Nam.
 
-Generator dùng schema PostgreSQL hiện tại, giữ CLI/console xuất SQL và importer có sẵn sau khi tích hợp vào `dev`. R02 dùng phân phối giỏ/quantity Olist thời trang; R03 dùng trọng số mười nhóm thứ hạng H&M product_code. Chuyển nguồn sang catalog/shop mô phỏng là giả định. Chính sách shop và tỷ lệ chưa có ước lượng phù hợp được chủ động chọn để demo đủ ca phân tích: hủy 8% đơn đủ tuổi, giao thất bại 8% đơn COD đủ điều kiện và đổi/trả 6% đơn hoàn tất đủ thời gian xử lý. Các tỷ lệ có mẫu số khác nhau và không đại diện thị trường VN. Các tham số hành vi và chính sách được cấu hình tập trung trong YAML (`distributions` và `policies`); code giữ các ràng buộc nhất quán. [Danh mục chỉ số](project/GENERATOR_METRICS.md) ghi toàn bộ giá trị, ý nghĩa và nguồn/giả định. Chức năng sinh log tổng hợp vẫn ngoài phạm vi.
+Generator dùng schema PostgreSQL hiện tại, giữ CLI/console xuất SQL và importer có sẵn sau khi tích hợp vào `dev`. Quy luật R03 đã được áp dụng bằng trọng số mười nhóm thứ hạng sản phẩm H&M; cách ánh xạ sang catalog giả lập được ghi là giả định. Các tỷ lệ chưa đủ căn cứ giữ nguyên giá trị kịch bản cũ. [Danh mục chỉ số](data.md#danh-mục-tham-số-generator) ghi toàn bộ giá trị, ý nghĩa và nguồn/giả định. Chức năng sinh log tổng hợp vẫn ngoài phạm vi.
 
 ### **4.7.2. Khảo sát thực nghiệm làm cơ sở sinh dữ liệu**
 
@@ -745,8 +745,8 @@ Mỗi nhóm đi theo chuỗi **câu hỏi nghiệp vụ → căn cứ nghiên c�
 | Quy luật | Kết quả thực nghiệm và đánh giá | Quyết định đề xuất và ứng dụng |
 | :--- | :--- | :--- |
 | R01. Mua lại | UCI: 63,99% trong 3.880 khách có ≥2 đơn. H&M: 66,20% khách có ≥2 ngày mua; khoảng mua trung vị 52 ngày ở nhóm 2–4 ngày, 17 ngày ở nhóm ≥5 ngày. Hai nguồn có đơn vị khác nhau. | Khoảng mua phụ thuộc nhóm tần suất; UCI tham chiếu số đơn, H&M tham chiếu ngày mua. Ứng dụng vào lịch `orders`; chưa chốt tỷ trọng nhóm khách của shop VN. |
-| R02. Giỏ hàng | Olist thời trang: 1.409 đơn, 92,97% giỏ một product; 97,70% cặp đơn–product có một đơn vị. Chủ yếu túi/phụ kiện; UCI giỏ lớn có khách sỉ chỉ để đối chiếu. | Đã áp dụng số product 1–4 và quantity 1–5 theo trọng số nguồn; chọn một variant/product rồi tính tiền từ item. Chuyển nguồn và giá VND là giả định. |
-| R03. Nhu cầu sản phẩm | H&M: top 10% article chiếm 64,04%, còn top 10% product_code chiếm 74,82% dòng mua. Tập trung theo shop của báo cáo thị trường không thay thế phép đo theo SKU. | Đã áp dụng mười nhóm thứ hạng product_code; xáo thứ hạng bằng seed, chọn sản phẩm rồi variant. Phân bố đều trong nhóm và ánh xạ catalog vẫn là giả định; tỷ trọng cuối mẫu không được bảo đảm bằng số liệu nguồn. |
+| R02. Giỏ hàng | Olist: 96,67% đơn có dòng hàng chỉ chứa một product. UCI: trong 17.118 đơn, giỏ trung vị 15 mã, Quantity trung vị 3; nguồn có khách sỉ. | Tách kích thước giỏ và số lượng trong `order_items`, tổng tiền hình thành từ dòng hàng. Chưa chốt trọng số bán lẻ, giá VND và ánh xạ mã nguồn sang variant. |
+| R03. Nhu cầu sản phẩm | H&M: top 10% sản phẩm có bán chiếm 64,04% dòng mua. Tập trung theo shop của báo cáo thị trường không thay thế phép đo theo SKU. | Đã áp dụng mười nhóm trọng số thứ hạng; xáo thứ hạng bằng seed, chọn sản phẩm rồi variant. Phân bố đều trong nhóm và ánh xạ catalog vẫn là giả định; tỷ trọng cuối mẫu không được bảo đảm bằng số liệu nguồn. |
 | R04. Thời điểm mua | H&M: chỉ số dòng mua/ngày khoảng 1,41 ở tháng 6, 0,80 ở tháng 12; khảo sát Việt Nam bổ sung cửa sổ trước Tết và giới hạn theo ngành. | Đề xuất lịch Tết theo năm, tách nhu cầu nền/chiến dịch khi sinh `orders.created_at`. Chưa chốt hệ số mùa vụ VN, ngày đôi và giờ mua. |
 | R05. Thanh toán/kênh | Olist đo tỷ trọng giá trị thanh toán; khảo sát VN đo người sử dụng kênh và sở thích thanh toán. Các mẫu số không tương đương số đơn. | Dùng phương thức hợp lệ theo kênh trong `orders`/`payments`; chưa suy ra tỷ trọng online/POS, COD/VietQR hoặc thất bại thanh toán. |
 | R06. Giao nhận/đánh giá | Olist: thời gian giao trung vị 11,03 ngày, trễ 5,65%; điểm trung bình/đơn 4,28 khi đúng hẹn, 2,32 khi trễ. Đây là liên hệ quan sát ở Brazil. | Đề xuất thời gian giao có phân phối và điểm theo trải nghiệm. Áp dụng cho `shipments`/`product_reviews` cần chốt thời gian VN, ngày hẹn và ánh xạ review theo đơn sang item. |

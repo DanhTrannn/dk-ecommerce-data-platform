@@ -1,8 +1,8 @@
 """Async Kafka producer singleton for access log streaming.
 
 Lifecycle is managed via FastAPI lifespan. The producer is started on app
-startup and gracefully stopped on shutdown. All send calls are fire-and-forget
-so a Kafka outage never impacts API response latency.
+startup and gracefully stopped on shutdown. Delivery runs in tracked background
+tasks; unconfirmed events are retained in a local DLQ for explicit recovery.
 """
 
 import asyncio
@@ -21,6 +21,11 @@ _DLQ_FILE_PATH: str = os.getenv("KAFKA_DLQ_FILE_PATH", "data/events/dlq_access_l
 
 _producer = None  # AIOKafkaProducer instance, lazily created
 _dropped_events_count: int = 0
+_pending: set[asyncio.Task] = set()
+_reconnect_task: asyncio.Task | None = None
+_RECONNECT_SECONDS = 5
+_DELIVERY_TIMEOUT_SECONDS = 10
+_MAX_PENDING = 256
 
 
 def get_dropped_events_count() -> int:
@@ -53,42 +58,62 @@ def record_dropped_event(event: dict[str, Any], reason: str) -> None:
         logger.error("kafka_producer.dlq_write_failed: %s", dlq_err)
 
 
-async def start_producer() -> None:
-    """Start the AIOKafkaProducer. Called once at app startup."""
+async def _connect() -> bool:
     global _producer
-    if not _KAFKA_ENABLED:
-        logger.info("kafka_producer.disabled – KAFKA_ENABLED=false, skipping startup")
-        return
-    try:
-        from aiokafka import AIOKafkaProducer  # noqa: PLC0415
+    from aiokafka import AIOKafkaProducer
 
-        _producer = AIOKafkaProducer(
-            bootstrap_servers=_BOOTSTRAP_SERVERS,
-            # Serialize Python dicts as UTF-8 JSON bytes
-            value_serializer=lambda v: json.dumps(v, default=str).encode("utf-8"),
-            # Linger up to 5 ms to allow micro-batching without blocking requests
-            linger_ms=5,
-            # Retry up to 3 times on transient send errors
-            request_timeout_ms=5_000,
-            retry_backoff_ms=100,
-        )
-        await _producer.start()
-        logger.info(
-            "kafka_producer.started",
-            extra={"bootstrap_servers": _BOOTSTRAP_SERVERS, "topic": _ACCESS_LOG_TOPIC},
-        )
-    except Exception:
-        logger.exception("kafka_producer.start_failed – Kafka unavailable, continuing with DLQ fallback")
-        _producer = None
+    candidate = AIOKafkaProducer(
+        bootstrap_servers=_BOOTSTRAP_SERVERS,
+        value_serializer=lambda v: json.dumps(v, default=str).encode("utf-8"),
+        linger_ms=5,
+        acks="all",
+        request_timeout_ms=5_000,
+        retry_backoff_ms=100,
+    )
+    try:
+        await asyncio.wait_for(candidate.start(), timeout=_DELIVERY_TIMEOUT_SECONDS)
+    except (Exception, asyncio.CancelledError) as exc:
+        try:
+            await asyncio.wait_for(candidate.stop(), timeout=_DELIVERY_TIMEOUT_SECONDS)
+        except Exception:
+            logger.exception("kafka_producer.cleanup_failed")
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        logger.warning("kafka_producer.start_failed; retaining events in local DLQ")
+        return False
+    _producer = candidate
+    logger.info("kafka_producer.started", extra={"topic": _ACCESS_LOG_TOPIC})
+    return True
+
+
+async def _reconnect() -> None:
+    while _producer is None:
+        await asyncio.sleep(_RECONNECT_SECONDS)
+        if await _connect():
+            return
+
+
+async def start_producer() -> None:
+    """Start delivery, retrying in the background when Kafka starts later."""
+    global _reconnect_task
+    if not _KAFKA_ENABLED or _producer is not None or _reconnect_task is not None:
+        return
+    if not await _connect():
+        _reconnect_task = asyncio.create_task(_reconnect())
 
 
 async def stop_producer() -> None:
-    """Gracefully stop the AIOKafkaProducer. Called once at app shutdown."""
-    global _producer
+    """Drain tracked deliveries before closing Kafka; retain uncertain sends in DLQ."""
+    global _producer, _reconnect_task
+    if _reconnect_task is not None:
+        _reconnect_task.cancel()
+        await asyncio.gather(_reconnect_task, return_exceptions=True)
+        _reconnect_task = None
+    if _pending:
+        await asyncio.gather(*list(_pending), return_exceptions=True)
     if _producer is not None:
         try:
-            await _producer.stop()
-            logger.info("kafka_producer.stopped")
+            await asyncio.wait_for(_producer.stop(), timeout=_DELIVERY_TIMEOUT_SECONDS)
         except Exception:
             logger.exception("kafka_producer.stop_error")
         finally:
@@ -107,11 +132,15 @@ def send_access_event(event: dict[str, Any]) -> None:
     if _producer is None:
         record_dropped_event(event, reason="producer_offline")
         return
+    if len(_pending) >= _MAX_PENDING:
+        record_dropped_event(event, reason="pending_limit")
+        return
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            # Schedule the coroutine as a background task – no await needed
-            loop.create_task(_safe_send(event))
+            task = loop.create_task(_safe_send(event))
+            _pending.add(task)
+            task.add_done_callback(_pending.discard)
         else:
             record_dropped_event(event, reason="event_loop_not_running")
     except Exception as exc:
@@ -125,8 +154,8 @@ async def _safe_send(event: dict[str, Any]) -> None:
         record_dropped_event(event, reason="producer_offline")
         return
     try:
-        await _producer.send(_ACCESS_LOG_TOPIC, event)
+        # send() alone only enqueues: delivery failures arrive on its returned future.
+        await asyncio.wait_for(_producer.send_and_wait(_ACCESS_LOG_TOPIC, event), timeout=_DELIVERY_TIMEOUT_SECONDS)
     except Exception as exc:
         record_dropped_event(event, reason=f"send_failed: {exc}")
         logger.warning("kafka_producer.send_failed – routed to DLQ", exc_info=True)
-

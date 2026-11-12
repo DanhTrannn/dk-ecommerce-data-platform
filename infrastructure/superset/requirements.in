@@ -1,0 +1,3 @@
+# Query the existing Trino Lakehouse and keep metadata in the shared PostgreSQL service.
+trino[sqlalchemy]==0.340.0
+psycopg2-binary==2.9.10

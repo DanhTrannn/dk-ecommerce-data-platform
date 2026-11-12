@@ -1,4 +1,4 @@
-CREATE TEMPORARY TABLE mysql_cdc_kafka (
+CREATE TEMPORARY TABLE postgres_cdc_kafka (
     record_key STRING,
     payload STRING,
     topic STRING METADATA FROM 'topic' VIRTUAL,
@@ -12,6 +12,7 @@ CREATE TEMPORARY TABLE mysql_cdc_kafka (
     'properties.group.id' = {{group_id}},
     'properties.auto.offset.reset' = 'earliest',
     'scan.startup.mode' = 'group-offsets',
+    'scan.topic-partition-discovery.interval' = '10s',
     'key.format' = 'raw',
     'key.fields' = 'record_key',
     'value.format' = 'raw',

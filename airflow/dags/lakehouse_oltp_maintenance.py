@@ -1,101 +1,29 @@
-"""Lakehouse OLTP Iceberg Table Maintenance DAG.
+"""Native compaction, publication-safe snapshot expiration and orphan reporting."""
 
-Chuyên trách duy trì, tối ưu hóa và dọn dẹp định kỳ cho các bảng Iceberg OLTP (Bronze, Silver, Gold):
-  1. Iceberg Compaction (rewrite_data_files & rewrite_manifests): Gom các file Parquet nhỏ sinh ra
-     từ các batch nạp định kỳ thành file chuẩn 128MB, giảm thiểu small files.
-  2. Expire Snapshots: Dọn dẹp metadata lịch sử, chỉ giữ lại các snapshot gần nhất (retention policy),
-     ngăn chặn metadata bloat và tăng tốc độ scan của Trino Query Engine.
-  3. Remove Orphan Files: Dọn dẹp các tệp rác không được tham chiếu trên MinIO/S3 phát sinh từ các
-     tác vụ Spark bị ngắt quãng hoặc rollback.
-
-Tách biệt hoàn toàn khỏi luồng Ingestion tần suất cao (lakehouse_oltp_pipeline) để bảo vệ
-Data Freshness SLA và tránh lãng phí compute ngoài giờ cao điểm (chạy định kỳ 03:00 AM hàng ngày).
-"""
-
-from __future__ import annotations
-
+import os
 from datetime import timedelta
-
 import pendulum
-from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
-from airflow.utils.task_group import TaskGroup
-
 from airflow import DAG
-
-VN_TZ = pendulum.timezone("Asia/Ho_Chi_Minh")
-
-SPARK_APP_MAINTENANCE = "/opt/project/pipelines/src/jobs/maintenance/iceberg_table_maintenance.py"
-
-DEFAULT_ARGS = {
-    "owner": "lakehouse",
-    "retries": 1,
-    "retry_delay": timedelta(minutes=2),
-}
-
+from airflow.providers.standard.operators.bash import BashOperator
 
 with DAG(
     dag_id="lakehouse_oltp_maintenance",
-    default_args=DEFAULT_ARGS,
-    schedule="0 3 * * *",  # Daily at 3 AM Ho Chi Minh time (off-peak)
-    max_active_runs=1,
+    schedule="0 4 * * *",
     catchup=False,
-    start_date=pendulum.datetime(2026, 8, 15, tz=VN_TZ),
-    description=(
-        "Scheduled Iceberg Table Maintenance for OLTP Lakehouse: "
-        "Compaction (128MB) -> Expire Old Snapshots -> Remove Orphan Files"
-    ),
-    tags=["lakehouse", "oltp", "maintenance", "iceberg", "compaction"],
+    max_active_runs=1,
+    default_args={"owner": "lakehouse", "retries": 1, "retry_delay": timedelta(minutes=2)},
+    start_date=pendulum.datetime(2026, 8, 15, tz="Asia/Ho_Chi_Minh"),
+    tags=["lakehouse", "maintenance", "native"],
 ) as dag:
-    with TaskGroup(
-        group_id="iceberg_maintenance",
-        tooltip="Compact small Parquet files, rewrite manifests, expire old snapshots & remove orphans for OLTP tables",
-    ) as tg_maintenance:
-        compact_oltp = SparkSubmitOperator(
-            task_id="transform_compact_tables",
-            application=SPARK_APP_MAINTENANCE,
-            application_args=[
-                "--action",
-                "compact",
-                "--profile",
-                "oltp",
-                "--target-file-size-bytes",
-                "134217728",
-            ],
+    tasks = []
+    for action in ["compact", "expire", "orphan", "quarantine"]:
+        tasks.append(
+            BashOperator(
+                task_id=action,
+                bash_command=os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/python")
+                + " -m jobs.maintenance.iceberg_table_maintenance --namespace-prefix serving --profile oltp --action "
+                + action,
+            )
         )
-
-        expire_oltp = SparkSubmitOperator(
-            task_id="cleanup_expired_snapshots",
-            application=SPARK_APP_MAINTENANCE,
-            application_args=[
-                "--action",
-                "expire",
-                "--profile",
-                "oltp",
-                "--retain-snapshots",
-                "10",
-            ],
-        )
-
-        remove_oltp_orphans = SparkSubmitOperator(
-            task_id="cleanup_orphan_files",
-            application=SPARK_APP_MAINTENANCE,
-            application_args=[
-                "--action",
-                "orphan",
-                "--profile",
-                "oltp",
-            ],
-        )
-
-        cleanup_quarantine = SparkSubmitOperator(
-            task_id="cleanup_expired_quarantine",
-            application=SPARK_APP_MAINTENANCE,
-            application_args=[
-                "--action",
-                "quarantine",
-                "--quarantine-retention-days",
-                "30",
-            ],
-        )
-
-        compact_oltp >> expire_oltp >> remove_oltp_orphans >> cleanup_quarantine
+    for before, after in zip(tasks, tasks[1:]):
+        before >> after

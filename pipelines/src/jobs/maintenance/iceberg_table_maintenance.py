@@ -1,10 +1,10 @@
-"""Spark job for Iceberg table maintenance in Pure Streaming and OLTP Lakehouse.
+"""Native job for Iceberg table maintenance in Pure Streaming and OLTP Lakehouse.
 
 Actions:
 - rewrite_data_files: Compaction of small Parquet files into optimal sizes (128MB target).
-- rewrite_manifests: Manifest file optimization for faster query scan planning.
+- Compaction also regenerates manifests.
 - expire_snapshots: Purging old metadata snapshots beyond retention policies.
-- remove_orphan_files: Cleaning up unreferenced or aborted files on object storage.
+- Orphan scan: report unreachable data files; delete only with writers explicitly stopped.
 """
 
 from __future__ import annotations
@@ -13,7 +13,10 @@ from __future__ import annotations
 import argparse
 from typing import Sequence
 
-from lakehouse.utils.spark import spark_session
+import json
+from contextlib import closing
+from lakehouse.utils.iceberg import iceberg_catalog
+from lakehouse.utils.postgres import postgres_reader
 from lakehouse.utils.maintenance import maintain_tables
 
 # Standard table profiles across Lakehouse layers
@@ -67,16 +70,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=30,
         help="Delete quarantined records older than this many days (default: 30)",
     )
+    parser.add_argument("--namespace-prefix", default="serving")
+    parser.add_argument("--delete-orphans", action="store_true")
+    parser.add_argument("--writers-stopped", action="store_true")
     return parser.parse_args(argv)
 
 
 def main() -> None:
     args = parse_args()
-    spark = spark_session("iceberg_table_maintenance")
-    try:
-        maintain_tables(spark, args)
-    finally:
-        spark.stop()
+    with closing(postgres_reader()) as connection:
+        result = maintain_tables(iceberg_catalog(), connection, args)
+    print(json.dumps(result, default=str), flush=True)
 
 
 if __name__ == "__main__":

@@ -1,1 +1,0 @@
-"""Bronze source history writes."""

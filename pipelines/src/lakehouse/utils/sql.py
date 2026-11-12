@@ -25,12 +25,6 @@ def literal(value: object) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def sql_type(value: str) -> str:
-    """Accept Spark's simpleString type representation, never arbitrary statements."""
-    if not re.fullmatch(r"[A-Za-z0-9_<>,(): ]+", value):
-        raise ValueError(f"Invalid SQL data type: {value!r}")
-    return value
-
 
 def load_sql(name: str) -> str:
     path = PurePosixPath(name)

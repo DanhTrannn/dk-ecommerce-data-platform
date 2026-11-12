@@ -1,0 +1,15 @@
+retail_lakehouse:
+  target: local
+  outputs:
+    local:
+      type: trino
+      method: ldap
+      host: "{{ env_var('DBT_TRINO_HOST', 'trino') }}"
+      port: 8443
+      user: dbt_writer
+      password: "{{ env_var('DBT_TRINO_PASSWORD') }}"
+      database: lakehouse_etl
+      schema: "{{ env_var('DBT_GOLD_SCHEMA', 'gold') }}"
+      cert: "{{ env_var('TRINO_CA_FILE', '/run/trino-ca/ca.pem') }}"
+      threads: 1
+      timezone: UTC

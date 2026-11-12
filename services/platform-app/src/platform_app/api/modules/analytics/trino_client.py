@@ -1,3 +1,5 @@
+import base64
+import ssl
 import json
 import logging
 import os
@@ -29,43 +31,48 @@ class TrinoClient:
     ) -> None:
         self._explicit_url = base_url is not None
         self.base_url = (
-            base_url
-            or os.getenv("API_TRINO_URL")
-            or os.getenv("TRINO_URL")
-            or "http://trino:8080"
+            base_url or os.getenv("API_TRINO_URL") or os.getenv("TRINO_URL") or "https://trino:8443"
         ).rstrip("/")
         self.catalog = catalog
         self.schema = schema
         self.user = user
 
     def _get_headers(self) -> dict[str, str]:
-        return {
-            "X-Trino-User": self.user,
+        headers = {
+            "X-Trino-User": os.environ.get("TRINO_READER_USER", "analytics_reader")
+            if os.environ.get("TRINO_READER_PASSWORD")
+            else self.user,
             "X-Trino-Catalog": self.catalog,
             "X-Trino-Schema": self.schema,
             "Content-Type": "text/plain",
         }
+        if os.environ.get("TRINO_READER_PASSWORD"):
+            token = (headers["X-Trino-User"] + ":" + os.environ["TRINO_READER_PASSWORD"]).encode()
+            headers["Authorization"] = "Basic " + base64.b64encode(token).decode()
+        return headers
 
     def _get_active_url(self) -> str:
         if self._explicit_url:
             return self.base_url
 
         candidates = [self.base_url]
-        if "trino:8080" in self.base_url:
-            candidates.append("http://localhost:8084")
+        if "trino:8443" in self.base_url:
+            candidates.append("https://localhost:8084")
         elif "localhost:8084" in self.base_url:
-            candidates.append("http://trino:8080")
+            candidates.append("https://trino:8443")
 
         for u in candidates:
             try:
                 if httpx is not None:
-                    with httpx.Client(timeout=0.5) as client:
+                    with httpx.Client(timeout=0.5, verify=os.environ.get("TRINO_CA_FILE", True)) as client:
                         resp = client.get(f"{u}/v1/info")
                         if resp.status_code == 200:
                             return u
                 else:
                     req = urllib.request.Request(f"{u}/v1/info")
-                    with urllib.request.urlopen(req, timeout=0.5) as resp:
+                    with urllib.request.urlopen(
+                        req, context=ssl.create_default_context(cafile=os.environ.get("TRINO_CA_FILE")), timeout=0.5
+                    ) as resp:
                         if resp.status == 200:
                             return u
             except Exception:
@@ -77,7 +84,7 @@ class TrinoClient:
         active_url = self._get_active_url()
         try:
             if httpx is not None:
-                with httpx.Client(timeout=timeout) as client:
+                with httpx.Client(timeout=timeout, verify=os.environ.get("TRINO_CA_FILE", True)) as client:
                     resp = client.get(f"{active_url}/v1/info")
                     if resp.status_code == 200:
                         data = resp.json()
@@ -85,7 +92,9 @@ class TrinoClient:
                     return False
             else:
                 req = urllib.request.Request(f"{active_url}/v1/info")
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                with urllib.request.urlopen(
+                    req, context=ssl.create_default_context(cafile=os.environ.get("TRINO_CA_FILE")), timeout=timeout
+                ) as resp:
                     if resp.status == 200:
                         data = json.loads(resp.read().decode("utf-8"))
                         return data.get("coordinator") is True and not data.get("starting", False)
@@ -101,7 +110,9 @@ class TrinoClient:
     @staticmethod
     def _raise_query_error(body) -> None:
         if "error" in body:
-            raise AppError(INTERNAL_ERROR, "Trino query failed: " + body["error"].get("message", "unknown error"), status_code=502)
+            raise AppError(
+                INTERNAL_ERROR, "Trino query failed: " + body["error"].get("message", "unknown error"), status_code=502
+            )
 
     def execute_query(self, sql: str, timeout: float = 30.0) -> list[dict[str, Any]]:
         """Execute SQL query against Trino and return list of dictionaries."""
@@ -112,7 +123,9 @@ class TrinoClient:
 
         if httpx is not None:
             try:
-                with httpx.Client(timeout=timeout) as client:
+                with httpx.Client(
+                    timeout=timeout, headers=headers, verify=os.environ.get("TRINO_CA_FILE", True)
+                ) as client:
                     post_resp = client.post(url, headers=headers, content=clean_sql.encode("utf-8"))
                     if post_resp.status_code != 200:
                         raise AppError(
@@ -182,7 +195,9 @@ class TrinoClient:
             try:
                 body_bytes = clean_sql.encode("utf-8")
                 req = urllib.request.Request(url, data=body_bytes, headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                with urllib.request.urlopen(
+                    req, context=ssl.create_default_context(cafile=os.environ.get("TRINO_CA_FILE")), timeout=timeout
+                ) as resp:
                     if resp.status != 200:
                         raise AppError(
                             INTERNAL_ERROR,
@@ -206,7 +221,11 @@ class TrinoClient:
                         )
 
                     poll_req = urllib.request.Request(self._coordinator_uri(next_uri, active_url), headers=headers)
-                    with urllib.request.urlopen(poll_req, timeout=timeout) as poll_resp:
+                    with urllib.request.urlopen(
+                        poll_req,
+                        context=ssl.create_default_context(cafile=os.environ.get("TRINO_CA_FILE")),
+                        timeout=timeout,
+                    ) as poll_resp:
                         if poll_resp.status != 200:
                             raise AppError(
                                 INTERNAL_ERROR,

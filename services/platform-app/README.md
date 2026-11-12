@@ -2,17 +2,17 @@
 
 Package Python `platform_app` tách `api/` (FastAPI) và `ui/` (Streamlit), cùng dùng một `pyproject.toml`.
 
-Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và Streamlit (`PLATFORM_APP_PORT`, mặc định 8501). Chuẩn bị thư mục `data/generator/jobs` với quyền ghi cho `PLATFORM_APP_UID`/`PLATFORM_APP_GID`. Khởi động bằng `bash /app/start.sh`; nếu một process thoát thì process còn lại cũng dừng. Healthcheck kiểm tra cả `/health/live` của FastAPI và `/_stcore/health` của Streamlit. Schema/ORM đã chuyển PostgreSQL và được kiểm tra biệt lập, xem [database guide](../../database/README.md). Startup không tự tạo schema hoặc seed; generator 0.10, seed và importer PostgreSQL đã được kiểm tra biệt lập; các luồng API nghiệp vụ chính đã được kiểm chứng trên PostgreSQL biệt lập; chưa chứng minh pipeline đầu cuối.
+Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và Streamlit (`PLATFORM_APP_PORT`, mặc định 8501). Chuẩn bị thư mục `data/generator/jobs` với quyền ghi cho `PLATFORM_APP_UID`/`PLATFORM_APP_GID`. Khởi động bằng `bash /app/start.sh`; nếu một process thoát thì process còn lại cũng dừng. Healthcheck kiểm tra cả `/health/live` của FastAPI và `/_stcore/health` của Streamlit. Schema/ORM đã chuyển PostgreSQL và được kiểm tra biệt lập, xem [database guide](../../database/README.md). Startup không tự tạo schema hoặc seed; generator 0.10, seed và importer PostgreSQL đã được kiểm tra biệt lập; các luồng API nghiệp vụ chính đã được kiểm chứng trên PostgreSQL biệt lập; batch và log API thực đã có nghiệm thu stack biệt lập; xem phạm vi bằng chứng trong [operations](../../docs/operations.md#8-bằng-chứng-nghiệm-thu-đã-ghi-nhận).
 
 `API_DATABASE_URL` bắt buộc khi chạy API, dùng `postgresql+psycopg2`. Không còn fallback URL/mật khẩu MySQL trong code. Session dùng UTC và schema public; `/health/ready` hiện chỉ kiểm tra kết nối, chưa kiểm tra schema nghiệp vụ.
 
 Streamlit console điều khiển generator 0.10: chọn preset, chỉnh cấu hình, tạo job sinh SQL chạy nền, theo dõi theo công đoạn và tải kết quả. Console sinh file và cho nạp SQL của job vào PostgreSQL bằng thao tác riêng tại Kết quả & lịch sử. Không tự nạp khi sinh file, có màn hình Mô phỏng API cho mua online; chưa upload log hoặc kích hoạt Airflow; sampler dùng trọng số nhóm thứ hạng sản phẩm H&M, các tỷ lệ khác là giả định.
 
-Thiết kế và quyết định kỹ thuật: [docs/project/GENERATOR_CONSOLE.md](../../docs/project/GENERATOR_CONSOLE.md).
+Thiết kế và quyết định kỹ thuật: [docs/setup.md](../../docs/setup.md).
 
 ## API nguồn
 
-FastAPI giữ nghiệp vụ và lookup phục vụ dữ liệu; sáu API BI và mười GET danh sách/trùng lặp đã bỏ cùng service/schema riêng; giữ toàn bộ API ghi, gồm add-to-cart/checkout. Lookup customer yêu cầu email và trả customer_id; lookup địa điểm trả store_id/city_id. Các trang Next.js cũ gọi chúng nhận 404; Superset chưa triển khai. Hai API quan sát HTTP vẫn giữ quyền admin/system_admin. Chi tiết endpoint, transaction, hợp đồng tồn đầu/ledger và giới hạn kiểm chứng tại [API_SOURCE_SCOPE](../../docs/project/API_SOURCE_SCOPE.md).
+FastAPI giữ nghiệp vụ và lookup phục vụ dữ liệu; sáu API BI và mười GET danh sách/trùng lặp đã bỏ cùng service/schema riêng; giữ toàn bộ API ghi, gồm add-to-cart/checkout. Lookup customer yêu cầu email và trả customer_id; lookup địa điểm trả store_id/city_id. Các trang Next.js cũ gọi chúng nhận 404; Superset đã có PoC doanh thu dùng hai mart; các dashboard khác và quyền viewer/store chưa triển khai. Hai API quan sát HTTP vẫn giữ quyền admin/system_admin. Chi tiết endpoint, transaction, hợp đồng tồn đầu/ledger và giới hạn kiểm chứng tại [API_SOURCE_SCOPE](../../docs/architecture.md#1-phạm-vi-và-hiện-trạng).
 
 ## Chạy cục bộ
 
@@ -53,6 +53,10 @@ docker compose --profile core up -d --build platform-app
 Mở `http://localhost:8501` (đổi `PLATFORM_APP_PORT` nếu cần). Thư mục host `./data` được mount vào `/data`; job nằm tại `./data/generator/jobs/`. Container chạy bằng UID/GID cấu hình trong `.env` (`PLATFORM_APP_UID`, `PLATFORM_APP_GID`) để file trên host không bị root sở hữu.
 
 Healthcheck dùng `http://localhost:8501/_stcore/health`.
+
+Sau đợt merge EDA, image chỉ đóng gói mã nguồn generator và `generator/configs`; không còn sao chép thư mục `generator/profiles` đã xóa. Có thể build riêng image ứng dụng bằng `docker compose --profile core build platform-app`, không cần build toàn bộ hạ tầng.
+
+Kiểm chứng sửa build ngày 08/11/2026: image build thành công; container biệt lập chạy UID/GID 1000:1000 trả health cho FastAPI và Streamlit, đồng thời xuất SQL 30 đơn bằng generator trong image. Container không có mạng ngoài, host port hoặc volume dữ liệu hiện có và đã được xóa sau kiểm tra. Đây là kiểm tra đóng gói/khởi động, chưa xác minh kết nối PostgreSQL, import hoặc batch với generator sau merge.
 
 ## Cấu hình và validate
 
@@ -164,13 +168,13 @@ HTTP 4xx là lượt thất bại (408 được coi chưa xác định); runner 
 
 Runner hiện là kịch bản kiểm chứng nghiệp vụ, không phải sampler đã hiệu chỉnh: mỗi lượt là khách mới, một SKU và chọn hàng theo thứ tự catalog. API vẫn ghi `data_origin=manual`/`generation_run_id=NULL`; HTTP middleware ghi `observed` cho request thực sự nhận, không chứng minh hành vi người dùng thật. Run journal liên kết các giao dịch mô phỏng bằng email và idempotency key; chưa bổ sung lineage mô phỏng vào schema/API. Không suy tỷ lệ mua lại, độ phổ biến sản phẩm hay conversion tự nhiên từ kịch bản này.
 
-Compose hiện đặt `KAFKA_ENABLED=false` cho platform-app. Runner phát sinh HTTP thật nhưng không tự bật producer, tải log lịch sử, gửi trực tiếp Kafka hoặc kích hoạt DAG. Cần bước kiểm chứng log/pipeline riêng. Chưa có fulfillment, hủy đơn, coupon, POS, nhập kho, đổi trả hoặc tự khôi phục mật khẩu tài khoản mô phỏng.
+Compose nhận `KAFKA_ENABLED` từ môi trường, mặc định `false`; bật `true` khi dùng streaming để ghi request thực qua Kafka/Flink. Runner không tự bật producer, tải log lịch sử, gửi trực tiếp Kafka hoặc kích hoạt DAG. Producer tự thử kết nối lại khi Kafka khởi động muộn và giữ lượt gửi chưa xác nhận trong DLQ dưới `data/events/`; replay DLQ vẫn là thao tác riêng. Xem [hướng dẫn log thực](../../docs/setup.md#log-api-thực). Chưa có fulfillment, hủy đơn, coupon, POS, nhập kho, đổi trả hoặc tự khôi phục mật khẩu tài khoản mô phỏng.
 
 ## Công cụ provisioning Lakehouse
 
 Package `platform_app.provisioning` cung cấp CLI Polaris, tách khỏi API/UI startup và không cần `API_DATABASE_URL` hoặc `API_SECRET_KEY`. `make provision-polaris` chạy `python -m platform_app.provisioning.polaris` bằng image platform-app trong service `lakehouse-provision` (`scale: 0`, root cho việc chown file). Service này không mở port hay chạy web server; chỉ nó mount cả bốn credential output và state quản trị. API/UI bình thường không nhận những volume/secret quản trị này.
 
-`make provision-minio` gọi script dùng `mc` có sẵn trong container MinIO. `make provision-lakehouse` chạy MinIO trước rồi Polaris; phải build image platform-app mới và chờ storage/catalog sẵn sàng trước. Không khởi tạo business schema, nạp SQL, gọi nghiệp vụ hoặc chạy DAG. Xem [hướng dẫn provisioning](../../docs/runbook/SETUP.md#6-explicit-minio-and-polaris-provisioning) cho biến môi trường, khôi phục state, quyền output và kiểm chứng.
+`make provision-minio` gọi script dùng `mc` có sẵn trong container MinIO. `make provision-lakehouse` chạy MinIO trước rồi Polaris; phải build image platform-app mới và chờ storage/catalog sẵn sàng trước. Không khởi tạo business schema, nạp SQL, gọi nghiệp vụ hoặc chạy DAG. Xem [hướng dẫn provisioning](../../docs/setup.md#2-build-và-chọn-profile) cho biến môi trường, khôi phục state, quyền output và kiểm chứng.
 
 ## Quản trị quyền trên Streamlit
 

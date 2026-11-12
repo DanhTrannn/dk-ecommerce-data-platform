@@ -1,4 +1,4 @@
-"""Append raw access-log envelopes to Landing; Spark owns downstream layers."""
+"""Append raw access-log envelopes to Landing; Native ingestion and dbt own downstream layers."""
 
 import logging
 import os
@@ -77,4 +77,4 @@ def run_access_stream():
 
     # Keep the existing job name so launch/health checks recognize this job.
     log.info("Submitting access capture: Kafka[%s] -> Landing only", topic)
-    t_env.execute_sql(load_sql("flink/inserts/lakehouse_landing_access_logs.sql")).wait()
+    t_env.execute_sql(load_sql("flink/inserts/lakehouse_landing_access_logs.sql"))

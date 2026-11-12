@@ -18,7 +18,11 @@ CREATE TABLE IF NOT EXISTS lakehouse.bronze.oltp_cdc_events (
     after_payload STRING,
     raw_payload STRING,
     ingested_at TIMESTAMP_LTZ(3),
-    event_date DATE
+    event_date DATE,
+    source_connector STRING,
+    source_schema STRING,
+    postgres_lsn BIGINT,
+    postgres_tx_id BIGINT
 ) PARTITIONED BY (event_date) WITH (
     'format-version' = '2',
     'write.parquet.compression-codec' = 'zstd'

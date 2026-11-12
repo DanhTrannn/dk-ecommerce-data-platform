@@ -44,7 +44,7 @@ jobs:
 
       - name: Validate Docker Compose service groups
         run: |
-          for profiles in core core,batch core,streaming core,batch,streaming; do
+          for profiles in core core,batch core,streaming core,batch,streaming core,bi core,batch,streaming,bi; do
             COMPOSE_PROFILES="$profiles" docker compose --env-file .env.example config --quiet
           done
 

@@ -23,6 +23,9 @@ data/pipeline-runs/
 artifacts/
 reports/generated/
 
+# Local report figures and diagram sources/exports
+/assets/report/
+
 airflow/logs/*
 !airflow/logs/.gitkeep
 
@@ -41,7 +44,7 @@ skills/
 pipelines/build/
 
 # Tests & test cache
-# Test chỉ giữ local, không đưa lên git.
+# Test chỉ giữ local, không đưa lên git (trừ kiểm tra dữ liệu dbt bên dưới, pipeline chạy chúng).
 tests/
 **/tests/
 .pytest_cache/
@@ -51,3 +54,10 @@ htmlcov/
 test-reports/
 
 AGENTS.md
+
+# dbt generated artifacts
+**/dbt/target/
+**/dbt/logs/
+**/dbt/dbt_packages/
+!pipelines/dbt/tests/
+!pipelines/dbt/tests/*.sql

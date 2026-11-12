@@ -1,0 +1,62 @@
+version: 2
+models:
+- name: dim_date
+  columns:
+  - name: date_key
+    data_tests:
+    - unique
+    - not_null
+- name: dim_customer
+  columns:
+  - name: customer_key
+    data_tests:
+    - unique
+    - not_null
+- name: dim_product
+  columns:
+  - name: product_key
+    data_tests:
+    - unique
+    - not_null
+- name: dim_variant
+  columns:
+  - name: variant_key
+    data_tests:
+    - unique
+    - not_null
+- name: dim_store
+  columns:
+  - name: store_key
+    data_tests:
+    - unique
+    - not_null
+- name: dim_delivery_staff
+  columns:
+  - name: staff_key
+    data_tests:
+    - unique
+    - not_null
+- name: fact_order
+  columns:
+  - name: order_id
+    data_tests:
+    - unique
+    - not_null
+- name: fact_order_item
+  columns:
+  - name: order_item_id
+    data_tests:
+    - unique
+    - not_null
+- name: fact_shipment
+  columns:
+  - name: shipment_id
+    data_tests:
+    - unique
+    - not_null
+- name: fact_return_exchange
+  columns:
+  - name: return_item_id
+    data_tests:
+    - unique
+    - not_null

@@ -33,7 +33,7 @@ The POS API also accepts other staff assigned to a store, with admin/system-admi
 
 BI has seven role views, with compact KPI summaries, charts and collapsed detail tables. Sales separates store/trend analysis from products/categories; Operations separates logistics from returns; Marketing separates log interactions from coupons/reviews. System separates reconciliation, published HTTP Metrics and provisional HTTP Realtime from Landing. Admin and Store overview pages use the same compact components; duplicated banners, generic next-action lists and always-visible definition tables have been removed.
 
-All 15 OLTP marts and 3 log marts are represented by a KPI, chart or detail view. The [design rationale and mart mapping](../../docs/design-analysis/DASHBOARD_DESIGN.md) records official Power BI/Tableau/W3C sources, audience decisions and exact coverage. Published-mart contracts, KPI formulas, source data and RBAC are preserved; HTTP Realtime has a separate Landing contract.
+The legacy dashboard views were designed around 15 OLTP marts and three log marts. Six business BI endpoints have since been retired, so those pages are not a supported current serving path. The [current serving architecture](../../docs/architecture.md#4-publication-và-serving) uses a two-mart Superset sales PoC; administrative HTTP endpoints retain their separate publication/Landing contracts.
 
 Filters retain their real scope: 7/30/90 days only change sales trend; store selection changes the authorized store view; 1/7/30 UTC dates only change HTTP reporting. Marketing has independent log and commerce observation/publication/cache states. Published HTTP percentiles stay at hour/route/method grain; zero denominators remain undefined. Missing values render as dashes, observed zero remains zero, and missing time buckets remain gaps. Search/sort/CSV changes only the opened detail table. Top subsets are labeled.
 
@@ -70,7 +70,7 @@ npm run dev
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | Browser-reachable FastAPI URL |
 | `NEXT_PUBLIC_CSRF_COOKIE_NAME` | `web_csrf` | Cookie copied to the CSRF request header |
 
-Set public variables before `npm run dev` or `npm run build` (for example in `services/storefront/.env.local`). Compose supplies them as build arguments. Existing production images require rebuilding when these values change. Configure API CORS to match the browser origin; see [setup](../../docs/runbook/SETUP.md).
+Set public variables before `npm run dev` or `npm run build` (for example in `services/storefront/.env.local`). The frontend is no longer a Compose service; configure them for host builds. Existing production images require rebuilding when these values change. Configure API CORS to match the browser origin; see [setup](../../docs/setup.md).
 
 ## Static checks and build
 

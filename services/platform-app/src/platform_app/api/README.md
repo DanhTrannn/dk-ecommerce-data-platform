@@ -2,7 +2,7 @@
 
 FastAPI runs alongside Streamlit in the `platform-app` container. The shared container currently disables Kafka access logging. Analytical dashboards additionally require the data-platform profiles and a completed Lakehouse publication.
 
-FastAPI service for D&K source transactions, structured access logs and analytical serving. [app/models](models) maps 28 OLTP tables; [database/schema.sql](../../../../../database/schema.sql) defines the physical schema. Router registration: [src/platform_app/api/routes/router.py](src/platform_app/api/routes/router.py).
+FastAPI service for D&K source transactions, structured access logs and analytical serving. [app/models](models) maps 28 OLTP tables; [database/schema.sql](../../../../../database/schema.sql) defines the physical schema. Router registration: [src/platform_app/api/routes/router.py](routes/router.py).
 
 ## Structure
 
@@ -23,7 +23,7 @@ docker compose --profile tools up -d --build platform-app
 curl -fsS http://localhost:8000/health/ready
 ```
 
-Profiles are additive with COMPOSE_PROFILES. The shared container starts Uvicorn and Streamlit without applying schemas or seeds. Compose connects FastAPI to PostgreSQL using psycopg2; business schema/SQL conversion remains pending. API readiness checks database connectivity, not schema completeness, Kafka, Trino or Gold processing. See [SETUP](../../../../../docs/runbook/SETUP.md).
+Profiles are additive with COMPOSE_PROFILES. The shared container starts Uvicorn and Streamlit without applying schemas or seeds. Compose connects FastAPI to PostgreSQL using psycopg2; the source schema, generator SQL and importer now target PostgreSQL; schema bootstrap remains explicit. API readiness checks database connectivity, not schema completeness, Kafka, Trino or Gold processing. See [SETUP](../../../../../docs/setup.md).
 
 ## Run on the host
 
@@ -173,4 +173,4 @@ Paths and methods below are registered in source. Authentication columns describ
 
 ## References
 
-[Business requirements](../../../../../docs/project/BUSINESS_REQUIREMENTS.md) · [OLTP schema](../../../../../docs/architecture/OLTP_SCHEMA.md) · [access logs](../../../../../docs/architecture/ACCESS_LOG_DESIGN.md) · [metric definitions](../../../../../docs/architecture/METRICS_CATALOG.md)
+[Business requirements](../../../../../docs/architecture.md#1-phạm-vi-và-hiện-trạng) · [OLTP schema](../../../../../docs/data.md#2-schema-oltp) · [access logs](../../../../../docs/data.md#5-access-log-contract-và-xử-lý) · [metric definitions](../../../../../docs/data.md#6-dimension-fact-và-18-mart)
