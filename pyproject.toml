@@ -35,7 +35,9 @@ eda = [
     "matplotlib==3.11.2",
     "nbconvert==7.17.2",
     "polars==2.1.0",
+    "scipy==1.17.1",
     "seaborn==0.13.2",
+    "statsmodels==0.15.0",
 ]
 
 
