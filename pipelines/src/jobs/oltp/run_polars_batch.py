@@ -1,4 +1,4 @@
-"""Run isolated native-Python Bronze/Silver ingestion, without a BI publication."""
+"""Ingest PostgreSQL source tables into Bronze/Silver, without a BI publication."""
 
 import argparse
 import json

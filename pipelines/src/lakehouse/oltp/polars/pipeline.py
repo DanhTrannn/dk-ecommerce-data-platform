@@ -1,4 +1,4 @@
-"""Explicit 27-source Bronze/Silver migration run in isolated namespaces."""
+"""Bronze/Silver ingestion of the 27 configured source tables."""
 
 from lakehouse.utils.namespaces import namespace as ns
 import re

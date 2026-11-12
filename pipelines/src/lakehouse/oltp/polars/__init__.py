@@ -1,1 +1,1 @@
-"""Isolated native-Python OLTP migration; no scheduled serving writes."""
+"""OLTP source ingestion into Bronze/Silver with Polars and PyIceberg."""

@@ -1,1 +1,1 @@
-"""Quality gates, domain checks and manual reconciliation."""
+"""Quality gates and domain checks."""

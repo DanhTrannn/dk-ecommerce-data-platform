@@ -33,14 +33,11 @@ def run_marts(
     bucket,
     run_id,
     as_of,
-    catalog_source="native",
     catalog_run_id=None,
     verify_only=False,
     layer_snapshots=None,
 ):
     validate_run(prefix, run_id, bucket, 10000)
-    if catalog_source not in {"native", "serving"}:
-        raise ValueError("Catalog source must be native or serving")
     observed = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
     if observed.tzinfo is None:
         raise ValueError("Log --as-of must include timezone")
@@ -57,7 +54,7 @@ def run_marts(
         events = events.filter(pl.col("event_ts") <= observed)
         checks = [timestamps, *input_checks(events)]
         enforce(catalog, prefix, run_id, checks[1:])
-        (products, variants), sources, source_run = pinned_catalog(catalog, prefix, catalog_source, catalog_run_id)
+        (products, variants), sources, source_run = pinned_catalog(catalog, prefix, catalog_run_id)
         sources[fact_name] = fact_snapshot
         sources.update(layer_snapshots or {})
         try:
