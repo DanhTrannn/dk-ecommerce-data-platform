@@ -79,29 +79,6 @@ class TrinoClient:
                 continue
         return self.base_url
 
-    def is_healthy(self, timeout: float = 2.0) -> bool:
-        """Check if Trino coordinator is reachable and active."""
-        active_url = self._get_active_url()
-        try:
-            if httpx is not None:
-                with httpx.Client(timeout=timeout, verify=os.environ.get("TRINO_CA_FILE", True)) as client:
-                    resp = client.get(f"{active_url}/v1/info")
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        return data.get("coordinator") is True and not data.get("starting", False)
-                    return False
-            else:
-                req = urllib.request.Request(f"{active_url}/v1/info")
-                with urllib.request.urlopen(
-                    req, context=ssl.create_default_context(cafile=os.environ.get("TRINO_CA_FILE")), timeout=timeout
-                ) as resp:
-                    if resp.status == 200:
-                        data = json.loads(resp.read().decode("utf-8"))
-                        return data.get("coordinator") is True and not data.get("starting", False)
-                    return False
-        except Exception:
-            return False
-
     @staticmethod
     def _coordinator_uri(uri: str, active_url: str) -> str:
         target, origin = urlsplit(uri), urlsplit(active_url)
@@ -266,14 +243,6 @@ class TrinoClient:
                     f"Không thể kết nối đến Trino DWH Coordinator ({self.base_url}): {exc}",
                     status_code=500,
                 ) from exc
-
-    def execute_scalar(self, sql: str, timeout: float = 30.0) -> Any:
-        """Execute SQL query and return first column of the first row."""
-        rows = self.execute_query(sql, timeout=timeout)
-        if not rows:
-            return None
-        first_row = rows[0]
-        return next(iter(first_row.values())) if first_row else None
 
 
 # Default singleton instance

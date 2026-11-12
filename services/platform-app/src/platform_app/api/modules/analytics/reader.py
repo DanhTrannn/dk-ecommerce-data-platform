@@ -52,7 +52,7 @@ class PublishedReader:
 
 
 def serve(key, build, client=None, *, source="oltp"):
-    """Never run business aggregates on MySQL when the analytical reader fails."""
+    """Never run business aggregates on PostgreSQL when the analytical reader fails."""
     try:
         reader = PublishedReader(client, source=source)
         result = build(reader).model_copy(
@@ -84,7 +84,7 @@ def serve(key, build, client=None, *, source="oltp"):
                     "is_degraded": True,
                     "served_from_cache": True,
                     "cache_age_seconds": int(time.monotonic() - cached[0]),
-                    "degraded_reason": "Lakehouse chưa đọc được; giữ kết quả OLAP đã tải thành công trước đó. Không có truy vấn tổng hợp MySQL thay thế.",
+                    "degraded_reason": "Lakehouse chưa đọc được; giữ kết quả OLAP đã tải thành công trước đó. Không có truy vấn tổng hợp PostgreSQL thay thế.",
                 },
             )
         raise AppError(

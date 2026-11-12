@@ -77,7 +77,7 @@ uv run --locked --package platform-app -- \
   python -m platform_app.api.db.schema --output database/schema.sql --check
 ```
 
-Không dùng DDL bootstrap để nâng cấp volume đang có, và không nhập SQL MySQL cũ. Đổi schema thực cần thao tác/migration được review riêng.
+Không dùng DDL bootstrap để nâng cấp volume đang có. Đổi schema thực cần thao tác/migration được review riêng.
 
 ### Seed và dữ liệu lịch sử
 
@@ -209,7 +209,7 @@ Port dưới đây là mặc định, cần xem override/bind address trong `.en
 | PostgreSQL | `localhost:5432` |
 | Lakehouse access admin | Nội bộ `lakehouse-access:8010`, không publish port |
 
-Không liệt kê Storefront/Polaris Console như service đang được Compose chạy. MySQL đã được thay bởi PostgreSQL ở stack hiện tại. Một số port PostgreSQL/Kafka/Flink trong Compose không bind localhost; kiểm tra trước khi dùng trên máy có public interface. Đây là cấu hình local, không phải production recipe.
+Không liệt kê Storefront/Polaris Console như service đang được Compose chạy. Một số port PostgreSQL/Kafka/Flink trong Compose không bind localhost; kiểm tra trước khi dùng trên máy có public interface. Đây là cấu hình local, không phải production recipe.
 
 ```bash
 make ps

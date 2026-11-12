@@ -96,13 +96,11 @@ Scenario chạy bằng worker độc lập. Mất process có thể chuyển unk
 
 Giữ staging/Bronze/Silver và failed task logs để retry. Init và interval DAG không có khóa chung; tạm dừng writer còn lại khi phục hồi. Một lần ghi Gold dở có thể làm current physical tables thay đổi, nhưng reader vẫn dùng manifest cũ. Sau khi sửa lỗi, chạy quality gate/publish đúng logical run; manifest dùng MERGE chống trùng logical run, không chỉnh snapshot ID bằng tay để “làm mới” dashboard.
 
-Không chuyển history MySQL/unclassified vào cùng Bronze PostgreSQL bằng cách đổi `_source_system`; guard chủ động từ chối để tránh overwrite history. Dùng catalog/warehouse riêng hoặc migration được review. Không tự xóa bảng legacy khi nâng schema.
-
 ### Flink/Kafka
 
 - Giữ Kafka data/group offsets và volume checkpoints.
 - TaskManager restart phục hồi bằng checkpoint của JobManager đang còn; việc này khác với submit mới từ committed Kafka offsets.
-- Submit mới không tự truyền đường dẫn restore/savepoint. Giữ group/offset và retention; không giả định savepoint MySQL hoặc graph cũ tương thích graph PostgreSQL/Landing mới.
+- Submit mới không tự truyền đường dẫn restore/savepoint. Giữ group/offset và retention.
 - Trước đổi graph, dừng đúng job writer với savepoint hoàn tất, giữ path và xác nhận không còn writer cũ.
 - `KAFKA_LOG_DIRS=/var/lib/kafka/data` tương ứng volume `kafka-data`. Cài đặt cũ dùng `/tmp/kafka-logs` cần sao lưu và copy đầy đủ metadata/partition vào volume trong lúc broker đã dừng; đổi env không tự chuyển file.
 

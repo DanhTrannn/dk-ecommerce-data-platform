@@ -274,7 +274,7 @@ def list_branch_inventory(
         stmt = stmt.where(Store.store_id == actor.store_id)
 
     if store_id is not None:
-        check_store_inventory_permission(actor, store_id, 0)
+        check_store_inventory_permission(actor, store_id)
         stmt = stmt.where(Store.store_id == store_id)
     if city_id is not None:
         stmt = stmt.where(Store.city_id == city_id)

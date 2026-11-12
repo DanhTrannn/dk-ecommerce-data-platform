@@ -2,7 +2,7 @@
 
 from lakehouse.utils.namespaces import namespace as ns
 import polars as pl
-from pyiceberg.expressions import In, IsNull, NotEqualTo, Or
+from pyiceberg.expressions import In
 from pyiceberg.transforms import DayTransform
 
 from lakehouse.oltp.polars.schema import align_arrow, quarantine_schema, silver_schema
@@ -10,16 +10,6 @@ from lakehouse.oltp.polars.transforms import filter_current, prepare_silver
 
 
 PROPERTIES = {"format-version": "2", "write.parquet.compression-codec": "zstd"}
-
-
-def guard_bronze(table):
-    if "_source_system" not in table.schema().column_names:
-        raise ValueError("Bronze contains legacy or unclassified source history")
-    if table.current_snapshot() is None:
-        return
-    invalid = Or(IsNull("_source_system"), NotEqualTo("_source_system", "postgresql_ecommerce"))
-    if table.scan(row_filter=invalid, selected_fields=("_source_system",), limit=1).to_arrow().num_rows:
-        raise ValueError("Bronze contains legacy or unclassified source history")
 
 
 def evolve_bronze(table, schema):
@@ -43,7 +33,6 @@ def quarantine_table(catalog, namespace):
 
 def ingest_page(catalog, prefix, table, page, run_id, observed, salt):
     bronze = catalog.load_table((ns(prefix, "bronze"), table.name))
-    guard_bronze(bronze)
     evolve_bronze(bronze, page.schema)
     if page.num_rows:
         bronze.upsert(align_arrow(page, bronze.schema()), join_cols=[table.pk, table.cursor_field])

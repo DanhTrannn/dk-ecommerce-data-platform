@@ -13,7 +13,7 @@ from pyflink.table import Schema
 from pyflink.table.types import DataTypes
 
 from lakehouse.streaming.runtime import create_stream_environment, create_table_environment
-from lakehouse.streaming.catalog import ensure_medallion_namespaces, register_polaris_catalog
+from lakehouse.streaming.catalog import ensure_landing_namespace, register_polaris_catalog
 from lakehouse.streaming.tables import ensure_merge_on_read, ensure_streaming_tables
 from lakehouse.logs.landing import LANDING_FIELDS, landing_envelope
 from lakehouse.utils.sql import load_sql
@@ -35,7 +35,7 @@ def run_access_stream():
 
     # 2. Polaris Iceberg REST Catalog
     register_polaris_catalog(t_env, catalog_name="lakehouse")
-    ensure_medallion_namespaces(t_env, catalog_name="lakehouse")
+    ensure_landing_namespace(t_env, catalog_name="lakehouse")
     ensure_streaming_tables(t_env)
     ensure_merge_on_read(t_env, ["lakehouse.landing.access_logs"])
 

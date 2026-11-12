@@ -8,22 +8,6 @@ from platform_app.api.core.ids import uuid7
 from platform_app.api.models.inventory import Inventory
 from platform_app.api.models.inventory_tx import InventoryTransaction
 
-CITY_PREFIXES = ["Thành phố", "TP.", "TP", "Tỉnh", "T."]
-
-
-def parse_city_from_address(address: str) -> str | None:
-    """Parse city name from shipping address."""
-    parts = [p.strip() for p in address.split(",")]
-    if len(parts) >= 3:
-        city = parts[-1]
-        for prefix in CITY_PREFIXES:
-            if city.startswith(prefix):
-                city = city[len(prefix):].strip()
-                break
-        return city if city else None
-    return None
-
-
 def deduct_inventory(
     db: Session, items: list[dict], reference_code: str | None = None
 ) -> None:

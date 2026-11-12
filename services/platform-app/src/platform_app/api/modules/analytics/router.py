@@ -30,7 +30,7 @@ def get_analytics_http_realtime(
     """Admin/System Admin: provisional Landing aggregates, one snapshot per read.
 
     Replays are deduplicated by event ID; conflicting payloads are excluded.
-    No raw events, publication requirement, MySQL aggregate or server cache.
+    No raw events, publication requirement, PostgreSQL aggregate or server cache.
     Unavailable Landing returns 503; an empty readable window has null totals.
     """
     _require_system_access(actor)
