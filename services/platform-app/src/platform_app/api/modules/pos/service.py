@@ -66,11 +66,12 @@ def create_pos_transaction(
                 status_code=404,
             )
 
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(timezone.utc)
         order_number = new_order_number()
 
         # Build order items and validate stock
         order_items = []
+        ledger: list[InventoryTransaction] = []
         subtotal = 0
 
         for item in request.items:
@@ -132,7 +133,7 @@ def create_pos_transaction(
             store_inv.version += 1
             store_inv.updated_at = now
 
-            db.add(
+            ledger.append(
                 InventoryTransaction(
                     public_id=uuid7(),
                     variant_id=variant.variant_id,
@@ -191,7 +192,6 @@ def create_pos_transaction(
             checkout_idempotency_key=f"pos:{order_number}",
             status="completed",
             payment_method=request.payment_method,
-            currency_code="VND",
             subtotal_vnd=subtotal,
             discount_amount_vnd=0,
             shipping_fee_vnd=0,
@@ -206,6 +206,9 @@ def create_pos_transaction(
         )
         db.add(order)
         db.flush()
+        for entry in ledger:
+            entry.order_id = order.order_id
+        db.add_all(ledger)
 
         # Create order items
         for item_data in order_items:
@@ -234,7 +237,6 @@ def create_pos_transaction(
             payment_reference=new_payment_reference(),
             payment_idempotency_key=f"pos:{order.order_number}",
             status="succeeded",
-            currency_code="VND",
             amount_vnd=total,
             attempted_at=now,
             created_at=now,

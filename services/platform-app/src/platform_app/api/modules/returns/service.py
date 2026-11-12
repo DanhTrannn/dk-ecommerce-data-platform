@@ -110,7 +110,7 @@ def create_customer_return_request(
     payload: CreateReturnRequestPayload,
     idempotency_key: str,
 ) -> ReturnRequestDetailResponse:
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC)
     order = _lock_order(db, order_number, customer_id)
 
     if order.status not in ("delivered", "completed"):
@@ -271,7 +271,7 @@ def cancel_customer_return_request(
             status_code=409,
         )
     return_req.status = "cancelled"
-    return_req.resolved_at = datetime.now(UTC).replace(tzinfo=None)
+    return_req.resolved_at = datetime.now(UTC)
     db.commit()
     order_number = db.execute(
         select(Order.order_number).where(Order.order_id == return_req.order_id)
@@ -313,7 +313,7 @@ def review_admin_return(
             status_code=409,
         )
     return_req.status = action
-    return_req.reviewed_at = datetime.now(UTC).replace(tzinfo=None)
+    return_req.reviewed_at = datetime.now(UTC)
     if admin_note:
         return_req.admin_note = admin_note
     db.commit()
@@ -342,7 +342,7 @@ def inspect_and_resolve_admin_return(
     payload: AdminInspectAndResolvePayload,
     idempotency_key: str,
 ) -> ReturnRequestDetailResponse:
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC)
     return_req, order_number = _get_admin_return(db, return_code, for_update=True)
 
     if return_req.status == "completed":
@@ -384,6 +384,7 @@ def inspect_and_resolve_admin_return(
                 location_type="central_warehouse",
                 movement_type="return_customer",
                 quantity_delta=item.quantity,
+                return_id=return_req.return_id,
                 reference_code=return_req.return_code,
                 notes=f"Hàng hoàn từ {return_req.return_code}",
             )
@@ -400,32 +401,27 @@ def inspect_and_resolve_admin_return(
     ).scalar_one_or_none()
 
     if refund_amount > 0 and payment is not None:
-        refund = db.execute(
-            select(Refund).where(Refund.payment_id == payment.payment_id).with_for_update()
-        ).scalar_one_or_none()
-        new_key = f"ref:{idempotency_key[:58]}"
-        if refund is None:
-            reason = f"Hoàn tiền yêu cầu {return_req.return_code}"[:500]
+        # One refund per return request; the order row lock above serializes returns of the same order.
+        already_refunded = db.execute(
+            select(func.coalesce(func.sum(Refund.amount_vnd), 0)).where(
+                Refund.payment_id == payment.payment_id, Refund.status == "succeeded"
+            )
+        ).scalar_one()
+        amount = min(refund_amount, payment.amount_vnd - already_refunded)
+        if amount > 0:
             db.add(
                 Refund(
                     public_id=uuid4(),
                     payment_id=payment.payment_id,
-                    refund_idempotency_key=new_key,
+                    return_id=return_req.return_id,
+                    refund_idempotency_key=f"ref:{idempotency_key[:58]}",
                     status="succeeded",
-                    amount_vnd=min(payment.amount_vnd, refund_amount),
-                    reason=reason,
+                    amount_vnd=amount,
+                    reason=f"Hoàn tiền yêu cầu {return_req.return_code}"[:500],
                     requested_by_customer_id=return_req.customer_id,
                     completed_at=now,
                 )
             )
-        else:
-            # One refund per payment: accumulate subsequent partial returns.
-            refund.amount_vnd = min(payment.amount_vnd, refund.amount_vnd + refund_amount)
-            refund.refund_idempotency_key = new_key
-            accumulated_reason = f"{refund.reason}; {return_req.return_code}".strip("; ")
-            refund.reason = accumulated_reason[:500]
-            refund.completed_at = now
-            refund.updated_at = now
 
     return_req.status = "completed"
     return_req.resolved_at = now

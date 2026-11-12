@@ -12,34 +12,31 @@ class WishlistItem(Base):
     wishlist_item_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("wishlist_item_id >= 0", name="wishlist_item_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     customer_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("customer_id >= 0", name="customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         nullable=False,
     )
     product_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("product_id >= 0", name="product_id_non_negative"),
         ForeignKey("products.product_id", ondelete="RESTRICT"),
         nullable=False,
     )
     is_present: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     first_added_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
     last_added_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
-    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 

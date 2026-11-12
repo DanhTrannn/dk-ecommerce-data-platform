@@ -68,7 +68,7 @@ Backend settings are defined in [config.py](core/config.py) and use `API_*`; [Ka
 
 JWT is stored in the HttpOnly `web_access` cookie by default. The readable `web_csrf` cookie is copied into `X-CSRF-Token` for routes that enable double-submit verification. The endpoint table marks those routes. Local cookies are not Secure by default. Internal order confirmation uses `X-Internal-Secret`.
 
-Checkout `Idempotency-Key` must contain 1–59 characters. Other workflows validate their own key requirements; POS generates an internal key and does not deduplicate client retries in the same way. VietQR and refund success are recorded locally, without an external payment provider callback.
+Checkout `Idempotency-Key` must contain 1–59 characters. The optional `shipping_city_code` must name an active city (case-insensitive) or checkout returns 400; it is stored as `orders.shipping_city_id`. Other workflows validate their own key requirements; POS generates an internal key and does not deduplicate client retries in the same way. VietQR and refund success are recorded locally, without an external payment provider callback.
 
 ## Endpoint reference
 

@@ -32,7 +32,7 @@ FROM (
 WITH totals AS (SELECT order_id,sum(gross_revenue_vnd) gross_revenue_vnd,sum(refunded_amount_vnd) refunded_amount_vnd,
 sum(net_revenue_vnd) net_revenue_vnd,sum(item_cost_vnd) total_cost_vnd,sum(item_profit_vnd) net_profit_vnd FROM {{ ref('fact_order_item') }} GROUP BY order_id)
 SELECT o.order_id,o.order_number,coalesce(o.customer_id,-1) customer_key,coalesce(o.store_id,0) store_key,o.created_at,
-o.shipping_region,o.channel,o.status,o.payment_method,p.status payment_status,o.coupon_id,o.subtotal_vnd,
+c.name shipping_region,o.channel,o.status,o.payment_method,p.status payment_status,o.coupon_id,o.subtotal_vnd,
 o.discount_amount_vnd discount_vnd,o.shipping_fee_vnd,o.total_vnd order_total_vnd,t.gross_revenue_vnd,t.refunded_amount_vnd,
 t.net_revenue_vnd,t.total_cost_vnd,t.net_profit_vnd gross_profit_vnd,t.net_profit_vnd,o.status='failed_delivery' is_boom,
 o.status IN ('delivered','completed') is_delivered,o.status IN ('delivered','completed','returned') is_revenue_recognized,
@@ -40,4 +40,5 @@ CAST(at_timezone(o.created_at,'Asia/Ho_Chi_Minh') AS date) order_date,
 CAST(at_timezone(o.created_at,'Asia/Ho_Chi_Minh') AS date) order_date_vn,
 CAST(date_format(at_timezone(o.created_at,'Asia/Ho_Chi_Minh'),'%Y%m%d') AS integer) order_date_key
 FROM {{ pinned('orders') }} o LEFT JOIN totals t ON o.order_id=t.order_id LEFT JOIN {{ pinned('payments') }} p ON o.order_id=p.order_id
+LEFT JOIN {{ pinned('cities') }} c ON o.shipping_city_id=c.city_id
 ) b

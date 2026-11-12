@@ -36,7 +36,6 @@ class Settings(BaseSettings):
     internal_secret: str = "change-me-internal-secret"
 
     # Money / catalog
-    currency_code: str = "VND"
     shipping_flat_fee_vnd: int = 30000
     free_shipping_threshold_vnd: int = 500000
     cart_item_max_quantity: int = 20

@@ -19,7 +19,7 @@ BEGIN
     IF NEW.updated_at IS NOT DISTINCT FROM OLD.updated_at
        AND (to_jsonb(NEW) - ignored_columns) IS DISTINCT FROM
            (to_jsonb(OLD) - ignored_columns) THEN
-        NEW.updated_at := timezone('UTC', statement_timestamp());
+        NEW.updated_at := statement_timestamp();
     END IF;
     RETURN NEW;
 END;
@@ -32,7 +32,7 @@ def render_schema() -> str:
     statements = [
         "-- D&K PostgreSQL 16 source schema. EMPTY database only; no data migration.",
         "-- Generated from ORM: python -m platform_app.api.db.schema --output database/schema.sql",
-        "-- UUID is native; timestamps without timezone contain UTC; VND is integer.",
+        "-- UUID is native; timestamps are timestamptz (sessions use UTC); VND is integer.",
         "BEGIN;",
         "SET LOCAL search_path TO public;",
         "SET LOCAL TIME ZONE 'UTC';",

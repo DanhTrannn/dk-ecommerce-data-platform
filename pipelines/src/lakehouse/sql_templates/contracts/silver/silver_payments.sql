@@ -4,7 +4,6 @@ CREATE TABLE IF NOT EXISTS lakehouse.silver.silver_payments (
     order_id                        BIGINT,
     payment_idempotency_key         STRING,
     status                          STRING,
-    currency_code                   STRING,
     amount_vnd                      BIGINT,
     failure_code                    STRING,
     attempted_at                    TIMESTAMP,

@@ -8,9 +8,7 @@ from platform_app.api.core.ids import uuid7
 from platform_app.api.models.inventory import Inventory
 from platform_app.api.models.inventory_tx import InventoryTransaction
 
-def deduct_inventory(
-    db: Session, items: list[dict], reference_code: str | None = None
-) -> None:
+def deduct_inventory(db: Session, items: list[dict], order_id: int, reference_code: str | None = None) -> None:
     """Deduct central inventory (inventory table) for online orders and record ledger transaction."""
     now = datetime.now(timezone.utc)
     for item in items:
@@ -32,6 +30,7 @@ def deduct_inventory(
                 store_id=None,
                 movement_type="outbound_order",
                 quantity_delta=-item["quantity"],
+                order_id=order_id,
                 reference_code=reference_code,
                 notes="Xuất kho cho đơn hàng online",
                 created_at=now,

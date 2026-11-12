@@ -38,3 +38,4 @@ class PurchaseConfig(BaseModel):
     receiver_name: str = Field(default="Scenario customer", min_length=1, max_length=160)
     receiver_phone: str = Field(default="0000000000", min_length=1, max_length=32)
     shipping_address_text: str = Field(default="Scenario, Quận 1, TP. Hồ Chí Minh", min_length=1, max_length=1000)
+    shipping_city_code: str | None = Field(default=None, min_length=1, max_length=32)

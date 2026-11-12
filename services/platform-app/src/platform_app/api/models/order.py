@@ -2,9 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
-    func,
     BigInteger,
-    CHAR,
     CheckConstraint,
     DateTime,
     FetchedValue,
@@ -13,6 +11,7 @@ from sqlalchemy import (
     Index,
     String,
     text,
+    Integer,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,33 +25,28 @@ class Order(Base):
     order_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("order_id >= 0", name="order_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     order_number: Mapped[str] = mapped_column(String(32), nullable=False)
     cart_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("cart_id >= 0", name="cart_id_non_negative"),
         ForeignKey("carts.cart_id", ondelete="RESTRICT"),
         nullable=True,
     )
     customer_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("customer_id >= 0", name="customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         nullable=True,
     )
     checkout_idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
     coupon_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("coupon_id >= 0", name="coupon_id_non_negative"),
         ForeignKey("coupons.coupon_id", ondelete="RESTRICT"),
         nullable=True,
     )
     status: Mapped[str] = mapped_column(String(24), nullable=False)
     payment_method: Mapped[str] = mapped_column(String(16), nullable=False, default="vietqr", server_default="vietqr")
-    currency_code: Mapped[str] = mapped_column(CHAR(3), nullable=False, default="VND", server_default=text("'VND'"))
     subtotal_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     coupon_code_snapshot: Mapped[str | None] = mapped_column(String(64), nullable=True)
     coupon_type_snapshot: Mapped[str | None] = mapped_column(String(24), nullable=True)
@@ -75,34 +69,35 @@ class Order(Base):
     receiver_name: Mapped[str] = mapped_column(String(160), nullable=False)
     receiver_phone: Mapped[str] = mapped_column(String(32), nullable=False)
     shipping_address_text: Mapped[str] = mapped_column(String(1000), nullable=False)
+    shipping_city_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("cities.city_id", ondelete="RESTRICT"), nullable=True
+    )
     data_origin: Mapped[str] = mapped_column(
         String(16), nullable=False, default="manual", server_default=text("'manual'")
     )
     generation_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
-    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
-    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
-    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     store_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("store_id >= 0", name="store_id_non_negative"),
         ForeignKey("stores.store_id"),
         nullable=True,
     )
     channel: Mapped[str] = mapped_column(String(16), nullable=False, default="online", server_default=text("'online'"))
     staff_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("staff_id >= 0", name="staff_id_non_negative"),
         ForeignKey("customers.customer_id"),
         nullable=True,
     )
@@ -120,7 +115,6 @@ class Order(Base):
             "payment_method in ('vietqr','cod','cash','card')",
             name="payment_method",
         ),
-        CheckConstraint("currency_code = 'VND'", name="currency_code"),
         CheckConstraint("subtotal_vnd >= 0", name="subtotal_non_negative"),
         CheckConstraint("discount_amount_vnd <= subtotal_vnd", name="discount_within_subtotal"),
         CheckConstraint("shipping_fee_vnd >= 0", name="shipping_fee_non_negative"),
@@ -163,13 +157,14 @@ class Order(Base):
             name="cod_pending_no_paid_at",
         ),
         CheckConstraint("data_origin in ('manual','synthetic')", name="data_origin"),
-        Index("uq_orders_order_number", func.lower(order_number), unique=True),
+        Index("uq_orders_order_number", "order_number", unique=True),
         Index("uq_orders_cart_id", "cart_id", unique=True),
-        Index("uq_orders_checkout_idempotency_key", func.lower(checkout_idempotency_key), unique=True),
+        Index("uq_orders_checkout_idempotency_key", "checkout_idempotency_key", unique=True),
         Index("ix_orders_customer_id_created_at_order_id", "customer_id", "created_at", "order_id"),
         Index("ix_orders_status_created_at_order_id", "status", "created_at", "order_id"),
         Index("ix_orders_updated_at_order_id", "updated_at", "order_id"),
         Index("ix_orders_coupon_id_order_id", "coupon_id", "order_id"),
+        Index("ix_orders_shipping_city_id_order_id", "shipping_city_id", "order_id"),
     )
 
 
@@ -179,20 +174,17 @@ class OrderItem(Base):
     order_item_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("order_item_id >= 0", name="order_item_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     public_id: Mapped[UUID] = mapped_column(GUID(), nullable=False)
     order_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("order_id >= 0", name="order_id_non_negative"),
         ForeignKey("orders.order_id", ondelete="RESTRICT"),
         nullable=False,
     )
     variant_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("variant_id >= 0", name="variant_id_non_negative"),
         ForeignKey("product_variants.variant_id", ondelete="RESTRICT"),
         nullable=False,
     )
@@ -211,14 +203,12 @@ class OrderItem(Base):
         default=0,
         server_default=text("0"),
     )
-    quantity: Mapped[int] = mapped_column(
-        BigInteger, CheckConstraint("quantity <= 4294967295", name="quantity_uint32_max"), nullable=False
-    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     line_total_vnd: Mapped[int] = mapped_column(
         BigInteger, CheckConstraint("line_total_vnd >= 0", name="line_total_vnd_non_negative"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
 
     order: Mapped["Order"] = relationship(back_populates="items")
@@ -240,31 +230,28 @@ class Payment(Base):
     payment_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("payment_id >= 0", name="payment_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     payment_reference: Mapped[str] = mapped_column(String(64), nullable=False)
     order_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("order_id >= 0", name="order_id_non_negative"),
         ForeignKey("orders.order_id", ondelete="RESTRICT"),
         nullable=False,
     )
     payment_idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
-    currency_code: Mapped[str] = mapped_column(CHAR(3), nullable=False, default="VND", server_default=text("'VND'"))
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     failure_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
 
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 
@@ -272,16 +259,15 @@ class Payment(Base):
 
     __table_args__ = (
         CheckConstraint("status in ('succeeded','failed','pending')", name="status"),
-        CheckConstraint("currency_code = 'VND'", name="currency_code"),
         CheckConstraint("amount_vnd >= 0", name="amount_non_negative"),
         CheckConstraint(
             "(status in ('succeeded','pending') and failure_code is null) or "
             "(status = 'failed' and failure_code is not null)",
             name="failure_code_consistency",
         ),
-        Index("uq_payments_payment_reference", func.lower(payment_reference), unique=True),
+        Index("uq_payments_payment_reference", "payment_reference", unique=True),
         Index("uq_payments_order_id", "order_id", unique=True),
-        Index("uq_payments_payment_idempotency_key", func.lower(payment_idempotency_key), unique=True),
+        Index("uq_payments_payment_idempotency_key", "payment_idempotency_key", unique=True),
         Index("ix_payments_created_at_payment_id", "created_at", "payment_id"),
         Index("ix_payments_updated_at_payment_id", "updated_at", "payment_id"),
     )
@@ -293,50 +279,58 @@ class Refund(Base):
     refund_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("refund_id >= 0", name="refund_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     public_id: Mapped[UUID] = mapped_column(GUID(), nullable=False)
     payment_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("payment_id >= 0", name="payment_id_non_negative"),
         ForeignKey("payments.payment_id", ondelete="RESTRICT"),
         nullable=False,
     )
+    return_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("return_requests.return_id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     refund_idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
-    currency_code: Mapped[str] = mapped_column(CHAR(3), nullable=False, default="VND", server_default=text("'VND'"))
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     reason: Mapped[str] = mapped_column(String(500), nullable=False)
     requested_by_customer_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("requested_by_customer_id >= 0", name="requested_by_customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 
     __table_args__ = (
         CheckConstraint("status in ('succeeded','failed')", name="status"),
-        CheckConstraint("currency_code = 'VND'", name="currency_code"),
         CheckConstraint("amount_vnd >= 0", name="amount_non_negative"),
         CheckConstraint(
             "(status = 'succeeded' and completed_at is not null) or (status = 'failed' and completed_at is null)",
             name="completion_consistency",
         ),
         Index("uq_refunds_public_id", "public_id", unique=True),
-        Index("uq_refunds_payment_id", "payment_id", unique=True),
-        Index("uq_refunds_refund_idempotency_key", func.lower(refund_idempotency_key), unique=True),
+        # Each return request refunds once; a payment has at most one cancellation refund (no return).
+        Index("uq_refunds_return_id", "return_id", unique=True),
+        Index(
+            "uq_refunds_payment_id_cancellation",
+            "payment_id",
+            unique=True,
+            postgresql_where=text("return_id IS NULL"),
+        ),
+        Index("ix_refunds_payment_id", "payment_id"),
+        Index("uq_refunds_refund_idempotency_key", "refund_idempotency_key", unique=True),
         Index("ix_refunds_created_at_refund_id", "created_at", "refund_id"),
         Index("ix_refunds_updated_at_refund_id", "updated_at", "refund_id"),
     )
@@ -348,13 +342,11 @@ class OrderStatusHistory(Base):
     order_status_history_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("order_status_history_id >= 0", name="order_status_history_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     order_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("order_id >= 0", name="order_id_non_negative"),
         ForeignKey("orders.order_id", ondelete="RESTRICT"),
         nullable=False,
     )
@@ -363,9 +355,9 @@ class OrderStatusHistory(Base):
     transition_source: Mapped[str] = mapped_column(String(32), nullable=False)
     reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     transition_idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
-    transitioned_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+    transitioned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
 
     order: Mapped["Order"] = relationship(back_populates="status_history")
@@ -387,10 +379,8 @@ class OrderStatusHistory(Base):
             name="transition_source",
         ),
         CheckConstraint("to_status <> 'cancelled' or reason is not null", name="cancel_reason"),
-        Index(
-            "uq_order_status_history_transition_idempotency_key", func.lower(transition_idempotency_key), unique=True
-        ),
-        Index("uq_order_status_history_order_id_to_status", "order_id", func.lower(to_status), unique=True),
+        Index("uq_order_status_history_transition_idempotency_key", "transition_idempotency_key", unique=True),
+        Index("uq_order_status_history_order_id_to_status", "order_id", "to_status", unique=True),
         Index(
             "ix_order_status_history_order_id_transitioned_at_id",
             "order_id",

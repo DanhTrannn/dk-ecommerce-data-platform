@@ -78,7 +78,7 @@ def transfer_to_store(payload: RefillInventoryRequest) -> None:
             )
             .with_for_update()
         )
-        now = datetime.now(UTC).replace(tzinfo=None)
+        now = datetime.now(UTC)
         inventory.on_hand -= payload.quantity
         inventory.version += 1
         inventory.updated_at = now

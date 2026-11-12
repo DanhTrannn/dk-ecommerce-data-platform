@@ -2,7 +2,6 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
-    func,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -13,6 +12,7 @@ from sqlalchemy import (
     Index,
     String,
     text,
+    Integer,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,7 +26,6 @@ class Coupon(Base):
     coupon_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("coupon_id >= 0", name="coupon_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
@@ -43,13 +42,12 @@ class Coupon(Base):
         default=0,
         server_default=text("'0'"),
     )
-    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
-    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_by_customer_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("archived_by_customer_id >= 0", name="archived_by_customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         nullable=True,
     )
@@ -58,8 +56,7 @@ class Coupon(Base):
         BigInteger, CheckConstraint("total_usage_limit >= 0", name="total_usage_limit_non_negative"), nullable=True
     )
     per_customer_usage_limit: Mapped[int | None] = mapped_column(
-        BigInteger,
-        CheckConstraint("per_customer_usage_limit <= 4294967295", name="per_customer_usage_limit_uint32_max"),
+        Integer,
         CheckConstraint("per_customer_usage_limit >= 0", name="per_customer_usage_limit_non_negative"),
         nullable=True,
     )
@@ -71,12 +68,12 @@ class Coupon(Base):
         server_default=text("'0'"),
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 
@@ -113,7 +110,7 @@ class Coupon(Base):
             name="archived_not_active",
         ),
         Index("uq_coupons_public_id", "public_id", unique=True),
-        Index("uq_coupons_code_normalized", func.lower(code_normalized), unique=True),
+        Index("uq_coupons_code_normalized", "code_normalized", unique=True),
         Index("ix_coupons_archived_at_coupon_id", "archived_at", "coupon_id"),
         Index("ix_coupons_updated_at_coupon_id", "updated_at", "coupon_id"),
     )
@@ -125,38 +122,34 @@ class CouponRedemption(Base):
     coupon_redemption_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("coupon_redemption_id >= 0", name="coupon_redemption_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     coupon_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("coupon_id >= 0", name="coupon_id_non_negative"),
         ForeignKey("coupons.coupon_id", ondelete="RESTRICT"),
         nullable=False,
     )
     order_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("order_id >= 0", name="order_id_non_negative"),
         ForeignKey("orders.order_id", ondelete="RESTRICT"),
         nullable=False,
     )
     customer_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("customer_id >= 0", name="customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         nullable=False,
     )
     status: Mapped[str] = mapped_column(String(16), nullable=False)
-    redeemed_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
-    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    redeemed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 

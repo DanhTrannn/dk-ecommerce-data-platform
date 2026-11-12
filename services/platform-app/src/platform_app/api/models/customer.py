@@ -1,7 +1,6 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    func,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -12,6 +11,7 @@ from sqlalchemy import (
     Index,
     String,
     text,
+    Integer,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,7 +25,6 @@ class Customer(Base):
     customer_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("customer_id >= 0", name="customer_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
@@ -35,29 +34,25 @@ class Customer(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", server_default=text("'active'"))
     city_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("city_id >= 0", name="city_id_non_negative"),
         ForeignKey("cities.city_id", ondelete="SET NULL"),
         nullable=True,
     )
     store_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("store_id >= 0", name="store_id_non_negative"),
         ForeignKey("stores.store_id", ondelete="SET NULL"),
         nullable=True,
     )
     is_cod_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     boom_count: Mapped[int] = mapped_column(
-        BigInteger,
-        CheckConstraint("boom_count <= 4294967295", name="boom_count_uint32_max"),
+        Integer,
         CheckConstraint("boom_count >= 0", name="boom_count_non_negative"),
         nullable=False,
         default=0,
         server_default=text("0"),
     )
-    cod_reinstated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    cod_reinstated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cod_reinstated_by: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("cod_reinstated_by >= 0", name="cod_reinstated_by_non_negative"),
         ForeignKey("customers.customer_id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -66,14 +61,14 @@ class Customer(Base):
         String(16), nullable=False, default="manual", server_default=text("'manual'")
     )
     generation_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    anonymized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    anonymized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 
@@ -97,7 +92,6 @@ class CustomerCredential(Base):
 
     customer_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("customer_id >= 0", name="customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         primary_key=True,
     )
@@ -105,18 +99,18 @@ class CustomerCredential(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     password_changed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 
     customer: Mapped["Customer"] = relationship(back_populates="credential")
 
-    __table_args__ = (Index("uq_customer_credentials_email_normalized", func.lower(email_normalized), unique=True),)
+    __table_args__ = (Index("uq_customer_credentials_email_normalized", "email_normalized", unique=True),)

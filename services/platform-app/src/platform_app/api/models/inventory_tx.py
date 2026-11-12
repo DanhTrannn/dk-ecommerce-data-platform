@@ -14,30 +14,37 @@ class InventoryTransaction(Base):
     transaction_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("transaction_id >= 0", name="transaction_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     public_id: Mapped[UUID] = mapped_column(GUID(), nullable=False)
     variant_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("variant_id >= 0", name="variant_id_non_negative"),
         ForeignKey("product_variants.variant_id", ondelete="RESTRICT"),
         nullable=False,
     )
     location_type: Mapped[str] = mapped_column(String(24), nullable=False)  # 'central_warehouse' | 'store'
     store_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("store_id >= 0", name="store_id_non_negative"),
         ForeignKey("stores.store_id", ondelete="RESTRICT"),
         nullable=True,
     )
     movement_type: Mapped[str] = mapped_column(String(32), nullable=False)
     quantity_delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Typed source document; reference_code stays as the human-readable code.
+    order_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("orders.order_id", ondelete="RESTRICT"), nullable=True
+    )
+    receipt_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("inbound_receipts.receipt_id", ondelete="RESTRICT"), nullable=True
+    )
+    return_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("return_requests.return_id", ondelete="RESTRICT"), nullable=True
+    )
     reference_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
 
     __table_args__ = (
@@ -59,7 +66,18 @@ class InventoryTransaction(Base):
             "movement_type in ('inbound','outbound_order','outbound_pos','transfer_to_store','transfer_received','return_boom','return_customer','exchange_out','adjustment','order_cancellation')",
             name="ck_inv_tx_movement_type",
         ),
+        CheckConstraint(
+            "num_nonnulls(order_id, receipt_id, return_id) <= 1 "
+            "and (movement_type not in ('outbound_order','outbound_pos','order_cancellation','return_boom') "
+            "or order_id is not null) "
+            "and (movement_type <> 'inbound' or receipt_id is not null) "
+            "and (movement_type not in ('return_customer','exchange_out') or return_id is not null)",
+            name="ck_inv_tx_source_document",
+        ),
         Index("uq_inventory_tx_public_id", "public_id", unique=True),
+        Index("ix_inv_tx_order_id", "order_id"),
+        Index("ix_inv_tx_receipt_id", "receipt_id"),
+        Index("ix_inv_tx_return_id", "return_id"),
         Index("ix_inv_tx_variant_id", "variant_id"),
         Index("ix_inv_tx_store_id", "store_id"),
         Index("ix_inv_tx_movement_type", "movement_type"),
