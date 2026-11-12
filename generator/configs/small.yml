@@ -71,7 +71,7 @@ baskets:
 calendar:
   # Cường độ đặt đơn theo ngày = day_of_week × sale_events × tet.
   day_of_week:
-    source: measured  # §5 — không có hình dạng chung giữa H&M/Olist/eCommerce → để đều
+    source: measured  # §5 — không có hình dạng chung giữa H&M/Olist → để đều
     weights: [1, 1, 1, 1, 1, 1, 1]
   hour_of_day:
     source: transfer  # §5 — Olist 2017, giờ địa phương; ngày sale có đỉnh 0–1h
