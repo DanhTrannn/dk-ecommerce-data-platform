@@ -1,0 +1,51 @@
+# Quy luật hành vi duyệt web cho log tổng hợp; không phụ thuộc preset quy mô (small/10m/50m).
+# Nguồn: notebooks/browsing_behavior_eda.ipynb (mục §), eCommerce Behavior 2–31/10/2019, tham số theo nhóm apparel.
+#   transfer   = đo ở một cửa hàng đa ngành ở Nga, áp sang shop thời trang Việt Nam như giả định chuyển nguồn
+#   assumption = tham số kịch bản, không đo trong notebook
+schema_version: 1
+window_days: 30  # assumption: log lịch sử phủ 30 ngày cuối của lịch sử OLTP
+
+sessions:
+  source: transfer
+  # L1 §1: phiên không mua = value × phiên có mua (r ổn định theo ngày; toàn bộ dữ liệu cho 13,6).
+  # Nhạy với định nghĩa phiên apparel: khoảng hợp lý 31,3–51,6; value quyết định tổng lưu lượng log.
+  non_buying_per_buying:
+    value: 41.39
+  # L2 §2: số lượt xem sản phẩm mỗi phiên (≥ 1).
+  views_per_session:
+    buying:
+      model: geometric  # lệch tối đa 6,4 điểm %; thực tế có đỉnh ở 2 lượt
+      p: 0.1044
+    non_buying:
+      model: zero_truncated_log_series  # lệch tối đa 1,3 điểm %
+      theta: 0.9239
+
+timing:
+  source: transfer
+  # L3 §3: giây giữa hai request liên tiếp trong phiên.
+  event_gap_seconds:
+    model: lognormal
+    median: 36.2
+    sigma: 0.938
+
+funnel:
+  # §4: nguồn ghi thiếu sự kiện giỏ nên không đo ổn định; làm tròn từ phép đo gộp cũ.
+  source: assumption
+  non_buying_cart_rate: 0.075  # phần phiên không mua thêm 1 sản phẩm vào giỏ rồi bỏ đi
+  abandoned_items_per_buying_session: 0.09  # sản phẩm thêm giỏ nhưng không mua, trung bình mỗi phiên có mua
+
+products:
+  # §4: trọng số xem = trọng số mua OLTP (số mũ đo được ≈ 1,03).
+  source: assumption
+  views_proportional_to_purchases: true
+  purchased_product_view_share: 0.32  # trong phiên có mua, phần lượt xem là sản phẩm được mua
+
+assumptions:
+  source: assumption  # §4
+  anonymous_non_buying_share: 0.6
+  request_steps:
+    category_list_or_search_before_first_view: 1.0
+    cart_read_before_checkout: 1.0
+    checkout_quote_before_submit: 1.0
+  sale_day_traffic_follows_orders: true
+  session_hour_follows_order_hour: true

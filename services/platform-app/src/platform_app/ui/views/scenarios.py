@@ -3,10 +3,9 @@
 import streamlit as st
 from pydantic import ValidationError
 
-from platform_app.ui.job_store import JobStoreError
 from platform_app.ui.paths import jobs_root
 from platform_app.ui.scenarios.config import PurchaseConfig, ScenarioSettings
-from platform_app.ui.scenarios.store import ACTIVE, ScenarioStore
+from platform_app.ui.scenarios.store import ACTIVE, ScenarioStore, ScenarioStoreError
 
 
 @st.fragment(run_every=2)
@@ -18,7 +17,7 @@ def render():
         settings = ScenarioSettings()
         store.reconcile()
         history = store.history()
-    except (ValidationError, JobStoreError, OSError, ValueError, KeyError):
+    except (ValidationError, ScenarioStoreError, OSError, ValueError, KeyError):
         st.error("Không đọc được cấu hình hoặc lịch sử kịch bản; kiểm tra SCENARIO_API_BASE_URL và thư mục dữ liệu.")
         return
     st.text(f"API đích: {settings.api_base_url}")
@@ -50,7 +49,7 @@ def render():
                 ),
                 settings,
             )
-        except (JobStoreError, ValidationError, OSError):
+        except (ScenarioStoreError, ValidationError, OSError):
             st.error("Không tạo được run; kiểm tra cấu hình và tác vụ đang chạy.")
         else:
             st.rerun()

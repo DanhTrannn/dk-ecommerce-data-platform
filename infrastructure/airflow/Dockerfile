@@ -4,7 +4,6 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /bin/uv
 ENV UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT=/opt/pipeline-venv UV_LINK_MODE=copy
 WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
-COPY generator/pyproject.toml generator/pyproject.toml
 COPY services/platform-app/pyproject.toml services/platform-app/pyproject.toml
 COPY pipelines/pyproject.toml pipelines/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
