@@ -1,7 +1,7 @@
 # Quy luật hành vi duyệt web cho log tổng hợp; không phụ thuộc preset quy mô (small/10m/50m).
 # Nguồn: notebooks/browsing_behavior_eda.ipynb (mục §), eCommerce Behavior 2–31/10/2019, tham số theo nhóm apparel.
 #   transfer   = đo ở một cửa hàng đa ngành ở Nga, áp sang shop thời trang Việt Nam như giả định chuyển nguồn
-#   assumption = tham số kịch bản, không có dữ liệu để đo
+#   assumption = tham số kịch bản, không đo trong notebook
 schema_version: 1
 window_days: 30  # assumption: log lịch sử phủ 30 ngày cuối của lịch sử OLTP
 
@@ -20,45 +20,28 @@ sessions:
       model: zero_truncated_log_series  # lệch tối đa 1,3 điểm %
       theta: 0.9239
 
-funnel:
-  # L3 §3: hiệu chỉnh ghi nhận thiếu không ổn định giữa hai khối ngày
-  # (lệch 7,1 điểm % > ngưỡng 5) → dùng số gộp cả tháng (đã hiệu chỉnh) làm giả định.
-  # Biểu diễn theo từng loại phiên để ghép được với sessions.non_buying_per_buying bất kỳ;
-  # tỷ lệ "thêm giỏ thì mua" là kết quả suy ra (≈ 0,48 với r = 13,6; ≈ 0,25 với r = 41,4).
-  source: assumption
-  non_buying_cart_rate: 0.0744  # phần phiên không mua có thêm giỏ
-  abandoned_items_per_buying_session: 0.0863  # sản phẩm thêm giỏ nhưng không mua, mỗi phiên có mua
-  cart_items_per_non_buying_cart_session: 1.065  # sản phẩm trong giỏ của phiên không mua có thêm giỏ
-
 timing:
   source: transfer
-  # L4 §4: giây giữa hai request liên tiếp trong phiên.
+  # L3 §3: giây giữa hai request liên tiếp trong phiên.
   event_gap_seconds:
     model: lognormal
     median: 36.2
     sigma: 0.938
 
-products:
-  source: transfer
-  # L5 §5: trọng số xem = trọng số mua OLTP ^ exponent; trong phiên mua, tỷ lệ lượt xem là sản phẩm được mua.
-  views_vs_purchases_exponent: 1.0307
-  purchased_product_view_share: 0.3181
+funnel:
+  # §4: nguồn ghi thiếu sự kiện giỏ nên không đo ổn định; làm tròn từ phép đo gộp cũ.
+  source: assumption
+  non_buying_cart_rate: 0.075  # phần phiên không mua thêm 1 sản phẩm vào giỏ rồi bỏ đi
+  abandoned_items_per_buying_session: 0.09  # sản phẩm thêm giỏ nhưng không mua, trung bình mỗi phiên có mua
 
-journey:
-  source: transfer
-  # L6 §6: số phiên xem trước của một lượt mua = X − 1, X ~ log-series(theta).
-  prior_sessions:
-    model: shifted_log_series
-    theta: 0.716
-  # Khoảng cách từ lần xem đầu tới lúc mua ~ mũ (trung bình, ngày), cắt ở max_days.
-  # Trung vị mũ 2,2 ngày so với thực tế 1,5: mô hình thiếu khách quay lại rất nhanh.
-  days_first_view_to_purchase:
-    model: exponential
-    mean: 3.16
-    max_days: 14
+products:
+  # §4: trọng số xem = trọng số mua OLTP (số mũ đo được ≈ 1,03).
+  source: assumption
+  views_proportional_to_purchases: true
+  purchased_product_view_share: 0.32  # trong phiên có mua, phần lượt xem là sản phẩm được mua
 
 assumptions:
-  source: assumption  # §7
+  source: assumption  # §4
   anonymous_non_buying_share: 0.6
   request_steps:
     category_list_or_search_before_first_view: 1.0
