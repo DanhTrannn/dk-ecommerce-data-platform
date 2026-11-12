@@ -155,7 +155,8 @@ policies:
     cost_ratio_range: [0.35, 0.45]  # lấy đều mỗi biến thể, không theo chỉ số biến thể
   shipping:
     fee_vnd: 30000
-    free_from_subtotal_vnd: 500000
+    # assumption: ≈ trung vị giá trị đơn mô phỏng (≈ 692.000 đ) → khoảng 50% đơn trả phí ship (500.000 đ → 38%)
+    free_from_subtotal_vnd: 700000
     failed_attempts: 3
     attempt_interval_hours: 6
     failure_after_days: 2
