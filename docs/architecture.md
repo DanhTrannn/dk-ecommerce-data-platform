@@ -9,7 +9,7 @@ Cập nhật theo codebase ngày **11/11/2026**. Các kết quả nghiệm thu �
 | Phần | Đã triển khai | Giới hạn hiện tại |
 |---|---|---|
 | Nguồn nghiệp vụ | FastAPI + PostgreSQL; catalog, tài khoản, giỏ, checkout, POS, tồn kho, giao vận, đổi trả, review | Có API không đồng nghĩa Streamlit đã tự động hóa mọi nghiệp vụ |
-| Generator | Notebook EDA và preset YAML: OLTP `1m`/`10m`/`50m` (R01–R06), access log (L1–L3) | Chưa có runtime sinh dữ liệu; CLI/SQL export/importer cũ đã gỡ, generator mới chờ triển khai |
+| Generator | Notebook EDA và preset YAML: OLTP `1m`/`10m`/`50m` (R01–R06), access log (L1–L3) | Lệnh `datagen` nạp một lần 12 tháng lịch sử OLTP vào PostgreSQL và tự kiểm tra (`verify`); log truy cập tổng hợp chưa có generator |
 | Streamlit | Platform Console: runner mua online qua API, quản trị binding quyền | Runner hiện mỗi lượt một khách mới/một SKU; chưa có fulfillment/POS/đổi trả tự động |
 | Batch | PostgreSQL (psycopg2, theo trang) → Bronze → Silver → Gold/mart → quality gate → publication | Cần chạy init trước; batch interval không tự backfill mọi lịch sử |
 | Access log | API → Kafka → Flink Landing; batch native xử lý Bronze/Silver/fact, dbt dựng ba mart, publication riêng | Producer opt-in; DLQ chưa tự replay; Landing và mart có độ mới khác nhau |
@@ -23,7 +23,7 @@ Không có marketplace đa người bán, thu thập dữ liệu đối thủ ho
 | Component | Vai trò | Mã nguồn/cấu hình chính |
 |---|---|---|
 | `platform-app` | Một container, hai process FastAPI/Streamlit; khi một process dừng thì container đóng process còn lại | [Dockerfile](../services/platform-app/Dockerfile), [package](../services/platform-app/src/platform_app/) |
-| Generator | Quy luật và preset cho dữ liệu tổng hợp; chưa có runtime | [generator](../generator/), [OLTP presets](../generator/oltp/configs/), [log rules](../generator/logs/configs/) |
+| Generator | Quy luật, preset và lệnh `datagen` sinh lịch sử OLTP tổng hợp | [generator](../generator/), [OLTP presets](../generator/oltp/configs/), [log rules](../generator/logs/configs/) |
 | PostgreSQL 16.8 | OLTP `ecommerce`; metadata `airflow`, `polaris`; metadata `superset` được tạo riêng khi bật BI | [schema](../database/schema.sql), [scripts](../infrastructure/postgres/) |
 | MinIO | Object storage cho staging và dữ liệu/metadata Iceberg | [provisioning/policy](../infrastructure/minio/) |
 | Polaris 1.8.0 | Iceberg REST catalog, namespace và quyền principal/catalog | [RBAC](../infrastructure/polaris/rbac.yml) |
@@ -42,7 +42,7 @@ Python workspace gồm `platform-app`, `batch-pipeline`, dùng chung [uv.lock](.
 
 ### Batch OLTP
 
-1. API (hoặc seed catalog) tạo/thay đổi dữ liệu PostgreSQL; hiện chưa có công cụ nạp dữ liệu lịch sử.
+1. API (hoặc seed catalog) tạo/thay đổi dữ liệu PostgreSQL; `datagen generate` nạp một lần dữ liệu lịch sử tổng hợp.
 2. Reader PostgreSQL SELECT-only (psycopg2) đọc 27 bảng, phân trang theo khóa, mỗi trang tối đa 10.000 dòng; Polars xử lý, PyIceberg commit.
 3. Init đọc toàn bộ; DAG định kỳ dùng cửa sổ UTC `[start, end)` do Airflow truyền.
 4. Bronze giữ các phiên bản nguồn chống trùng khi replay; Silver upsert theo PK/cursor, typing và pseudonymization.

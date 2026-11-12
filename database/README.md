@@ -45,7 +45,7 @@ make seed
 
 Trong container đã build mới, có thể dùng `docker compose exec -T platform-app python -m database.seeds.seed_catalog`.
 
-**Hiện chưa có công cụ nạp dữ liệu lịch sử.** Package `data-generator` cũ, importer `platform_app.api.db.import_dataset` và chức năng nạp trên Streamlit đã bị gỡ. Generator OLTP mới sẽ đọc preset `generator/oltp/configs/*.yml`; xem [generator](../generator/README.md). Seed hiện tại **không tạo `cities`/`stores`** (trước đây do SQL generator cũ tạo), nên các luồng cần cửa hàng phải tự chuẩn bị địa điểm.
+**Dữ liệu lịch sử** do lệnh `datagen` nạp sau khi seed: `make generate PRESET=1m` đọc preset `generator/oltp/configs/*.yml` và ghi 12 tháng khách, đơn, giao vận, trả hàng và sổ kho với `data_origin='synthetic'`; xem [generator](../generator/README.md). Seed **không tạo `cities`/`stores`**; hai bảng này do generator tạo, nên database chỉ có seed thì các luồng cần cửa hàng phải tự chuẩn bị địa điểm.
 
 Schema hiện bỏ hai CHECK tồn hiện tại không vượt tồn đầu: `opening_on_hand` là mốc cố định, nhập/nhận/trả hàng đi qua ledger. Database đã có schema cũ cần được cập nhật và đối soát riêng; bootstrap không tự nâng cấp hay sửa dữ liệu.
 
