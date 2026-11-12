@@ -84,7 +84,7 @@ Catalog mặc định `lakehouse`, bucket theo `MINIO_LAKEHOUSE_BUCKET` (mặc �
 
 Batch interval dùng UTC có timezone `[start,end)`; append-only đọc `created_at`, mutable đọc `updated_at`. Extract phân trang theo PK 10.000 dòng; mọi trang của mọi bảng được ghi staging trước, rồi mới ghi Bronze/Silver. Interval rỗng không xóa lịch sử. Bronze chống lặp theo source PK/cursor; Silver đọc delta tương ứng, không ghi đè state mới bằng backfill cũ. Gold được xây lại, quality gate chạy rồi mới publish.
 
-Silver chuẩn hóa UUID JDBC dạng chuỗi thành **16 bytes** theo schema phân tích BINARY hiện có. Resolver log hỗ trợ cả encoding đúng và bytes của chuỗi UUID từ các lần batch cũ. Interval chỉ chuẩn hóa các dòng được đọc; cần init có kiểm soát nếu muốn chuẩn hóa toàn bộ current state. Không tự sửa snapshot lịch sử.
+Silver chuẩn hóa UUID đọc từ PostgreSQL dạng chuỗi thành **16 bytes** theo schema phân tích BINARY hiện có. Interval chỉ chuẩn hóa các dòng được đọc; cần init có kiểm soát nếu muốn chuẩn hóa toàn bộ current state. Không tự sửa snapshot lịch sử.
 
 PII của customer, đơn và nhân sự được chuẩn hóa lower/trim rồi token hóa SHA-256 với salt bắt buộc; giữ NULL, bỏ cột raw theo mapping. Quarantine cũng xử lý tên cột PII. Đây là pseudonymization, không phải bảo đảm ẩn danh tuyệt đối; raw OLTP/Bronze vẫn cần quyền phù hợp. Salt thay đổi làm đổi token.
 
@@ -317,7 +317,7 @@ Gate native giữ 55 kiểm tra về đối soát, tài chính, tồn kho, vận
 
 Giữ nguyên tên/cột/grain của `mart_hourly_route_metrics`, `mart_daily_product_demand` và `mart_marketing_funnel_daily`. Ngày/giờ tính theo UTC. Các chỉ số funnel là số request thành công, không phải số người/session/đơn hàng duy nhất; visitor đếm actor khác NULL. Tên cũ `success_2xx_count` vẫn tính HTTP dưới 400 (gồm 3xx). Mẫu số bằng 0 trả NULL.
 
-Ánh xạ sản phẩm hỗ trợ slug, ID số, UUID chuẩn 16 bytes và encoding UUID văn bản cũ; UUID có dấu gạch được chuẩn hóa, slug giữ dấu gạch. Product token có ưu tiên hơn variant token. Khóa chưa khớp giữ `raw-product:`/`raw-variant:` để vẫn thấy nhu cầu chưa ánh xạ; mapping làm nhân bản event bị chặn.
+Ánh xạ sản phẩm hỗ trợ slug, ID số và UUID 16 bytes; UUID có dấu gạch được chuẩn hóa, slug giữ dấu gạch. Product token có ưu tiên hơn variant token. Khóa chưa khớp giữ `raw-product:`/`raw-variant:` để vẫn thấy nhu cầu chưa ánh xạ; mapping làm nhân bản event bị chặn.
 
 Percentile native dùng quantile `equiprobable`, tương ứng nearest-rank chính xác; bỏ duration NULL, làm tròn ba chữ số. Tham khảo [Polars quantile](https://docs.pola.rs/api/python/stable/reference/expressions/api/polars.Expr.quantile.html).
 

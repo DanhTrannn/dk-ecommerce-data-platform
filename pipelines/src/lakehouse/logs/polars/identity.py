@@ -13,7 +13,7 @@ def uuid_token(value):
     if value is None:
         return None
     value = bytes(value)
-    return value.hex() if len(value) == 16 else value.decode("utf-8", errors="replace").lower().replace("-", "")
+    return value.hex() if len(value) == 16 else None
 
 
 def resolve(events, products, variants):
