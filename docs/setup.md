@@ -100,7 +100,7 @@ Mở Streamlit tại `http://127.0.0.1:8501`; FastAPI `/docs` tại port 8000 n�
 - Mô phỏng API: khách mới → catalog → giỏ → quote → checkout → hậu kiểm; chưa tự fulfillment/POS/đổi trả.
 - Quản trị quyền: đăng nhập bằng admin/system_admin nguồn, xem và gán/gỡ binding đã hỗ trợ.
 
-Nguồn cần catalog active và tồn kho đủ để runner mua hàng. Không tự replay thao tác ghi có kết quả chưa rõ. Run mô phỏng được ghi dưới `data/generator/scenarios/` để tiếp tục xem sau restart.
+Nguồn cần catalog active và tồn kho đủ để runner mua hàng. Không tự replay thao tác ghi có kết quả chưa rõ. Run mô phỏng được ghi dưới `data/scenarios/` để tiếp tục xem sau restart.
 
 Chạy local thay Docker:
 

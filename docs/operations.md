@@ -31,7 +31,7 @@ Các curl cần service tương ứng đã bật; dùng port override nếu khá
 |---|---|
 | Container platform-app | Structured API log, request ID, lỗi nghiệp vụ/producer |
 | `data/events/dlq_access_logs.jsonl` | Event chưa xác nhận/offline/overload; chưa tự replay |
-| `data/generator/scenarios/` | Scenario/run/attempt, idempotency key, order number và kết quả hậu kiểm |
+| `data/scenarios/` | Scenario/run/attempt, idempotency key, order number và kết quả hậu kiểm |
 | `data/access-admin/audit.jsonl` | Binding management journal/readback và operation ID; không phải tamper-proof audit store |
 | `airflow-logs` | Task logs của các DAG batch/log |
 | `lakehouse.system.data_quality_results` | Chẩn đoán kiểm tra chất lượng; kết quả gắn dataset/run |

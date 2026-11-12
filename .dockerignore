@@ -16,6 +16,8 @@
 data/events
 data/generator
 data/pipeline-runs
+data/scenarios
+data/access-admin
 artifacts
 reports/generated
 ./airflow/logs
