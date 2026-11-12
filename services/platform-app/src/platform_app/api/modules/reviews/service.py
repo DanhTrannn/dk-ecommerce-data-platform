@@ -20,7 +20,7 @@ from platform_app.api.modules.reviews.schemas import CreateReviewRequest, Custom
 
 
 def _utc_now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime.now(UTC)
 
 
 def list_approved_reviews(db: Session, slug: str) -> ReviewListResponse:

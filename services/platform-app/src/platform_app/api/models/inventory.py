@@ -11,7 +11,6 @@ class Inventory(Base):
 
     variant_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("variant_id >= 0", name="variant_id_non_negative"),
         ForeignKey("product_variants.variant_id", ondelete="RESTRICT"),
         primary_key=True,
     )
@@ -25,9 +24,9 @@ class Inventory(Base):
         server_default=text("'0'"),
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 

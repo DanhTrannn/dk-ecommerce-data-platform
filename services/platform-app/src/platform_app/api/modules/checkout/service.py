@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from platform_app.api.common.money import compute_amounts
@@ -20,6 +20,7 @@ from platform_app.api.models.cart import Cart, CartItem
 from platform_app.api.models.catalog import Category, Product, ProductVariant
 from platform_app.api.models.customer import Customer
 from platform_app.api.models.inventory import Inventory
+from platform_app.api.models.multicity import City
 from platform_app.api.models.order import Order, OrderItem, OrderStatusHistory, Payment
 from platform_app.api.models.promotion import CouponRedemption
 from platform_app.api.modules.checkout.allocation import deduct_inventory
@@ -29,7 +30,7 @@ from platform_app.api.modules.coupons.service import CouponUse, resolve_coupon
 
 
 def _utc_now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime.now(UTC)
 
 
 def _result_from_order(order: Order, payment: Payment) -> CheckoutResultResponse:
@@ -228,6 +229,16 @@ def checkout(customer_id: int, idempotency_key: str, payload: CheckoutRequest) -
         history_to_status = "confirmed" if is_cod else "paid"
         history_idempotency_key = f"{idempotency_key[:54]}:conf" if is_cod else f"{idempotency_key[:54]}:paid"
 
+        shipping_city_id = None
+        if payload.shipping_city_code is not None:
+            shipping_city_id = db.execute(
+                select(City.city_id).where(
+                    func.lower(City.code) == payload.shipping_city_code.lower(), City.is_active.is_(True)
+                )
+            ).scalar_one_or_none()
+            if shipping_city_id is None:
+                raise AppError(VALIDATION_ERROR, "Không tìm thấy thành phố giao hàng.", status_code=400)
+
         order = Order(
             order_number=new_order_number(),
             cart_id=cart.cart_id,
@@ -236,7 +247,6 @@ def checkout(customer_id: int, idempotency_key: str, payload: CheckoutRequest) -
             coupon_id=coupon.coupon_id if coupon else None,
             status=order_status,
             payment_method=payload.payment_method,
-            currency_code="VND",
             subtotal_vnd=amounts.subtotal_vnd,
             coupon_code_snapshot=coupon.code_normalized if coupon else None,
             coupon_type_snapshot=coupon.discount_type if coupon else None,
@@ -247,6 +257,7 @@ def checkout(customer_id: int, idempotency_key: str, payload: CheckoutRequest) -
             receiver_name=payload.receiver_name,
             receiver_phone=payload.receiver_phone,
             shipping_address_text=payload.shipping_address_text,
+            shipping_city_id=shipping_city_id,
             data_origin="manual",
             created_at=now,
             paid_at=paid_at,
@@ -256,7 +267,7 @@ def checkout(customer_id: int, idempotency_key: str, payload: CheckoutRequest) -
         db.flush()
 
         allocation_items = [{"variant_id": vid, "quantity": quantities[vid]} for vid in variant_ids]
-        deduct_inventory(db, allocation_items, reference_code=order.order_number)
+        deduct_inventory(db, allocation_items, order_id=order.order_id, reference_code=order.order_number)
         order.channel = "online"
         db.flush()
 
@@ -269,7 +280,6 @@ def checkout(customer_id: int, idempotency_key: str, payload: CheckoutRequest) -
             order_id=order.order_id,
             payment_idempotency_key=f"{idempotency_key}:pay",
             status=payment_status,
-            currency_code="VND",
             amount_vnd=amounts.total_vnd,
             failure_code=None,
             attempted_at=now,

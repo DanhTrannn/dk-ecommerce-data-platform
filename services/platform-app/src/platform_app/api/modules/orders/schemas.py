@@ -88,7 +88,7 @@ class OrderActiveReturnResponse(BaseModel):
 class OrderDetailResponse(BaseModel):
     order_number: str
     status: str
-    currency_code: str
+    currency_code: str = "VND"
     subtotal_vnd: int
     coupon_code: str | None
     discount_amount_vnd: int

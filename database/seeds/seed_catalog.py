@@ -6,7 +6,7 @@ manual catalog + opening balance; historical data is produced by the generator (
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from platform_app.api.core.config import get_settings
 from platform_app.api.core.security import hash_password
@@ -124,8 +124,8 @@ def _seed_coupons(session) -> None:
             discount_type="percentage",
             discount_value=10,
             minimum_subtotal_vnd=100_000,
-            starts_at=datetime(2025, 1, 1),
-            ends_at=datetime(2035, 1, 1),
+            starts_at=datetime(2025, 1, 1, tzinfo=UTC),
+            ends_at=datetime(2035, 1, 1, tzinfo=UTC),
             is_active=True,
             total_usage_limit=10_000,
             per_customer_usage_limit=1,

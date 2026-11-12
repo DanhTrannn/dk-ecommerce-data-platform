@@ -9,6 +9,7 @@ class CheckoutRequest(BaseModel):
     receiver_name: str = Field(min_length=1, max_length=160)
     receiver_phone: str = Field(min_length=1, max_length=32)
     shipping_address_text: str = Field(min_length=1, max_length=1000)
+    shipping_city_code: str | None = Field(default=None, min_length=1, max_length=32)
     payment_method: Literal["vietqr", "cod"] = "vietqr"
     coupon_code: str | None = Field(default=None, max_length=64)
 

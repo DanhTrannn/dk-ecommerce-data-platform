@@ -32,7 +32,7 @@ def create_inbound_receipt(
     payload: CreateInboundReceiptPayload,
     idempotency_key: str,
 ) -> InboundReceiptDetailResponse:
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC)
     receipt_code, digest = _generate_receipt_code(now, idempotency_key)
 
     # Idempotency check: search if any receipt exists with receipt_code like f"INB-%-{digest}"
@@ -122,6 +122,7 @@ def create_inbound_receipt(
                 location_type="central_warehouse",
                 movement_type="inbound",
                 quantity_delta=item.quantity,
+                receipt_id=receipt.receipt_id,
                 reference_code=receipt_code,
                 notes=f"Nhập kho thành phẩm: {payload.batch_name}"[:255],
                 created_at=now,

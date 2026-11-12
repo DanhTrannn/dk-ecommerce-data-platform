@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     text,
+    Integer,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,32 +26,26 @@ class ProductReview(Base):
     review_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("review_id >= 0", name="review_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     public_id: Mapped[UUID] = mapped_column(GUID(), nullable=False)
     order_item_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("order_item_id >= 0", name="order_item_id_non_negative"),
         ForeignKey("order_items.order_item_id", ondelete="RESTRICT"),
         nullable=False,
     )
     customer_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("customer_id >= 0", name="customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         nullable=False,
     )
     product_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("product_id >= 0", name="product_id_non_negative"),
         ForeignKey("products.product_id", ondelete="RESTRICT"),
         nullable=False,
     )
-    rating: Mapped[int] = mapped_column(
-        BigInteger, CheckConstraint("rating <= 4294967295", name="rating_uint32_max"), nullable=False
-    )
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="approved", server_default=text("'approved'")
@@ -58,18 +53,17 @@ class ProductReview(Base):
     moderation_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     moderated_by_customer_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("moderated_by_customer_id >= 0", name="moderated_by_customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         nullable=True,
     )
-    moderated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    moderated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 

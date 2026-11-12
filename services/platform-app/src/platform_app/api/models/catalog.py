@@ -26,14 +26,12 @@ class Category(Base):
     category_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("category_id >= 0", name="category_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     public_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     parent_category_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("parent_category_id >= 0", name="parent_category_id_non_negative"),
         ForeignKey("categories.category_id", ondelete="RESTRICT"),
         nullable=True,
     )
@@ -41,12 +39,12 @@ class Category(Base):
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 
@@ -69,14 +67,12 @@ class Product(Base):
     product_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("product_id >= 0", name="product_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     public_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     category_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("category_id >= 0", name="category_id_non_negative"),
         ForeignKey("categories.category_id", ondelete="RESTRICT"),
         nullable=False,
     )
@@ -85,21 +81,20 @@ class Product(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_by_customer_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("archived_by_customer_id >= 0", name="archived_by_customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         nullable=True,
     )
     archive_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 
@@ -129,14 +124,12 @@ class ProductVariant(Base):
     variant_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("variant_id >= 0", name="variant_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     public_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     product_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("product_id >= 0", name="product_id_non_negative"),
         ForeignKey("products.product_id", ondelete="RESTRICT"),
         nullable=False,
     )
@@ -153,12 +146,12 @@ class ProductVariant(Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 

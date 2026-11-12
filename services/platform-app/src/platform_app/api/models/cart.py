@@ -12,6 +12,7 @@ from sqlalchemy import (
     Index,
     String,
     text,
+    Integer,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,34 +26,31 @@ class Cart(Base):
     cart_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("cart_id >= 0", name="cart_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     public_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     customer_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("customer_id >= 0", name="customer_id_non_negative"),
         ForeignKey("customers.customer_id", ondelete="RESTRICT"),
         nullable=False,
     )
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", server_default=text("'active'"))
     active_customer_guard: Mapped[int | None] = mapped_column(
         BigInteger,
-        CheckConstraint("active_customer_guard >= 0", name="active_customer_guard_non_negative"),
         Computed("(case when status = 'active' then customer_id else null end)", persisted=True),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
-    checked_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    checked_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     items: Mapped[list["CartItem"]] = relationship(back_populates="cart")
 
@@ -71,34 +69,29 @@ class CartItem(Base):
     cart_item_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(),
-        CheckConstraint("cart_item_id >= 0", name="cart_item_id_non_negative"),
         primary_key=True,
         autoincrement=True,
     )
     cart_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("cart_id >= 0", name="cart_id_non_negative"),
         ForeignKey("carts.cart_id", ondelete="RESTRICT"),
         nullable=False,
     )
     variant_id: Mapped[int] = mapped_column(
         BigInteger,
-        CheckConstraint("variant_id >= 0", name="variant_id_non_negative"),
         ForeignKey("product_variants.variant_id", ondelete="RESTRICT"),
         nullable=False,
     )
-    quantity: Mapped[int] = mapped_column(
-        BigInteger, CheckConstraint("quantity <= 4294967295", name="quantity_uint32_max"), nullable=False
-    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     is_present: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     first_added_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False), nullable=False, server_default=text("timezone('UTC', statement_timestamp())")
+        DateTime(timezone=True), nullable=False, server_default=text("statement_timestamp()")
     )
-    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
-        server_default=text("timezone('UTC', statement_timestamp())"),
+        server_default=text("statement_timestamp()"),
         server_onupdate=FetchedValue(),
     )
 

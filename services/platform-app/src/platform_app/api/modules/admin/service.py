@@ -197,7 +197,7 @@ def archive_product(admin_customer_id: int, public_id: str, reason: str) -> None
             raise not_found("Không tìm thấy sản phẩm.")
         if product.archived_at is not None:
             return
-        now = datetime.now(UTC).replace(tzinfo=None)
+        now = datetime.now(UTC)
         product.is_active = False
         product.archived_at = now
         product.archived_by_customer_id = admin_customer_id
@@ -243,7 +243,7 @@ def list_customers(db: Session, email: str) -> list[AdminCustomerResponse]:
     rows = db.execute(
         select(Customer, CustomerCredential.email_normalized)
         .join(CustomerCredential, CustomerCredential.customer_id == Customer.customer_id)
-        .where(func.lower(CustomerCredential.email_normalized) == email.strip().lower())
+        .where(CustomerCredential.email_normalized == email.strip().lower())
         .limit(1)
     ).all()
     return [

@@ -44,7 +44,7 @@ _ORDER_PREVIEW_LIMIT = 3
 
 
 def _utc_now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime.now(UTC)
 
 
 def list_orders(db: Session, customer_id: int, cursor: str | None) -> OrderListResponse:
@@ -229,7 +229,6 @@ def get_order_detail(db: Session, customer_id: int | None, order_number: str) ->
     return OrderDetailResponse(
         order_number=order.order_number,
         status=order.status,
-        currency_code=order.currency_code,
         subtotal_vnd=order.subtotal_vnd,
         coupon_code=order.coupon_code_snapshot,
         discount_amount_vnd=order.discount_amount_vnd,
@@ -558,6 +557,7 @@ def cancel_order(
                     store_id=None,
                     movement_type="order_cancellation",
                     quantity_delta=item.quantity,
+                    order_id=order.order_id,
                     reference_code=order.order_number,
                     notes="Hoàn kho do hủy đơn",
                     created_at=now,
@@ -593,6 +593,7 @@ def cancel_order(
                             store_id=order.store_id,
                             movement_type="order_cancellation",
                             quantity_delta=item.quantity,
+                            order_id=order.order_id,
                             reference_code=order.order_number,
                             notes="Hoàn kho cửa hàng do hủy đơn",
                             created_at=now,
@@ -614,7 +615,6 @@ def cancel_order(
                 payment_id=payment.payment_id,
                 refund_idempotency_key=idempotency_key,
                 status="succeeded",
-                currency_code="VND",
                 amount_vnd=payment.amount_vnd,
                 reason=reason,
                 requested_by_customer_id=actor_customer_id,
@@ -1007,6 +1007,7 @@ def fail_delivery_order(
                         store_id=None,
                         movement_type="return_boom",
                         quantity_delta=item.quantity,
+                        order_id=order.order_id,
                         reference_code=order.order_number,
                         notes="Hoàn kho sau 3 lần giao thất bại",
                         created_at=now,
@@ -1042,6 +1043,7 @@ def fail_delivery_order(
                             store_id=order.store_id,
                             movement_type="return_boom",
                             quantity_delta=item.quantity,
+                            order_id=order.order_id,
                             reference_code=order.order_number,
                             notes="Hoàn kho cửa hàng sau 3 lần giao thất bại",
                             created_at=now,

@@ -86,6 +86,8 @@ def purchase(client, config: PurchaseConfig, attempt, checkpoint, *, csrf_cookie
         name: getattr(config, name)
         for name in ("receiver_name", "receiver_phone", "shipping_address_text", "payment_method")
     }
+    if config.shipping_city_code is not None:
+        payload["shipping_city_code"] = config.shipping_city_code
     result = call("POST", "/checkout", payload, key=attempt["idempotency_key"])
     # Persist the known order before the verification GET; never replay a checkout.
     checkpoint(order_number=result["order_number"], total_vnd=result["total_vnd"], checkout_status=result["status"])

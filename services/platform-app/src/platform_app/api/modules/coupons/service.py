@@ -31,10 +31,9 @@ class CouponUse:
     discount_amount_vnd: int
 
 
-def _utc_naive(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value
-    return value.astimezone(UTC).replace(tzinfo=None)
+def _utc(value: datetime) -> datetime:
+    """Treat naive input as UTC so it compares with timestamptz values."""
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def normalize_coupon_code(code: str) -> str:
@@ -107,7 +106,7 @@ def list_available_coupons(
     if subtotal_vnd <= 0:
         return AvailableCouponListResponse(subtotal_vnd=subtotal_vnd, items=[])
 
-    effective_now = _utc_naive(now or datetime.now(UTC))
+    effective_now = _utc(now or datetime.now(UTC))
     customer_usage_rows = db.execute(
         select(CouponRedemption.coupon_id, func.count())
         .where(
@@ -165,7 +164,7 @@ def list_available_coupons(
                 discount_value=coupon.discount_value,
                 minimum_subtotal_vnd=coupon.minimum_subtotal_vnd,
                 discount_amount_vnd=discount_amount_vnd,
-                ends_at=coupon.ends_at.replace(tzinfo=UTC),
+                ends_at=coupon.ends_at,
                 remaining_uses=remaining_uses,
             )
         )
@@ -210,8 +209,8 @@ def create_coupon(payload: CreateCouponRequest) -> CouponResponse:
             discount_type=payload.discount_type,
             discount_value=payload.discount_value,
             minimum_subtotal_vnd=payload.minimum_subtotal_vnd,
-            starts_at=_utc_naive(payload.starts_at),
-            ends_at=_utc_naive(payload.ends_at),
+            starts_at=_utc(payload.starts_at),
+            ends_at=_utc(payload.ends_at),
             is_active=True,
             total_usage_limit=payload.total_usage_limit,
             per_customer_usage_limit=payload.per_customer_usage_limit,
@@ -246,7 +245,7 @@ def set_coupon_active(public_id: UUID, is_active: bool) -> None:
                 status_code=409,
             )
         coupon.is_active = is_active
-        coupon.updated_at = datetime.now(UTC).replace(tzinfo=None)
+        coupon.updated_at = datetime.now(UTC)
         db.flush()
 
     run_in_transaction(_work)
@@ -261,7 +260,7 @@ def archive_coupon(admin_customer_id: int, public_id: UUID, reason: str) -> None
             raise not_found("Không tìm thấy coupon.")
         if coupon.archived_at is not None:
             return
-        now = datetime.now(UTC).replace(tzinfo=None)
+        now = datetime.now(UTC)
         coupon.is_active = False
         coupon.archived_at = now
         coupon.archived_by_customer_id = admin_customer_id
