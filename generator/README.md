@@ -91,7 +91,7 @@ Local PostgreSQL 16.8 with the Compose defaults, 8 cores, 15 GB RAM:
 | Preset | Result | Wall time | Peak memory | Rows |
 |---|---|---|---|---|
 | `1m` | `verify` 22/22 pass | 210 s (≈ 3.5 min), of which rebuilding 115 indexes and 55 foreign keys takes 73 s; `verify` 26 s | 1.8 GB | 286,016 customers, 1,147,317 orders, 4,218,889 order items, 4,929,285 ledger rows; database 6.9 GB |
-| `10m` | not run with the current load path | — | — | — |
+| `10m` | `verify` 22/22 pass | 3,651 s (≈ 61 min): loading 20 min, rebuilding 115 indexes 27 min and 55 foreign keys 5.5 min; `verify` 16 min | 2.0 GB | 2,860,061 customers, 11,495,069 orders, 42,338,226 order items, 49,073,756 ledger rows; database 67 GB |
 
 Without indexes during the load, equal-sized online batches (≈ 3.9 million rows) load in 10–20 s each and no longer slow down as the tables grow. With every index in place, the same batches took 77 s at first and 184 s by the sixth, the whole `1m` run took 1,126 s, and `10m` was stopped after 10 of 58 online batches because its projection passed 11 hours.
 
