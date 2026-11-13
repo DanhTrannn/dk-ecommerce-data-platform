@@ -29,7 +29,7 @@ def _names(rng: np.random.Generator, count: int, female_rate: float) -> pl.Serie
 
 
 def close_after_activity(customers: pl.DataFrame, activity: pl.DataFrame) -> pl.DataFrame:
-    """Move an inactive customer's closing time (updated_at) past their last activity when that came later.
+    """Move an inactive customer's closing time (updated_at) to their last activity when that came later.
 
     activity has one row per event (customer_id, at): orders and what follows them, carts, wishlist items.
     """

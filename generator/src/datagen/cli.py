@@ -20,6 +20,10 @@ from datagen.verify import ledger, rules
 from datagen.verify.report import render
 
 DATABASE_URL_VARIABLE = "GENERATOR_DATABASE_URL"
+# A rolled-back load leaves no visible row, but its rows still take disk space until the tables are emptied.
+RECLAIM_HINT = (
+    "Mọi dòng đã được hoàn tác nhưng vẫn chiếm đĩa; trước khi chạy lại: 'datagen reset --yes' rồi 'make seed'"
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -43,7 +47,9 @@ def _generate(preset: OltpPreset, connection) -> int:
     started = time.monotonic()
     try:
         counts = generate(preset, connection)
-    except (AlreadyGenerated, ManualOrdersPresent, LoadFailed, SchemaMismatch) as error:
+    except LoadFailed as error:
+        return _fail(f"{error}\n{RECLAIM_HINT}", 1)
+    except (AlreadyGenerated, ManualOrdersPresent, SchemaMismatch) as error:
         return _fail(str(error), 1)
     for table, rows in sorted(counts.items()):
         print(f"{table:<24}{rows:>14,}")
