@@ -1,9 +1,11 @@
 """Orchestrate one generate run: checks, reference data, online and POS batches, inventory, finish.
 
-Batches run one after another in a fixed order; each loads in its own transaction.
+Batches run one after another in a fixed order inside one transaction. Secondary indexes and foreign keys
+are dropped first and rebuilt after the last batch, so loading stays fast as the tables grow.
 """
 
 import time
+from itertools import groupby
 
 import numpy as np
 import polars as pl
@@ -22,13 +24,16 @@ from datagen.oltp.pos import draw_pos_lifecycle, pos_order_counts
 from datagen.oltp.reference import Reference, build_reference
 from datagen.oltp.tables import LOAD_ORDER, conform
 from datagen.postgres import (
+    Rebuild,
     analyze,
+    begin_bulk_load,
     category_ids,
     check_schema,
     copy_tables,
     has_manual_orders,
     has_synthetic_data,
     next_ids,
+    rebuild,
     sync_sequences,
 )
 from datagen.presets import OltpPreset
@@ -43,7 +48,7 @@ class ManualOrdersPresent(Exception):
     pass
 
 
-class BatchFailed(Exception):
+class LoadFailed(Exception):
     pass
 
 
@@ -126,22 +131,51 @@ def _load(connection, tables: dict[str, pl.DataFrame], label: str, counts: dict[
     started = time.monotonic()
     try:
         loaded = copy_tables(connection, tables)
-        connection.commit()
     except psycopg2.Error as error:
-        connection.rollback()
-        raise BatchFailed(f"Lô {label} lỗi: {error}") from error
+        raise LoadFailed(f"Lô {label} lỗi: {error}") from error
     for table, rows in loaded.items():
         counts[table] = counts.get(table, 0) + rows
     log(f"{label}: {sum(loaded.values())} dòng, {time.monotonic() - started:.1f} giây")
 
 
+def _rebuild(connection, rebuilds: list[Rebuild], log) -> None:
+    for kind, group in groupby(rebuilds, key=lambda item: item.kind):
+        started, count = time.monotonic(), 0
+        for item in group:
+            try:
+                rebuild(connection, item)
+            except psycopg2.Error as error:
+                raise LoadFailed(f"Dựng lại {kind} {item.name} lỗi: {error}") from error
+            count += 1
+        log(f"dựng lại {count} {kind}: {time.monotonic() - started:.1f} giây")
+
+
 def generate(preset: OltpPreset, connection, log=print) -> dict[str, int]:
+    """Load the whole history in one transaction: any failure leaves no row behind and every index in place."""
+    try:
+        counts = _load_history(preset, connection, log)
+        connection.commit()
+    except BaseException:
+        if not connection.closed:
+            connection.rollback()
+        raise
+    analyze(connection)
+    connection.commit()
+    return counts
+
+
+def _load_history(preset: OltpPreset, connection, log) -> dict[str, int]:
     check_schema(connection)
     if has_synthetic_data(connection):
         raise AlreadyGenerated("Database đã có dữ liệu sinh; chạy 'datagen reset --yes' trước")
     if has_manual_orders(connection):
         # reset refuses such a database, so loading into it would leave no supported way back.
         raise ManualOrdersPresent("Database có đơn do API tạo; generate chỉ chạy trên database chưa có đơn")
+    try:
+        rebuilds = begin_bulk_load(connection, LOAD_ORDER)
+    except psycopg2.Error as error:
+        raise LoadFailed(f"Gỡ index và ràng buộc lỗi: {error}") from error
+    log(f"gỡ {len(rebuilds)} index và ràng buộc")
     ids = IdAllocator(next_ids(connection))
     timeline = build_timeline(preset)
     counts: dict[str, int] = {}
@@ -183,9 +217,8 @@ def generate(preset: OltpPreset, connection, log=print) -> dict[str, int]:
     tables = inventory_tables(preset, timeline, reference, stream(preset.seed, INVENTORY), ids, pl.concat(demands))
     _load(connection, tables, "kho", counts, log)
     _update_coupons(preset, connection, pl.concat(usages))
+    _rebuild(connection, rebuilds, log)
     sync_sequences(connection)
-    analyze(connection)
-    connection.commit()
     return counts
 
 
@@ -206,7 +239,6 @@ def _update_coupons(preset: OltpPreset, connection, usage: pl.DataFrame) -> None
             usage.rows(),
             template="(%s::bigint, %s::bigint, %s::timestamptz)",
         )
-    connection.commit()
 
 
 def reset(connection) -> None:

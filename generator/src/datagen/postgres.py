@@ -1,6 +1,7 @@
-"""The only module that touches PostgreSQL: schema check, COPY loads and sequence sync."""
+"""The only module that touches PostgreSQL: schema check, bulk-load preparation, COPY loads and sequence sync."""
 
 import io
+from dataclasses import dataclass
 
 import polars as pl
 import psycopg2
@@ -8,8 +9,50 @@ import psycopg2
 from datagen.oltp.tables import ID_COLUMNS, LOAD_ORDER, SCHEMAS
 
 
+UNIQUE = "ràng buộc unique"
+INDEX = "index"
+FOREIGN_KEY = "khóa ngoại"
+LOCK_TIMEOUT = "10s"  # fail fast when another session holds a table, instead of waiting silently
+MAINTENANCE_WORK_MEM = "1GB"  # sort memory for rebuilding the indexes after the load
+
+# Primary keys, CHECK and NOT NULL stay: they are cheap per row and catch a bad batch while it loads.
+_DROPPABLE = """
+    SELECT kind, name, drop_statement, create_statement
+    FROM (
+        SELECT 1 AS step, %(foreign_key)s AS kind, conname::text AS name,
+               format('ALTER TABLE %%s DROP CONSTRAINT %%I', conrelid::regclass, conname) AS drop_statement,
+               format('ALTER TABLE %%s ADD CONSTRAINT %%I %%s', conrelid::regclass, conname,
+                      pg_get_constraintdef(oid)) AS create_statement
+        FROM pg_constraint
+        WHERE contype = 'f' AND conrelid = ANY(%(tables)s::regclass[])
+        UNION ALL
+        SELECT 2, %(unique)s, conname::text,
+               format('ALTER TABLE %%s DROP CONSTRAINT %%I', conrelid::regclass, conname),
+               format('ALTER TABLE %%s ADD CONSTRAINT %%I %%s', conrelid::regclass, conname, pg_get_constraintdef(oid))
+        FROM pg_constraint
+        WHERE contype = 'u' AND conrelid = ANY(%(tables)s::regclass[])
+        UNION ALL
+        SELECT 3, %(index)s, indexrelid::regclass::text,
+               format('DROP INDEX %%s', indexrelid::regclass),
+               pg_get_indexdef(indexrelid)
+        FROM pg_index i
+        WHERE indrelid = ANY(%(tables)s::regclass[])
+          AND NOT EXISTS (
+              SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid AND c.contype IN ('p', 'u')
+          )
+    ) droppable
+    ORDER BY step, name"""
+
+
 class SchemaMismatch(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class Rebuild:
+    kind: str
+    name: str
+    statement: str
 
 
 def connect(url: str):
@@ -67,6 +110,29 @@ def category_ids(connection) -> dict[str, int]:
     with connection.cursor() as cursor:
         cursor.execute("SELECT lower(code), category_id FROM categories")
         return dict(cursor.fetchall())
+
+
+def begin_bulk_load(connection, tables) -> list[Rebuild]:
+    """Drop the foreign keys, unique constraints and secondary indexes of tables inside the open transaction.
+
+    Returns the statements that recreate them from the live catalog, foreign keys last because each one
+    needs the index of the key it references. A rollback brings every dropped object back.
+    """
+    names = [f"public.{table}" for table in tables]
+    with connection.cursor() as cursor:
+        cursor.execute(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'")
+        cursor.execute(f"SET LOCAL maintenance_work_mem = '{MAINTENANCE_WORK_MEM}'")
+        cursor.execute(_DROPPABLE, {"tables": names, "foreign_key": FOREIGN_KEY, "unique": UNIQUE, "index": INDEX})
+        rows = cursor.fetchall()
+        for _, _, drop_statement, _ in rows:
+            cursor.execute(drop_statement)
+    rebuilds = [Rebuild(kind, name, create_statement) for kind, name, _, create_statement in rows]
+    return sorted(rebuilds, key=lambda item: item.kind == FOREIGN_KEY)
+
+
+def rebuild(connection, item: Rebuild) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(item.statement)
 
 
 def _csv(frame: pl.DataFrame) -> io.BytesIO:

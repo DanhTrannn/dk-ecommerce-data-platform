@@ -8,7 +8,7 @@ import time
 from datagen.oltp.run import (
     RESET_TABLES,
     AlreadyGenerated,
-    BatchFailed,
+    LoadFailed,
     ManualOrdersPresent,
     ResetRefused,
     generate,
@@ -43,7 +43,7 @@ def _generate(preset: OltpPreset, connection) -> int:
     started = time.monotonic()
     try:
         counts = generate(preset, connection)
-    except (AlreadyGenerated, ManualOrdersPresent, BatchFailed, SchemaMismatch) as error:
+    except (AlreadyGenerated, ManualOrdersPresent, LoadFailed, SchemaMismatch) as error:
         return _fail(str(error), 1)
     for table, rows in sorted(counts.items()):
         print(f"{table:<24}{rows:>14,}")
