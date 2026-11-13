@@ -12,7 +12,7 @@ import polars as pl
 import psycopg2
 from psycopg2.extras import execute_values
 
-from datagen.oltp.customers import generate_customers
+from datagen.oltp.customers import close_after_activity, generate_customers
 from datagen.oltp.engagement import cart_tables, wishlist_table
 from datagen.oltp.fulfilment import cancellation_refunds, return_tables, review_table, shipment_tables
 from datagen.oltp.inventory import demand_of, inventory_tables
@@ -84,6 +84,13 @@ def online_batch(
         .join(order_cart, on="order_id", how="left", maintain_order="left")
         .select(tables["orders"].columns)
     )
+    activity = pl.concat(
+        [
+            frame.select("customer_id", pl.col("updated_at").alias("at"))
+            for frame in (lifecycle, tables["carts"], tables["wishlist_items"])
+        ]
+    )
+    customers = close_after_activity(customers, activity)
     cod = customer_cod_stats(preset, lifecycle)
     tables["customers"] = conform(
         "customers",

@@ -28,6 +28,23 @@ def _names(rng: np.random.Generator, count: int, female_rate: float) -> pl.Serie
     return parts.select(pl.concat_str("family", "middle", "given", separator=" ")).to_series()
 
 
+def close_after_activity(customers: pl.DataFrame, activity: pl.DataFrame) -> pl.DataFrame:
+    """Move an inactive customer's closing time (updated_at) past their last activity when that came later.
+
+    activity has one row per event (customer_id, at): orders and what follows them, carts, wishlist items.
+    """
+    last = activity.group_by("customer_id").agg(pl.col("at").max().alias("last_activity"))
+    return (
+        customers.join(last, on="customer_id", how="left", maintain_order="left")
+        .with_columns(
+            updated_at=pl.when(pl.col("status") == "inactive")
+            .then(pl.max_horizontal("updated_at", "last_activity"))
+            .otherwise(pl.col("updated_at"))
+        )
+        .drop("last_activity")
+    )
+
+
 def generate_customers(
     preset: OltpPreset, reference: Reference, rng: np.random.Generator, ids: IdAllocator, batch: CustomerBatch
 ) -> pl.DataFrame:

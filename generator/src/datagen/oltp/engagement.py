@@ -66,7 +66,8 @@ def cart_tables(
         pl.col("created_at").alias("updated_at"),
     )
 
-    owners = customers.filter(pl.Series(rng.random(customers.height) < policy.active_cart_rate))
+    draws_cart = pl.Series(rng.random(customers.height) < policy.active_cart_rate)
+    owners = customers.filter(draws_cart & (pl.col("status") == "active"))
     count = owners.height
     anchor = utc_micros(preset.anchor_time)
     stale = rng.random(count) < policy.stale_rate
@@ -181,9 +182,13 @@ def wishlist_table(
             others.with_columns(first=pl.Series(other_first), last=pl.Series(other_last)),
         ]
     ).sort("customer_id", "product_id")
+    joined = rows.select("customer_id").join(
+        customers.select("customer_id", _micros("created_at").alias("joined")), on="customer_id", maintain_order="left"
+    )
     count = rows.height
-    first = rows["first"].to_numpy()
-    last = np.minimum(rows["last"].to_numpy(), anchor)
+    # Nothing is added before the account exists, as for checked-out carts.
+    first = np.maximum(rows["first"].to_numpy(), joined["joined"].to_numpy())
+    last = np.minimum(np.maximum(rows["last"].to_numpy(), first), anchor)
     removed = rng.random(count) < policy.removal_rate
     removed_at = np.minimum(last + _uniform(rng, policy.removed_after_days, count) * MICROS_PER_DAY, anchor)
     removed_series = utc_series("removed_at", removed_at)
