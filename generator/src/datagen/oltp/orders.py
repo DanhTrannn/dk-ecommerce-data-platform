@@ -19,7 +19,8 @@ MAX_REDRAW_ROUNDS = 10
 
 
 def _group_starts(sizes: np.ndarray) -> np.ndarray:
-    return np.concatenate([[0], np.cumsum(sizes)[:-1]])
+    """Index of the first element of each group; empty when there are no groups."""
+    return np.cumsum(sizes) - sizes
 
 
 def _sale_events_by_day(preset: OltpPreset, timeline: Timeline) -> pl.Series:
