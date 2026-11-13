@@ -62,8 +62,9 @@ def draw_pos_lifecycle(
     else:
         member = rng.choice(city_customers, size=order_count)
     staff = reference.store_staff.filter(pl.col("store_id") == store_id)["customer_id"].to_numpy()
-    methods = list(pos.payment_methods)
-    method_weights = np.array([pos.payment_methods[m] for m in methods], dtype=np.float64)
+    weights_by_method = pos.payment_methods.model_dump()
+    methods = list(weights_by_method)
+    method_weights = np.array(list(weights_by_method.values()), dtype=np.float64)
     store = reference.stores.filter(pl.col("store_id") == store_id)
 
     orders = pl.DataFrame(

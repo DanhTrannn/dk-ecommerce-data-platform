@@ -6,24 +6,13 @@ from datetime import timedelta
 import numpy as np
 import polars as pl
 
+from datagen.catalog import CATEGORY_NAMES, COLORS, SIZES
 from datagen.distributions import split_by_shares
 from datagen.oltp.plan import IdAllocator
 from datagen.oltp.tables import conform
 from datagen.presets import OltpPreset
 from datagen.randomness import uuid4_strings
 
-CATEGORY_NAMES = {
-    "ao": "Áo",
-    "quan": "Quần",
-    "dam": "Đầm",
-    "khoac": "Áo khoác",
-    "vay": "Váy",
-    "giay": "Giày",
-    "phu-kien": "Phụ kiện",
-    "tui-xach": "Túi xách",
-}
-SIZES = ("S", "M", "L", "XL")
-COLORS = ("black", "white", "navy", "beige", "red", "green", "pink", "grey")
 ARCHIVE_REASON = "Ngừng kinh doanh"
 
 

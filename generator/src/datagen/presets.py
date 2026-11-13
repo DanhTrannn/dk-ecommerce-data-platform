@@ -11,6 +11,8 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from datagen.catalog import CATEGORY_NAMES, SIZES
+
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "oltp" / "configs"
 SHARE_TOLERANCE = 1e-6
 
@@ -96,7 +98,8 @@ class ProductRules(Strict):
     popularity: Popularity
     categories: dict[str, CategoryShare]
     price_independent_of_popularity: bool
-    variants_per_product: Positive
+    # An exchange swaps to another variant of the same product, and each variant is one catalog size.
+    variants_per_product: Annotated[int, Field(ge=2, le=len(SIZES))]
     price_bands: PriceBands
 
     @field_validator("categories", mode="before")
@@ -104,6 +107,14 @@ class ProductRules(Strict):
     def _drop_source_label(cls, value):
         # The YAML block carries its provenance label next to the category codes.
         return {code: rule for code, rule in value.items() if code != "source"}
+
+    @field_validator("categories")
+    @classmethod
+    def _known_codes(cls, value):
+        unknown = sorted(set(value) - set(CATEGORY_NAMES))
+        if unknown:
+            raise ValueError(f"unknown category codes {unknown}; known: {sorted(CATEGORY_NAMES)}")
+        return value
 
     @field_validator("categories")
     @classmethod
@@ -246,11 +257,25 @@ def _within_day(hours):
     return hours
 
 
+class PosPaymentMethods(Strict):
+    """Relative weights of the counter payment methods; a method nobody uses gets 0."""
+
+    cash: NonNegative
+    card: NonNegative
+    vietqr: NonNegative
+
+    @model_validator(mode="after")
+    def _some_weight(self):
+        if self.cash + self.card + self.vietqr == 0:
+            raise ValueError("payment_methods needs at least one positive weight")
+        return self
+
+
 class Pos(Strict):
     source: Source
     orders_per_online_order: Annotated[float, Field(ge=0)]
     walk_in_rate: Rate
-    payment_methods: dict[Literal["cash", "card", "vietqr"], NonNegative]
+    payment_methods: PosPaymentMethods
     opening_hours: Annotated[IntRange, AfterValidator(_within_day)]
     staff_per_store: Positive
 

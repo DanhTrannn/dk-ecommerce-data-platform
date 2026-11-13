@@ -108,7 +108,7 @@ def expectations(preset: OltpPreset) -> dict[str, float]:
         "r06.on_time_five_star_share": five_star[4] / sum(five_star),
         "pos.orders_per_online_order": pos.orders_per_online_order,
         "pos.walk_in_rate": pos.walk_in_rate,
-        "pos.cash_share": pos.payment_methods["cash"] / sum(pos.payment_methods.values()),
+        "pos.cash_share": pos.payment_methods.cash / sum(pos.payment_methods.model_dump().values()),
         "location.largest_city_customer_share": max(city.share for city in preset.locations.cities),
     }
 
