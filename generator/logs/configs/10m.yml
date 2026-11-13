@@ -1,8 +1,19 @@
-# Quy luật hành vi duyệt web cho log tổng hợp; không phụ thuộc preset quy mô (small/10m/50m).
+# Quy luật hành vi duyệt web cho log tổng hợp, preset 10m (đi cùng generator/oltp/configs/10m.yml).
 # Nguồn: notebooks/browsing_behavior_eda.ipynb (mục §), eCommerce Behavior 2–31/10/2019, tham số theo nhóm apparel.
 #   transfer   = đo ở một cửa hàng đa ngành ở Nga, áp sang shop thời trang Việt Nam như giả định chuyển nguồn
 #   assumption = tham số kịch bản, không đo trong notebook
-schema_version: 1
+# Lượng log KHÔNG phải đầu vào: phiên có mua = đơn OLTP trong cửa sổ, các phiên khác suy ra từ quy luật bên dưới.
+# Ba preset dùng chung quy luật, chỉ khác scenario_id và oltp_scenario_id.
+#
+# Ước lượng cho cửa sổ 30 ngày cuối (06/2026, không có ngày sale/Tết): đơn 12 tháng × 30/399,07 ngày-trọng-số,
+# request/phiên ≈ 17,35 (có mua) và 5,79 (không mua); chưa tính đăng ký/đăng nhập.
+#   phiên có mua    ≈ 751.748
+#   phiên không mua ≈ 31.114.842
+#   request         ≈ 193.197.760 (≈ 6.439.925/ngày)
+schema_version: 2
+scenario_id: 10m-fashion-logs-v1
+oltp_scenario_id: 10m-fashion-v2  # chỉ sinh trên dữ liệu OLTP tạo từ preset này
+seed: 20260725  # assumption: khác seed OLTP để log không dùng chung chuỗi ngẫu nhiên với đơn
 window_days: 30  # assumption: log lịch sử phủ 30 ngày cuối của lịch sử OLTP
 
 sessions:

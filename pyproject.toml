@@ -9,6 +9,7 @@ package = false
 
 [tool.uv.workspace]
 members = [
+  "generator",
   "pipelines",
   "services/platform-app",
 ]

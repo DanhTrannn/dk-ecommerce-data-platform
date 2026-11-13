@@ -13,6 +13,7 @@ resolution-markers = [
 [manifest]
 members = [
     "batch-pipeline",
+    "data-generator",
     "lakehouse-workspace",
     "platform-app",
 ]
@@ -455,6 +456,27 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e1/d0/c0a1374db3afad0f9dfe6c795e5df102af03d49ad5e6e8502fb09eb88110/daff-1.4.2.tar.gz", hash = "sha256:47f0391eda7e2b5011f7ccac006b9178accb465bcb94a2c9f284257fff5d2686", size = 148251, upload-time = "2025-05-04T19:24:11.521Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/29/fe/d54a874e8d7b88bc03c459f63a993305db50039b734fab751a0466dabfc1/daff-1.4.2-py3-none-any.whl", hash = "sha256:88981a21d065e4378b5c4bd40b975dbfdea9b7ff540071f3bb5e20cc8b3590b5", size = 144922, upload-time = "2025-05-04T19:24:09.999Z" },
+]
+
+[[package]]
+name = "data-generator"
+version = "0.1.0"
+source = { editable = "generator" }
+dependencies = [
+    { name = "numpy" },
+    { name = "polars" },
+    { name = "psycopg2-binary" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = "==2.4.6" },
+    { name = "polars", specifier = "==2.1.0" },
+    { name = "psycopg2-binary", specifier = "==2.9.10" },
+    { name = "pydantic", specifier = "==2.11.7" },
+    { name = "pyyaml", specifier = "==6.0.2" },
 ]
 
 [[package]]

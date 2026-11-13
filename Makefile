@@ -1,4 +1,4 @@
-.PHONY: all up start build down stop restart ps logs status seed source-reader provision-minio provision-polaris provision-lakehouse typecheck help superset-db superset-init superset-sync
+.PHONY: all up start build down stop restart ps logs status seed generate generate-verify source-reader provision-minio provision-polaris provision-lakehouse typecheck help superset-db superset-init superset-sync
 
 PROFILES ?= core
 export COMPOSE_PROFILES := $(PROFILES)
@@ -16,6 +16,8 @@ help:
 	@echo "  make provision-lakehouse        Initialize missing MinIO/Polaris resources explicitly"
 	@echo "  make source-reader             Configure the dedicated PostgreSQL batch reader"
 	@echo "  make seed                      Run source seeds (business schema required)"
+	@echo "  make generate PRESET=1m        Load synthetic OLTP history (GENERATOR_DATABASE_URL)"
+	@echo "  make generate-verify PRESET=1m Compare generated data with the preset rules"
 	@echo "  make superset-db               Create dedicated Superset metadata storage"
 	@echo "  make superset-init             Initialize BI metadata and first admin explicitly"
 	@echo "  make superset-sync             Create a sales dashboard pinned to a publication"
@@ -50,6 +52,12 @@ logs:
 
 seed:
 	@uv run --locked --package platform-app -- python -m database.seeds.seed_catalog
+
+generate: .env
+	@uv run --locked --env-file .env --package data-generator -- datagen generate --preset $(PRESET)
+
+generate-verify: .env
+	@uv run --locked --env-file .env --package data-generator -- datagen verify --preset $(PRESET)
 
 source-reader:
 	@docker compose exec -T postgres sh /opt/project/configure-source-reader.sh

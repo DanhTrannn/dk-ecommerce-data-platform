@@ -86,7 +86,14 @@ make seed
 
 Seed đọc `API_DATABASE_URL` và `API_SECRET_KEY` trong môi trường host; URL phải tới PostgreSQL qua port host và dùng owner nguồn. Seed bổ sung catalog/admin còn thiếu và giữ record/credential đã có; **không tạo `cities`/`stores`**.
 
-Hiện chưa có công cụ sinh hoặc nạp dữ liệu lịch sử: package `data-generator`, importer `import_dataset` và chức năng sinh/nạp trên Streamlit đã bị gỡ. Generator mới sẽ đọc preset trong `generator/oltp/configs/` và `generator/logs/configs/`; xem [generator](../generator/README.md).
+Nạp 12 tháng lịch sử tổng hợp (khách, đơn online/POS, giao vận, trả hàng, sổ kho, kèm `cities`/`stores`) sau khi seed. Lệnh đọc `GENERATOR_DATABASE_URL` trong `.env` và chỉ cần PostgreSQL:
+
+```bash
+make generate PRESET=1m          # nạp một lần; từ chối nếu đã có dữ liệu sinh
+make generate-verify PRESET=1m   # chỉ đọc; mã lỗi khác 0 nếu có kiểm tra không đạt
+```
+
+Muốn nạp lại: `uv run --locked --env-file .env --package data-generator -- datagen reset --yes` (xóa trắng 28 bảng nguồn, từ chối nếu có đơn do API tạo), rồi `make seed` và `make generate`. Preset, kiểm tra và số đo: [generator](../generator/README.md).
 
 ### API và Streamlit
 
