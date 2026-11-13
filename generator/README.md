@@ -58,7 +58,7 @@ make generate-verify PRESET=1m   # datagen verify --preset 1m
 uv run --locked --env-file .env --package data-generator -- datagen reset --yes
 ```
 
-- `generate` is a one-time history load. It checks the live schema against its own column list, refuses to run when synthetic rows or API-created orders already exist, and loads batch by batch with `COPY`; every batch is one transaction, so a failed batch leaves none of its rows. Rows carry `data_origin = 'synthetic'` and `generation_run_id = <scenario_id>:<seed>`. The same preset and seed give the same rows.
+- `generate` is a one-time history load. It checks the live schema against its own column list, refuses to run when synthetic rows or API-created orders already exist, and loads batch by batch with `COPY`, all in one transaction. Before the first batch it drops the foreign keys, unique constraints and secondary indexes of the loaded tables (primary keys, CHECK and NOT NULL stay) and rebuilds them from the live catalog after the last one. Any failure rolls back the whole run: no row remains and every index and constraint is back, so a failed run needs no `reset`. The 28 tables stay locked until the run commits, so the API, Streamlit and source readers wait. Rows carry `data_origin = 'synthetic'` and `generation_run_id = <scenario_id>:<seed>`. The same preset and seed give the same rows.
 - `verify` only reads. It prints expected value, measured value, tolerance and verdict for each check and exits non-zero when a check fails.
 - `reset --yes` truncates all 28 source tables, including the seed, so run `make seed` again afterwards. It refuses when the database holds orders created through the API (`data_origin = 'manual'`).
 
@@ -90,10 +90,10 @@ Local PostgreSQL 16.8 with the Compose defaults, 8 cores, 15 GB RAM:
 
 | Preset | Result | Wall time | Peak memory | Rows |
 |---|---|---|---|---|
-| `1m` | `verify` 22/22 pass | 1,126 s (≈ 19 min); `verify` 24 s | 1.8 GB | 286,016 customers, 1,147,317 orders, 4,218,889 order items, 4,929,285 ledger rows; database 7.6 GB |
-| `10m` | not completed | stopped after 10 of 58 online batches (31 min) | — | — |
+| `1m` | `verify` 22/22 pass | 210 s (≈ 3.5 min), of which rebuilding 115 indexes and 55 foreign keys takes 73 s; `verify` 26 s | 1.8 GB | 286,016 customers, 1,147,317 orders, 4,218,889 order items, 4,929,285 ledger rows; database 6.9 GB |
+| `10m` | not run with the current load path | — | — | — |
 
-About 96% of the 1m run is PostgreSQL loading the `COPY` data; generating the rows takes under a minute. Load time grows as the tables and their indexes grow: equal-sized online batches (≈ 3.9 million rows) took 77 s at first and 184 s by the sixth in `1m`, and 291 s by the tenth in `10m`. Projected linearly, the online part of `10m` alone needs about 11 hours, so `10m` and `50m` are not practical with the current load path. A larger `max_wal_size` and `shared_buffers` did not change the first five batch times.
+Without indexes during the load, equal-sized online batches (≈ 3.9 million rows) load in 10–20 s each and no longer slow down as the tables grow. With every index in place, the same batches took 77 s at first and 184 s by the sixth, the whole `1m` run took 1,126 s, and `10m` was stopped after 10 of 58 online batches because its projection passed 11 hours.
 
 ## Access-log rules
 
