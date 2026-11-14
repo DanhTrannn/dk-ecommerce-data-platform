@@ -9,7 +9,7 @@ Cập nhật theo codebase ngày **11/11/2026**. Các kết quả nghiệm thu �
 | Phần | Đã triển khai | Giới hạn hiện tại |
 |---|---|---|
 | Nguồn nghiệp vụ | FastAPI + PostgreSQL; catalog, tài khoản, giỏ, checkout, POS, tồn kho, giao vận, đổi trả, review | Có API không đồng nghĩa Streamlit đã tự động hóa mọi nghiệp vụ |
-| Generator | Notebook EDA và preset YAML: OLTP `1m`/`10m`/`50m` (R01–R06), access log (L1–L3) | Lệnh `datagen` nạp một lần 12 tháng lịch sử OLTP vào PostgreSQL và tự kiểm tra (`verify`); log truy cập tổng hợp chưa có generator |
+| Generator | Notebook EDA và preset YAML: OLTP `1m`/`10m`/`50m` (R01–R06), access log (L1–L4) | Lệnh `datagen` nạp một lần 12 tháng lịch sử OLTP vào PostgreSQL và tự kiểm tra (`verify`); `datagen logs` ghi lịch sử log truy cập mùa sale ra file Parquet theo ngày |
 | Streamlit | Platform Console: runner mua online qua API, quản trị binding quyền | Runner hiện mỗi lượt một khách mới/một SKU; chưa có fulfillment/POS/đổi trả tự động |
 | Batch | PostgreSQL (psycopg2, theo trang) → Bronze → Silver → Gold/mart → quality gate → publication | Cần chạy init trước; batch interval không tự backfill mọi lịch sử |
 | Access log | API → Kafka → Flink Landing; batch native xử lý Bronze/Silver/fact, dbt dựng ba mart, publication riêng | Producer opt-in; DLQ chưa tự replay; Landing và mart có độ mới khác nhau |
@@ -23,7 +23,7 @@ Không có marketplace đa người bán, thu thập dữ liệu đối thủ ho
 | Component | Vai trò | Mã nguồn/cấu hình chính |
 |---|---|---|
 | `platform-app` | Một container, hai process FastAPI/Streamlit; khi một process dừng thì container đóng process còn lại | [Dockerfile](../services/platform-app/Dockerfile), [package](../services/platform-app/src/platform_app/) |
-| Generator | Quy luật, preset và lệnh `datagen` sinh lịch sử OLTP tổng hợp | [generator](../generator/), [OLTP presets](../generator/oltp/configs/), [log rules](../generator/logs/configs/) |
+| Generator | Quy luật, preset và lệnh `datagen` sinh lịch sử OLTP và log truy cập tổng hợp | [generator](../generator/), [OLTP presets](../generator/oltp/configs/), [log rules](../generator/logs/configs/) |
 | PostgreSQL 16.8 | OLTP `ecommerce`; metadata `airflow`, `polaris`; metadata `superset` được tạo riêng khi bật BI | [schema](../database/schema.sql), [scripts](../infrastructure/postgres/) |
 | MinIO | Object storage cho staging và dữ liệu/metadata Iceberg | [provisioning/policy](../infrastructure/minio/) |
 | Polaris 1.8.0 | Iceberg REST catalog, namespace và quyền principal/catalog | [RBAC](../infrastructure/polaris/rbac.yml) |

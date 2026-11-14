@@ -6,7 +6,7 @@ Cập nhật theo codebase ngày **11/11/2026**. Nguồn định nghĩa chính l
 
 | Nguồn | Đầu vào | Định danh và giới hạn |
 |---|---|---|
-| Generator OLTP (`datagen`) | Preset `generator/oltp/configs/*.yml` | Nạp một lần 12 tháng lịch sử; mọi dòng khách/đơn mang `data_origin=synthetic`, `generation_run_id=<scenario_id>:<seed>`. Preset log `generator/logs/configs/*.yml` chưa có generator đọc |
+| Generator OLTP (`datagen`) | Preset `generator/oltp/configs/*.yml` | Nạp một lần 12 tháng lịch sử; mọi dòng khách/đơn mang `data_origin=synthetic`, `generation_run_id=<scenario_id>:<seed>`. `datagen logs` đọc preset log `generator/logs/configs/*.yml` và ghi log truy cập mùa sale ra Parquet (`data_origin="synthetic"`) |
 | API nghiệp vụ | Cart/checkout/POS, kho, giao vận, review, hoàn tiền… | Giữ lineage API hiện có `manual`/`generation_run_id=NULL`; journal scenario không tự biến thành lineage nguồn |
 | HTTP log | Request thực nhận bởi middleware | ID server 32 ký tự hex, `data_origin=observed`; không đồng nhất với khách thật/session |
 | Public dataset nghiên cứu | Notebook EDA (H&M, Olist, eCommerce Behavior) → preset YAML | Chưa có runtime đọc preset; khảo sát Việt Nam chỉ để đối chiếu |
@@ -172,7 +172,7 @@ Gold gate kiểm tra count/tiền/key/reference/lineage/PII và parity item → 
 
 ## 7. Dữ liệu sinh và căn cứ
 
-Lệnh `datagen` trong [generator](../generator/README.md) nạp 12 tháng lịch sử OLTP tổng hợp vào PostgreSQL theo preset (`make generate PRESET=1m`), và `make generate-verify PRESET=1m` đối chiếu dữ liệu đã nạp với quy luật của preset (sổ kho, R01–R06, tỷ lệ kịch bản, POS, địa điểm). Log truy cập tổng hợp chưa có generator; preset log chỉ là tham số. Mỗi khối YAML ghi `source`: `measured` (đo trong notebook), `transfer` (đo ở nguồn nước ngoài, áp cho shop thời trang VN như giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản). YAML là danh mục tham số chính thức; tài liệu này không chép lại giá trị.
+Lệnh `datagen` trong [generator](../generator/README.md) nạp 12 tháng lịch sử OLTP tổng hợp vào PostgreSQL theo preset (`make generate PRESET=1m`), và `make generate-verify PRESET=1m` đối chiếu dữ liệu đã nạp với quy luật của preset (sổ kho, R01–R06, tỷ lệ kịch bản, POS, địa điểm). `datagen logs --preset 1m --out <thư mục>` sinh log truy cập 01/11–15/12/2025 khớp với đơn online đã nạp: mỗi đơn một phiên kết thúc bằng `checkout_submit` mang `order_number`, ghi mỗi ngày một file Parquet (`raw_payload`, `event_at`) theo hợp đồng `ecommerce.access` 1.1.0. Mỗi khối YAML ghi `source`: `measured` (đo trong notebook), `transfer` (đo ở nguồn nước ngoài, áp cho shop thời trang VN như giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản). YAML là danh mục tham số chính thức; tài liệu này không chép lại giá trị.
 
 ### Preset OLTP
 
@@ -193,15 +193,16 @@ Khoảng giá, số ngày giao, tỷ lệ hủy/COD/trả hàng, coupon, Tết, 
 
 ### Quy luật access log
 
-[`generator/logs/configs/`](../generator/logs/configs/) có `1m.yml`, `10m.yml`, `50m.yml` (cùng quy luật, mỗi file đi kèm preset OLTP cùng tên), đo trong [browsing_behavior_eda.ipynb](../generator/logs/notebooks/browsing_behavior_eda.ipynb) trên eCommerce Behavior (2–31/10/2019, phiên `apparel`):
+[`generator/logs/configs/`](../generator/logs/configs/) có `1m.yml`, `10m.yml`, `50m.yml` (cùng quy luật, mỗi file đi kèm preset OLTP cùng tên), đo trong [browsing_behavior_eda.ipynb](../generator/logs/notebooks/browsing_behavior_eda.ipynb) trên eCommerce Behavior (phiên `apparel`; L1–L3 tháng 10/2019, L4 tháng 11/2019):
 
 | Mã | Hành vi | Quy luật | Nhãn |
 |---|---|---|---|
 | L1 | Lưu lượng | Phiên không mua = 41,39 × phiên có mua (khoảng hợp lý 31–52) | transfer |
 | L2 | Lượt xem mỗi phiên | Có mua: hình học p = 0,1044; không mua: log-series θ = 0,9239 | transfer |
 | L3 | Nhịp request | Log-normal, trung vị 36,2 giây, σ = 0,938 | transfer |
+| L4 | Chuyển đổi ngày sale | Ngày sự kiện sale, r × 0,35 (ngày đông nhất 17/11/2019: r = 16,2 so với trung vị 45,9; một đợt sale duy nhất) | transfer |
 
-Giỏ bỏ dở, trọng số lượt xem sản phẩm, các bước request phụ, tỷ lệ khách ẩn danh và lưu lượng ngày sale là `assumption`. Hợp đồng log không có session id nên hành trình nhiều phiên không được mô hình hóa.
+Tỷ lệ phiên không mua thêm giỏ, trọng số lượt xem sản phẩm, các bước request phụ và việc lưu lượng ngày sale bám theo đơn là `assumption`. Hành trình nhiều phiên (xem hôm nay, mua vài ngày sau) không được mô hình hóa.
 
 Các con số trên mô tả dữ liệu nguồn công khai và giả định, **không** chứng nhận tính đại diện cho shop Việt Nam.
 

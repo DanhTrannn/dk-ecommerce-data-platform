@@ -6,7 +6,7 @@
 # Ba preset dùng chung quy luật, chỉ khác scenario_id và oltp_scenario_id.
 #
 # Lượng log đo ở lần chạy 1m (01/11–15/12/2025, 45 ngày): 206.632 phiên có mua, 7.147.494 phiên không mua,
-#   45.083.918 request, 2,4 GB Parquet, 195 giây.
+#   45.083.918 request, 2,4 GB Parquet, 86 giây, RAM đỉnh 2,9 GB.
 schema_version: 3
 scenario_id: 1m-fashion-logs-v1
 oltp_scenario_id: 1m-fashion-v2  # chỉ sinh trên dữ liệu OLTP tạo từ preset này
