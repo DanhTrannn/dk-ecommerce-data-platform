@@ -35,6 +35,11 @@ def atomic_private(path, content, uid=None, gid=None):
             if uid is not None:
                 os.fchown(output.fileno(), uid, gid)
         os.replace(temporary, path)
+        directory_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         if temporary and temporary.exists():
             temporary.unlink()

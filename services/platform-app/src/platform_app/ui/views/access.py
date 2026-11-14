@@ -2,6 +2,7 @@
 
 import streamlit as st
 
+from platform_app.ui.views import access_create, access_manage, access_workloads
 from platform_app.ui.access_client import AccessSession, AccessUIError, AccessUISettings
 
 SESSION = "access_admin_session"
@@ -11,7 +12,14 @@ def _clear():
     session = st.session_state.pop(SESSION, None)
     if session:
         session.close()
-    for key in ("access_polaris", "access_minio", "access_identity"):
+    for key in (
+        "access_polaris",
+        "access_minio",
+        "access_identity",
+        "access_created_credentials",
+        "access_policy_preview",
+        "access_workload_state",
+    ):
         st.session_state.pop(key, None)
 
 
@@ -35,7 +43,7 @@ def _login():
         st.session_state["access_password"] = ""
 
 
-def _apply(provider, kind, subject, target, granted, state):
+def _apply(provider, kind, subject, target, granted, state, *, scope="catalog", namespace=None, table=None):
     try:
         result = st.session_state[SESSION].request(
             "POST",
@@ -46,6 +54,9 @@ def _apply(provider, kind, subject, target, granted, state):
                 "target": target,
                 "granted": granted,
                 "revision": state["revision"],
+                "scope": scope,
+                "namespace": namespace or [],
+                "table": table,
             },
         )
         st.session_state["access_flash"] = f"Đã xác minh thao tác: {result['status']} · {result['operation_id']}"
@@ -75,7 +86,7 @@ def _polaris(state):
     grants = [{"Catalog role": row["name"], **grant} for row in state["catalog_roles"] for grant in row["grants"]]
     st.dataframe(grants, hide_index=True)
     if not state["principals"] or not state["principal_roles"] or not state["catalog_roles"]:
-        st.info("Chưa đủ account/role để chỉnh liên kết. Chạy provisioning trước; màn hình này không tạo account/role.")
+        st.info("Tạo principal, principal role và catalog role ở phần Tạo mới trước khi gán quyền.")
         return
     selected = st.selectbox(
         "Loại liên kết",
@@ -92,17 +103,38 @@ def _polaris(state):
         "catalog_role": ("principal_roles", "catalog_roles"),
         "catalog_privilege": ("catalog_roles", "privileges"),
     }[selected]
+    scope = (
+        st.selectbox("Phạm vi quyền", ("catalog", "namespace", "table"))
+        if selected == "catalog_privilege"
+        else "catalog"
+    )
     with st.form("polaris-apply"):
         subject = st.selectbox("Đối tượng", [row["name"] for row in state[source]])
         value = st.selectbox(
-            "Role / quyền", state[target] if target == "privileges" else [row["name"] for row in state[target]]
+            "Role / quyền",
+            state[{"catalog": "privileges", "namespace": "namespace_privileges", "table": "table_privileges"}[scope]]
+            if target == "privileges"
+            else [row["name"] for row in state[target]],
         )
+        namespace = st.text_input("Namespace (các cấp phân cách bằng dấu chấm)") if scope != "catalog" else ""
+        table = st.text_input("Tên bảng") if scope == "table" else None
         action = st.radio("Thao tác Polaris", ("Gán", "Gỡ"), horizontal=True)
         if st.form_submit_button("Áp dụng Polaris"):
-            _apply("polaris", selected, subject, value, action == "Gán", state)
+            _apply(
+                "polaris",
+                selected,
+                subject,
+                value,
+                action == "Gán",
+                state,
+                scope=scope,
+                namespace=namespace.split(".") if namespace else [],
+                table=table,
+            )
 
 
 def _minio(state):
+    st.caption("Buckets: " + ", ".join(state.get("buckets", [])))
     st.caption(
         "Policy trực tiếp và group membership được hiển thị riêng. Gỡ policy trực tiếp không loại bỏ quyền kế thừa từ group hoặc policy khác."
     )
@@ -123,7 +155,7 @@ def _minio(state):
             st.write(policy["name"])
             st.json(policy["document"])
     if not state["users"] or not state["policies"]:
-        st.info("Chưa có workload/policy được hỗ trợ. Chạy provisioning trước.")
+        st.info("Tạo account và policy ở phần Tạo mới trước khi gán quyền.")
         return
     with st.form("minio-binding"):
         user = st.selectbox("Account MinIO", [row["name"] for row in state["users"]])
@@ -141,7 +173,7 @@ def render():
         st.success(message)
     session = st.session_state.get(SESSION)
     if session is None:
-        st.caption("Đăng nhập bằng tài khoản nguồn có role admin hoặc system_admin.")
+        st.caption("Đăng nhập bằng tài khoản admin bootstrap của nền tảng.")
         with st.form("access-login"):
             st.text_input("Email quản trị", key="access_email")
             st.text_input("Mật khẩu", type="password", key="access_password")
@@ -169,15 +201,34 @@ def render():
     )
     if st.button("Tải lại quyền"):
         st.session_state.pop("access_" + provider, None)
+        st.session_state.pop("access_workload_state", None)
     try:
         key = "access_" + provider
         if key not in st.session_state:
             st.session_state[key] = session.request("GET", provider)
         state = st.session_state[key]
+        labels = ["Danh sách", "Tạo mới", "Sửa", "Xóa", "Gán / Gỡ quyền"]
         if provider == "polaris":
-            _polaris(state)
-        else:
-            _minio(state)
+            labels.extend(["Credential", "Cấp cho workload"])
+        tabs = st.tabs(labels)
+        with tabs[0]:
+            access_manage.overview(provider, state)
+        with tabs[1]:
+            if provider == "polaris":
+                access_create.polaris(state, section="create")
+            else:
+                access_create.minio(state)
+        with tabs[2]:
+            access_manage.editor(provider, state, "update")
+        with tabs[3]:
+            access_manage.editor(provider, state, "delete")
+        with tabs[4]:
+            _polaris(state) if provider == "polaris" else _minio(state)
+        if provider == "polaris":
+            with tabs[5]:
+                access_create.polaris(state, section="credentials")
+            with tabs[6]:
+                access_workloads.render(state)
         with st.expander("Audit thao tác gần đây"):
             st.dataframe(session.request("GET", "audit"), hide_index=True)
     except AccessUIError as error:

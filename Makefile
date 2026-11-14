@@ -1,19 +1,25 @@
-.PHONY: all up start build down stop restart ps logs status seed generate generate-verify source-reader provision-minio provision-polaris provision-lakehouse typecheck help superset-db superset-init superset-sync
+.PHONY: all up start up-all build build-all down stop restart ps logs status seed generate generate-verify source-reader provision-minio provision-polaris provision-lakehouse typecheck help superset-db superset-init superset-sync
 
 PROFILES ?= core
+SERVICES ?= platform-app lakehouse-access
+WAIT_TIMEOUT ?= 180
 export COMPOSE_PROFILES := $(PROFILES)
 
 all: up
 
 help:
 	@echo "D&K E-Commerce Lakehouse Platform"
-	@echo "  make up                        Start core services and wait for readiness"
-	@echo "  make up PROFILES=core,streaming  Add Kafka/Flink access-log streaming"
-	@echo "  make build                     Build all project images"
+	@echo "  make up / make start           Build and start the admin console and its dependencies"
+	@echo "                                 Fresh source: schema + one admin; manage workload access in Streamlit"
+	@echo "  make build                     Build the shared platform-app/admin image"
+	@echo "  make build-all                 Build all project images, including streaming and BI"
+	@echo "  make up-all                    Build/start the full selected profiles after configuring workload credentials"
+	@echo "  make up-all PROFILES=core,streaming  Include Kafka/Flink (job submission remains manual)"
 	@echo "  make down                      Stop all groups; retain volumes"
-	@echo "  make restart PROFILES=core     Restart selected existing containers"
+	@echo "  make restart                   Restart the existing console/backend; use make up to apply config changes"
+	@echo "  make up SERVICES='trino'        Start selected services and their dependencies"
 	@echo "  make ps / make logs            Inspect all groups"
-	@echo "  make provision-lakehouse        Initialize missing MinIO/Polaris resources explicitly"
+	@echo "  make provision-lakehouse        Optional preset workload provisioning; skip for manual Streamlit setup"
 	@echo "  make source-reader             Configure the dedicated PostgreSQL batch reader"
 	@echo "  make seed                      Run source seeds (business schema required)"
 	@echo "  make generate PRESET=1m        Load synthetic OLTP history (GENERATOR_DATABASE_URL)"
@@ -26,9 +32,15 @@ help:
 up: start
 
 start: .env
-	@docker compose up -d --wait --wait-timeout 180
+	@docker compose up -d --build --wait --wait-timeout $(WAIT_TIMEOUT) $(SERVICES)
+
+up-all: .env
+	@docker compose up -d --build --wait --wait-timeout $(WAIT_TIMEOUT)
 
 build: .env
+	@docker compose build platform-app
+
+build-all: .env
 	@docker compose --profile '*' build
 
 .env:
@@ -39,8 +51,8 @@ down: stop
 stop:
 	@docker compose --profile '*' down
 
-restart:
-	@docker compose restart
+restart: .env
+	@docker compose restart $(SERVICES)
 
 ps:
 	@docker compose --profile '*' ps
