@@ -1,9 +1,11 @@
-"""Command line: datagen generate|verify --preset <name>, and datagen reset --yes."""
+"""Command line: datagen generate|verify --preset <name>, datagen logs --preset <name> --out <dir>, datagen reset --yes."""
 
 import argparse
 import os
 import sys
 import time
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from datagen.oltp.run import (
     RESET_TABLES,
@@ -14,8 +16,10 @@ from datagen.oltp.run import (
     generate,
     reset,
 )
+from datagen.logs.inputs import EmptyWindow, OltpMismatch, read_inputs
+from datagen.logs.run import generate_logs
 from datagen.postgres import SchemaMismatch, connect
-from datagen.presets import OltpPreset, load_oltp_preset, preset_path
+from datagen.presets import LogPreset, OltpPreset, load_log_preset, load_oltp_preset, log_preset_path, preset_path
 from datagen.verify import ledger, rules
 from datagen.verify.report import render
 
@@ -33,6 +37,11 @@ def _parser() -> argparse.ArgumentParser:
     verify_parser = commands.add_parser("verify", help="check the generated data against the preset (read only)")
     for command in (generate_parser, verify_parser):
         command.add_argument("--preset", required=True, help="preset name, e.g. 1m, 10m, 50m")
+    logs_parser = commands.add_parser(
+        "logs", help="write the synthetic access log of the preset window as Parquet files"
+    )
+    logs_parser.add_argument("--preset", required=True, help="preset name, e.g. 1m, 10m, 50m")
+    logs_parser.add_argument("--out", required=True, type=Path, help="new or empty directory for the daily files")
     reset_parser = commands.add_parser("reset", help="empty every table of the D&K database")
     reset_parser.add_argument("--yes", action="store_true", help="confirm that all rows are deleted")
     return parser
@@ -72,6 +81,33 @@ def _reset(connection) -> int:
     return 0
 
 
+def _log_preset_problem(log: LogPreset, oltp: OltpPreset, out: Path) -> str | None:
+    if log.oltp_scenario_id != oltp.scenario_id:
+        return f"Preset log đi cùng {log.oltp_scenario_id}, không phải {oltp.scenario_id}"
+    zone = ZoneInfo(oltp.business_timezone)
+    first, end = oltp.history_start.astimezone(zone).date(), oltp.anchor_time.astimezone(zone).date()
+    if not (first <= log.window.start and log.window.end <= end):
+        return f"Cửa sổ log {log.window.start} → {log.window.end} nằm ngoài lịch sử OLTP {first} → {end}"
+    if out.exists() and any(out.iterdir()):
+        return f"Thư mục {out} đã có file; chọn thư mục mới hoặc rỗng"
+    return None
+
+
+def _logs(log: LogPreset, oltp: OltpPreset, out: Path, connection) -> int:
+    started = time.monotonic()
+    try:
+        inputs = read_inputs(connection, oltp, log.window)
+    except (OltpMismatch, EmptyWindow) as error:
+        return _fail(str(error), 1)
+    days = generate_logs(log, oltp, inputs, out)
+    print(f"{'ngày':<12}{'phiên mua':>12}{'phiên không mua':>18}{'request':>14}")
+    for day, counts in days.items():
+        print(f"{day:<12}{counts['buying_sessions']:>12,}{counts['non_buying_sessions']:>18,}{counts['requests']:>14,}")
+    total = sum(counts["requests"] for counts in days.values())
+    print(f"{len(days)} file, {total:,} request trong {out}; xong sau {time.monotonic() - started:.0f} giây")
+    return 0
+
+
 PRESET_COMMANDS = {"generate": _generate, "verify": _verify}
 
 
@@ -88,10 +124,19 @@ def main(argv: list[str] | None = None) -> int:
         if not path.exists():
             return _fail(f"Không có preset {args.preset} ({path})", 2)
         preset = load_oltp_preset(path)
+    if args.command == "logs":
+        log_path = log_preset_path(args.preset)
+        if not log_path.exists():
+            return _fail(f"Không có preset log {args.preset} ({log_path})", 2)
+        log = load_log_preset(log_path)
+        if problem := _log_preset_problem(log, preset, args.out):
+            return _fail(problem, 1)
     connection = connect(url)
     try:
         if is_reset:
             return _reset(connection)
+        if args.command == "logs":
+            return _logs(log, preset, args.out, connection)
         return PRESET_COMMANDS[args.command](preset, connection)
     finally:
         connection.close()

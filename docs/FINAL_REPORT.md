@@ -751,15 +751,16 @@ Ba preset `1m`, `10m`, `50m` dùng chung các quy luật trên và chỉ khác q
 
 ### **4.7.3. Quy luật duyệt web (access log)**
 
-Phân tích nằm trong [browsing_behavior_eda.ipynb](../generator/logs/notebooks/browsing_behavior_eda.ipynb), dùng eCommerce Behavior tháng 10/2019 (cohort 2–31/10, khoảng 9 triệu phiên). Tham số lấy theo nhóm phiên `apparel`, gần với shop thời trang nhất.
+Phân tích nằm trong [browsing_behavior_eda.ipynb](../generator/logs/notebooks/browsing_behavior_eda.ipynb), dùng eCommerce Behavior tháng 10/2019 (cohort 2–31/10, khoảng 9 triệu phiên) cho L1–L3 và tháng 11/2019 cho L4. Tham số lấy theo nhóm phiên `apparel`, gần với shop thời trang nhất.
 
 | Quy luật | Kết quả thực nghiệm | Tham số |
 | :--- | :--- | :--- |
 | L1. Lưu lượng | Tỷ lệ phiên không mua trên phiên có mua ổn định theo ngày (13,6 với toàn bộ dữ liệu, 41,4 với `apparel`); giá trị phụ thuộc định nghĩa phiên `apparel` (31–52). | r = 41,39 |
 | L2. Lượt xem mỗi phiên | Phiên không mua theo log-series (lệch 1,3 điểm %); phiên có mua theo phân phối hình học (lệch 6,4 điểm %). | θ = 0,9239; p = 0,1044 |
 | L3. Nhịp request | Khoảng cách giữa hai sự kiện theo log-normal, lệch 4,4 điểm %. | Trung vị 36,2 giây; σ = 0,938 |
+| L4. Chuyển đổi ngày sale | Ngày đông nhất tháng 11 (17/11/2019) có r = 16,2 so với trung vị 45,9 của ngày thường: khách ngày sale vào để mua, tỷ lệ chuyển đổi cao gấp khoảng 2,8 lần. Chỉ có một đợt sale để đo. | r × 0,35 ngày sự kiện |
 
-Phễu giỏ hàng được đặt làm giả định vì nguồn ghi thiếu sự kiện giỏ và phép hiệu chỉnh không ổn định giữa các khối ngày. Hành trình nhiều phiên không được mô hình hóa vì hợp đồng log không có session id và các mart log chỉ đếm request.
+Phễu giỏ hàng được đặt làm giả định vì nguồn ghi thiếu sự kiện giỏ và phép hiệu chỉnh không ổn định giữa các khối ngày. Hành trình nhiều phiên không được mô hình hóa. Lệnh `datagen logs` dùng các quy luật này để sinh log truy cập mùa sale 01/11–15/12/2025 khớp với đơn online đã nạp (ở `1m`: 45 triệu request).
 
 ## **4.8. Đánh giá kết quả, giới hạn hệ thống và hướng phát triển**
 
