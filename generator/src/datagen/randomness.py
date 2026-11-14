@@ -10,6 +10,7 @@ REFERENCE = 0
 ONLINE = 1
 POS = 2
 INVENTORY = 3
+LOG_SESSIONS = 4
 
 HEX_BYTES = np.array([f"{value:02x}" for value in range(256)])
 
