@@ -5,7 +5,7 @@
 # Lượng log KHÔNG phải đầu vào: phiên có mua = đơn OLTP trong cửa sổ, các phiên khác suy ra từ quy luật bên dưới.
 # Ba preset dùng chung quy luật, chỉ khác scenario_id và oltp_scenario_id.
 #
-# Ước lượng lượng log cho cửa sổ mới: đo ở lần chạy 1m.
+# Ước lượng: khoảng 10 lần preset 1m (đo ở 1m: 45.083.918 request cho 45 ngày). tức ≈ 451 triệu request.
 schema_version: 3
 scenario_id: 10m-fashion-logs-v1
 oltp_scenario_id: 10m-fashion-v2  # chỉ sinh trên dữ liệu OLTP tạo từ preset này
