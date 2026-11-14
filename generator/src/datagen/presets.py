@@ -1,4 +1,4 @@
-"""Typed, validated OLTP presets read from generator/oltp/configs/*.yml.
+"""Typed, validated presets: OLTP from generator/oltp/configs/*.yml, access logs from generator/logs/configs/*.yml.
 
 Field names match the YAML keys one to one, so a preset key is found in code by its name.
 """
@@ -14,6 +14,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validat
 from datagen.catalog import CATEGORY_NAMES, SIZES
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "oltp" / "configs"
+LOG_CONFIG_DIR = Path(__file__).resolve().parents[2] / "logs" / "configs"
 SHARE_TOLERANCE = 1e-6
 
 
@@ -27,6 +28,8 @@ IntRange = Annotated[tuple[int, int], AfterValidator(_ordered)]
 FloatRange = Annotated[tuple[float, float], AfterValidator(_ordered)]
 Rate = Annotated[float, Field(ge=0, le=1)]
 Positive = Annotated[int, Field(gt=0)]
+PositiveFloat = Annotated[float, Field(gt=0)]
+OpenUnit = Annotated[float, Field(gt=0, lt=1)]
 NonNegative = Annotated[int, Field(ge=0)]
 Source = Literal["measured", "transfer", "assumption"]
 FrequencyTable = Annotated[list[float], Field(min_length=3, max_length=3)]
@@ -436,3 +439,97 @@ def preset_path(name: str) -> Path:
 
 def load_oltp_preset(path: Path) -> OltpPreset:
     return OltpPreset.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+
+
+class Window(Strict):
+    """Business-timezone dates of the log window; end is exclusive."""
+
+    start: date
+    end: date
+
+    @model_validator(mode="after")
+    def _ordered(self):
+        if self.start >= self.end:
+            raise ValueError(f"window start {self.start} must precede end {self.end}")
+        return self
+
+
+class Ratio(Strict):
+    value: PositiveFloat
+
+
+class GeometricViews(Strict):
+    model: Literal["geometric"]
+    p: OpenUnit
+
+
+class LogSeriesViews(Strict):
+    model: Literal["zero_truncated_log_series"]
+    theta: OpenUnit
+
+
+class ViewsPerSession(Strict):
+    buying: GeometricViews
+    non_buying: LogSeriesViews
+
+
+class SessionRules(Strict):
+    source: Source
+    non_buying_per_buying: Ratio
+    sale_day_ratio_multiplier: PositiveFloat
+    views_per_session: ViewsPerSession
+
+
+class EventGap(Strict):
+    model: Literal["lognormal"]
+    median: PositiveFloat
+    sigma: PositiveFloat
+
+
+class TimingRules(Strict):
+    source: Source
+    event_gap_seconds: EventGap
+
+
+class FunnelRules(Strict):
+    source: Source
+    non_buying_cart_rate: Rate
+
+
+class ProductViewRules(Strict):
+    source: Source
+    views_proportional_to_purchases: bool
+
+
+class RequestSteps(Strict):
+    category_list_or_search_before_first_view: Rate
+    cart_read_before_checkout: Rate
+    checkout_quote_before_submit: Rate
+
+
+class LogAssumptions(Strict):
+    source: Source
+    request_steps: RequestSteps
+    sale_day_traffic_follows_orders: bool
+    session_hour_follows_order_hour: bool
+
+
+class LogPreset(Strict):
+    schema_version: Literal[3]
+    scenario_id: str
+    oltp_scenario_id: str
+    seed: NonNegative
+    window: Window
+    sessions: SessionRules
+    timing: TimingRules
+    funnel: FunnelRules
+    products: ProductViewRules
+    assumptions: LogAssumptions
+
+
+def log_preset_path(name: str) -> Path:
+    return LOG_CONFIG_DIR / f"{name}.yml"
+
+
+def load_log_preset(path: Path) -> LogPreset:
+    return LogPreset.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
