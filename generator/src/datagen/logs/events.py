@@ -14,20 +14,21 @@ ROUTES: dict[str, tuple[str, str]] = {
     "checkout_submit": ("POST", "/api/v1/checkout"),
 }
 
-# The ecommerce object carries only the keys that apply to the action, like the API's ecommerce_context.
-ECOMMERCE_KEYS = {
-    "product_detail": ("product_key",),
-    "cart_item_set": ("variant_key",),
-    "checkout_submit": ("order_number",),
-}
-
 NULL = pl.lit(None, dtype=pl.String)
+# Keys of the ecommerce object that do not apply to the action are null in the request row; like the API's
+# ecommerce_context the object leaves them out. A JSON string value is quoted, so only real nulls match.
+NULL_MEMBER = r',"\w+":null'
 
 
-def _payload(ecommerce_keys: tuple[str, ...]) -> pl.Expr:
+def _payload() -> pl.Expr:
     timestamp = pl.col("ts").dt.strftime("%Y-%m-%dT%H:%M:%S%.6fZ")
     method = pl.col("action").replace_strict({a: m for a, (m, _) in ROUTES.items()})
     route = pl.col("action").replace_strict({a: r for a, (_, r) in ROUTES.items()})
+    ecommerce = (
+        pl.struct("action", "product_key", "variant_key", "order_number")
+        .struct.json_encode()
+        .str.replace_all(NULL_MEMBER, "")
+    )
     body = pl.struct(
         pl.struct(name=pl.lit("ecommerce.access"), version=pl.lit(SCHEMA_VERSION)).alias("schema"),
         timestamp.alias("timestamp"),
@@ -53,25 +54,13 @@ def _payload(ecommerce_keys: tuple[str, ...]) -> pl.Expr:
         ).alias("event"),
         pl.struct(request_method=method, route=route, status_code=pl.lit(200)).alias("http"),
         pl.struct(type=pl.col("actor_type"), key=pl.col("actor_key")).alias("actor"),
-        pl.struct(pl.col("action"), *[pl.col(key) for key in ecommerce_keys]).alias("ecommerce"),
         pl.struct(code=NULL, type=NULL).alias("error"),
         pl.lit("synthetic").alias("data_origin"),
     ).struct.json_encode()
-    # A struct cannot be empty, so the empty client object is spliced in front of the encoded fields.
-    return pl.concat_str(pl.lit('{"client":{},'), body.str.slice(1))
+    # A struct cannot be empty and the ecommerce object varies per action, so both are spliced in as text.
+    return pl.concat_str(pl.lit('{"client":{},"ecommerce":'), ecommerce, pl.lit(","), body.str.slice(1))
 
 
-def to_payloads(requests: pl.DataFrame) -> pl.DataFrame:
-    """One (raw_payload, event_at) row per request, in the order of `requests`."""
-    indexed = requests.with_row_index("row")
-    parts = [
-        group.select(
-            "row", _payload(ECOMMERCE_KEYS.get(action, ())).alias("raw_payload"), pl.col("ts").alias("event_at")
-        )
-        for (action,), group in indexed.group_by("action", maintain_order=True)
-    ]
-    return (
-        pl.concat(parts).sort("row").drop("row")
-        if parts
-        else pl.DataFrame(schema={"raw_payload": pl.String, "event_at": pl.Datetime("us", "UTC")})
-    )
+def to_payloads(requests: pl.LazyFrame) -> pl.LazyFrame:
+    """One (raw_payload, event_at) row per request, in the order of `requests`; lazy so it can stream to disk."""
+    return requests.select(_payload().alias("raw_payload"), pl.col("ts").alias("event_at"))

@@ -12,6 +12,10 @@ from datagen.oltp.plan import sale_event_dates
 from datagen.presets import LogPreset, OltpPreset
 from datagen.randomness import LOG_SESSIONS, stream
 
+# The streaming writer only splits a lazy frame at chunk borders; slicing the day keeps the JSON text of one slice in
+# memory at a time (one 1m sale day: about 2 GB peak instead of 3.3 GB).
+WRITE_BATCH_ROWS = 100_000
+
 
 def generate_logs(preset: LogPreset, oltp: OltpPreset, inputs: LogInputs, out: Path) -> dict[str, dict]:
     """Each window day uses its own random stream, so a day never depends on the days before it.
@@ -36,6 +40,9 @@ def generate_logs(preset: LogPreset, oltp: OltpPreset, inputs: LogInputs, out: P
             count, orders, oltp.business_timezone, inputs.products, inputs.variants, inputs.customers, preset, rng
         )
         requests = pl.concat([buying, browsing])
-        to_payloads(requests).write_parquet(out / f"session_date={day}.parquet")
+        slices = [
+            requests.slice(start, WRITE_BATCH_ROWS).lazy() for start in range(0, requests.height, WRITE_BATCH_ROWS)
+        ]
+        to_payloads(pl.concat(slices)).sink_parquet(out / f"session_date={day}.parquet")
         result[str(day)] = {"buying_sessions": orders.height, "non_buying_sessions": count, "requests": requests.height}
     return result

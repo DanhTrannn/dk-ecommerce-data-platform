@@ -125,7 +125,10 @@ def main(argv: list[str] | None = None) -> int:
             return _fail(f"Không có preset {args.preset} ({path})", 2)
         preset = load_oltp_preset(path)
     if args.command == "logs":
-        log = load_log_preset(log_preset_path(args.preset))
+        log_path = log_preset_path(args.preset)
+        if not log_path.exists():
+            return _fail(f"Không có preset log {args.preset} ({log_path})", 2)
+        log = load_log_preset(log_path)
         if problem := _log_preset_problem(log, preset, args.out):
             return _fail(problem, 1)
     connection = connect(url)
