@@ -23,10 +23,13 @@ class AccessSettings(BaseSettings):
     minio_batch: str = Field(default="lakehouse-batch", validation_alias="MINIO_BATCH_ACCESS_KEY")
     minio_flink: str = Field(default="lakehouse-flink", validation_alias="MINIO_FLINK_ACCESS_KEY")
     minio_trino: str = Field(default="lakehouse-trino", validation_alias="MINIO_TRINO_ACCESS_KEY")
+    export_url: str = "http://credential-exporter:8011"
+    export_key_file: Path = Path("/run/access-secrets/exporter.key")
     mc_binary: str = "mc"
+    credentials_dir: Path = Path("/run/access-secrets")
     audit_path: Path = Path("data/access-admin/audit.jsonl")
 
-    @field_validator("polaris_url", "minio_url")
+    @field_validator("polaris_url", "minio_url", "export_url")
     @classmethod
     def origin(cls, value):
         parsed = urlsplit(value)

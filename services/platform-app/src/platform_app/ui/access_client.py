@@ -57,7 +57,7 @@ class AccessSession:
             message = "Yêu cầu quản trị thất bại; tải lại quyền trước khi thao tác tiếp."
             try:
                 error = response.json().get("error", {})
-                if response.status_code in {400, 401, 403, 409, 422, 502, 503}:
+                if response.status_code in {400, 401, 403, 404, 409, 422, 502, 503}:
                     message = error.get("message") or message
             except (ValueError, AttributeError):
                 pass

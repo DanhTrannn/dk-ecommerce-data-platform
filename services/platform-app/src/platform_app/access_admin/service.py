@@ -95,3 +95,88 @@ def configured_audit():
         return Audit(AccessSettings().audit_path)
     except (ValidationError, OSError):
         raise AppError("ACCESS_AUDIT_UNAVAILABLE", "Chưa cấu hình nơi lưu audit quản trị.", 503) from None
+
+
+def create_resource(backend, change, actor, audit):
+    operation_id = uuid.uuid4().hex
+    record = {
+        "operation_id": operation_id,
+        "actor": str(actor.public_id),
+        "actor_role": actor.role,
+        "provider": backend.provider,
+        "action": "create",
+        "change": change.model_dump(exclude={"revision", "secret"}),
+    }
+    try:
+        with audit.lock():
+            before = snapshot(backend)
+            if before["revision"] != change.revision:
+                raise AppError("ACCESS_STALE", "Trạng thái đã thay đổi; tải lại trước khi tạo.", 409)
+            backend.validate_create(change, before)
+            if backend.exists(change, before):
+                raise AppError("ACCESS_EXISTS", "Đối tượng đã tồn tại; không ghi đè hoặc đổi secret.", 409)
+            audit.append({**record, "status": "started"})
+            try:
+                created = backend.create(change) or {}
+                if not backend.exists(change, snapshot(backend)):
+                    raise RuntimeError("Creation not visible")
+                audit.append({**record, "status": "verified"})
+            except Exception:
+                audit.append({**record, "status": "unknown"})
+                raise AppError(
+                    "ACCESS_OUTCOME_UNKNOWN",
+                    "Chưa xác minh được kết quả. Tải lại để kiểm tra; không tự tạo lại hoặc đổi secret.",
+                    502,
+                    {"operation_id": operation_id},
+                ) from None
+            return {"operation_id": operation_id, "status": "verified", **created}
+    except AppError:
+        raise
+    except OSError:
+        raise AppError(
+            "ACCESS_AUDIT_UNAVAILABLE", "Không lưu được audit; kiểm tra trạng thái trước khi thao tác tiếp.", 503
+        ) from None
+
+
+def mutate_resource(backend, change, actor, audit, *, preflight=None):
+    operation_id = uuid.uuid4().hex
+    record = {
+        "operation_id": operation_id,
+        "actor": str(actor.public_id),
+        "actor_role": actor.role,
+        "provider": backend.provider,
+        "action": change.operation,
+        "change": change.model_dump(exclude={"revision"}),
+    }
+    try:
+        with audit.lock():
+            before = snapshot(backend)
+            if before["revision"] != change.revision:
+                raise AppError("ACCESS_STALE", "Trạng thái đã thay đổi; tải lại trước khi lưu.", 409)
+            backend.validate_mutation(change, before)
+            if preflight is not None:
+                preflight()
+            audit.append({**record, "status": "started"})
+            try:
+                backend.mutate(change)
+                after = snapshot(backend)
+                if not backend.mutation_matches(change, after):
+                    raise RuntimeError("Mutation readback mismatch")
+                if hasattr(backend, "finalize_mutation"):
+                    backend.finalize_mutation(change, after)
+                audit.append({**record, "status": "verified"})
+            except Exception:
+                audit.append({**record, "status": "unknown"})
+                raise AppError(
+                    "ACCESS_OUTCOME_UNKNOWN",
+                    "Chưa xác minh được kết quả; tải lại trạng thái trước khi thao tác tiếp. Không tự thử lại.",
+                    502,
+                    {"operation_id": operation_id},
+                ) from None
+            return {"operation_id": operation_id, "status": "verified"}
+    except AppError:
+        raise
+    except OSError:
+        raise AppError(
+            "ACCESS_AUDIT_UNAVAILABLE", "Không ghi được audit; kiểm tra trạng thái trước khi thao tác tiếp.", 503
+        ) from None

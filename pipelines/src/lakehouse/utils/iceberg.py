@@ -1,6 +1,7 @@
 """Python Iceberg catalog access using the existing workload credential files."""
 
 import os
+import shlex
 from pathlib import Path
 
 from pyiceberg.catalog import load_catalog
@@ -19,9 +20,15 @@ def catalog_properties():
     path = Path(os.environ.get("POLARIS_CREDENTIAL_FILE", "/run/polaris/clients.env"))
     values = {}
     for line in path.read_text().splitlines():
-        key, separator, value = line.partition("=")
-        if separator:
-            values[key.strip()] = value.strip()
+        fields = shlex.split(line, comments=True)
+        if fields and fields[0] == "export":
+            fields = fields[1:]
+        if not fields:
+            continue
+        if len(fields) != 1 or "=" not in fields[0]:
+            raise ValueError("Polaris credential file is malformed")
+        key, value = fields[0].split("=", 1)
+        values[key] = value
     if not all(values.get(key) for key in ("POLARIS_BATCH_CLIENT_ID", "POLARIS_BATCH_CLIENT_SECRET")):
         raise ValueError("Polaris credential file is missing the batch principal")
     uri = os.environ["POLARIS_CATALOG_URI"].rstrip("/")
