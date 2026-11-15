@@ -46,7 +46,7 @@ make up     # khởi động platform-app và các dependency quản trị
 
 1. Mở `http://127.0.0.1:8501` → **Quản trị quyền**. Đăng nhập bằng admin cấu hình qua `API_BOOTSTRAP_ADMIN_EMAIL`/`API_BOOTSTRAP_ADMIN_PASSWORD`; admin khác và `system_admin` không được quản trị hạ tầng.
 2. Trong MinIO, tạo bucket, user và policy cần cho Polaris/batch/Flink/Trino; gán policy cho user. Dùng đúng access key/secret của các biến `MINIO_*` mà consumer đang nhận từ `.env`. Thay đổi trên Streamlit không tự sửa các biến này.
-3. Trong Polaris, tạo catalog với bucket tương ứng, principal, principal role và catalog role. Gán principal → principal role → catalog role và các privilege cần thiết. Tên catalog phải khớp `POLARIS_CATALOG_NAME` của consumer.
+3. Trong Polaris, tạo catalog với bucket tương ứng, principal, principal role và catalog role. Gán principal → principal role → catalog role và các privilege cần thiết. Tên catalog phải khớp cấu hình consumer. Hai file Trino `infrastructure/trino/catalog/lakehouse*.properties` hiện đặt warehouse là `lakehouse`; đổi `POLARIS_CATALOG_NAME` trong `.env` không tự sửa các file này.
 4. Mở **Cấp cho workload**, chọn principal có credential đã lưu và cấp cho consumer cần dùng:
 
 | Workload | Volume | File consumer đọc |
@@ -108,6 +108,15 @@ make generate PRESET=1m          # nạp một lần; từ chối nếu đã có
 make generate-verify PRESET=1m   # chỉ đọc; mã lỗi khác 0 nếu có kiểm tra không đạt
 ```
 
+Log lịch sử không được tạo từ seed. Sau khi có lịch sử OLTP đúng preset, có thể xuất log tổng hợp riêng:
+
+```bash
+uv run --locked --env-file .env --package data-generator -- \
+  datagen logs --preset 1m --out data/generator/logs/1m
+```
+
+Thư mục đích phải mới/rỗng; lệnh ghi Parquet theo ngày, không upload MinIO/Kafka hay cập nhật mart. Chi tiết dữ liệu và số đo lịch sử ở [generator](../generator/README.md).
+
 Muốn nạp lại: `uv run --locked --env-file .env --package data-generator -- datagen reset --yes` (xóa trắng 28 bảng nguồn, từ chối nếu có đơn do API tạo), rồi `make seed` và `make generate`. Preset, kiểm tra và số đo: [generator](../generator/README.md).
 
 ### API và Streamlit
@@ -126,17 +135,17 @@ Nguồn cần catalog active và tồn kho đủ để runner mua hàng. Không 
 Chạy local thay Docker:
 
 ```bash
-uv run --locked --package platform-app -- \
+uv run --locked --env-file .env --package platform-app -- \
   uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --no-access-log
 # Terminal khác:
-uv run --locked --package platform-app platform-app
+uv run --locked --env-file .env --package platform-app platform-app
 ```
 
-Thay bootstrap admin trong `.env` phục vụ lệnh seed host; Compose không forward các biến bootstrap admin vào platform-app. Seed trước khi đăng nhập phần quản trị quyền; Platform Console local không phải hệ thống auth public đã harden.
+Compose truyền `API_BOOTSTRAP_ADMIN_EMAIL` vào API để xác định người được quản trị hạ tầng; `platform-admin-init` nhận cả email/password để tạo tài khoản lần đầu. Đổi password trong `.env` không rotate password đã lưu. Chạy host cần schema/admin đã khởi tạo và các đường dẫn credential/exporter phù hợp; API/Streamlit trên host không tự mount volume Docker. `--env-file .env` đưa cả biến Kafka/Trino/UI vào môi trường tiến trình, ngoài nhóm API Settings đọc `.env`.
 
 ## 4. Cấp quyền và chạy batch
 
-Sau schema/provisioning, áp dụng env/mount hiện tại của PostgreSQL và cấu hình reader:
+Sau bootstrap schema, tạo quyền và cấp credential workload trên Streamlit, áp dụng env/mount PostgreSQL nếu cần rồi cấu hình reader:
 
 ```bash
 make source-reader
@@ -156,20 +165,9 @@ Theo dõi trong Airflow UI tới khi mọi task/gate và publication hoàn tất
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_pipeline
 ```
 
-DAG định kỳ chạy 03:00 Asia/Ho_Chi_Minh, đọc interval `[start,end)`. Không chạy init và interval DAG đồng thời; giới hạn `max_active_runs=1` chỉ áp dụng trong từng DAG. Các DAG mới được tạo ở trạng thái paused theo Compose.
+DAG định kỳ chạy 03:00 Asia/Ho_Chi_Minh, đọc interval `[start,end)`. Job ingest/Gold/log/maintenance có advisory lock dùng chung theo namespace, nhưng không giữ lock xuyên suốt nhiều task của một DAG. Tránh chạy init và interval DAG xen kẽ; `max_active_runs=1` chỉ áp dụng trong từng DAG. Các DAG mới được tạo ở trạng thái paused theo Compose.
 
-Nếu kích hoạt interval DAG qua Airflow API v2, phải cung cấp interval hợp lệ. Fixture đã dùng endpoint `/api/v2/dags/lakehouse_oltp_pipeline/dagRuns` với body như sau (chọn thời gian đúng với dữ liệu cần nạp):
-
-```json
-{
-  "dag_run_id": "manual_interval_example",
-  "logical_date": "2026-11-09T00:00:00+00:00",
-  "data_interval_start": "2026-11-09T00:00:00+00:00",
-  "data_interval_end": "2026-11-10T00:00:00+00:00"
-}
-```
-
-Đây không thay thế full init/backfill và không khẳng định mọi manual trigger không có interval đều chạy được. Auth/API trigger được dùng trong stack helper `pipelines/tests/stack/runtime.py` (test chỉ có ở local).
+Manual run phải có interval hợp lệ khi gọi incremental ingestion. Không suy ra rằng chỉ đặt `logical_date` là đủ để chọn cửa sổ nguồn. Các tham số `--interval-start`/`--interval-end` của CLI ở phần 8 là hợp đồng kiểm tra được trong repo; contract/auth của Airflow API cần đối chiếu instance Airflow đang dùng khi tự động hóa trigger. Full init là job riêng, không được thay bằng một interval tùy ý.
 
 ## 5. Access log
 
@@ -191,7 +189,13 @@ Gọi API/runner và đối chiếu `X-Request-ID` với Landing. Sau publicatio
 docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_logs_marts
 ```
 
+`KAFKA_ENABLED=false` tắt gửi Kafka và tắt ghi event vào DLQ; API vẫn ghi structured access log. DLQ chỉ giữ event chưa xác nhận khi producer được bật. Khi chạy host, dùng `uv run --env-file .env ...` hoặc export rõ `KAFKA_*` vì producer đọc trực tiếp môi trường tiến trình.
+
 Bật lịch hourly trong Airflow khi cần. Flink chỉ append Landing; job `build_logs_gold` làm Bronze/Silver/fact, dbt dựng mart rồi publication. Health probes không sinh event. DLQ cũ chưa được replay tự động khi Kafka phục hồi.
+
+### Log lịch sử tổng hợp
+
+`datagen logs` chỉ xuất file `session_date=YYYY-MM-DD.parquet` với `raw_payload` và `event_at`. Chưa có command nạp chúng vào `landing.access_logs`; không dùng `flink-submit` như bộ import file. Cần bổ sung loader, bảo toàn `data_origin=synthetic` và mapping `session.id`/`ecommerce.order_number` trước khi dùng log sinh để phân tích phiên/đơn. Contract middleware hiện là 1.0.0; generator là 1.1.0.
 
 ## 6. Superset tùy chọn
 
@@ -221,11 +225,11 @@ Port dưới đây là mặc định, cần xem override/bind address trong `.en
 |---|---|
 | Streamlit / FastAPI | `127.0.0.1:8501` / `127.0.0.1:8000` |
 | Airflow | `localhost:8080` |
-| Trino | `127.0.0.1:8084` |
+| Trino HTTPS | `https://127.0.0.1:8084`, cần CA được tạo bởi `trino-auth-init` |
 | Superset khi bật BI | `127.0.0.1:8088` |
 | MinIO API / console | `127.0.0.1:9000` / `127.0.0.1:9001` |
 | Polaris catalog / health | `127.0.0.1:8181/api/catalog` / `127.0.0.1:8182/q/health` |
-| Flink dashboard / Connect | `localhost:8085` / `127.0.0.1:8086` |
+| Flink dashboard | `localhost:8085`; không có Kafka Connect service |
 | Kafka host listener | `localhost:9094`; Docker clients dùng `kafka:9092` |
 | PostgreSQL | `localhost:5432` |
 | Lakehouse access admin | `127.0.0.1:8000/api/v1/access`, chung FastAPI; yêu cầu admin bootstrap |
@@ -250,15 +254,15 @@ DAG gọi các job dưới đây bằng `PIPELINE_PYTHON` (venv Polars/PyIceberg
 ```bash
 # Bronze/Silver cho 27 nguồn (thêm --interval-start/--interval-end cho interval [start,end); --table để chọn nhóm)
 docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.oltp.run_polars_batch \
-  --namespace-prefix serving --run-id <run_id>'
+  --namespace-prefix serving --run-id manual_oltp_20261115'
 
 # Gold bằng dbt/Trino, quality gate và publication (--verify-only để chỉ audit)
 docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.oltp.build_oltp_gold \
-  --namespace-prefix serving --run-id <run_id> --as-of 2026-11-10T10:00:00Z'
+  --namespace-prefix serving --run-id manual_oltp_20261115 --as-of 2026-11-15T00:00:00Z'
 
 # Log: Landing → Bronze/Silver/fact → ba mart → publication log
 docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.logs.build_logs_gold \
-  --namespace-prefix serving --run-id <run_id> --as-of 2026-11-10T10:00:00Z'
+  --namespace-prefix serving --run-id manual_logs_20261115 --as-of 2026-11-15T00:00:00Z'
 ```
 
-Prefix khác `serving` phải có dạng `polars_batch_*` để chạy thử trong namespace riêng. Giữ nguyên `--as-of` khi retry. Gate thất bại làm job lỗi sau khi lưu audit; publication trước đó được giữ nguyên.
+Các run ID và thời gian ở ví dụ cần được chọn lại theo lần chạy/dữ liệu; ingest và Gold của cùng logical run dùng cùng ID. Prefix khác `serving` phải có dạng `polars_batch_*` để chạy thử trong namespace riêng. Giữ nguyên `--as-of` khi retry; nguồn PostgreSQL vẫn được đọc lại và snapshot đầu vào có thể thay đổi. Gate thất bại làm job lỗi sau khi lưu audit; publication trước đó được giữ nguyên.

@@ -47,7 +47,7 @@ make seed
 
 Trong container đã build mới, có thể dùng `docker compose exec -T platform-app python -m database.seeds.seed_catalog`.
 
-**Dữ liệu lịch sử** do lệnh `datagen` nạp sau khi seed: `make generate PRESET=1m` đọc preset `generator/oltp/configs/*.yml` và ghi 12 tháng khách, đơn, giao vận, trả hàng và sổ kho với `data_origin='synthetic'`; xem [generator](../generator/README.md). Seed **không tạo `cities`/`stores`**; hai bảng này do generator tạo, nên database chỉ có seed thì các luồng cần cửa hàng phải tự chuẩn bị địa điểm.
+**Dữ liệu lịch sử** do lệnh `datagen` nạp sau khi seed: `make generate PRESET=1m` đọc preset `generator/oltp/configs/*.yml` và ghi 12 tháng khách, đơn, giao vận, trả hàng và sổ kho; lineage `data_origin='synthetic'`/`generation_run_id` nằm trên customers/orders; xem [generator](../generator/README.md). Seed **không tạo `cities`/`stores`**; hai bảng này do generator tạo, nên database chỉ có seed thì các luồng cần cửa hàng phải tự chuẩn bị địa điểm.
 
 Schema hiện bỏ hai CHECK tồn hiện tại không vượt tồn đầu: `opening_on_hand` là mốc cố định, nhập/nhận/trả hàng đi qua ledger. Database đã có schema cũ cần được cập nhật và đối soát riêng; bootstrap không tự nâng cấp hay sửa dữ liệu.
 
@@ -67,18 +67,17 @@ Schema hiện bỏ hai CHECK tồn hiện tại không vượt tồn đầu: `op
 ## Kiểm tra
 
 ```bash
-# Contract tests; PostgreSQL integration tests được skip mặc định
+# Đối chiếu DDL với ORM, không kết nối PostgreSQL:
 uv run --locked --package platform-app -- \
-  python -m unittest discover -s services/platform-app/tests -v
-
-# Có Docker và image postgres:16.8-alpine đã được tải
-RUN_POSTGRES_SCHEMA_TESTS=1 uv run --locked --package platform-app -- \
+  python -m platform_app.api.db.schema --output database/schema.sql --check
+# Khi có sẵn thư mục tests local:
+uv run --locked --package platform-app -- \
   python -m unittest discover -s services/platform-app/tests -v
 ```
 
-Integration tests (chỉ giữ local, không có trong git) tự tạo PostgreSQL 16.8 biệt lập với `--network none`, dữ liệu tmpfs và Unix socket riêng; không publish port, không dùng database/volume thật và không tự pull image. Container và thư mục tạm được dọn sau khi chạy. Có thể chọn image PostgreSQL 16 đã có bằng `POSTGRES_TEST_IMAGE`.
+ORM hiện có **28 bảng, 318 cột và 56 FK**. Lệnh `--check` xác minh bản DDL được render khớp code; nó không chứng minh database đang chạy đã được migrate. Unit/integration Python bị gitignore và không có sẵn trong checkout mới. Bộ local hiện có kiểm tra bootstrap PostgreSQL opt-in qua `RUN_ADMIN_BOOTSTRAP_TESTS=1`; phải đọc test source và chuẩn bị môi trường Docker trước khi bật. Không còn chỉ dẫn chạy fixture schema/API cũ như một suite được repo cung cấp.
 
-Đã kiểm tra DDL/ORM reflection, identity cả cột không phải PK, UUID/JSON roundtrip, CHECK số/boolean/tiền/tồn, FK, unique hoa-thường, giỏ active và timestamp. Phần 2 kiểm tra seed chạy lại; các kiểm tra importer cũ đã bị gỡ cùng importer. Phần 3 bổ sung HTTP workflow test checkout/POS/nhập–xuất–hoàn kho và ledger, retry, quyền store và tranh tồn. Chưa kiểm chứng pipeline đầu cuối hoặc dữ liệu thật.
+Các kiểm tra nền tảng/DDL và test quản trị không thay thế nghiệm thu toàn bộ giao dịch, pipeline và tập dữ liệu lớn. Chi tiết phạm vi kiểm chứng ở [operations](../docs/operations.md#7-kiểm-tra-chất-lượng-và-ci).
 
 ## Tài khoản đọc cho batch PostgreSQL
 

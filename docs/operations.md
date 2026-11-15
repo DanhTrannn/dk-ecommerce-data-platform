@@ -67,7 +67,7 @@ Không lấy current mart chưa publish để kết luận dashboard sai. Với 
 | Triệu chứng | Kiểm tra và xử lý đúng phạm vi |
 |---|---|
 | Compose báo thiếu biến | So `.env.example`, profile và biến bắt buộc; không thêm secret mặc định để làm config qua |
-| PostgreSQL healthy nhưng API thiếu bảng | Schema bootstrap/seed là bước riêng; không reset volume. Kiểm tra đang kết nối đúng DB/user |
+| PostgreSQL healthy nhưng API thiếu bảng | Kiểm tra kết quả `platform-admin-init`, đúng DB/user và schema có đầy đủ; bootstrap không migrate schema dở dang. Seed catalog vẫn là bước riêng; không reset volume |
 | Đổi password env nhưng không login | Init PostgreSQL/seed/metadata không tự đổi password đã lưu; xác nhận credential retained trước khi rotate có kiểm soát |
 | Batch đọc PostgreSQL lỗi auth/permission | Reader password/env đúng và script `make source-reader` đã chạy sau đủ schema; không đưa credential vào URL kết nối |
 | Job batch không thấy credential | Kiểm tra tab Cấp cho workload, trạng thái exporter và consumer file đúng volume/UID/GID; không thay bằng MinIO root hoặc chmod mở rộng toàn bộ |
@@ -94,7 +94,7 @@ Scenario chạy bằng worker độc lập. Mất process có thể chuyển unk
 
 ### Batch và publication
 
-Giữ staging/Bronze/Silver và failed task logs để retry. Init và interval DAG không có khóa chung; tạm dừng writer còn lại khi phục hồi. Một lần ghi Gold dở có thể làm current physical tables thay đổi, nhưng reader vẫn dùng manifest cũ. Sau khi sửa lỗi, chạy quality gate/publish đúng logical run; manifest dùng MERGE chống trùng logical run, không chỉnh snapshot ID bằng tay để “làm mới” dashboard.
+Giữ staging/Bronze/Silver và failed task logs để retry. Job ingest/Gold/log/maintenance dùng advisory lock chung theo namespace; writer đồng thời bị từ chối. Lock không bao cả DAG nhiều task, nên vẫn cần tạm dừng DAG còn lại khi phục hồi để tránh xen kẽ. Một lần ghi Gold dở có thể làm current physical tables thay đổi, nhưng reader vẫn dùng manifest cũ. Sau khi sửa lỗi, chạy quality gate/publish đúng logical run; manifest dùng PyIceberg upsert theo `run_id`/`source_mode` chống trùng logical run, không chỉnh snapshot ID bằng tay để “làm mới” dashboard.
 
 ### Flink/Kafka
 
@@ -104,9 +104,11 @@ Giữ staging/Bronze/Silver và failed task logs để retry. Init và interval 
 - Trước đổi graph, dừng đúng job writer với savepoint hoàn tất, giữ path và xác nhận không còn writer cũ.
 - `KAFKA_LOG_DIRS=/var/lib/kafka/data` tương ứng volume `kafka-data`. Cài đặt cũ dùng `/tmp/kafka-logs` cần sao lưu và copy đầy đủ metadata/partition vào volume trong lúc broker đã dừng; đổi env không tự chuyển file.
 
-Checkpoint mặc định 10 giây là cấu hình, không phải cam kết latency hoặc exactly-once toàn hệ thống. Raw Landing có thể có event lặp khi chủ động replay; đọc theo key/grain đúng. Chưa nghiệm thu JobManager HA hoặc tùy ý reset offsets.
+Job log đặt checkpoint 10 giây trong Python runtime (ghi đè interval 30 giây ở file cấu hình Flink); đây là cấu hình, không phải cam kết latency hoặc exactly-once toàn hệ thống. Raw Landing có thể có event lặp khi chủ động replay; đọc theo key/grain đúng. Chưa nghiệm thu JobManager HA hoặc tùy ý reset offsets.
 
 ### DLQ và raw log
+
+`KAFKA_ENABLED=false` bỏ qua gửi Kafka và không ghi DLQ; structured access log vẫn được middleware ghi. Khi bật producer, event offline/overload/lỗi gửi mới được đưa vào DLQ. Biến này được đọc từ môi trường tiến trình lúc import, không qua API Settings đọc `.env`.
 
 Producer chờ broker ack ở task nền có deadline 10 giây, tối đa 256 pending; retry kết nối ban đầu sau mỗi lần thất bại có khoảng nghỉ 5 giây. Gửi timeout có thể đã tới broker, nên không khẳng định DLQ chỉ chứa event chưa được ghi. Replay cần giữ **nguyên request ID và payload**, phân biệt bản sao với payload xung đột. Không có command tự replay DLQ trong repo; không bịa lệnh upload JSONL để kỳ vọng mart tự cập nhật.
 
@@ -114,11 +116,13 @@ Raw malformed event được giữ để điều tra, không đưa vào Silver/f
 
 ## 6. Bảo trì và lưu trữ
 
-Hai DAG maintenance gọi các tác vụ compaction/manifests, expire snapshots, orphan cleanup và quarantine retention theo cấu hình. Lịch OLTP 03:00 cùng giờ batch không tự đảm bảo không chạy chồng; cần điều phối vận hành. Maintenance streaming hai giờ/lần tách khỏi hourly log mart.
+DAG OLTP maintenance chạy **04:00**, sau lịch batch 03:00 nhưng không đảm bảo batch dài đã kết thúc. DAG streaming maintenance chạy hai giờ/lần. Các job maintenance giữ advisory lock theo namespace như writer batch/log; vẫn cần điều phối với Flink đang append vì Flink không dùng khóa PostgreSQL này.
 
-[Table profiles](../pipelines/src/lakehouse/utils/maintenance.py) là danh sách tường minh, **không tự bao phủ mọi bảng/mart mới**. CLI hỗ trợ `--tables`/`--profile`, action, retain snapshots và tuổi cleanup; xem [entrypoint](../pipelines/src/jobs/maintenance/iceberg_table_maintenance.py). Không chạy expire/orphan tùy tiện trong khi writer còn ghi hoặc report vẫn cần snapshot cũ.
+[Table profiles](../pipelines/src/lakehouse/utils/maintenance.py) lấy OLTP từ `SOURCE_TABLES` và Gold `TABLES`, còn streaming liệt kê Landing/Bronze/Silver/fact/ba mart. `--tables` vẫn bị giới hạn vào whitelist này. Compaction overwrite dữ liệu hiện tại trong transaction; expire giữ snapshot mới nhất theo retention, snapshot refs và các snapshot xuất hiện trong **mọi dòng publication hiện có**, gồm snapshot đầu vào log.
 
-Superset/PublishedReader cần data file và snapshot manifest còn tồn tại. Maintenance hiện không biết dashboard nào cần snapshot nào; giữ retention theo cửa sổ tra cứu, không bảo đảm URL lịch sử tồn tại vĩnh viễn. Snapshot hết hạn phải báo lỗi, không thay bằng current data. Sync publication mới tạo URL mới, không sửa report cũ.
+Orphan mặc định chỉ **báo số candidate**, giới hạn trong thư mục `data/` của bảng thuộc bucket cấu hình. Xóa vật lý cần đồng thời `--delete-orphans --writers-stopped`; các DAG định kỳ không truyền hai cờ này. CLI còn có cleanup quarantine theo tuổi; xem [entrypoint](../pipelines/src/jobs/maintenance/iceberg_table_maintenance.py) cho tham số thực tế.
+
+Publication-aware retention chưa phải quản lý vòng đời dashboard: giữ mọi manifest có thể giữ snapshot cũ lâu dài và làm dung lượng tăng. Không tự xóa manifest/snapshot để giảm dung lượng nếu chưa đối chiếu report còn dùng. Nếu snapshot mất do thao tác ngoài luồng, reader phải báo lỗi thay vì chuyển sang current data. Sync publication mới tạo URL mới, không sửa dashboard cũ.
 
 | Tài nguyên | Nội dung cần bảo toàn |
 |---|---|
@@ -135,37 +139,41 @@ Superset/PublishedReader cần data file và snapshot manifest còn tồn tại.
 
 ## 7. Kiểm tra chất lượng và CI
 
-Các lệnh static/offline thường dùng:
+Các lệnh static/offline chạy từ root repo:
 
 ```bash
 uv lock --check
 uvx ruff check .
 python3 -m compileall -q airflow/dags/
 docker compose --env-file .env.example --profile '*' config --quiet
-# Test chỉ giữ local: mọi thư mục tests/ bị gitignore, trừ dbt data tests trong pipelines/dbt/tests/
-PYTHONPATH=pipelines/src:pipelines/tests uv run --locked --package batch-pipeline -- \
-  python -m unittest discover -s pipelines/tests -v
-PYTHONPATH=services/platform-app/tests uv run --locked --package platform-app -- \
-  python -m unittest discover -s services/platform-app/tests -v
-uv run --locked --package batch-pipeline -- \
-  python -m unittest discover -s infrastructure/superset/tests -p test_sales.py -v
+uv run --locked --package platform-app -- \
+  python -m platform_app.api.db.schema --output database/schema.sql --check
 ```
 
-Opt-in integration dùng fixture riêng, không phải chạy trên dữ liệu hiện có. Hướng dẫn component còn ở [pipelines README](../pipelines/README.md), [platform README](../services/platform-app/README.md) và test source. Ví dụ:
+Unit/integration test Python chỉ giữ local và không được clone từ Git; dbt data tests ở `pipelines/dbt/tests/` là ngoại lệ được version control. Nếu đã có thư mục test local, chạy:
 
 ```bash
-RUN_ACCESS_LOG_STACK_TESTS=1 PYTHONPATH=pipelines/src:pipelines/tests \
-  uv run --locked --package batch-pipeline -- \
-  python -m unittest discover -s pipelines/tests -p test_logs_stack.py -v
-RUN_SUPERSET_STACK_TESTS=1 PYTHONPATH=infrastructure/superset/tests:pipelines/src:pipelines/tests \
-  uv run --locked --package batch-pipeline -- \
-  python -m unittest discover -s infrastructure/superset/tests -p test_superset_stack.py -v
+uv run --locked --package platform-app -- \
+  python -m unittest discover -s services/platform-app/tests -v
+PYTHONPATH=pipelines/src uv run --locked --package batch-pipeline -- \
+  python -m unittest discover -s pipelines/tests -v
 ```
 
-Cache/build trước các image test tương ứng; không gọi opt-in và kỳ vọng không có Docker/chi phí xử lý. Browser Superset tùy chọn qua `BI_BROWSER_PYTHON` và `BI_CHROMIUM_PATH`, test không tự tải browser. Fixture dọn tài nguyên sau hoàn tất/lỗi thông thường; bị kill đột ngột có thể để lại stack tạm, cần xác định project prefix trước khi dọn và không tác động deployment chính.
+Không coi `Ran 0 tests` là bằng chứng có test coverage. Checkout mới không kèm bộ fixture pipeline/Superset hay các lệnh `RUN_ACCESS_LOG_STACK_TESTS`/`RUN_SUPERSET_STACK_TESTS` của thiết kế cũ. Các suite opt-in chỉ được chạy khi đã đọc test source, có đủ fixture và xác nhận tài nguyên cô lập; không trỏ vào dữ liệu hiện tại để thay thế fixture thiếu.
 
-CI hiện có hai job: repository validation (sáu tổ hợp Compose gồm BI, compile DAG, Ruff) và storefront (npm ci/lint/typecheck/build). Docs-only/Markdown-only thay đổi có thể bị skip theo paths-ignore. Unit/integration nêu trên là kiểm tra riêng, không tuyên bố CI tự chạy tất cả.
+Kiểm chứng local ghi nhận ngày **15/11/2026** cho phần gộp API: 86 test platform-app (5 opt-in bỏ qua), build image và bốn test tích hợp riêng đạt trên stack quyền cô lập; stack test đã dọn. Phạm vi gồm CRUD MinIO/Polaris, quyền MinIO thực, cấp/gỡ credential và Streamlit. Đây không phải lần nghiệm thu toàn bộ generator → Lakehouse → BI. Số đo generator trong [generator README](../generator/README.md) là các lần đo được ghi lại trước đó, không phải job đang chạy hoặc benchmark lặp lại ở mỗi lần sửa tài liệu.
 
-## 8. Thứ tự công việc tiếp theo
+CI có hai job theo [workflow](../.github/workflows/ci.yml):
 
-Tiếp theo: viết generator OLTP và access log mới; quyết định có cần đồng bộ hard delete bằng batch không. Sau đó mở rộng Superset ngoài hai mart doanh thu, bổ sung role/viewer/store và quy tắc lọc đúng grain; chốt chọn publication mới/lifecycle assets và retention snapshots. Hoàn thiện runner các nghiệp vụ còn thiếu khi cần tạo dữ liệu tương ứng. Sau khi BI/source flow có thay thế và kiểm chứng đủ mới dọn Next.js/CI/dependency liên quan. Không đưa chức năng mới vào tài liệu hiện trạng như thể đã triển khai.
+- Repository validation: **bốn** tổ hợp profile `core`, `core,streaming`, `core,bi`, `core,streaming,bi`; compile DAG và Ruff.
+- Storefront: `npm ci`, lint, typecheck và production build của Next.js cũ.
+
+CI không chạy unit/integration Python, không dựng và nghiệm thu cả stack dữ liệu. Docs/Markdown-only có thể bị bỏ qua theo `paths-ignore`; các kết quả local không thay thế trạng thái CI thực tế.
+
+## 8. Phần cần hoàn thiện
+
+- Loader log tổng hợp Parquet vào Lakehouse và mapping typed cho `session.id`/`ecommerce.order_number`; giữ tách provenance synthetic/observed.
+- Bộ kiểm chứng có thể tái lập generator → batch/log → publication → Superset trên stack cô lập, gồm khối lượng và đối soát dữ liệu.
+- Chính sách đồng bộ hard delete nguồn; mở rộng BI ngoài hai mart doanh thu, viewer/store và vòng đời publication/assets/snapshot.
+- Runner cho nghiệp vụ ngoài mua online, replay DLQ và kịch bản phục hồi đã được kiểm chứng.
+- Dọn Next.js/CI/dependency sau khi xác định đủ chức năng thay thế. Không mô tả hạng mục kế hoạch như chức năng đã nghiệm thu.

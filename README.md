@@ -23,7 +23,7 @@
 
 ## Overview
 
-**D&K E-Commerce Data Platform** is a local Data Engineering project for a Vietnamese retailer with online and in-store sales. It combines configurable synthetic transaction data, a FastAPI source application, batch processing, PostgreSQL change capture, and real API access logs. Analytical tables use Apache Iceberg on MinIO, an Apache Polaris catalog, and Trino for SQL access.
+**D&K E-Commerce Data Platform** is a local Data Engineering project for a Vietnamese retailer with online and in-store sales. It combines configurable synthetic transaction data, a FastAPI source application, batch extraction from PostgreSQL, and real API access logs. Analytical tables use Apache Iceberg on MinIO, an Apache Polaris catalog, and Trino for SQL access.
 
 The current interface is a **Streamlit Platform Console** for running online purchase scenarios against the API and managing MinIO/Polaris accounts, roles, policies and workload credentials. An optional **Apache Superset sales PoC** reads two published sales marts. The legacy Next.js application remains in source and CI, but is not started by Compose; its retired business BI endpoints are no longer available.
 
@@ -31,10 +31,10 @@ The current interface is a **Streamlit Platform Console** for running online pur
 
 ## Features
 
-- **Synthetic data rules:** EDA notebooks derive purchase rules (H&M, Olist) and browsing rules (eCommerce Behavior) into YAML presets for OLTP (`1m`/`10m`/`50m` orders per year) and access logs. The SQL generator that consumes them is not implemented yet; see [generator/README.md](generator/README.md).
+- **Synthetic data rules:** EDA notebooks derive purchase rules (H&M, Olist) and browsing rules (eCommerce Behavior) into YAML presets for OLTP (`1m`/`10m`/`50m` approximate online orders per year) and access logs. `datagen generate` loads OLTP history into PostgreSQL, `verify` checks it, and `logs` writes synthetic access-log Parquet files; see [generator/README.md](generator/README.md).
 - **Source workflows:** Retained APIs cover authentication, products, cart/checkout, POS, stock, inbound receipts, payments, delivery, returns and reviews. Streamlit currently automates online purchase attempts; it does not automate every retained API workflow.
 - **Incremental batch:** Fixed Airflow intervals, paginated PostgreSQL reads, Bronze history, Silver typing/deduplication/upsert and PII pseudonymization, followed by Gold rebuilds and validation.
-- **Open Lakehouse:** Iceberg snapshots, Polaris access control, MinIO workload accounts, Trino read-only access, and scheduled maintenance for an explicit table subset.
+- **Open Lakehouse:** Iceberg snapshots, Polaris access control, MinIO workload accounts, a read-only Trino catalog for analytics, a separate dbt writer catalog, and publication-aware Iceberg maintenance.
 - **Data quality and publication:** Reconciliation, quality results and publication manifests keep analytical reads tied to validated snapshots. There are 15 OLTP marts and three access-log marts.
 - **HTTP observability:** Real request capture, local delivery DLQ, Landing retention, deduplication and three HTTP/product/funnel marts. Published and provisional HTTP analytics retain separate contracts.
 - **Sales BI:** Superset provides four KPI cards and four charts over two publication-pinned sales marts. Viewer/store permissions and the remaining BI areas are pending.
@@ -131,7 +131,7 @@ Open the dashboard URL returned by sync. Each dashboard is pinned to one publica
 | Streamlit Platform Console | <http://127.0.0.1:8501> |
 | FastAPI / OpenAPI UI | <http://127.0.0.1:8000/docs> |
 | Airflow | <http://localhost:8080> |
-| Trino | <http://127.0.0.1:8084> |
+| Trino HTTPS | <https://127.0.0.1:8084> (generated CA required) |
 | Superset, when enabled | <http://127.0.0.1:8088> |
 | MinIO API / console | <http://127.0.0.1:9000> / <http://127.0.0.1:9001> |
 | Polaris catalog / health | <http://127.0.0.1:8181/api/catalog> / <http://127.0.0.1:8182/q/health> |
@@ -148,7 +148,7 @@ Kafka host clients use `localhost:9094`; containers use `kafka:9092`. PostgreSQL
 
 The source has 28 tables; 27 are configured for analytical extraction, excluding `customer_credentials`. Mutable and append-only sources use different cursors. Currency is VND; business time uses Asia/Ho_Chi_Minh, with UTC handling defined per pipeline. Generated transactions, API-created transactions and observed request logs have distinct provenance.
 
-Publication gates prevent a failed refresh from replacing the last accepted manifest. Superset SQL pins snapshot IDs; expired snapshots require operational coordination. Current log acceptance results establish bounded integration behavior, not production availability or latency guarantees. Details: [architecture](docs/architecture.md), [data model and KPI contracts](docs/data.md), [operational evidence and limits](docs/operations.md).
+Publication gates prevent a failed refresh from replacing the last accepted manifest. Superset SQL pins snapshot IDs; expired snapshots require operational coordination. The code implements these paths; source code and past component checks do not establish a fresh end-to-end run or production SLA. Details: [architecture](docs/architecture.md), [data model and KPI contracts](docs/data.md), [operational evidence and limits](docs/operations.md).
 
 ### Repository structure
 
@@ -157,7 +157,7 @@ Publication gates prevent a failed refresh from replacing the last accepted mani
 ├── services/
 │   ├── platform-app/       # FastAPI, Streamlit, workers, access administration, provisioning
 │   └── storefront/         # Legacy Next.js application
-├── generator/              # EDA notebooks and YAML presets: oltp/ (purchases), logs/ (browsing)
+├── generator/              # datagen CLI, OLTP/log generators, EDA notebooks and YAML presets
 ├── database/               # PostgreSQL schema and explicit seeds
 ├── pipelines/              # Polars/PyIceberg batch, dbt project, Flink streaming and source contracts
 ├── airflow/                # DAGs and Airflow runtime
@@ -172,7 +172,7 @@ Publication gates prevent a failed refresh from replacing the last accepted mani
 
 ## Data Generation and Source APIs
 
-OLTP presets live in `generator/oltp/configs/`: `1m.yml`, `10m.yml` and `50m.yml` target about 1, 10 and 50 million orders over 12 months (260,000 / 2,600,000 / 13,000,000 buying customers). Total orders are an outcome of the purchase-frequency rule, not an input. `make generate PRESET=1m` loads that history into PostgreSQL (customers, orders, POS sales, inventory ledger) and `make generate-verify PRESET=1m` compares the result with the preset rules. Browsing rules for synthetic access logs live in `generator/logs/configs/` (`1m.yml`, `10m.yml`, `50m.yml`); `datagen logs --preset 1m --out <dir>` writes the matching access-log history (sale season 11–12/2025) as daily Parquet files. See [generator/README.md](generator/README.md) and the [synthetic data notes](docs/data.md#7-dữ-liệu-sinh-và-căn-cứ).
+OLTP presets live in `generator/oltp/configs/`: `1m.yml`, `10m.yml` and `50m.yml` target about 1, 10 and 50 million online orders over 12 months (260,000 / 2,600,000 / 13,000,000 buying customers). Online orders are an outcome of the purchase-frequency rule, not an input; POS contributes additional orders. `make generate PRESET=1m` loads that history into PostgreSQL (customers, orders, POS sales, inventory ledger) and `make generate-verify PRESET=1m` compares the result with the preset rules. Browsing rules for synthetic access logs live in `generator/logs/configs/` (`1m.yml`, `10m.yml`, `50m.yml`); `datagen logs --preset 1m --out data/generator/logs/1m` writes the matching access-log history (sale season 11–12/2025) as daily Parquet files. A loader from these files into the Lakehouse is not implemented; the current log pipeline consumes Flink Landing. The generated `session.id` and `ecommerce.order_number` fields are not projected into the current typed log layers, and the funnel remains request-event based. See [generator/README.md](generator/README.md) and the [synthetic data notes](docs/data.md#7-dữ-liệu-sinh-và-căn-cứ).
 
 Streamlit supports online purchase scenarios, MinIO/Polaris CRUD, access bindings and Polaris workload credential assignment. Scenario runs are persisted under `data/scenarios/`. Purchase attempts create real source API records; uncertain writes are recorded for inspection instead of being blindly replayed. Runtime logs are observed HTTP requests, not historical synthetic sessions.
 
@@ -206,7 +206,9 @@ make down
 
 `make stop` is an alias for `make down`. It is not the container-retaining stop command above. Pipeline integration checks use opt-in flags and isolated resources; see [operations.md](docs/operations.md). Do not assume ordinary unit tests run Docker acceptance checks.
 
-The [CI workflow](.github/workflows/ci.yml) has two jobs: repository validation (six Compose profile combinations, DAG compilation and Ruff) and legacy storefront validation (`npm ci`, lint, typecheck and production build). Documentation-only changes are skipped. Unit and opt-in integration suites are separate local checks. Next.js remains in CI until its removal is implemented.
+**Current gaps:** synthetic-log ingestion and session/order mapping, synchronization of source hard deletes, broader BI and viewer/store permissions, and a fresh end-to-end acceptance using the current generator and pipeline. Spark, Debezium and PostgreSQL CDC are not part of the current Compose runtime.
+
+The [CI workflow](.github/workflows/ci.yml) has two jobs: repository validation (four Compose profile combinations, DAG compilation and Ruff) and legacy storefront validation (`npm ci`, lint, typecheck and production build). Documentation-only changes are skipped. Unit and opt-in integration suites are separate local checks. Next.js remains in CI until its removal is implemented.
 
 ## Documentation Index
 

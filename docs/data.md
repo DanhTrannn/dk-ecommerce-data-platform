@@ -1,6 +1,6 @@
 # Dữ liệu, pipeline và chỉ số
 
-Cập nhật theo codebase ngày **11/11/2026**. Nguồn định nghĩa chính là [schema PostgreSQL](../database/schema.sql), [catalog trích xuất](../pipelines/src/lakehouse/utils/config.py), [Gold schema](../pipelines/src/lakehouse/oltp/gold/schema.py), [log transforms](../pipelines/src/lakehouse/logs/) và [presets generator](../generator/README.md). Các con số mô phỏng/nghiệm thu không phải số liệu kinh doanh thực tế.
+Cập nhật theo codebase ngày **15/11/2026**. Nguồn định nghĩa chính là [schema PostgreSQL](../database/schema.sql), [catalog trích xuất](../pipelines/src/lakehouse/utils/config.py), [Gold schema](../pipelines/src/lakehouse/oltp/gold/schema.py), [log transforms](../pipelines/src/lakehouse/logs/) và [presets generator](../generator/README.md). Các con số mô phỏng/nghiệm thu không phải số liệu kinh doanh thực tế.
 
 ## 1. Nguồn và lineage
 
@@ -9,7 +9,7 @@ Cập nhật theo codebase ngày **11/11/2026**. Nguồn định nghĩa chính l
 | Generator OLTP (`datagen`) | Preset `generator/oltp/configs/*.yml` | Nạp một lần 12 tháng lịch sử; mọi dòng khách/đơn mang `data_origin=synthetic`, `generation_run_id=<scenario_id>:<seed>`. `datagen logs` đọc preset log `generator/logs/configs/*.yml` và ghi log truy cập mùa sale ra Parquet (`data_origin="synthetic"`) |
 | API nghiệp vụ | Cart/checkout/POS, kho, giao vận, review, hoàn tiền… | Giữ lineage API hiện có `manual`/`generation_run_id=NULL`; journal scenario không tự biến thành lineage nguồn |
 | HTTP log | Request thực nhận bởi middleware | ID server 32 ký tự hex, `data_origin=observed`; không đồng nhất với khách thật/session |
-| Public dataset nghiên cứu | Notebook EDA (H&M, Olist, eCommerce Behavior) → preset YAML | Chưa có runtime đọc preset; khảo sát Việt Nam chỉ để đối chiếu |
+| Public dataset nghiên cứu | Notebook EDA (H&M, Olist, eCommerce Behavior) → preset YAML | Runtime `datagen` đọc/validate YAML OLTP và log; khảo sát Việt Nam chỉ để đối chiếu |
 
 Không dùng chung `generation_run_id`, Airflow `run_id` và HTTP `request.id` như cùng một khóa. Chúng mô tả các vòng đời khác nhau. Source/processing/publication time cũng không thay thế nhau.
 
@@ -18,7 +18,7 @@ Không dùng chung `generation_run_id`, Airflow `run_id` và HTTP `request.id` n
 PostgreSQL có **28 bảng**. [ORM](../services/platform-app/src/platform_app/api/models/) và [DDL](../database/schema.sql) là nơi tra cột, CHECK, FK, index và default đầy đủ; không giữ một bản sao bảng cột dễ lệch code trong tài liệu.
 
 - UUID nguồn là native UUID; tiền/ID chủ yếu BIGINT, trạng thái được ràng buộc bằng CHECK/FK/UNIQUE. Số ID tự sinh dùng identity.
-- Thời gian là `TIMESTAMPTZ`; API ghi UTC có tzinfo, trigger `updated_at` dùng `statement_timestamp()`. Trigger không tự tạo ledger/history nghiệp vụ.
+- Thời gian là `TIMESTAMPTZ`; API ghi UTC có tzinfo, trigger `updated_at` dùng `statement_timestamp()` khi dữ liệu đổi mà caller không đổi timestamp (giữ timestamp lịch sử tường minh). Trigger không tự tạo ledger/history nghiệp vụ.
 - Công cụ nạp ID tường minh phải đồng bộ sequence trong cùng transaction với dữ liệu. Schema bootstrap chỉ dành cho database trống, không phải migration/reset cho volume đang có.
 - Số dư tồn = `opening_on_hand` + tổng ledger theo variant/location; tồn đầu không phải trần tồn. Phiếu nhập và hoàn hàng có thể làm tăng tồn.
 
@@ -82,7 +82,7 @@ Catalog mặc định `lakehouse`, bucket theo `MINIO_LAKEHOUSE_BUCKET` (mặc �
 | Gold | 6 dimension + 6 fact + 15 mart nghiệp vụ | `fact_web_events` + 3 mart log |
 | System/quarantine | Kết quả DQ, publication; dòng vi phạm được cách ly | Publication log độc lập; raw lỗi vẫn ở Bronze |
 
-Batch interval dùng UTC có timezone `[start,end)`; append-only đọc `created_at`, mutable đọc `updated_at`. Extract phân trang theo PK 10.000 dòng; mọi trang của mọi bảng được ghi staging trước, rồi mới ghi Bronze/Silver. Interval rỗng không xóa lịch sử. Bronze chống lặp theo source PK/cursor; Silver đọc delta tương ứng, không ghi đè state mới bằng backfill cũ. Gold được xây lại, quality gate chạy rồi mới publish.
+Batch interval dùng UTC có timezone `[start,end)`; append-only đọc `created_at`, mutable đọc `updated_at`. Extract phân trang theo PK 10.000 dòng; mọi trang của mọi bảng được ghi staging trước, rồi mới ghi Bronze/Silver. Interval rỗng không xóa lịch sử. Bronze upsert theo source PK/cursor: giữ phiên bản có cursor khác nhau, có thể cập nhật lại cùng cặp PK/cursor; đây không phải lịch sử CDC của mọi thay đổi nguồn; Silver đọc delta tương ứng, không ghi đè state mới bằng backfill cũ. Gold được xây lại, quality gate chạy rồi mới publish.
 
 Silver chuẩn hóa UUID đọc từ PostgreSQL dạng chuỗi thành **16 bytes** theo schema phân tích BINARY hiện có. Interval chỉ chuẩn hóa các dòng được đọc; cần init có kiểm soát nếu muốn chuẩn hóa toàn bộ current state. Không tự sửa snapshot lịch sử.
 
@@ -90,7 +90,7 @@ PII của customer, đơn và nhân sự được chuẩn hóa lower/trim rồi 
 
 ### Batch Polars/PyIceberg
 
-Mỗi lần chạy khóa theo namespace bằng PostgreSQL session advisory lock. Schema Bronze đọc từ metadata cursor PostgreSQL, UUID giữ dạng chuỗi ở Bronze; schema Silver đọc hợp đồng cột trong `sql_templates/contracts` qua adapter chỉ hỗ trợ các kiểu đã khai báo và từ chối kiểu khác. JSON nguồn được giữ dạng văn bản, không parse rồi serialize lại. Schema mới phải được review trước khi mở rộng adapter.
+Mỗi job ingestion/Gold/log khóa theo namespace bằng PostgreSQL session advisory lock; khóa không bao trùm toàn DAG. Schema Bronze đọc từ metadata cursor PostgreSQL, UUID giữ dạng chuỗi ở Bronze; schema Silver đọc hợp đồng cột trong `sql_templates/contracts` qua adapter chỉ hỗ trợ các kiểu đã khai báo và từ chối kiểu khác. JSON nguồn được giữ dạng văn bản, không parse rồi serialize lại. Schema mới phải được review trước khi mở rộng adapter.
 
 Batch dedup theo PK/cursor/thời gian ingest, giữ guard chống backfill cũ và ghi nhiều mã lỗi validation theo thứ tự cố định. Token SHA-256 giữ trim ký tự space U+0020, lowercase, salt và NULL. Gold lấy `shipping_region` là tên thành phố từ `orders.shipping_city_id`, không dò địa chỉ gốc. Quarantine chỉ giữ JSON đã token hóa các cột PII theo pattern hiện có, bỏ trường NULL, dedup bằng source table/record/mã lỗi và partition theo ngày. Không có thêm cam kết ẩn danh cho nội dung free-text/JSON.
 
@@ -98,7 +98,7 @@ DAG chạy với prefix `serving`; CLI nhận prefix khác để chạy thử tr
 
 ## 4. Access-log contract và xử lý
 
-Contract mang `schema.name=ecommerce.access`, version `1.0.0`. Parser thực thi tại [parser.py](../pipelines/src/lakehouse/logs/parser.py); middleware/builder tại [API core](../services/platform-app/src/platform_app/api/core/access_logging.py). Không mô tả parser như một full JSON Schema validator.
+Middleware API phát `schema.name=ecommerce.access`, version `1.0.0`; generator phát `1.1.0` với `session.id` và `ecommerce.order_number`. Parser giữ version (mặc định `1.0.0` khi thiếu), không chặn theo version/schema name. Parser thực thi tại [parser.py](../pipelines/src/lakehouse/logs/parser.py); middleware/builder tại [API core](../services/platform-app/src/platform_app/api/core/access_logging.py). Không mô tả parser như một full JSON Schema validator.
 
 | Trường | Ý nghĩa |
 |---|---|
@@ -108,13 +108,14 @@ Contract mang `schema.name=ecommerce.access`, version `1.0.0`. Parser thực thi
 | `http.request_method/route/status_code` | Method, route template hoặc `__unmatched__`, mã 100–599 |
 | `actor.*`, `ecommerce.*` | Actor/action, product slug/public UUID hoặc variant UUID nếu route cung cấp |
 | `severity_*`, `error.*`, `trace_id/span_id` | Mức lỗi và trace fields; không đồng nghĩa đã triển khai distributed tracing |
-| `data_origin` | `observed` cho request thực nhận, kể cả request mô phỏng |
+| `data_origin` | `observed` cho request thực nhận, kể cả request mô phỏng; `synthetic` cho Parquet do generator tạo |
+| `session.id`, `ecommerce.order_number` | Generator 1.1.0 phát; parser/typed Silver/fact/mart chưa ánh xạ, chỉ giữ trong raw payload |
 
 Không ghi request body, password, Authorization/cookie hoặc thanh toán nhạy cảm. Search có PII được redaction; route chuẩn giúp tránh dùng raw path làm dimension vô hạn. GET `/health/live` và `/health/ready` không phát event.
 
 Flink giữ decoded raw payload, kể cả sai contract. Pipeline log dùng raw hash để chống nhân bản Bronze, rồi ID cho Silver/fact; ID trùng nhưng hai valid payload khác nhau làm job lỗi trước publication. Mỗi layer đọc predecessor đã persist nên retry có thể tiếp tục sau lỗi giữa các commit. Cutoff cố định, không dùng event-time watermark để bỏ log đến muộn.
 
-Product resolver dùng Silver products/variants theo snapshot OLTP đã công bố khi build log mart. Khóa chưa resolve giữ riêng; không gán sản phẩm tùy ý. Log publication lưu các snapshot đầu vào và mốc `observed_at`. Không tự nạp JSONL lịch sử vào Gold hoặc replay DLQ.
+Product resolver dùng Silver products/variants theo snapshot OLTP đã công bố khi build log mart. Khóa chưa resolve giữ riêng; không gán sản phẩm tùy ý. Log publication lưu các snapshot đầu vào và mốc `observed_at`. Không tự nạp JSONL lịch sử vào Gold hoặc replay DLQ. Chưa có loader cho Parquet `datagen logs`; các file đó chưa tự vào Landing/publication. `event_ts` lấy từ payload `timestamp`; `observed_timestamp` do producer ghi nhận (generator đặt bằng event time); parser tạo `ingest_ts` theo đồng hồ xử lý. `--as-of` là cutoff event-time có timezone.
 
 ## 5. Dimension, fact và 18 mart
 
@@ -172,11 +173,11 @@ Gold gate kiểm tra count/tiền/key/reference/lineage/PII và parity item → 
 
 ## 7. Dữ liệu sinh và căn cứ
 
-Lệnh `datagen` trong [generator](../generator/README.md) nạp 12 tháng lịch sử OLTP tổng hợp vào PostgreSQL theo preset (`make generate PRESET=1m`), và `make generate-verify PRESET=1m` đối chiếu dữ liệu đã nạp với quy luật của preset (sổ kho, R01–R06, tỷ lệ kịch bản, POS, địa điểm). `datagen logs --preset 1m --out <thư mục>` sinh log truy cập 01/11–15/12/2025 khớp với đơn online đã nạp: mỗi đơn một phiên kết thúc bằng `checkout_submit` mang `order_number`, ghi mỗi ngày một file Parquet (`raw_payload`, `event_at`) theo hợp đồng `ecommerce.access` 1.1.0. Mỗi khối YAML ghi `source`: `measured` (đo trong notebook), `transfer` (đo ở nguồn nước ngoài, áp cho shop thời trang VN như giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản). YAML là danh mục tham số chính thức; tài liệu này không chép lại giá trị.
+Lệnh `datagen` trong [generator](../generator/README.md) nạp 12 tháng lịch sử OLTP tổng hợp vào PostgreSQL theo preset (`make generate PRESET=1m`), và `make generate-verify PRESET=1m` đối chiếu dữ liệu đã nạp với quy luật của preset (sổ kho, R01–R06, tỷ lệ kịch bản, POS, địa điểm). `datagen logs --preset 1m --out <thư mục>` sinh log truy cập 01/11–15/12/2025 khớp với đơn online đã nạp: mỗi đơn một phiên kết thúc bằng `checkout_submit` mang `order_number`, ghi mỗi ngày một file Parquet (`raw_payload`, `event_at`) theo hợp đồng `ecommerce.access` 1.1.0. Các khối quy luật YAML ghi `source`: `measured` (đo trong notebook), `transfer` (đo ở nguồn nước ngoài, áp cho shop thời trang VN như giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản). YAML là danh mục tham số runtime; các bảng dưới tóm tắt quy luật. Preset `schema_version: 3` khác version access event/publication. Loader Parquet tổng hợp chưa có; session/order number chưa được ánh xạ vào typed layers.
 
 ### Preset OLTP
 
-[`generator/oltp/configs/`](../generator/oltp/configs/) có `1m.yml`, `10m.yml`, `50m.yml`, mục tiêu khoảng 1, 10 và 50 triệu đơn trong 12 tháng (260.000 / 2.600.000 / 13.000.000 khách có mua; 500 / 1.000 / 2.000 sản phẩm). Tổng đơn là **kết quả** của quy luật tần suất mua, không phải đầu vào: đơn kỳ vọng = khách có mua × 3,846 với 12 tháng lịch sử. Ba preset chỉ khác `scenario_id` và `scale`; seed `20260724`, anchor `2026-07-01T00:00:00+00:00`, múi giờ `Asia/Ho_Chi_Minh`.
+[`generator/oltp/configs/`](../generator/oltp/configs/) có `1m.yml`, `10m.yml`, `50m.yml`, mục tiêu khoảng 1, 10 và 50 triệu đơn online trong 12 tháng (260.000 / 2.600.000 / 13.000.000 khách có mua; 500 / 1.000 / 2.000 sản phẩm). Tổng đơn là **kết quả** của quy luật tần suất mua, không phải đầu vào: đơn online kỳ vọng = khách có mua × 3,846 với 12 tháng lịch sử; POS cộng thêm đơn theo tỷ lệ riêng. Ba preset chỉ khác `scenario_id` và `scale`; seed `20260724`, anchor `2026-07-01T00:00:00+00:00`, múi giờ `Asia/Ho_Chi_Minh`.
 
 Quy luật đo trong [purchase_behavior_eda.ipynb](../generator/oltp/notebooks/purchase_behavior_eda.ipynb) (H&M online 2019, Olist 2017):
 
@@ -305,21 +306,21 @@ Phần này giữ hồ sơ nguồn S01–S11 của nghiên cứu ngày **08/11/2
 - **Giới hạn:** chưa xác minh quyền truy cập/giấy phép dữ liệu gốc. Tập gán nhãn không mặc nhiên đại diện tỷ lệ phàn nàn, phân phối sao hoặc tỷ lệ hoàn hàng ngoài thị trường. Không cần thêm mô hình NLP vào repo chỉ để sử dụng ý tưởng này.
 
 
-### Hợp đồng Gold native
+## 9. Hợp đồng Gold dbt/Trino và publication
 
-Gold native giữ 27 schema hiện có: dimension, fact và 15 mart OLTP. Adapter Arrow đọc schema SQL hiện có, gồm DATE/DOUBLE và COMMENT. Các phép phân bổ giảm giá/hoàn tiền dùng tích Int128 và hiệu phần nguyên tích lũy, trả về VND Int64; không dùng số thực để phân bổ tiền. Giá vốn lấy snapshot dòng đơn. COD chưa ghi nhận doanh thu được giữ tách khỏi doanh thu đã ghi nhận.
+Gold có 27 bảng: 6 dimension, 6 fact và 15 mart OLTP. [Wrapper commerce](../pipelines/src/lakehouse/analytics/commerce.py) ghim 27 snapshot Silver, chuẩn bị schema Iceberg và chạy `dbt build --select tag:oltp` trên Trino; [models OLTP](../pipelines/dbt/models/oltp/) chứa logic biến đổi. Adapter Arrow đọc SQL contracts để tạo schema, Polars thực hiện quality gate sau build. Materialization `iceberg_merge` dùng MERGE vào bảng đã tạo, xóa dòng không còn trong output mong đợi và giữ identity/lịch sử snapshot của bảng. Phân bổ giảm giá/hoàn tiền dùng `decimal(38,0)`, modulo và hiệu phần nguyên tích lũy qua macro `floor_allocate`, trả VND BIGINT. Giá vốn lấy snapshot dòng đơn. COD chưa ghi nhận doanh thu được giữ tách khỏi doanh thu đã ghi nhận.
 
-`--as-of` là mốc nghiệp vụ có timezone cho cửa sổ coupon 15 phút, review 45 phút và các bảng quan sát. `_gold_ingested_at` là thời điểm xử lý thực. `--batch-date` chỉ định ngày logic của audit, mặc định ngày UTC của mốc nghiệp vụ. Snapshot tồn kho dùng ngày Việt Nam: chỉ ghi đè partition ngày hiện tại, giữ ngày cũ; bảng current/summary chỉ đọc ngày đang quan sát. Dimension ngày thay thế phạm vi năm 2025–2027.
+`--as-of` là mốc nghiệp vụ có timezone cho cửa sổ coupon 15 phút, review 45 phút và các bảng quan sát. `_gold_ingested_at` là thời điểm xử lý thực. `--batch-date` chỉ định ngày logic của audit, mặc định ngày UTC của mốc nghiệp vụ. Snapshot tồn kho dùng ngày Việt Nam: model tính lại ngày quan sát và giữ các dòng ngày cũ; bảng current/summary chỉ đọc ngày đang quan sát. Dimension ngày thay thế phạm vi năm 2025–2027.
 
-Gate native giữ 55 kiểm tra về đối soát, tài chính, tồn kho, vận hành, marketing, admin, khóa, freshness và PII. Audit lưu ở `<prefix>_system.data_quality_results`; publication ở `<prefix>_system.analytics_publications`, ghim cả Silver/Gold đã audit. Trạng thái không có snapshot được giữ NULL trong manifest. Đọc lại publication cũ vẫn dùng snapshot cũ dù các bảng được rebuild; retention snapshot phải tôn trọng các manifest còn dùng.
+Gate native giữ 55 kiểm tra về đối soát, tài chính, tồn kho, vận hành, marketing, admin, khóa, freshness và PII. Với prefix `serving`, audit ở `system.data_quality_results`, publication ở `system.analytics_publications`; prefix thử nghiệm dùng `<prefix>_system`. Manifest OLTP `schema_version=3`, `source_mode=batch` ghim đúng 27 Silver và 27 Gold đã audit; `source_event_at=NULL`, `offsets_json={}`, `changed_tables_json=[]`, không phải watermark CDC. Trạng thái không có snapshot được giữ NULL trong manifest. Đọc lại publication cũ vẫn dùng snapshot cũ dù các bảng được rebuild; retention snapshot phải tôn trọng các manifest còn dùng.
 
 
-### Hợp đồng ba mart log native
+## 10. Hợp đồng ba mart log dbt/Trino
 
-Giữ nguyên tên/cột/grain của `mart_hourly_route_metrics`, `mart_daily_product_demand` và `mart_marketing_funnel_daily`. Ngày/giờ tính theo UTC. Các chỉ số funnel là số request thành công, không phải số người/session/đơn hàng duy nhất; visitor đếm actor khác NULL. Tên cũ `success_2xx_count` vẫn tính HTTP dưới 400 (gồm 3xx). Mẫu số bằng 0 trả NULL.
+[Wrapper log](../pipelines/src/lakehouse/logs/pipeline.py) dùng Polars/PyIceberg cho ingestion/quality, chạy `dbt build --select tag:logs` trên Trino rồi đối chiếu output persist với tham chiếu Polars. Giữ tên/cột/grain của `mart_hourly_route_metrics`, `mart_daily_product_demand` và `mart_marketing_funnel_daily`. Ngày/giờ tính theo UTC. Các chỉ số funnel là số request thành công, không phải số người/session/đơn hàng duy nhất; visitor đếm actor khác NULL. Tên cũ `success_2xx_count` vẫn tính HTTP dưới 400 (gồm 3xx). Mẫu số bằng 0 trả NULL.
 
 Ánh xạ sản phẩm hỗ trợ slug, ID số và UUID 16 bytes; UUID có dấu gạch được chuẩn hóa, slug giữ dấu gạch. Product token có ưu tiên hơn variant token. Khóa chưa khớp giữ `raw-product:`/`raw-variant:` để vẫn thấy nhu cầu chưa ánh xạ; mapping làm nhân bản event bị chặn.
 
-Percentile native dùng quantile `equiprobable`, tương ứng nearest-rank chính xác; bỏ duration NULL, làm tròn ba chữ số. Tham khảo [Polars quantile](https://docs.pola.rs/api/python/stable/reference/expressions/api/polars.Expr.quantile.html).
+Percentile SQL sắp xếp duration khác NULL và chọn vị trí `ceil(n × p)` (nearest-rank chính xác), làm tròn ba chữ số; tham chiếu Polars dùng quantile `equiprobable`.
 
-15 kiểm tra gồm timestamp/ID/ngày UTC, trạng thái HTTP/flags, miền duration, ba đối chiếu output sau ghi, ba kiểm tra grain, bảo toàn tổng request route/funnel, checkout và product actions. Audit append vào `<prefix>_system.logs_quality_results`; publication log dùng schema v1 với tên bảng vật lý migration. Gate này không thay thế kiểm tra raw-payload conflict ở Bronze.
+15 kiểm tra gồm timestamp/ID/ngày UTC, trạng thái HTTP/flags, miền duration, ba đối chiếu output sau ghi, ba kiểm tra grain, bảo toàn tổng request route/funnel, checkout và product actions. Với prefix `serving`, audit append vào `system.logs_quality_results`, publication ở `system.logs_analytics_publications`; prefix thử nghiệm dùng `<prefix>_system`. Manifest log `schema_version=1`, `source_mode=logs_rollup` giữ cutoff `observed_at`, event time mới nhất `source_event_at`, snapshot output/input và catalog từ publication OLTP v3. Gate này không thay thế kiểm tra raw-payload conflict ở Bronze.

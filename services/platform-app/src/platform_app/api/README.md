@@ -1,54 +1,65 @@
-# Ecommerce API Service
+# Ecommerce API and Access Administration
 
-FastAPI runs alongside Streamlit in the `platform-app` container. The shared container currently disables Kafka access logging. Analytical dashboards additionally require the data-platform profiles and a completed Lakehouse publication.
+FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. Its active surface comprises source transactions, the ID lookups needed by scenarios, two HTTP observability reads, and MinIO/Polaris administration under `/api/v1/access`. The current console uses this API; the retained Next.js storefront is a legacy client with unsupported calls.
 
-FastAPI service for D&K source transactions, structured access logs and analytical serving. [app/models](models) maps 28 OLTP tables; [database/schema.sql](../../../../../database/schema.sql) defines the physical schema. Router registration: [src/platform_app/api/routes/router.py](routes/router.py).
+[Models](models) map 28 OLTP tables; the [physical schema](../../../../../database/schema.sql) is PostgreSQL. [Router registration](routes/router.py) and [handlers](modules) define supported endpoints. There is no separate access-admin web service: access routes share the API process, cookie session and port 8000. The credential exporter is a separate internal service on port 8011.
 
 ## Structure
 
+Paths below are relative to this directory, `services/platform-app/src/platform_app/api/`.
+
 | Directory | Responsibility |
 |---|---|
-| `app/core/` | Settings, JWT/Argon2, errors, middleware and Kafka producer |
-| `app/db/` | SQLAlchemy sessions, role/CSRF dependencies and Unit of Work |
-| `app/models/` | Transactional model mappings |
-| `app/modules/` | Domain routers, request/response schemas and services |
-| `app/common/` | Money and pagination helpers |
+| `core/` | Settings, JWT/Argon2, errors, middleware, structured access logs and Kafka delivery |
+| `db/` | SQLAlchemy sessions, role/CSRF dependencies and transactional Unit of Work |
+| `models/` | Source model mappings |
+| `modules/` | Domain routers, request/response schemas and services |
+| `routes/` | Router registration and health checks |
+| `common/` | Money and pagination helpers |
+
+Shared-container components are siblings: [access administration](../access_admin), [provisioning](../provisioning), [credential export](../credential_export) and [Streamlit UI](../ui). See the [platform-app guide](../../../README.md) for the console and workload credential flow.
 
 ## Run with Docker
 
-From the repository root, copy `.env.example` to `.env` if it does not exist, configure the values, then run:
+From the repository root, configure `.env` using `.env.example` and the [setup guide](../../../../../docs/setup.md), then:
 
 ```bash
-docker compose --profile tools up -d --build platform-app
-curl -fsS http://localhost:8000/health/ready
+make build
+docker compose --profile core up -d platform-app
+curl -fsS http://127.0.0.1:8000/health/ready
 ```
 
-Profiles are additive with COMPOSE_PROFILES. The shared container starts Uvicorn and Streamlit without applying schemas or seeds. Compose connects FastAPI to PostgreSQL using psycopg2; the source schema and seed target PostgreSQL; schema bootstrap remains explicit. API readiness checks database connectivity, not schema completeness, Kafka, Trino or Gold processing. See [SETUP](../../../../../docs/setup.md).
+`platform-app` uses the `core` profile. Compose starts its dependencies, including `platform-admin-init` and the credential exporter. The init job prepares private storage, applies `database/schema.sql` only when the source public schema has no tables, and creates the configured bootstrap admin. Existing accounts/passwords are preserved; an incomplete existing schema is rejected, rather than migrated or reset. It does not seed products, cities, stores or workload accounts. Run `make seed` explicitly for missing catalog/admin seed records; cities/stores and historical transactions require their own data loading. Startup of Uvicorn itself does not apply schemas.
 
-## Run on the host
+Default addresses are API `http://127.0.0.1:8000`, Swagger `http://127.0.0.1:8000/docs` and Streamlit `http://127.0.0.1:8501`. Compose uses configurable loopback bind addresses. `/health/live` checks the process; `/health/ready` executes `SELECT 1` on the source database. Readiness does not validate schema completeness, Kafka, infrastructure administration, Trino or publications.
 
-Start PostgreSQL first. Set `API_DATABASE_URL` to the host-reachable PostgreSQL URL using your configured credentials/database; replace the placeholders below. URL-encode credential characters when necessary. Select a local API secret of at least 32 characters.
+## Run the API on the host
+
+Use Python 3.11 and the repository uv workspace (`uv sync --locked`). Start PostgreSQL and initialize the source/admin through the supported Compose bootstrap sequence first. For a host API, set `API_DATABASE_URL` to your host-reachable PostgreSQL database and `API_SECRET_KEY` to a local secret of at least 32 characters. Set `API_BOOTSTRAP_ADMIN_EMAIL` to the same bootstrap account if using access administration. Do not reuse the container database hostname from a host process.
 
 ```bash
-docker compose --profile core up -d --wait postgres
-export API_DATABASE_URL='postgresql+psycopg2://<POSTGRES_ECOMMERCE_USER>:<POSTGRES_ECOMMERCE_PASSWORD>@127.0.0.1:5432/<POSTGRES_ECOMMERCE_DB>'
-export API_SECRET_KEY='local-development-secret-key-at-least-32-characters'
+# After configuring the required environment variables:
 export KAFKA_ENABLED=false
-uv run --locked --package platform-app -- python -m database.seeds.seed_catalog
-uv run --locked --package platform-app -- uvicorn platform_app.api.main:app --host 0.0.0.0 --port 8000 --reload
+uv run --locked --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-With Kafka disabled, the current producer path routes access events to the local DLQ. For streaming from a host API, enable Kafka and use its externally advertised listener (default `localhost:9094`), rather than Docker DNS `kafka:9092`. Set the CORS origin for the frontend. A host analytics process also needs a host-reachable Trino URL; see the analytics client configuration below.
+API settings load the root `.env` through Pydantic when launched there. Kafka and Trino modules read process environment directly: export those variables explicitly, or pass `--env-file .env` to `uv run`. Running Uvicorn alone starts neither Streamlit nor the credential exporter. Infrastructure administration also needs its provider credentials, private credential/audit paths and exporter configuration; the shared Compose runtime provides these mounts/settings.
 
-For host analytics set `API_TRINO_URL=http://localhost:8084` (or your Trino host port). Docker defaults to `http://trino:8080`; the client also attempts the default host URL when no explicit URL was supplied. Analytical KPI endpoints read a completed `system.analytics_publications` manifest and pin Silver/Gold tables to its Iceberg snapshots. Trino failures can serve a bounded last-good OLAP response; cold or expired caches return 503. These KPI routes do not fall back to PostgreSQL, which remains the transactional source. The dashboard refresh interval is 15 seconds and does not trigger batch or Airflow processing. Admin overview now reads the published admin singleton and order mart, with nullable counters/financial values, explicit total/pending-payment counts and admin_observed_at. System reads the published order mart and observes current PostgreSQL count/value in one statement. Its contract uses source_mode, publication_age_minutes, source_observed_at, reconciliation_status and integer absolute differences. Missing sides remain null; a zero source denominator has an undefined percentage. Bounded cached comparisons are explicitly marked cached and retain their original source observation time. Marketing reads only marts, using independent log (`system.logs_analytics_publications`, schema 1) and OLTP (schema 3) publications. Its response exposes `log_status`/`commerce_status` with per-source availability, observation/publication time and bounded-cache metadata. It has no single combined run ID/timestamp. One unavailable source produces a partial/degraded response while preserving the other; both unavailable without valid cache return 503. Request-event fields replace visitor/purchase proxy names; coupon and review windows are frozen at the commerce observation timestamp. See the Metrics Catalog for the revised contract.
+Compose forwards `KAFKA_ENABLED` with default `false`; the producer module's standalone default is `true`. When false, Kafka event delivery is skipped and no Kafka DLQ entry is created. When true, unavailable/failed/overloaded delivery is retained in the local JSONL DLQ (`/data/events/dlq_access_logs.jsonl` in Compose), with bounded pending delivery tasks and background reconnect. Structured stdout access logging remains independent. Enable the `streaming` profile and submit the Flink job explicitly for end-to-end log processing. Host Kafka clients use the externally advertised listener `localhost:9094`; container clients use `kafka:9092`.
+
+For the two analytics reads, the [Trino client](modules/analytics/trino_client.py) chooses `API_TRINO_URL`, then `TRINO_URL`, then `https://trino:8443`. A host process should use `https://localhost:8084` (or its configured port), a trusted CA file in `TRINO_CA_FILE`, and the read-only `TRINO_READER_USER`/`TRINO_READER_PASSWORD` credentials. Compose mounts its CA and forwards the reader password. TLS verification is enabled; the client uses Basic authentication when that password exists. Default Docker/host URL probing does not provision credentials or trust.
+
+## HTTP observability
+
+The six former business BI reads are retired: GET `/api/v1/admin/overview`, `/api/v1/admin/store/dashboard` and `/api/v1/admin/analytics/{overview,role-metrics,sales-trend,stores}`. The retained analytics router has only the two endpoints below. Historical role dashboards and their types are not a current backend contract. Business sales serving uses the separately configured Superset PoC; see [architecture](../../../../../docs/architecture.md).
 
 ### HTTP metrics contract
 
-`GET /api/v1/admin/analytics/http-metrics?days=7` accepts integer `days` from 1 to 30 (default 7). Admin and System Admin only; other roles receive 403, anonymous callers 401, and invalid windows 422. It reads only `mart_hourly_route_metrics`, pinned by `system.logs_analytics_publications` schema 1, independently of the OLTP reconciliation endpoint. No request triggers a pipeline or queries OLTP for replacement metrics.
+`GET /api/v1/admin/analytics/http-metrics?days=7` accepts integer `days` from 1 to 30 (default 7). Admin and System Admin only; other roles receive 403, anonymous callers 401, and invalid windows 422. It reads only `mart_hourly_route_metrics`, pinned by `system.logs_analytics_publications` schema 1, independently of the OLTP publication (the former reconciliation endpoint is retired). No request triggers a pipeline or queries OLTP for replacement metrics.
 
-The window starts at 00:00 UTC `days - 1` dates before the publication's `observed_at` date and ends at that observation. The response includes `window_start`, `observed_at`, publication/cache status, nullable `totals`, observed `hours`, up to 20 aggregated `routes` ordered by error count then average latency, and up to 20 `latency_groups` ordered by p95. Percentiles remain at hour × route × method grain. Error rate is recomputed from summed counts; average latency weights the mart's rounded group means by request count, excluding groups without a mean. Existing ingestion supplies a duration for each accepted event. The legacy `success_2xx_count` groups responses below 400; the API/UI calls this success / 2xx–3xx rather than 2xx only.
+The date filter starts at 00:00 UTC `days - 1` dates before the publication's `observed_at` date and includes that observation's UTC date. SQL filters `metric_date`, without a separate intra-day upper cutoff; the pinned publication determines which hourly groups are present. The response includes `window_start`, `observed_at`, publication/cache status, nullable `totals`, observed `hours`, up to 20 aggregated `routes` ordered by error count then average latency, and up to 20 `latency_groups` ordered by p95. Percentiles remain at hour × route × method grain. Error rate is recomputed from summed counts; average latency weights the mart's rounded group means by request count, excluding groups without a mean. Existing ingestion supplies a duration for each accepted event. The legacy `success_2xx_count` groups responses below 400; the API/UI calls this success / 2xx–3xx rather than 2xx only.
 
-An empty published window has null totals and empty lists; an observed zero remains zero, with null ratios when the denominator is zero. Missing publication/snapshot or Trino failure uses a bounded last-good cache for the same window size, marked degraded, or returns 503. Cached responses retain their original window and observation/publication times. No global percentile or production SLA is inferred.
+An empty published window has null total fields and empty lists; an observed zero remains zero, with null ratios when the denominator is zero. Missing publication/snapshot or Trino failure uses a bounded last-good cache for the same window size, marked degraded, or returns 503. Cached responses retain their original window and observation/publication times. No global percentile or production SLA is inferred.
 
 ### HTTP realtime contract
 
@@ -58,31 +69,50 @@ Each read fixes UTC `observed_at` and one current main snapshot from Iceberg `$h
 
 Valid projected envelopes are grouped by event ID. Identical payload hashes count once; IDs with multiple payload hashes are excluded from HTTP metrics. Conflict/replay detection is limited to the scanned scope, not global validation. `quality` distinguishes scanned/invalid/replayed rows from conflicting/late/future IDs. Late IDs have event time before the window; future IDs are at/after the upper boundary. In-window late arrivals are counted when visible and can change earlier minutes.
 
-The response contains `snapshot_id` (string), `snapshot_current_at`, `window_start`, `observed_at`, `queried_at`, latest in-scope ingest/event times, nullable totals, observed minute `series` and at most 20 routes ordered by error count, request count and route/method. Rates and approximate p95 are computed directly over eligible unique requests at each grain; p95 totals are not averaged minute/route percentiles. Duration uses nanoseconds / 1e6; success counts 200–399, errors 400–599, and total requests includes accepted 100–599 statuses. No eligible requests means null totals and empty series/routes; observed zero errors or zero latency remains zero. No raw payload, event IDs, actor identifiers or individual request records are returned.
+The response contains `snapshot_id` (string, or null when the table has no snapshot), `snapshot_current_at`, `window_start`, `observed_at`, `queried_at`, latest in-scope ingest/event times, nullable totals, observed minute `series` and at most 20 routes ordered by error count, request count and route/method. Rates and approximate p95 are computed directly over eligible unique requests at each grain; p95 totals are not averaged minute/route percentiles. Duration uses nanoseconds / 1e6; success counts 200–399, errors 400–599, and total requests includes accepted 100–599 statuses. No eligible requests means null total fields and empty series/routes; observed zero errors or zero latency remains zero. No raw payload, event IDs, actor identifiers or individual request records are returned.
 
-Realtime polling happens only while its System view is mounted and visible, every 10 seconds with in-flight reuse. A failed refresh retains the previous observation and its timestamp with an error label. Analytical HTTP reporting remains independently published hourly. All recorded API traffic, including dashboard requests, is included; this is not external-user traffic alone. This endpoint is HTTP observation, not business-event realtime or full Silver validation.
+The endpoint reports HTTP observations, not business-event realtime or full Silver validation. Captured traffic includes console/analytics requests as well as shopping requests. Polling is a client concern; the retained Next.js System view is legacy and its other dependencies include retired endpoints.
 
 ## Settings and request conventions
 
-Backend settings are defined in [config.py](core/config.py) and use `API_*`; [Kafka settings](core/kafka_producer.py) use `KAFKA_*`. [Trino settings](modules/analytics/trino_client.py) use their own environment names. Compose only forwards the variables explicitly listed under its API service; adding a new API_* line to the project `.env` does not automatically inject it into that container.
+[API settings](core/config.py) use `API_*`; [Kafka delivery](core/kafka_producer.py) uses `KAFKA_*`; analytics also reads Trino and `API_ANALYTICS_CACHE_MAX_AGE_SECONDS` settings directly. Compose injects only explicitly listed variables; adding a variable to the root `.env` does not automatically inject it into a container. Published HTTP responses use a process-local last-good cache keyed by `days`, with a maximum age of 3600 seconds by default and up to 128 keys. Failed reads with no usable cached response return 503. Cache fallback does not query source PostgreSQL for replacement metrics.
 
-JWT is stored in the HttpOnly `web_access` cookie by default. The readable `web_csrf` cookie is copied into `X-CSRF-Token` for routes that enable double-submit verification. The endpoint table marks those routes. Local cookies are not Secure by default. Internal order confirmation uses `X-Internal-Secret`.
+JWT defaults to the HttpOnly `web_access` cookie; login/register also set readable `web_csrf`. Routes marked Yes below require the cookie value in `X-CSRF-Token`. Cookies are not Secure by default in local configuration. Logout requires CSRF but does not require a valid authenticated customer. Internal order confirmation uses `X-Internal-Secret` instead of a customer cookie.
 
-Checkout `Idempotency-Key` must contain 1–59 characters. The optional `shipping_city_code` must name an active city (case-insensitive) or checkout returns 400; it is stored as `orders.shipping_city_id`. Other workflows validate their own key requirements; POS generates an internal key and does not deduplicate client retries in the same way. VietQR and refund success are recorded locally, without an external payment provider callback.
+Checkout requires a nonblank trimmed `Idempotency-Key` of at most 59 characters. Customer cancel/complete, internal/admin confirm, admin cancel, inbound receipt creation, return creation and return inspection require their own nonblank keys of at most 64 characters. Store confirm/cancel require a key and CSRF, then check assigned store and order scope. POS creates an internal key rather than deduplicating arbitrary client retries. Other logistics transitions apply service-level key/state checks; inspect their handlers before replaying uncertain writes. Optional checkout `shipping_city_code` must identify an active city (case-insensitive), otherwise 400. VietQR/refund success is recorded locally; there is no external payment-provider callback route.
+
+`GET /api/v1/admin/customers` is an exact-email scenario lookup: required `email` has length 3–320. It is not an unrestricted customer listing. Admin product search and branch stock reads remain available for scenario IDs. Store-manager stock reads are restricted to the assigned store; branch adjustments permit only admin or the assigned store manager. Adjustments and warehouse-to-store refill run through transactional Unit of Work, updating stock versions and inventory ledger records together.
 
 ## Endpoint reference
 
-Paths and methods below are registered in source. Authentication columns describe router dependencies plus documented store scope; ownership, state and fine-grained analytics checks still apply in services. `CSRF` identifies an explicit verify_csrf dependency. Swagger UI is `/docs` when API_ENABLE_DOCS is enabled; the OpenAPI document is `/openapi.json`.
+The following table covers all registered application routes. `/docs`, `/docs/oauth2-redirect` and `/openapi.json` are framework routes; Swagger UI depends on `API_ENABLE_DOCS` (default true), while OpenAPI remains enabled. Runtime `/openapi.json` and source registration are the authoritative contract.
 
-| Method | Path | Authentication | CSRF |
+Authentication names: **Customer** means any active cookie-authenticated user; ownership/state checks still apply. **Admin** means exactly `admin`, not `system_admin`. **Staff** includes `admin`, `store_manager`, `sales_manager`, `marketing_manager`, `inventory_manager`, `operations_manager`, `system_admin`. **Inventory** means `admin`/`inventory_manager`; **Marketing** means `admin`/`marketing_manager`. **Bootstrap admin** additionally verifies that the enabled credential belongs to the configured bootstrap email. Provider path values accept only `minio` or `polaris`; invalid values return 422. Public catalog/location/review reads resolve a valid optional login for request attribution.
+
+| Method | Path | Authentication / scope | CSRF |
 |---|---|---|---|
-| GET | `/api/v1/admin/overview` | Admin | — |
+| GET | `/health/live` | Public | — |
+| GET | `/health/ready` | Public | — |
+| POST | `/api/v1/access/login` | Bootstrap admin credentials | — |
+| GET | `/api/v1/access/me` | Bootstrap admin | — |
+| POST | `/api/v1/access/logout` | Public | Yes |
+| GET | `/api/v1/access/audit` | Bootstrap admin | — |
+| GET | `/api/v1/access/{provider}` | Bootstrap admin | — |
+| POST | `/api/v1/access/{provider}/bindings` | Bootstrap admin | Yes |
+| POST | `/api/v1/access/{provider}/resources` | Bootstrap admin | Yes |
+| POST | `/api/v1/access/polaris/credentials/{name}` | Bootstrap admin | Yes |
+| PATCH | `/api/v1/access/{provider}/resources` | Bootstrap admin | Yes |
+| GET | `/api/v1/access/polaris/workload-credentials` | Bootstrap admin | — |
+| POST | `/api/v1/access/polaris/workload-credentials` | Bootstrap admin | Yes |
+| POST | `/api/v1/auth/register` | Public | — |
+| POST | `/api/v1/auth/login` | Public | — |
+| POST | `/api/v1/auth/logout` | Public | Yes |
+| GET | `/api/v1/auth/me` | Customer | — |
 | GET | `/api/v1/admin/products` | Staff | — |
-| POST | `/api/v1/admin/products` | Inventory / admin | Yes |
-| PATCH | `/api/v1/admin/products/{public_id}` | Inventory / admin | Yes |
-| DELETE | `/api/v1/admin/products/{public_id}` | Inventory / admin | Yes |
-| PATCH | `/api/v1/admin/variants/{public_id}` | Inventory / admin | Yes |
-| GET | `/api/v1/admin/orders` | Admin | — |
+| POST | `/api/v1/admin/products` | Inventory | Yes |
+| PATCH | `/api/v1/admin/products/{public_id}` | Inventory | Yes |
+| DELETE | `/api/v1/admin/products/{public_id}` | Inventory | Yes |
+| PATCH | `/api/v1/admin/variants/{public_id}` | Inventory | Yes |
 | GET | `/api/v1/admin/orders/{order_number}` | Admin | — |
 | POST | `/api/v1/admin/orders/{order_number}/confirm` | Admin | Yes |
 | POST | `/api/v1/admin/orders/{order_number}/cancel` | Admin | Yes |
@@ -92,85 +122,66 @@ Paths and methods below are registered in source. Authentication columns describ
 | GET | `/api/v1/admin/customers` | Admin | — |
 | PATCH | `/api/v1/admin/customers/{public_id}` | Admin | Yes |
 | POST | `/api/v1/admin/customers/{customer_id}/reinstate-cod` | Admin | Yes |
-| GET | `/api/v1/admin/branch-inventory` | Staff | — |
-| PATCH | `/api/v1/admin/branch-inventory` | Admin / assigned store manager | Yes |
+| GET | `/api/v1/admin/branch-inventory` | Staff; store scope | — |
+| PATCH | `/api/v1/admin/branch-inventory` | Admin / assigned store_manager | Yes |
 | POST | `/api/v1/admin/inventory/refill` | Admin | Yes |
-| GET | `/api/v1/admin/analytics/stores` | Staff, analytics role/store checks | — |
-| GET | `/api/v1/admin/analytics/overview` | Admin | — |
-| GET | `/api/v1/admin/analytics/role-metrics` | Staff, analytics role/store checks | — |
-| GET | `/api/v1/admin/analytics/sales-trend` | Sales manager / admin | — |
-| GET | `/api/v1/admin/analytics/http-metrics` | Admin / System Admin | — |
-| GET | `/api/v1/admin/analytics/http-realtime` | Admin / System Admin | — |
-| POST | `/api/v1/auth/register` | Public | — |
-| POST | `/api/v1/auth/login` | Public | — |
-| POST | `/api/v1/auth/logout` | Public | Yes |
-| GET | `/api/v1/auth/me` | Authenticated user | — |
-| GET | `/api/v1/cart` | Authenticated user | — |
-| PUT | `/api/v1/cart/items/{variant_public_id}` | Authenticated user | Yes |
-| DELETE | `/api/v1/cart/items/{variant_public_id}` | Authenticated user | Yes |
-| GET | `/api/v1/categories` | Public | — |
-| GET | `/api/v1/catalog/facets` | Public | — |
-| GET | `/api/v1/products` | Public | — |
-| GET | `/api/v1/products/{slug}` | Public | — |
-| POST | `/api/v1/checkout/quote` | Authenticated user | — |
-| POST | `/api/v1/checkout` | Authenticated user | Yes |
-| GET | `/api/v1/coupons/available` | Authenticated user | — |
-| GET | `/api/v1/admin/coupons` | Marketing / admin | — |
-| POST | `/api/v1/admin/coupons` | Marketing / admin | Yes |
-| PATCH | `/api/v1/admin/coupons/{public_id}` | Marketing / admin | Yes |
-| DELETE | `/api/v1/admin/coupons/{public_id}` | Marketing / admin | Yes |
-| POST | `/api/v1/admin/inbound/receipts` | Inventory / admin | Yes |
-| GET | `/api/v1/admin/inbound/receipts` | Inventory / admin | — |
-| GET | `/api/v1/admin/inbound/receipts/{receipt_code}` | Inventory / admin | — |
-| GET | `/api/v1/locations/cities` | Public | — |
-| GET | `/api/v1/locations/cities/{city_code}/stores` | Public | — |
-| GET | `/api/v1/catalog/products/{slug}/availability` | Public | — |
+| GET | `/api/v1/admin/analytics/http-realtime` | Admin / system_admin | — |
+| GET | `/api/v1/admin/analytics/http-metrics` | Admin / system_admin | — |
+| POST | `/api/v1/admin/inbound/receipts` | Inventory | Yes |
+| GET | `/api/v1/admin/inbound/receipts/{receipt_code}` | Inventory | — |
+| GET | `/api/v1/admin/store/orders/{order_number}` | Admin / assigned store_manager | — |
+| POST | `/api/v1/admin/store/orders/{order_number}/confirm` | Admin / assigned store_manager | Yes |
+| POST | `/api/v1/admin/store/orders/{order_number}/cancel` | Admin / assigned store_manager | Yes |
+| POST | `/api/v1/admin/coupons` | Marketing | Yes |
+| PATCH | `/api/v1/admin/coupons/{public_id}` | Marketing | Yes |
+| DELETE | `/api/v1/admin/coupons/{public_id}` | Marketing | Yes |
+| PATCH | `/api/v1/admin/reviews/{public_id}` | Marketing | Yes |
 | GET | `/api/v1/admin/delivery-staff` | Admin | — |
 | POST | `/api/v1/admin/delivery-staff` | Admin | Yes |
 | PATCH | `/api/v1/admin/delivery-staff/{staff_id}` | Admin | Yes |
-| GET | `/api/v1/admin/shipments` | Admin | — |
-| GET | `/api/v1/admin/shipments/{order_number}` | Admin | — |
-| GET | `/api/v1/orders` | Authenticated user | — |
-| GET | `/api/v1/orders/{order_number}` | Authenticated user | — |
-| POST | `/api/v1/orders/{order_number}/cancel` | Authenticated user | Yes |
-| POST | `/api/v1/orders/{order_number}/complete` | Authenticated user | Yes |
-| POST | `/internal/v1/orders/{order_number}/confirm` | Internal secret | — |
-| GET | `/api/v1/pos/products` | Staff, POS store scope | — |
-| POST | `/api/v1/pos/transactions` | Staff, POS store scope | Yes |
-| POST | `/api/v1/orders/{order_number}/returns` | Authenticated user | Yes |
-| GET | `/api/v1/returns` | Authenticated user | — |
-| GET | `/api/v1/returns/{return_code}` | Authenticated user | — |
-| POST | `/api/v1/returns/{return_code}/cancel` | Authenticated user | Yes |
-| GET | `/api/v1/admin/returns` | Admin | — |
+| GET | `/api/v1/coupons/available` | Customer | — |
+| GET | `/api/v1/categories` | Public; optional login | — |
+| GET | `/api/v1/catalog/facets` | Public; optional login | — |
+| GET | `/api/v1/products` | Public; optional login | — |
+| GET | `/api/v1/products/{slug}` | Public; optional login | — |
+| GET | `/api/v1/cart` | Customer | — |
+| PUT | `/api/v1/cart/items/{variant_public_id}` | Customer | Yes |
+| DELETE | `/api/v1/cart/items/{variant_public_id}` | Customer | Yes |
+| GET | `/api/v1/locations/cities` | Public; optional login | — |
+| GET | `/api/v1/locations/cities/{city_code}/stores` | Public; optional login | — |
+| GET | `/api/v1/catalog/products/{slug}/availability` | Public; optional login | — |
+| POST | `/api/v1/checkout/quote` | Customer | — |
+| POST | `/api/v1/checkout` | Customer | Yes |
+| GET | `/api/v1/orders` | Customer | — |
+| GET | `/api/v1/orders/{order_number}` | Customer | — |
+| POST | `/api/v1/orders/{order_number}/cancel` | Customer | Yes |
+| POST | `/api/v1/orders/{order_number}/complete` | Customer | Yes |
+| GET | `/api/v1/products/{slug}/reviews` | Public; optional login | — |
+| POST | `/api/v1/orders/{order_number}/items/{order_item_public_id}/review` | Customer | Yes |
+| GET | `/api/v1/pos/products` | Staff; assigned store (admin/system_admin exempt) | — |
+| POST | `/api/v1/pos/transactions` | Staff; assigned store (admin/system_admin exempt) | Yes |
+| GET | `/api/v1/wishlist` | Customer | — |
+| PUT | `/api/v1/wishlist/products/{product_public_id}` | Customer | Yes |
+| DELETE | `/api/v1/wishlist/products/{product_public_id}` | Customer | Yes |
+| POST | `/api/v1/orders/{order_number}/returns` | Customer | Yes |
+| GET | `/api/v1/returns` | Customer | — |
+| GET | `/api/v1/returns/{return_code}` | Customer | — |
+| POST | `/api/v1/returns/{return_code}/cancel` | Customer | Yes |
 | GET | `/api/v1/admin/returns/{return_code}` | Admin | — |
 | POST | `/api/v1/admin/returns/{return_code}/review` | Admin | Yes |
 | POST | `/api/v1/admin/returns/{return_code}/receive` | Admin | Yes |
 | POST | `/api/v1/admin/returns/{return_code}/inspect-and-resolve` | Admin | Yes |
-| GET | `/api/v1/products/{slug}/reviews` | Public (optional login) | — |
-| POST | `/api/v1/orders/{order_number}/items/{order_item_public_id}/review` | Authenticated user | Yes |
-| GET | `/api/v1/admin/reviews` | Marketing / admin | — |
-| PATCH | `/api/v1/admin/reviews/{public_id}` | Marketing / admin | Yes |
-| GET | `/api/v1/admin/store/dashboard` | Store manager / admin, store scope | — |
-| GET | `/api/v1/admin/store/orders` | Store manager / admin, store scope | — |
-| GET | `/api/v1/admin/store/orders/{order_number}` | Store manager / admin, store scope | — |
-| POST | `/api/v1/admin/store/orders/{order_number}/confirm` | Store manager / admin, store scope | — |
-| POST | `/api/v1/admin/store/orders/{order_number}/cancel` | Store manager / admin, store scope | — |
-| GET | `/api/v1/admin/store/inventory` | Store manager / admin, store scope | — |
-| GET | `/api/v1/admin/store/staff` | Store manager / admin, store scope | — |
-| GET | `/api/v1/wishlist` | Authenticated user | — |
-| PUT | `/api/v1/wishlist/products/{product_public_id}` | Authenticated user | Yes |
-| DELETE | `/api/v1/wishlist/products/{product_public_id}` | Authenticated user | Yes |
-| GET | `/health/live` | Public | — |
-| GET | `/health/ready` | Public | — |
+| POST | `/internal/v1/orders/{order_number}/confirm` | Internal secret | — |
 
-## Current limits
+## Removed reads and current limits
 
-- Admin order, delivery and return APIs require admin. Operations managers have a dashboard/UI menu but do not currently have these API write permissions.
-- Store confirm/cancel routes enforce store scope/idempotency, but omit the CSRF dependency.
-- Branch inventory PATCH and inventory/refill POST currently flush without committing in their router or get_db dependency. A 204 response is not proof those writes persisted. See [admin router](modules/admin/router.py).
-- Category CRUD, customer self-service profile editing, separate shipper login and size/color exchange workflows are not implemented.
-- Local HTTP, development defaults and published service ports are not a completed production security setup.
+In addition to the six retired BI routes above, these ten former administrative GET routes are absent: `/api/v1/admin/orders`, `/api/v1/admin/inbound/receipts`, `/api/v1/admin/coupons`, `/api/v1/admin/reviews`, `/api/v1/admin/returns`, `/api/v1/admin/shipments`, `/api/v1/admin/shipments/{order_number}`, `/api/v1/admin/store/orders`, `/api/v1/admin/store/inventory`, `/api/v1/admin/store/staff`. Retained POST/detail routes with related prefixes do not restore their former list APIs. Unsupported requests may return 404 or 405 depending on another registered method/path; they are not supported reads.
+
+- Order, delivery-staff and admin return operations require `admin`. The legacy UI's operations-manager menu does not grant these API permissions.
+- Category CRUD, self-service customer profile editing, a separate shipper login and size/color exchange workflows are absent.
+- Access administration supports MinIO user/bucket/policy and Polaris principal/role/catalog resources, bindings and explicit workload credential assignment. MinIO group administration and arbitrary policy JSON editing are not exposed. Sensitive credential responses use `Cache-Control: no-store`; access audit data and saved credentials use private persistent paths.
+- This guide verifies registrations and source behavior. Successful runtime transactions still require initialized source data, provider permissions and reachable dependencies.
 
 ## References
 
-[Business requirements](../../../../../docs/architecture.md#1-phạm-vi-và-hiện-trạng) · [OLTP schema](../../../../../docs/data.md#2-schema-oltp) · [access logs](../../../../../docs/data.md#4-access-log-contract-và-xử-lý) · [metric definitions](../../../../../docs/data.md#5-dimension-fact-và-18-mart)
+[Setup](../../../../../docs/setup.md) · [Architecture and serving](../../../../../docs/architecture.md) · [Schema, access logs and marts](../../../../../docs/data.md) · [Operations and recovery](../../../../../docs/operations.md) · [Legacy storefront](../../../../storefront/README.md)

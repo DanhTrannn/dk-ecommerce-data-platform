@@ -1,63 +1,46 @@
-# D&K Storefront Application
+# D&K Legacy Storefront
 
-Next.js 15 / React 19 application for shopping, POS, administration and role dashboards. TypeScript, Tailwind CSS and Apache ECharts implement the UI. Routes use the App Router; Docker runs the standalone production output.
+This retained Next.js 15 / React 19 application contains shopping, POS, administration and role-dashboard screens implemented with TypeScript, Tailwind CSS and Apache ECharts. It remains in source and CI, but **there is no `storefront` service in the current Docker Compose runtime**. The current interface is the Streamlit Platform Console in [platform-app](../platform-app/README.md); business sales BI uses the separate Superset PoC described in [architecture](../../docs/architecture.md).
 
-## Routes
+The backend has retired several reads still used here. A successful frontend build does not make these screens a supported current serving path. Shopping and some operational calls still have corresponding API routes; this is source compatibility, not an end-to-end runtime guarantee. See the [active API inventory](../platform-app/src/platform_app/api/README.md).
 
-Public route visibility does not grant access to authenticated cart/checkout/order APIs. API roles and store scope remain authoritative. Sources: [pages](src/app), [role rules](src/lib/role-routes.ts), [store layout](src/app/store/layout.tsx).
+## Retained screens and backend compatibility
 
-| Path | UI access / behavior |
+Routes use the App Router. [Page source](src/app), [client role rules](src/lib/role-routes.ts), [store layout](src/app/store/layout.tsx), [API wrappers](src/lib/api.ts) and [commerce wrappers](src/lib/commerce.ts) describe the legacy client behavior. UI visibility does not grant API permission.
+
+| UI paths | Present behavior / backend limitations |
 |---|---|
-| `/`, `/products`, `/products/[slug]` | Public browsing, filters, variants and approved reviews |
-| `/login`, `/register` | Authentication |
-| `/cart`, `/wishlist`, `/checkout` | Authenticated data/actions; unauthenticated UI prompts login |
-| `/checkout/result/[orderNumber]` | Checkout receipt/result |
-| `/orders`, `/orders/[orderNumber]` | Owned order history/detail, receipt confirmation, review/return actions |
-| `/orders/returns/[returnCode]` | Owned return request detail |
-| `/admin` | Admin overview |
-| `/admin/analytics` | All staff; server restricts requested view and store scope |
-| `/admin/products` | Inventory manager / admin |
-| `/admin/inbound`, `/admin/inbound/[receiptCode]` | Inventory manager / admin |
-| `/admin/coupons`, `/admin/reviews` | Marketing manager / admin |
-| `/admin/orders`, `/admin/orders/[orderNumber]` | Admin / operations manager in UI; API currently requires admin |
-| `/admin/logistics`, `/admin/returns`, `/admin/returns/[returnCode]` | Admin / operations manager in UI; API currently requires admin |
-| `/admin/customers` | Admin |
-| `/admin/pos` | Admin entry point that redirects to `/store/pos` |
-| `/store`, `/store/pos` | Store manager / admin; store assignment rules apply at API |
-| `/store/orders`, `/store/orders/[orderNumber]` | Store manager / admin, scoped store orders |
-| `/store/inventory`, `/store/staff` | Store manager / admin, scoped inventory/staff |
+| `/`, `/products`, `/products/[slug]` | Public product browsing, filters, variants and approved reviews; corresponding catalog/location/review GET routes remain |
+| `/login`, `/register` | Cookie authentication routes remain |
+| `/cart`, `/wishlist`, `/checkout`, `/checkout/result/[orderNumber]` | Authenticated shopping and checkout calls remain; public page visibility still requires login for private data/actions |
+| `/orders`, `/orders/[orderNumber]`, `/orders/returns/[returnCode]` | Owned order/return reads and permitted cancel, complete, review and return actions remain |
+| `/admin` | Calls retired GET `/api/v1/admin/overview`; overview data is unavailable through that route |
+| `/admin/analytics` | Seven legacy role views remain in source. Business role metrics, store selection and sales-trend reads are retired; System HTTP Metrics/Realtime have retained, independent endpoints |
+| `/admin/products` | UI allows inventory manager/admin; product list and create/update/archive/variant calls remain |
+| `/admin/inbound`, `/admin/inbound/[receiptCode]` | List GET is retired; receipt creation/detail remain for inventory manager/admin |
+| `/admin/coupons`, `/admin/reviews` | List GETs are retired; marketing manager/admin mutations remain |
+| `/admin/orders`, `/admin/orders/[orderNumber]` | Admin list GET is retired; detail/transitions remain for admin. The UI also admits operations managers, whom these APIs reject |
+| `/admin/logistics` | Shipment list/detail GETs are retired; delivery-staff management and order logistics transitions remain admin-only |
+| `/admin/returns`, `/admin/returns/[returnCode]` | Admin return list GET is retired; detail/review/receive/inspection routes remain admin-only. Operations-manager UI access does not grant backend access |
+| `/admin/customers` | Client requests an unrestricted list; retained API now requires exact `email`, so this call returns 422 |
+| `/admin/pos` | Redirects to `/store/pos` |
+| `/store`, `/store/orders`, `/store/inventory`, `/store/staff` | Store dashboard, list, inventory and staff GETs used by these screens are retired |
+| `/store/orders/[orderNumber]` | Detail and confirm/cancel APIs remain for assigned store manager/admin; confirm/cancel require CSRF and an idempotency key |
+| `/store/pos` | POS search/transaction APIs remain. UI permits store manager/admin; API additionally admits other assigned staff and exempts admin/system_admin from assignment checks |
 
-The POS API also accepts other staff assigned to a store, with admin/system-admin exceptions, but the `/store` layout is narrower. There is no separate delivery-staff login or customer profile-edit route.
+Absent GET routes may yield 404 or 405 depending on other registered methods/paths. Retained mutation/detail APIs do not restore the legacy list or dashboard calls. Some screens load several dependencies together; one retained call does not imply the entire screen works. There is no separate delivery-staff login or customer profile-edit route.
 
-## Dashboard behavior
+## Historical dashboard behavior
 
-BI has seven role views, with compact KPI summaries, charts and collapsed detail tables. Sales separates store/trend analysis from products/categories; Operations separates logistics from returns; Marketing separates log interactions from coupons/reviews. System separates reconciliation, published HTTP Metrics and provisional HTTP Realtime from Landing. Admin and Store overview pages use the same compact components; duplicated banners, generic next-action lists and always-visible definition tables have been removed.
+Dashboard components and frontend response types retain the former 15-OLTP-mart/three-log-mart design. They are historical UI contracts, not evidence that retired backend aggregates are still served. Executive, sales, store, inventory, operations, marketing and system views remain in the client; the current Superset sales PoC is independent of these pages and uses two publication-pinned sales marts.
 
-The legacy dashboard views were designed around 15 OLTP marts and three log marts. Six business BI endpoints have since been retired, so those pages are not a supported current serving path. The [current serving architecture](../../docs/architecture.md#4-publication-và-serving) uses a two-mart Superset sales PoC; administrative HTTP endpoints retain their separate publication/Landing contracts.
+The two supported HTTP reads are GET `/api/v1/admin/analytics/http-metrics?days=7` and GET `/api/v1/admin/analytics/http-realtime?minutes=15`, both restricted to `admin`/`system_admin`. Published HTTP Metrics accepts 1–30 UTC dates and reads the independently published hourly route mart with bounded last-good server fallback. HTTP Realtime accepts 5–60 minutes and reads one Landing snapshot without server last-good cache or publication requirement. Both return aggregate observations; they do not run pipelines or provide business-event realtime. Their detailed data, empty-result and failure contracts live in the [API guide](../platform-app/src/platform_app/api/README.md).
 
-Filters retain their real scope: 7/30/90 days only change sales trend; store selection changes the authorized store view; 1/7/30 UTC dates only change HTTP reporting. Marketing has independent log and commerce observation/publication/cache states. Published HTTP percentiles stay at hour/route/method grain; zero denominators remain undefined. Missing values render as dashes, observed zero remains zero, and missing time buckets remain gaps. Search/sort/CSV changes only the opened detail table. Top subsets are labeled.
-
-The UI retains last-successful data during refresh, marks failures/cache and uses a shared in-flight request for trend/HTTP reads of the same window. Hidden HTTP does not fetch. HTTP Realtime alone has a 5/15/60-minute sliding window, independent source/snapshot timestamps and 10-second visible-only polling with in-flight reuse; it stops when leaving the view. Its minute trends, error rates, direct approximate p95 and Top 20 routes are provisional. Invalid/replayed/conflicting/late/future observations are in collapsed quality details; raw payloads are never returned. An unavailable Landing read retains the previous timestamp/result with an error label; it does not borrow a published mart or MySQL aggregate. Other analytics refresh every 15 seconds while visible; this does not run batch jobs or advance the underlying published data. Publication times use UTC+7; HTTP window labels are explicitly UTC. No unsupported targets/deltas or inferred pipeline health are added.
-
-## Run with Docker
-
-Configure the repository `.env` first, then from the repository root:
-
-```bash
-docker compose --profile core up -d --build storefront
-```
-
-Open `http://localhost:3000`. Compose profiles add to the selection in COMPOSE_PROFILES. To rebuild only the running frontend after a UI edit:
-
-```bash
-docker compose up -d --no-deps --build storefront
-```
-
-The image does not bind-mount frontend source. Restarting an old image does not pick up source changes.
+The legacy System UI separates reconciliation, published HTTP and realtime tabs. HTTP polling/cache behavior is implemented in the retained components, but the default reconciliation request still targets retired `role-metrics`. Realtime polling runs every 10 seconds only while visible and retains the previous observation/timestamp after a failed refresh; this client behavior does not change the backend's no-store contract. Published percentile groups retain hour/route/method grain; the client must not interpret them as a global percentile. Missing values and observed zeros remain distinct.
 
 ## Local development
 
-Use Node.js 22 as in CI, and run a reachable API separately:
+Use Node.js 22 and npm 10+ as declared in [package.json](package.json), and run a reachable API separately. From the repository root:
 
 ```bash
 cd services/storefront
@@ -65,16 +48,20 @@ npm ci
 npm run dev
 ```
 
+Open `http://localhost:3000`. Configure browser-facing values before development/build, for example in `services/storefront/.env.local`:
+
 | Variable | Default | Use |
 |---|---|---|
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | Browser-reachable FastAPI URL |
-| `NEXT_PUBLIC_CSRF_COOKIE_NAME` | `web_csrf` | Cookie copied to the CSRF request header |
+| `NEXT_PUBLIC_CSRF_COOKIE_NAME` | `web_csrf` | Readable cookie copied into `X-CSRF-Token` |
 
-Set public variables before `npm run dev` or `npm run build` (for example in `services/storefront/.env.local`). The frontend is no longer a Compose service; configure them for host builds. Existing production images require rebuilding when these values change. Configure API CORS to match the browser origin; see [setup](../../docs/setup.md).
+Public variables are compiled into the browser build. Changing them requires a rebuild for production output. Configure API CORS to match the exact browser origin, and use matching hosts for local cookie sessions (for example `localhost` for both browser app and API). The API's default local cookies are not Secure. See [setup](../../docs/setup.md) for backend initialization/settings.
+
+There is no supported `docker compose ... storefront` command in the current Compose file. The retained [Dockerfile](Dockerfile) and [Next configuration](next.config.mjs) describe a standalone-output image; their presence does not register a runtime service. For a local production build check, use `npm run build`. The retained image runs the generated standalone `server.js`.
 
 ## Static checks and build
 
-From the repository root:
+From the repository root, after `npm ci` in this directory:
 
 ```bash
 npm --prefix services/storefront run lint
@@ -82,4 +69,4 @@ npm --prefix services/storefront run typecheck
 npm --prefix services/storefront run build
 ```
 
-These check the frontend source/build. They do not demonstrate that every backend permission, transaction or data pipeline works at runtime. Current API limits are documented in the [API guide](../../services/platform-app/README.md).
+The current CI retains these frontend checks. They validate source/build compatibility, not the existence of backend routes, user permissions, transaction persistence, publications or pipeline execution. No frontend behavior or retired API is restored by this documentation update.

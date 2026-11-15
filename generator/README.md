@@ -1,6 +1,6 @@
 # Synthetic Data Generator
 
-This directory holds the research, the presets and the generator for synthetic data. The `datagen` command loads 12 months of synthetic OLTP history (customers, orders, payments, shipments, returns, reviews, carts, wishlists, POS sales and the inventory ledger) into the D&K PostgreSQL database. `datagen logs` then writes the matching access-log history (sale season 1 November – 15 December 2025) as daily Parquet files for the lakehouse backfill.
+This directory holds the research, the presets and the generator for synthetic data. The `datagen` command loads 12 months of synthetic OLTP history (customers, orders, payments, shipments, returns, reviews, carts, wishlists, POS sales and the inventory ledger) into the D&K PostgreSQL database. `datagen logs` then writes the matching access-log history (sale season 1 November – 15 December 2025) as daily Parquet files. A loader from these synthetic files into the lakehouse is not implemented.
 
 ```text
 generator/
@@ -10,7 +10,7 @@ generator/
 │   ├── presets.py         typed, validated preset YAML
 │   ├── randomness.py      one random stream per batch, derived from the seed
 │   ├── distributions.py   closed-form expectations shared by generate and verify
-│   ├── postgres.py        the only module that talks to PostgreSQL (schema check, COPY)
+│   ├── postgres.py        OLTP database I/O (schema check, COPY, constraints, sequences)
 │   ├── oltp/              one module per group of tables; run.py orchestrates a run
 │   ├── logs/              access-log history: inputs.py (PostgreSQL), sessions.py, events.py, run.py
 │   └── verify/            ledger.py, rules.py, report.py
@@ -22,17 +22,17 @@ generator/
     └── notebooks/   browsing_behavior_eda.ipynb
 ```
 
-Every YAML block carries a `source` label: `measured` (measured in the notebook), `transfer` (measured on a foreign source and applied to a Vietnamese fashion shop as an assumption) or `assumption` (scenario parameter without data).
+Behavior blocks carry `source` provenance labels: `measured` (measured in the notebook), `transfer` (measured on a foreign source and applied to a Vietnamese fashion shop as an assumption) or `assumption` (scenario parameter without data).
 
 ## OLTP presets
 
-| Preset | Buying customers | Products | Expected orders (12 months) |
+| Preset | Buying customers | Products | Expected online orders (12 months) |
 |---|---|---|---|
 | `1m.yml` | 260,000 | 500 | ≈ 1,000,000 |
 | `10m.yml` | 2,600,000 | 1,000 | ≈ 10,000,000 |
 | `50m.yml` | 13,000,000 | 2,000 | ≈ 50,000,000 |
 
-Total orders are an outcome, not an input: expected orders = buying customers × 3.846 for 12 months of history (log-series purchase frequency). Changing `history_months` changes that factor. The three presets share all behavior rules and differ only in `scenario_id` and `scale`.
+Preset names describe approximate online-order scale; POS adds orders to that total. Online orders are an outcome, not an input: expected online orders = buying customers × 3.846 for 12 months of history (log-series purchase frequency). Changing `history_months` changes that factor. The three presets share all behavior rules and differ only in `scenario_id` and `scale`.
 
 Rules measured in [purchase_behavior_eda.ipynb](oltp/notebooks/purchase_behavior_eda.ipynb) (H&M online 2019, Olist 2017):
 
@@ -51,7 +51,7 @@ Blocks without a notebook measurement are scenario assumptions: `scale.stores` (
 
 ## Running the OLTP generator
 
-The generator needs only PostgreSQL with the schema from `database/schema.sql` and the catalog seed (see [docs/setup.md](../docs/setup.md)). It reads the connection from `GENERATOR_DATABASE_URL` in `.env`; `.env.example` derives it from the source database owner.
+The generator needs only PostgreSQL with the schema from `database/schema.sql` and the category seed (`make seed`; see [docs/setup.md](../docs/setup.md)). It generates its own products, stores and locations while reusing seeded category IDs. It reads the connection from `GENERATOR_DATABASE_URL` in `.env`; `.env.example` derives it from the source database owner.
 
 ```bash
 make generate PRESET=1m          # datagen generate --preset 1m
@@ -59,7 +59,7 @@ make generate-verify PRESET=1m   # datagen verify --preset 1m
 uv run --locked --env-file .env --package data-generator -- datagen reset --yes
 ```
 
-- `generate` is a one-time history load. It checks the live schema against its own column list, refuses to run when synthetic rows or API-created orders already exist, and loads batch by batch with `COPY`, all in one transaction. Before the first batch it drops the foreign keys, unique constraints and secondary indexes of the loaded tables (primary keys, CHECK and NOT NULL stay) and rebuilds them from the live catalog after the last one. Any failure rolls back the whole run: no row remains and every index and constraint is back. The rolled-back rows still take disk space, though (tens of GB for `10m`), so before rerunning run `datagen reset --yes` and `make seed`; the error message says so too. The 27 loaded tables stay locked until the run commits, so the API, Streamlit and source readers wait. Rows carry `data_origin = 'synthetic'` and `generation_run_id = <scenario_id>:<seed>`. The same preset and seed give the same rows.
+- `generate` is a one-time history load. It checks the live schema against its own column list, refuses to run when synthetic rows or API-created orders already exist, and loads batch by batch with `COPY`, all in one transaction. Before the first batch it drops the foreign keys, unique constraints and secondary indexes of the loaded tables (primary keys, CHECK and NOT NULL stay) and rebuilds them from the live catalog after the last one. A load/rebuild failure rolls back the history transaction: inserted history rows are removed and dropped indexes/constraints are restored. Post-commit `ANALYZE` is separate. The rolled-back rows still take disk space, though (tens of GB for `10m`), so before rerunning run `datagen reset --yes` and `make seed`; the error message says so too. Dropping/rebuilding objects takes table locks until commit, so affected API, Streamlit and source-reader operations can wait; lock acquisition has a 10-second timeout. Customers and orders carry `data_origin = 'synthetic'` and `generation_run_id = <scenario_id>:<seed>`; those columns do not exist on every source table. The same preset, seed and initial database state give deterministic generated data. Sequences are synchronized before commit; `ANALYZE` runs after the history transaction commits.
 - `verify` only reads. It prints expected value, measured value, tolerance and verdict for each check and exits non-zero when a check fails.
 - `reset --yes` truncates all 28 source tables, including the seed, so run `make seed` again afterwards. It refuses when the database holds orders created through the API (`data_origin = 'manual'`).
 
@@ -85,9 +85,9 @@ Tolerances live in one table, `verify/report.py`. "Old" orders are online orders
 | `pos.orders_per_online_order`, `pos.walk_in_rate`, `pos.cash_share` | the `pos` block |
 | `location.largest_city_customer_share` | largest `locations.cities` share |
 
-### Measured runs
+### Previously recorded measured runs
 
-Local PostgreSQL 16.8 with the Compose defaults, 8 cores, 15 GB RAM:
+These are historical local measurements, not fresh verification in this documentation audit. No `50m` execution is established here. Local PostgreSQL 16.8 with the Compose defaults, 8 cores, 15 GB RAM:
 
 | Preset | Result | Wall time | Peak memory | Rows |
 |---|---|---|---|---|
@@ -98,7 +98,7 @@ Without indexes during the load, equal-sized online batches (≈ 3.9 million row
 
 ## Access-log rules
 
-[browsing_behavior_eda.ipynb](logs/notebooks/browsing_behavior_eda.ipynb) measures four rules on eCommerce Behavior (`apparel` sessions; L1–L3 on 2–31 October 2019, L4 on November 2019) and writes them to `logs/configs/1m.yml`, `10m.yml` and `50m.yml` (same rules; each names the OLTP preset it follows and carries its log volume):
+[browsing_behavior_eda.ipynb](logs/notebooks/browsing_behavior_eda.ipynb) measures four rules on eCommerce Behavior (`apparel` sessions; L1–L3 on 2–31 October 2019, L4 on November 2019) and writes them to `logs/configs/1m.yml`, `10m.yml` and `50m.yml` (same rules; only `scenario_id` and `oltp_scenario_id` differ). Volume follows the window’s OLTP orders and session rules, rather than a fixed volume input:
 
 | Rule | Behavior | Parameter |
 |---|---|---|
@@ -112,16 +112,17 @@ The cart rate of browsing sessions, product-view weights, request steps and sale
 ## Running the access-log generator
 
 ```bash
-uv run --locked --env-file .env --package data-generator -- datagen logs --preset 1m --out <new or empty directory>
+uv run --locked --env-file .env --package data-generator -- datagen logs --preset 1m --out data/generator/logs/1m
 ```
 
-- It reads the OLTP history of the same preset from PostgreSQL and refuses when the database holds another preset's run, when the window has no online order, or when `--out` already has files.
-- Every online order of the window gets one logged-in session that ends with `checkout_submit` at the order's `created_at`, carrying its `order_number`. Browsing sessions per day = r × buying sessions (× L4 on 11-11, Black Friday and 12-12); 7.5% of them log in and add one product to the cart, the rest stay anonymous.
+- It requires at least one synthetic order with the selected OLTP run ID, a window inside that preset’s history and online orders in that window; `--out` must be new or empty. Subsequent queries read all online orders in the window plus current catalog/customer inputs, without filtering every row by run ID. Use the intended preset database for a matching backfill.
+- Every online order of the window gets one logged-in session that ends with `checkout_submit` at the order's `created_at`, carrying its `order_number`. Browsing sessions per day = r × buying sessions (× L4 on 11-11, Black Friday and 12-12); each has a 7.5% cart/login probability when active customers are available; the rest stay anonymous. Buying sessions include views of purchased products and cart actions; view weights come from units sold across the available order history.
 - Each request is one JSON event of contract `ecommerce.access` 1.1.0 (adds `session.id` and `ecommerce.order_number` to 1.0.0) with `data_origin = "synthetic"`, `status_code = 200` and `duration_ns = 0` (latency is not simulated).
-- Output: `session_date=YYYY-MM-DD.parquet` per day with `raw_payload` (the JSON text) and `event_at` (UTC). A session that crosses midnight stays in its own day's file; the lakehouse partitions by `event_at`. Each day has its own random stream, so the same preset, seed and OLTP data give the same events.
-- The lakehouse loader for these files is not built yet; until then, check them by reading the Parquet files directly.
+- Output: `session_date=YYYY-MM-DD.parquet` per day with `raw_payload` (the JSON text) and `event_at` (UTC). A session that crosses midnight stays in its session day's file; existing lakehouse log tables use day partitions on `event_ts`, not these filenames. The window is `[2025-11-01, 2025-12-16)` in `Asia/Ho_Chi_Minh`; days without orders produce no file. Requests can cross the session day/window boundaries. Gaps are clipped to 1 µs–30 min. Each day has its own random stream, so the same preset, seed and database inputs give the same events.
+- The lakehouse loader for these files is not built yet; inspect them directly as Parquet. API middleware still emits 1.0.0 with `data_origin="observed"`, including scenario requests. The parser keeps the version field but does not map `session.id` or `ecommerce.order_number` into typed Silver/fact/marts; these stay in raw JSON. Current funnel marts count successful requests, not unique sessions/orders.
+- Synthetic `timestamp` and `observed_timestamp` both equal generated event time; ingestion supplies its own processing time. Preset `schema_version: 3`, event version `1.1.0`, OLTP publication version 3 and log publication version 1 are separate contracts.
 
-Measured `1m` run on the same machine: 45 files, 206,632 buying and 7,147,494 browsing sessions, 45,083,918 requests, 2.4 GB of Parquet, 86 s, 2.9 GB peak memory. Every online order of the window appears once as a `checkout_submit`; the sale-event days carry 6.4 times the buying sessions of an ordinary day with r = 14.44 (41.39 × 0.35).
+Previously recorded `1m` log run on the same machine (not rerun in this audit): 45 files, 206,632 buying and 7,147,494 browsing sessions, 45,083,918 requests, 2.4 GB of Parquet, 86 s, 2.9 GB peak memory. Every online order of the window appears once as a `checkout_submit`; the sale-event days carry 6.4 times the buying sessions of an ordinary day with r = 14.44 (41.39 × 0.35).
 
 ## Running the notebooks
 

@@ -2,11 +2,11 @@
 
 Package Python `platform_app` tách `api/` (FastAPI) và `ui/` (Streamlit), cùng dùng một `pyproject.toml`.
 
-Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và Streamlit (`PLATFORM_APP_PORT`, mặc định 8501). Chuẩn bị thư mục `data/scenarios` với quyền ghi cho `PLATFORM_APP_UID`/`PLATFORM_APP_GID`. Khởi động bằng `bash /app/start.sh`; nếu một process thoát thì process còn lại cũng dừng. Healthcheck kiểm tra cả `/health/live` của FastAPI và `/_stcore/health` của Streamlit. Schema/ORM đã chuyển PostgreSQL và được kiểm tra biệt lập, xem [database guide](../../database/README.md). FastAPI không tự tạo schema hoặc seed; Compose chạy `platform-admin-init` trước để khởi tạo schema trống và admin bootstrap; các luồng API nghiệp vụ chính đã được kiểm chứng trên PostgreSQL biệt lập.
+Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và Streamlit (`PLATFORM_APP_PORT`, mặc định 8501). Chuẩn bị thư mục `data/scenarios` với quyền ghi cho `PLATFORM_APP_UID`/`PLATFORM_APP_GID`. Khởi động bằng `bash /app/start.sh`; nếu một process thoát thì process còn lại cũng dừng. Healthcheck kiểm tra cả `/health/live` của FastAPI và `/_stcore/health` của Streamlit. Schema/ORM đã chuyển PostgreSQL và được kiểm tra biệt lập, xem [database guide](../../database/README.md). FastAPI không tự tạo schema hoặc seed; Compose chạy `platform-admin-init` trước để khởi tạo schema trống và admin bootstrap; việc có code hoặc kiểm tra bootstrap không thay thế nghiệm thu đầy đủ mọi nghiệp vụ.
 
 `API_DATABASE_URL` bắt buộc khi chạy API, dùng `postgresql+psycopg2`. Session dùng UTC và schema public; `/health/ready` hiện chỉ kiểm tra kết nối, chưa kiểm tra schema nghiệp vụ.
 
-Streamlit **Platform Console** có hai màn hình: **Mô phỏng API** (mua online qua API thật) và **Quản trị quyền** (CRUD, binding Polaris/MinIO và cấp credential workload). Chức năng sinh và nạp dataset SQL của console cũ đã bị gỡ cùng package `data-generator`.
+Streamlit **Platform Console** có hai màn hình: **Mô phỏng API** (mua online qua API thật) và **Quản trị quyền** (CRUD, binding Polaris/MinIO và cấp credential workload). Console không còn chức năng sinh/nạp SQL của giao diện cũ. Package workspace `data-generator` hiện cung cấp CLI OLTP/log riêng, không chạy qua Streamlit.
 
 Thiết kế và quyết định kỹ thuật: [docs/setup.md](../../docs/setup.md).
 
@@ -19,8 +19,8 @@ FastAPI giữ nghiệp vụ và lookup phục vụ dữ liệu; sáu API BI và 
 Từ thư mục gốc repository:
 
 ```bash
-uv lock
-uv run --locked --package platform-app platform-app
+uv sync --locked --package platform-app
+uv run --locked --env-file .env --package platform-app platform-app
 ```
 
 Mở `http://localhost:8501`. Run mô phỏng API được lưu dưới `data/scenarios/`; đổi thư mục bằng `PLATFORM_APP_SCENARIOS_DIR` (xem bảng biến môi trường).
@@ -60,7 +60,7 @@ Có thể build riêng image ứng dụng bằng `docker compose --profile core 
 
 ## Kiểm tra
 
-Test chỉ giữ local (mọi thư mục `tests/` nằm trong `.gitignore`):
+Test Python chỉ giữ local (mọi thư mục `tests/` bị gitignore, trừ dbt data tests). Các lệnh dưới đây cần bộ test local đã có, không được cung cấp bởi checkout mới:
 
 ```bash
 uv run --locked --package platform-app -- \
@@ -72,13 +72,13 @@ uvx ruff check .
 
 - Mô phỏng API chỉ gồm mua online; chưa upload log hoặc trigger Airflow/Superset.
 - Mỗi thư mục dữ liệu có tối đa một run API đồng thời; không có queue phân tán (không Celery/Redis).
-- Không còn sinh hoặc nạp dataset SQL; generator mới đang chờ triển khai, xem [generator](../../generator/README.md).
+- Không sinh/nạp dataset từ giao diện. Generator CLI đã có `generate/verify/logs/reset`, xem [generator](../../generator/README.md).
 
 ## Mô phỏng mua online qua API
 
 Mở **Mô phỏng API**, chọn số lượt mua (1–1.000), số lượng mỗi đơn (1 SKU, 1–20 sản phẩm), thời gian nghỉ giữa các lượt, COD/VietQR và thông tin người nhận mô phỏng. Bấm **Bắt đầu mô phỏng**; đây là thao tác ghi dữ liệu vào API đích.
 
-Điều kiện: API đã chạy, schema đã khởi tạo, catalog có sản phẩm active và đủ tồn kho trung tâm. Khi chạy cục bộ, khởi động API ở terminal riêng bằng `uv run --locked --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --no-access-log`; cấu hình `API_DATABASE_URL` và `API_SECRET_KEY` như phần API. Compose chạy sẵn API và console trong cùng container.
+Điều kiện: API đã chạy, schema đã khởi tạo, catalog có sản phẩm active và đủ tồn kho trung tâm. Khi chạy cục bộ, khởi động API ở terminal riêng bằng `uv run --locked --env-file .env --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --no-access-log`; cấu hình `API_DATABASE_URL` và `API_SECRET_KEY` như phần API. Compose chạy sẵn API và console trong cùng container.
 
 - `SCENARIO_API_BASE_URL`: origin API, mặc định `http://127.0.0.1:8000`; không có credential, query hoặc path. Không chỉnh đích trên form. Nếu API chạy cổng khác trên host, sửa biến này; Compose dùng cổng nội bộ 8000.
 - `SCENARIO_HTTP_TIMEOUT_SECONDS`: timeout HTTP mặc định 15 giây (1–120). Không tự retry request; không dùng proxy môi trường hoặc tự theo redirect.
@@ -95,7 +95,7 @@ HTTP 4xx là lượt thất bại (408 được coi chưa xác định); runner 
 
 Runner hiện là kịch bản kiểm chứng nghiệp vụ, không phải sampler đã hiệu chỉnh: mỗi lượt là khách mới, một SKU và chọn hàng theo thứ tự catalog. API vẫn ghi `data_origin=manual`/`generation_run_id=NULL`; HTTP middleware ghi `observed` cho request thực sự nhận, không chứng minh hành vi người dùng thật. Run journal liên kết các giao dịch mô phỏng bằng email và idempotency key; chưa bổ sung lineage mô phỏng vào schema/API. Không suy tỷ lệ mua lại, độ phổ biến sản phẩm hay conversion tự nhiên từ kịch bản này.
 
-Compose nhận `KAFKA_ENABLED` từ môi trường, mặc định `false`; bật `true` khi dùng streaming để ghi request thực qua Kafka/Flink. Runner không tự bật producer, tải log lịch sử, gửi trực tiếp Kafka hoặc kích hoạt DAG. Producer tự thử kết nối lại khi Kafka khởi động muộn và giữ lượt gửi chưa xác nhận trong DLQ dưới `data/events/`; replay DLQ vẫn là thao tác riêng. Xem [hướng dẫn log thực](../../docs/setup.md#log-api-thực). Chưa có fulfillment, hủy đơn, coupon, POS, nhập kho, đổi trả hoặc tự khôi phục mật khẩu tài khoản mô phỏng.
+Compose nhận `KAFKA_ENABLED` từ môi trường, mặc định `false`; bật `true` khi dùng streaming để ghi request thực qua Kafka/Flink. Runner không tự bật producer, tải log lịch sử, gửi trực tiếp Kafka hoặc kích hoạt DAG. Khi được bật, producer tự thử kết nối lại nếu Kafka khởi động muộn và giữ lượt gửi chưa xác nhận trong DLQ dưới `data/events/`; `KAFKA_ENABLED=false` bỏ qua cả gửi Kafka lẫn ghi DLQ; replay DLQ vẫn là thao tác riêng. Xem [hướng dẫn log thực](../../docs/setup.md#log-api-thực). Chưa có fulfillment, hủy đơn, coupon, POS, nhập kho, đổi trả hoặc tự khôi phục mật khẩu tài khoản mô phỏng.
 
 ## Bootstrap ứng dụng
 
@@ -137,7 +137,7 @@ docker compose --profile core up -d --build --wait --remove-orphans platform-app
 
 `make up` chạy console/API và các dependency quản trị; chỉ dùng `make up-all` sau khi cấu hình quyền/credential cho workload. Image mang sẵn binary `mc`; adapter gọi các subcommand cố định, không nhận command tùy ý. Credential MinIO được truyền qua môi trường tiến trình ngắn hạn thay vì argv.
 
-Khi chạy API trên host, dùng `uv run --locked --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --no-access-log`, rồi chạy Streamlit riêng. `CONSOLE_ACCESS_ADMIN_URL` mặc định là `http://127.0.0.1:8000`; nếu `.env` cũ còn đặt cổng 8010 thì đổi sang cổng API chung. Host cần binary `mc` (`ACCESS_ADMIN_MC_BINARY`), URL host MinIO/Polaris, root credential, PostgreSQL/JWT và thư mục secret/audit có quyền phù hợp. Cấp credential cho volume consumer qua exporter là luồng Compose; không tự hoạt động chỉ bằng cách chạy API trên host.
+Khi chạy API trên host, dùng `uv run --locked --env-file .env --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --no-access-log`, rồi chạy Streamlit riêng. `CONSOLE_ACCESS_ADMIN_URL` mặc định là `http://127.0.0.1:8000`; nếu `.env` cũ còn đặt cổng 8010 thì đổi sang cổng API chung. Host cần binary `mc` (`ACCESS_ADMIN_MC_BINARY`), URL host MinIO/Polaris, root credential, PostgreSQL/JWT và thư mục secret/audit có quyền phù hợp. Cấp credential cho volume consumer qua exporter là luồng Compose; không tự hoạt động chỉ bằng cách chạy API trên host.
 
 ### API quản trị
 
@@ -158,4 +158,4 @@ Các path dưới đây có prefix `/api/v1/access` trên FastAPI cổng 8000:
 
 Payload được kiểm tra theo từng loại tài nguyên; dữ liệu thừa bị từ chối. Thao tác thay đổi tài nguyên/liên kết/workload cần revision hiện tại và CSRF. API không nhận credential quản trị upstream, command tùy ý hoặc policy JSON tự do từ form.
 
-Kiểm chứng ngày 15/11/2026: suite local 86 test (5 test opt-in bỏ qua), bốn test tích hợp riêng đạt trên stack PostgreSQL/MinIO/Polaris/API/exporter cô lập. Các test kiểm tra CRUD, quyền MinIO thực, cấp/gỡ credential và thao tác Streamlit qua API chung. Build image, Ruff và cấu hình Compose đạt. Stack/image/volume kiểm thử đã được dọn; kiểm chứng này không bao gồm toàn pipeline hoặc triển khai public.
+Kết quả local được ghi nhận ngày 15/11/2026 cho đợt gộp API (không phải kiểm tra tự động ở mỗi lần checkout): suite local 86 test (5 test opt-in bỏ qua), bốn test tích hợp riêng đạt trên stack PostgreSQL/MinIO/Polaris/API/exporter cô lập. Các test kiểm tra CRUD, quyền MinIO thực, cấp/gỡ credential và thao tác Streamlit qua API chung. Build image, Ruff và cấu hình Compose đạt. Stack/image/volume kiểm thử đã được dọn; kiểm chứng này không bao gồm toàn pipeline hoặc triển khai public.

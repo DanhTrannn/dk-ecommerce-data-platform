@@ -2,7 +2,11 @@
 
 ---
 
-> **Ghi chú hiện trạng (12/11/2026):** engine batch Spark đã được thay bằng Polars/PyIceberg và dbt trên Trino; luồng CDC (Debezium, Flink CDC, đồng bộ hard delete) đã bị gỡ. Báo cáo giữ thiết kế tại thời điểm viết; hiện trạng xem [architecture.md](architecture.md).
+> **Bản thiết kế lịch sử — đối chiếu codebase 15/11/2026:** nội dung các chương dưới đây được giữ làm hồ sơ tại thời điểm viết, không phải hướng dẫn chạy hoặc bằng chứng nghiệm thu cho code hiện tại. Không dùng các mô tả Spark/CDC, generator SQL/UI hoặc dashboard cũ bên dưới để suy ra chức năng đang được triển khai.
+>
+> Hiện trạng: batch dùng Polars/PyIceberg và dbt trên Trino; không còn Spark, Debezium hay PostgreSQL CDC. CLI `datagen` đã sinh/verify lịch sử OLTP và xuất log tổng hợp ra Parquet, nhưng loader các file log vào Lakehouse chưa có. Streamlit chạy scenario và CRUD/quản trị quyền qua API chung của `platform-app`; exporter riêng cấp file credential Polaris. Superset mới là PoC doanh thu hai mart; Next.js còn trong source/CI và không phải serving path đầy đủ.
+>
+> Tài liệu hiện hành: [kiến trúc](architecture.md), [hợp đồng dữ liệu](data.md), [cài đặt](setup.md), [vận hành và phạm vi kiểm chứng](operations.md). Số đo nghiên cứu/nghiệm thu lịch sử trong báo cáo không phải số đo vừa tái lập trên phiên bản hiện tại.
 
 # **CHƯƠNG 1. TỔNG QUAN ĐỀ TÀI**
 
