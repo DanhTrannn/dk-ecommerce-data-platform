@@ -19,10 +19,6 @@ class AccessSettings(BaseSettings):
     minio_url: str = "http://minio:9000"
     minio_user: str = Field(default="", validation_alias="MINIO_ROOT_USER")
     minio_secret: SecretStr = Field(default="", validation_alias="MINIO_ROOT_PASSWORD")
-    minio_polaris: str = Field(default="lakehouse-polaris", validation_alias="MINIO_POLARIS_ACCESS_KEY")
-    minio_batch: str = Field(default="lakehouse-batch", validation_alias="MINIO_BATCH_ACCESS_KEY")
-    minio_flink: str = Field(default="lakehouse-flink", validation_alias="MINIO_FLINK_ACCESS_KEY")
-    minio_trino: str = Field(default="lakehouse-trino", validation_alias="MINIO_TRINO_ACCESS_KEY")
     export_url: str = "http://credential-exporter:8011"
     export_key_file: Path = Path("/run/access-secrets/exporter.key")
     mc_binary: str = "mc"
@@ -44,7 +40,3 @@ class AccessSettings(BaseSettings):
         ):
             raise ValueError("Only HTTP(S) origins without credentials are allowed")
         return value.rstrip("/")
-
-    @property
-    def minio_users(self):
-        return (self.minio_polaris, self.minio_batch, self.minio_flink, self.minio_trino)
