@@ -1,5 +1,7 @@
 from fastapi import APIRouter
 
+from platform_app.access_admin.router import router as access_router
+
 from platform_app.api.routes.health import router as health_router
 from platform_app.api.modules.admin.router import router as admin_router
 from platform_app.api.modules.analytics.router import router as analytics_router
@@ -24,6 +26,7 @@ from platform_app.api.modules.wishlist.router import router as wishlist_router
 
 api_router = APIRouter()
 api_router.include_router(health_router)
+api_router.include_router(access_router)
 
 v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(auth_router)

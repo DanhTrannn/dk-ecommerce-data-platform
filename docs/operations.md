@@ -32,7 +32,7 @@ Các curl cần service tương ứng đã bật; dùng port override nếu khá
 | Container platform-app | Structured API log, request ID, lỗi nghiệp vụ/producer |
 | `data/events/dlq_access_logs.jsonl` | Event chưa xác nhận/offline/overload; chưa tự replay |
 | `data/scenarios/` | Scenario/run/attempt, idempotency key, order number và kết quả hậu kiểm |
-| `data/access-admin/audit.jsonl` | Binding management journal/readback và operation ID; không phải tamper-proof audit store |
+| `data/access-admin/audit.jsonl` | Access CRUD/binding/workload assignment journal/readback và operation ID; không phải tamper-proof audit store |
 | `airflow-logs` | Task logs của các DAG batch/log |
 | `lakehouse.system.data_quality_results` | Chẩn đoán kiểm tra chất lượng; kết quả gắn dataset/run |
 | `system.analytics_publications` / `logs_analytics_publications` | Snapshot manifest độc lập theo từng nguồn |
@@ -70,7 +70,7 @@ Không lấy current mart chưa publish để kết luận dashboard sai. Với 
 | PostgreSQL healthy nhưng API thiếu bảng | Schema bootstrap/seed là bước riêng; không reset volume. Kiểm tra đang kết nối đúng DB/user |
 | Đổi password env nhưng không login | Init PostgreSQL/seed/metadata không tự đổi password đã lưu; xác nhận credential retained trước khi rotate có kiểm soát |
 | Batch đọc PostgreSQL lỗi auth/permission | Reader password/env đúng và script `make source-reader` đã chạy sau đủ schema; không đưa credential vào URL kết nối |
-| Job batch không thấy credential | Kiểm tra provisioning, consumer file đúng volume/UID/GID; không thay bằng MinIO root hoặc chmod mở rộng toàn bộ |
+| Job batch không thấy credential | Kiểm tra tab Cấp cho workload, trạng thái exporter và consumer file đúng volume/UID/GID; không thay bằng MinIO root hoặc chmod mở rộng toàn bộ |
 | Silver lỗi salt | Cấp `SILVER_PSEUDONYMIZE_SALT` ổn định; không bỏ pseudonymization để job qua |
 | Thiếu staging/interval | Chạy init nếu chưa có nền; manual interval phải có UTC start/end; interval rỗng hợp lệ không xóa lịch sử Bronze/Silver |
 | Giá trị UUID không nối log–product | Xem 16-byte canonical và encoding UTF-8 cũ; resolver hỗ trợ cả hai. Muốn sửa toàn bộ current Silver phải init có kiểm soát |
@@ -124,9 +124,11 @@ Superset/PublishedReader cần data file và snapshot manifest còn tồn tại.
 |---|---|
 | `postgres-data` | Nguồn nghiệp vụ, Airflow/Polaris và metadata Superset khi đã tạo |
 | `minio-data` | Object/data/metadata Iceberg |
-| `polaris-provision-state`, consumer credential volumes | Secret và ownership để chạy lại/khôi phục provisioning |
+| `access-admin-secrets` | Credential nguồn của principal và khóa ký yêu cầu exporter |
+| `credential-export-state` | Manifest phân công workload và audit exporter |
+| Consumer credential volumes | File `clients.env` cùng ownership của Airflow/Flink/Trino; khôi phục đồng bộ với principal và manifest |
 | `kafka-data`, `flink-checkpoints` | Broker offsets, log transport và checkpoint state |
-| `./data` | Scenario journals, DLQ và audit binding |
+| `./data` | Scenario journals, DLQ và audit quản trị quyền |
 | `.env`/secret store | Credential, PII salt và Superset encryption secret phù hợp với dữ liệu đã lưu |
 
 `make down` giữ named volumes, không phải backup. Chưa nghiệm thu backup/restore đồng bộ nhiều hệ thống hoặc disaster recovery; cần kế hoạch riêng nếu dùng ngoài local PoC. Không commit backup/raw data/credential vào Git.

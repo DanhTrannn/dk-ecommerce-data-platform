@@ -25,7 +25,7 @@
 
 **D&K E-Commerce Data Platform** is a local Data Engineering project for a Vietnamese retailer with online and in-store sales. It combines configurable synthetic transaction data, a FastAPI source application, batch processing, PostgreSQL change capture, and real API access logs. Analytical tables use Apache Iceberg on MinIO, an Apache Polaris catalog, and Trino for SQL access.
 
-The current interface is a **Streamlit Platform Console** for running online purchase scenarios against the API and managing existing Lakehouse access bindings. An optional **Apache Superset sales PoC** reads two published sales marts. The legacy Next.js application remains in source and CI, but is not started by Compose; its retired business BI endpoints are no longer available.
+The current interface is a **Streamlit Platform Console** for running online purchase scenarios against the API and managing MinIO/Polaris accounts, roles, policies and workload credentials. An optional **Apache Superset sales PoC** reads two published sales marts. The legacy Next.js application remains in source and CI, but is not started by Compose; its retired business BI endpoints are no longer available.
 
 > **Two separate data paths:** Airflow-scheduled batch (Polars/PyIceberg ingestion, dbt on Trino for Gold) is the only writer of the serving OLTP Silver/Gold namespaces. API access logs flow through Kafka/Flink to Landing, then through a separate native pipeline and publication.
 
@@ -70,26 +70,26 @@ Configure `.env` before starting services. It includes source/metadata database 
 docker compose --env-file .env.example --profile '*' config --quiet
 make build
 
-# Start storage/catalog services first:
-docker compose --profile core up -d postgres minio polaris
-make provision-lakehouse
-```
-
-### Initialize the source
-
-Service startup does not apply the source schema, seeds or reader grants. For a fresh business database:
-
-```bash
-docker compose exec -T postgres sh -c \
-  'PGPASSWORD="$POSTGRES_ECOMMERCE_PASSWORD" exec psql -X -v ON_ERROR_STOP=1 --host=127.0.0.1 --username="$POSTGRES_ECOMMERCE_USER" --dbname="$POSTGRES_ECOMMERCE_DB"' \
-  < database/schema.sql
-
-make seed
-make source-reader
+# Start the console/API, storage/catalog and credential exporter:
 make up
 ```
 
-There is currently no bulk dataset import: the previous generator and its SQL importer were removed, and the new generator is pending. `make seed` supplies application catalog/bootstrap accounts, with optional admin credentials supplied to the host process; it does not create cities or stores. Existing databases are not migrated automatically. See [database/README.md](database/README.md) before importing into a nonempty database.
+### Initialize access and source data
+
+On a fresh source database, `platform-admin-init` applies the business schema and creates only the bootstrap admin configured by `API_BOOTSTRAP_ADMIN_*`. Existing source data and passwords are preserved; incomplete existing schemas require explicit migration. Startup does not seed the product catalog or create sample MinIO/Polaris workload accounts.
+
+Open Streamlit at <http://127.0.0.1:8501>, select **Quản trị quyền**, and sign in as the bootstrap admin. Create MinIO users, buckets and policies, then Polaris catalogs, principals and roles. MinIO workload names/secrets must match the consumer configuration in `.env`. In **Cấp cho workload**, assign a saved Polaris principal credential to each required consumer volume. Creating a principal alone does not configure a workload. See [setup.md](docs/setup.md#2-build-và-chọn-profile) for the sequence.
+
+For sample application data and batch access, run these explicitly after schema bootstrap:
+
+```bash
+make seed
+make source-reader
+# After workload permissions/credentials and Airflow settings are ready:
+make up-all
+```
+
+`make seed` adds missing application catalog/admin records; it does not create cities or stores. Historical data is loaded separately with `make generate PRESET=1m`; see [generator/README.md](generator/README.md). Existing databases are not migrated automatically.
 
 ### Run data pipelines
 
@@ -122,7 +122,7 @@ Open the dashboard URL returned by sync. Each dashboard is pinned to one publica
 
 | Profile | Responsibility |
 |---|---|
-| `core` | PostgreSQL, MinIO, Polaris, Airflow (with the Polars/PyIceberg/dbt runtime), Trino, platform-app and internal lakehouse-access; explicit provisioning jobs |
+| `core` | PostgreSQL, MinIO, Polaris, Airflow (with the Polars/PyIceberg/dbt runtime), Trino, platform-app (FastAPI/Streamlit), admin bootstrap and credential exporter |
 | `streaming` | Kafka and Flink; the job submission service runs manually |
 | `bi` | Superset web and explicit initialization/publication-sync jobs |
 
@@ -137,7 +137,7 @@ Open the dashboard URL returned by sync. Each dashboard is pinned to one publica
 | Polaris catalog / health | <http://127.0.0.1:8181/api/catalog> / <http://127.0.0.1:8182/q/health> |
 | Flink | <http://localhost:8085> |
 
-Kafka host clients use `localhost:9094`; containers use `kafka:9092`. PostgreSQL defaults to host port 5432. `lakehouse-access:8010` is internal and has no published host port. Bind addresses/ports are configurable; see setup before using this local stack on an externally reachable machine.
+Kafka host clients use `localhost:9094`; containers use `kafka:9092`. PostgreSQL defaults to host port 5432. Access administration shares the FastAPI origin on port 8000 under `/api/v1/access`; only `credential-exporter:8011` remains internal. Bind addresses/ports are configurable; see setup before using this local stack on an externally reachable machine.
 
 ## Architecture
 
@@ -174,14 +174,14 @@ Publication gates prevent a failed refresh from replacing the last accepted mani
 
 OLTP presets live in `generator/oltp/configs/`: `1m.yml`, `10m.yml` and `50m.yml` target about 1, 10 and 50 million orders over 12 months (260,000 / 2,600,000 / 13,000,000 buying customers). Total orders are an outcome of the purchase-frequency rule, not an input. `make generate PRESET=1m` loads that history into PostgreSQL (customers, orders, POS sales, inventory ledger) and `make generate-verify PRESET=1m` compares the result with the preset rules. Browsing rules for synthetic access logs live in `generator/logs/configs/` (`1m.yml`, `10m.yml`, `50m.yml`); `datagen logs --preset 1m --out <dir>` writes the matching access-log history (sale season 11–12/2025) as daily Parquet files. See [generator/README.md](generator/README.md) and the [synthetic data notes](docs/data.md#7-dữ-liệu-sinh-và-căn-cứ).
 
-Streamlit supports online purchase scenarios and existing Polaris/MinIO binding administration. Scenario runs are persisted under `data/scenarios/`. Purchase attempts create real source API records; uncertain writes are recorded for inspection instead of being blindly replayed. Runtime logs are observed HTTP requests, not historical synthetic sessions.
+Streamlit supports online purchase scenarios, MinIO/Polaris CRUD, access bindings and Polaris workload credential assignment. Scenario runs are persisted under `data/scenarios/`. Purchase attempts create real source API records; uncertain writes are recorded for inspection instead of being blindly replayed. Runtime logs are observed HTTP requests, not historical synthetic sessions.
 
 FastAPI retains source write operations and the lookups needed to supply their IDs. Six former business BI aggregation endpoints and ten administrative list/duplicate GET endpoints are retired. Inspect the current route contract at `/docs` or in the [API guide](services/platform-app/src/platform_app/api/README.md). The two retained administrative HTTP analytics endpoints are:
 
 - `/api/v1/admin/analytics/http-metrics`: published HTTP mart, bounded cached fallback, 1–30 UTC dates.
 - `/api/v1/admin/analytics/http-realtime`: provisional Landing analysis, 5–60-minute event-time window.
 
-Both require `admin`/`system_admin`. Streamlit access administration uses the internal service to inspect and assign/revoke supported existing bindings; account creation, arbitrary policy editing and secret rotation are outside its current scope.
+Both require `admin`/`system_admin`. Infrastructure administration is stricter: only the configured bootstrap admin can use `/api/v1/access`. Streamlit supports MinIO user/bucket/policy CRUD, Polaris principal/role/catalog CRUD, grant management and assignment/removal of saved Polaris credentials for workloads. MinIO policy editing uses scoped forms; arbitrary policy JSON, group administration and secret rotation are not provided.
 
 Scheduled serving runs natively: Polars/PyIceberg ingest the 27 sources into Bronze/Silver with validation, PII pseudonymization and quarantine; dbt on Trino builds Gold, quality checks gate each run and validated snapshot manifests are published. The three log marts follow the same pattern from the Flink Landing table. See the [pipeline guide](pipelines/README.md).
 

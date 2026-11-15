@@ -17,7 +17,7 @@ Chỉ copy khi chưa có `.env`; `make up` cũng chỉ tạo file nếu thiếu.
 | Nhóm | Cấu hình cần chú ý |
 |---|---|
 | PostgreSQL | `POSTGRES_*`, các database/user nguồn, Airflow và Polaris; password reader không để trống |
-| API | `API_SECRET_KEY` ít nhất 32 ký tự; host `API_DATABASE_URL` dùng owner nguồn; bootstrap admin được seed chủ động |
+| API | `API_SECRET_KEY` ít nhất 32 ký tự; host `API_DATABASE_URL` dùng owner nguồn; schema trống và admin bootstrap được khởi tạo bởi `platform-admin-init` |
 | Storage/catalog | Root chỉ dùng quản trị/provisioning; đủ `MINIO_*_ACCESS_KEY/SECRET_KEY`, bucket, realm/catalog và Polaris root secret |
 | Silver | `SILVER_PSEUDONYMIZE_SALT` ổn định, không trống |
 | Airflow | Secret/JWT/Fernet, admin và `AIRFLOW_UID` phù hợp; Fernet phải là key hợp lệ |
@@ -36,38 +36,53 @@ Compose dùng hostname nội bộ `postgres`, `kafka`, `trino`; URL host trong `
 ## 2. Build và chọn profile
 
 ```bash
-make build
-make up PROFILES=core
-# Chỉ bật khi cần streaming hoặc BI:
-make up PROFILES=core,streaming
-make up PROFILES=core,bi
+make build  # chỉ build image platform-app dùng chung
+make up     # khởi động platform-app và các dependency quản trị
 ```
 
-`make build` build các image của mọi profile. Có thể build riêng để tiết kiệm thời gian:
+`platform-app` chạy FastAPI cổng 8000 và Streamlit cổng 8501. API quản trị MinIO/Polaris dùng chung FastAPI tại `/api/v1/access`; không có container quản trị riêng. Dependency gồm PostgreSQL, MinIO, Polaris/bootstrap, `platform-admin-init` và `credential-exporter`. `make up` không khởi động toàn bộ Airflow/Trino hoặc streaming/BI chỉ vì profile đã được bật.
+
+### Tạo quyền và credential trên Streamlit
+
+1. Mở `http://127.0.0.1:8501` → **Quản trị quyền**. Đăng nhập bằng admin cấu hình qua `API_BOOTSTRAP_ADMIN_EMAIL`/`API_BOOTSTRAP_ADMIN_PASSWORD`; admin khác và `system_admin` không được quản trị hạ tầng.
+2. Trong MinIO, tạo bucket, user và policy cần cho Polaris/batch/Flink/Trino; gán policy cho user. Dùng đúng access key/secret của các biến `MINIO_*` mà consumer đang nhận từ `.env`. Thay đổi trên Streamlit không tự sửa các biến này.
+3. Trong Polaris, tạo catalog với bucket tương ứng, principal, principal role và catalog role. Gán principal → principal role → catalog role và các privilege cần thiết. Tên catalog phải khớp `POLARIS_CATALOG_NAME` của consumer.
+4. Mở **Cấp cho workload**, chọn principal có credential đã lưu và cấp cho consumer cần dùng:
+
+| Workload | Volume | File consumer đọc |
+|---|---|---|
+| `batch-airflow` | `polaris-batch-airflow-credentials` | `/run/polaris/clients.env` trong Airflow |
+| `flink` | `polaris-flink-credentials` | `/run/polaris/clients.env` trong Flink |
+| `trino-reader` | `polaris-trino-reader-credentials` | `/run/polaris/clients.env` trong Trino |
+| `trino-writer` | `polaris-trino-writer-credentials` | `/run/polaris-writer/clients.env` trong Trino |
+
+API gửi yêu cầu đã ký tới `credential-exporter`; exporter ghi file với UID/GID của consumer và xác minh kết quả. Tạo principal chưa tự cấp file. Thay credential đã có cần xác nhận; gỡ file cần nhập đúng workload. Sau thay đổi, khởi động lại consumer hoặc submit lại job nếu tiến trình giữ credential trong bộ nhớ. Chi tiết CRUD và giới hạn ở [platform-app](../services/platform-app/README.md#quản-trị-quyền-trên-streamlit).
+
+### Bật workload sau khi cấu hình quyền
 
 ```bash
-docker compose --profile core build platform-app
-docker compose --profile core --profile bi build superset
+make build-all  # build image cho các nhóm cần dùng
+make up-all PROFILES=core
+# Chọn khi cần thêm streaming hoặc BI:
+make up-all PROFILES=core,streaming
+make up-all PROFILES=core,bi
 ```
 
-Bật ít profile hơn không tự dừng các service thuộc profile đã bật trước đó. `core` vẫn gồm Airflow/Trino; muốn nhẹ hơn, chỉ định service cần thiết thay vì `up` toàn core. Ví dụ khởi động storage/catalog trước:
+Bật ít profile hơn không tự dừng các service thuộc profile đã bật trước đó. `make build` chỉ build image platform-app; `make build-all` build image của mọi profile. Không còn luồng provisioning tài khoản/role mẫu. Polaris bootstrap chỉ khởi tạo realm/root; các quyền workload được tạo chủ động trên Streamlit.
+
+Khi nâng cấp từ bản có service quản trị riêng, áp dụng cấu hình và dọn container cũ bằng:
 
 ```bash
-docker compose --profile core up -d postgres minio polaris
-make provision-lakehouse
+docker compose --profile core up -d --build --wait --remove-orphans platform-app
 ```
 
-MinIO/Polaris bootstrap là lệnh chủ động, không phải tác dụng phụ của healthcheck. `make provision-lakehouse` chạy MinIO bằng `mc` có sẵn rồi chạy Polaris provisioner one-off trong image platform-app; không tạo thêm image init Python.
+Lệnh giữ named volumes; người dùng đang mở console cần đăng nhập lại sau khi API được thay thế.
 
 ## 3. Khởi tạo schema và nạp dữ liệu
 
-PostgreSQL init tạo database/user `ecommerce`, `airflow`, `polaris`. Nó **không** tạo bảng nghiệp vụ hoặc seed; metadata Superset cần bước riêng. DDL sau chỉ áp dụng lên source database trống:
+PostgreSQL init tạo database/user `ecommerce`, `airflow`, `polaris`. Sau đó `platform-admin-init` áp dụng `database/schema.sql` nếu schema nguồn trống, tạo admin bootstrap và chuẩn bị thư mục secret/audit. Database mới chỉ có tài khoản admin, chưa có product/catalog mẫu. Khi schema đã đủ, startup giữ dữ liệu và password; schema dở dang bị từ chối thay vì tự migrate/reset. Metadata Superset cần bước riêng.
 
-```bash
-docker compose exec -T postgres sh -c \
-  'PGPASSWORD="$POSTGRES_ECOMMERCE_PASSWORD" exec psql -X -v ON_ERROR_STOP=1 --host=127.0.0.1 --username="$POSTGRES_ECOMMERCE_USER" --dbname="$POSTGRES_ECOMMERCE_DB"' \
-  < database/schema.sql
-```
+Nếu chỉ chạy PostgreSQL mà không chạy bootstrap của ứng dụng, có thể nạp DDL thủ công vào database nguồn trống theo [database guide](../database/README.md#bootstrap-database-trống). Không nạp lại DDL sau khi `make up` đã tạo schema.
 
 Schema được render từ ORM và bổ sung trigger UTC. Kiểm tra/ghi lại DDL từ code:
 
@@ -98,13 +113,13 @@ Muốn nạp lại: `uv run --locked --env-file .env --package data-generator --
 ### API và Streamlit
 
 ```bash
-docker compose --profile core up -d --build platform-app lakehouse-access
+docker compose --profile core up -d --build platform-app
 ```
 
 Mở Streamlit tại `http://127.0.0.1:8501`; FastAPI `/docs` tại port 8000 nếu docs được bật. Console có các phần:
 
 - Mô phỏng API: khách mới → catalog → giỏ → quote → checkout → hậu kiểm; chưa tự fulfillment/POS/đổi trả.
-- Quản trị quyền: đăng nhập bằng admin/system_admin nguồn, xem và gán/gỡ binding đã hỗ trợ.
+- Quản trị quyền: admin bootstrap tạo/xem/sửa/xóa tài nguyên MinIO/Polaris, gán/gỡ quyền và cấp credential Polaris cho workload.
 
 Nguồn cần catalog active và tồn kho đủ để runner mua hàng. Không tự replay thao tác ghi có kết quả chưa rõ. Run mô phỏng được ghi dưới `data/scenarios/` để tiếp tục xem sau restart.
 
@@ -213,7 +228,8 @@ Port dưới đây là mặc định, cần xem override/bind address trong `.en
 | Flink dashboard / Connect | `localhost:8085` / `127.0.0.1:8086` |
 | Kafka host listener | `localhost:9094`; Docker clients dùng `kafka:9092` |
 | PostgreSQL | `localhost:5432` |
-| Lakehouse access admin | Nội bộ `lakehouse-access:8010`, không publish port |
+| Lakehouse access admin | `127.0.0.1:8000/api/v1/access`, chung FastAPI; yêu cầu admin bootstrap |
+| Credential exporter | Nội bộ `credential-exporter:8011`, không publish port |
 
 Không liệt kê Storefront/Polaris Console như service đang được Compose chạy. Một số port PostgreSQL/Kafka/Flink trong Compose không bind localhost; kiểm tra trước khi dùng trên máy có public interface. Đây là cấu hình local, không phải production recipe.
 

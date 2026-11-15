@@ -1,7 +1,7 @@
-.PHONY: all up start up-all build build-all down stop restart ps logs status seed generate generate-verify source-reader provision-minio provision-polaris provision-lakehouse typecheck help superset-db superset-init superset-sync
+.PHONY: all up start up-all build build-all down stop restart ps logs status seed generate generate-verify source-reader typecheck help superset-db superset-init superset-sync
 
 PROFILES ?= core
-SERVICES ?= platform-app lakehouse-access
+SERVICES ?= platform-app
 WAIT_TIMEOUT ?= 180
 export COMPOSE_PROFILES := $(PROFILES)
 
@@ -19,7 +19,6 @@ help:
 	@echo "  make restart                   Restart the existing console/backend; use make up to apply config changes"
 	@echo "  make up SERVICES='trino'        Start selected services and their dependencies"
 	@echo "  make ps / make logs            Inspect all groups"
-	@echo "  make provision-lakehouse        Optional preset workload provisioning; skip for manual Streamlit setup"
 	@echo "  make source-reader             Configure the dedicated PostgreSQL batch reader"
 	@echo "  make seed                      Run source seeds (business schema required)"
 	@echo "  make generate PRESET=1m        Load synthetic OLTP history (GENERATOR_DATABASE_URL)"
@@ -73,16 +72,6 @@ generate-verify: .env
 
 source-reader:
 	@docker compose exec -T postgres sh /opt/project/configure-source-reader.sh
-
-provision-minio:
-	@docker compose exec -T --user 0:0 minio sh /opt/project/minio/provision.sh
-
-provision-polaris:
-	@docker compose run --rm --no-deps -T lakehouse-provision
-
-provision-lakehouse:
-	@$(MAKE) provision-minio
-	@$(MAKE) provision-polaris
 
 superset-db:
 	@docker compose exec -T postgres sh /opt/project/configure-superset.sh
