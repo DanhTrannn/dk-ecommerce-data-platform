@@ -1,4 +1,4 @@
-"""Read assignments and explicitly grant/revoke supported existing bindings."""
+"""Manage MinIO/Polaris resources, bindings and workload credential assignments."""
 
 import streamlit as st
 

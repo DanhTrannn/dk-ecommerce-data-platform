@@ -1,7 +1,7 @@
 .PHONY: all up start up-all build build-all down stop restart ps logs status seed generate generate-verify source-reader typecheck help superset-db superset-init superset-sync
 
 PROFILES ?= core
-SERVICES ?= platform-app lakehouse-access
+SERVICES ?= platform-app
 WAIT_TIMEOUT ?= 180
 export COMPOSE_PROFILES := $(PROFILES)
 

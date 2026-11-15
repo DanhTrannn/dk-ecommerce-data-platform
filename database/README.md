@@ -1,6 +1,6 @@
 # PostgreSQL source schema
 
-`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Dữ liệu ban đầu chỉ có seed catalog. Các luồng API nghiệp vụ chính đã kiểm chứng trên PostgreSQL biệt lập; provisioning Lakehouse chạy chủ động bằng `make provision-lakehouse`. Xem [phạm vi API nguồn](../docs/architecture.md#1-phạm-vi-và-hiện-trạng).
+`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Khi chạy `make up`, `platform-admin-init` áp dụng schema nguồn trống và chỉ tạo admin bootstrap; seed catalog chạy thủ công. Quyền MinIO/Polaris và credential workload được quản trị trên Streamlit. Xem [phạm vi API nguồn](../docs/architecture.md#1-phạm-vi-và-hiện-trạng).
 
 ## Định nghĩa và tái lập
 
@@ -22,7 +22,9 @@ Hai lệnh này chỉ đọc ORM và ghi/so sánh file, không kết nối datab
 
 ## Bootstrap database trống
 
-Compose init chỉ tạo database/user `ecommerce`, `airflow`, `polaris` và role replication; không tự tạo bảng nghiệp vụ. Để nạp schema vào database nguồn trống của Compose:
+PostgreSQL init tạo database/user `ecommerce`, `airflow`, `polaris`. Khi chạy `make up`, `platform-admin-init` tiếp tục tạo bảng nghiệp vụ trên schema trống và admin cấu hình qua `API_BOOTSTRAP_ADMIN_*`; giữ dữ liệu/password nếu schema đã đủ, từ chối schema dở dang. Không chạy lại DDL bên dưới sau bước này.
+
+Nếu chỉ chạy PostgreSQL, có thể nạp schema thủ công vào database nguồn trống:
 
 ```bash
 docker compose exec -T postgres sh -c \

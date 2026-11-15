@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class AccessUISettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="CONSOLE_", extra="ignore")
-    access_admin_url: str = "http://127.0.0.1:8010"
+    access_admin_url: str = "http://127.0.0.1:8000"
 
     @field_validator("access_admin_url")
     @classmethod
@@ -50,7 +50,7 @@ class AccessSession:
             response = self.http.request(method, "/api/v1/access/" + path, json=payload, headers=headers)
         except httpx.HTTPError:
             raise AccessUIError(
-                "Không kết nối được API quản trị. Kiểm tra service lakehouse-access; không tự gửi lại thao tác ghi."
+                "Không kết nối được API quản trị. Kiểm tra service platform-app; không tự gửi lại thao tác ghi."
             ) from None
         if not 200 <= response.status_code < 300:
             # Backend returns sanitized messages; no arbitrary upstream body is rendered.

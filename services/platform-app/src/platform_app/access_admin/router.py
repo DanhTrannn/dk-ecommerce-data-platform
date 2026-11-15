@@ -1,13 +1,11 @@
-"""Internal API for existing access bindings; not registered on the source API."""
-
 from typing import Literal
 
-from fastapi import Depends, FastAPI, Response
+from fastapi import APIRouter, Depends, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 
 from platform_app.api.core.errors import forbidden
-from platform_app.api.core.handlers import register_exception_handlers
 from platform_app.api.db.deps import get_current_customer, verify_csrf, get_db
 from platform_app.api.core.config import get_settings
 from platform_app.api.models.customer import CustomerCredential
@@ -31,8 +29,25 @@ from platform_app.access_admin.service import (
     mutate_resource,
 )
 
-app = FastAPI(title="Internal Lakehouse Access Administration")
-register_exception_handlers(app)
+
+class AccessRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def validated(request):
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                request.state.error_code = "VALIDATION_ERROR"
+                return JSONResponse(
+                    status_code=422,
+                    content={"error": {"code": "VALIDATION_ERROR", "message": "Dữ liệu yêu cầu không hợp lệ."}},
+                )
+
+        return validated
+
+
+router = APIRouter(prefix="/api/v1/access", tags=["access"], route_class=AccessRoute)
 
 
 def require_admin(customer=Depends(get_current_customer), db=Depends(get_db)):
@@ -47,19 +62,7 @@ def require_admin(customer=Depends(get_current_customer), db=Depends(get_db)):
     return customer
 
 
-@app.exception_handler(RequestValidationError)
-async def invalid_request(request, error):
-    return JSONResponse(
-        status_code=422, content={"error": {"code": "VALIDATION_ERROR", "message": "Dữ liệu yêu cầu không hợp lệ."}}
-    )
-
-
-@app.get("/health/live")
-def health():
-    return {"status": "ok"}
-
-
-@app.post("/api/v1/access/login")
+@router.post("/login")
 def login(payload: LoginRequest, response: Response):
     customer, email = authenticate(payload.email, payload.password)
     if customer.role != "admin" or email.strip().lower() != get_settings().bootstrap_admin_email.strip().lower():
@@ -74,30 +77,30 @@ def login(payload: LoginRequest, response: Response):
     }
 
 
-@app.get("/api/v1/access/me")
+@router.get("/me")
 def me(customer=Depends(require_admin)):
     return {"public_id": str(customer.public_id), "role": customer.role}
 
 
-@app.post("/api/v1/access/logout", status_code=204)
+@router.post("/logout", status_code=204)
 def logout(response: Response, csrf=Depends(verify_csrf)):
     clear_auth_cookies(response)
     response.status_code = 204
     return response
 
 
-@app.get("/api/v1/access/audit")
+@router.get("/audit")
 def read_audit(customer=Depends(require_admin)):
     return configured_audit().recent()
 
 
-@app.get("/api/v1/access/{provider}")
+@router.get("/{provider}")
 def read_access(provider: Literal["polaris", "minio"], customer=Depends(require_admin)):
     with adapter(provider) as backend:
         return snapshot(backend)
 
 
-@app.post("/api/v1/access/{provider}/bindings")
+@router.post("/{provider}/bindings")
 def write_access(
     provider: Literal["polaris", "minio"],
     payload: BindingChange,
@@ -113,7 +116,7 @@ def write_access(
         return change_binding(backend, payload, customer, configured_audit())
 
 
-@app.post("/api/v1/access/{provider}/resources", status_code=201)
+@router.post("/{provider}/resources", status_code=201)
 def create_access_resource(
     provider: Literal["polaris", "minio"],
     payload: ResourceCreate,
@@ -130,7 +133,7 @@ def create_access_resource(
         return create_resource(backend, payload, customer, configured_audit())
 
 
-@app.post("/api/v1/access/polaris/credentials/{name}")
+@router.post("/polaris/credentials/{name}")
 def read_principal_credentials(
     name: str, response: Response, customer=Depends(require_admin), csrf=Depends(verify_csrf)
 ):
@@ -162,7 +165,7 @@ def read_principal_credentials(
     return {"credentials": credentials}
 
 
-@app.patch("/api/v1/access/{provider}/resources")
+@router.patch("/{provider}/resources")
 def mutate_access_resource(
     provider: Literal["polaris", "minio"],
     payload: ResourceMutation,
@@ -186,7 +189,7 @@ def mutate_access_resource(
         return mutate_resource(backend, payload, customer, configured_audit(), preflight=preflight)
 
 
-@app.get("/api/v1/access/polaris/workload-credentials")
+@router.get("/polaris/workload-credentials")
 def read_workload_credentials(response: Response, customer=Depends(require_admin)):
     from platform_app.access_admin.workloads import ExporterClient
 
@@ -194,7 +197,7 @@ def read_workload_credentials(response: Response, customer=Depends(require_admin
     return ExporterClient().snapshot(customer)
 
 
-@app.post("/api/v1/access/polaris/workload-credentials")
+@router.post("/polaris/workload-credentials")
 def write_workload_credentials(
     payload: WorkloadAssignment, response: Response, customer=Depends(require_admin), csrf=Depends(verify_csrf)
 ):

@@ -5,7 +5,7 @@ Batch and log processing for the Lakehouse. Engines: **Polars 2.1 + PyIceberg 0.
 ## Setup
 
 1. Bootstrap the PostgreSQL source schema and run `make source-reader` (SELECT-only role on the 27 analytical tables; `customer_credentials` excluded).
-2. Configure `SILVER_PSEUDONYMIZE_SALT`, the MinIO batch workload keys (`MINIO_BATCH_*`), the bucket and the Polaris credential file produced by `make provision-lakehouse`.
+2. Configure `SILVER_PSEUDONYMIZE_SALT`, the MinIO batch workload keys (`MINIO_BATCH_*`), the bucket and MinIO policies/users through Streamlit. Create the Polaris principal/roles, then use **Cấp cho workload** to assign credentials to `batch-airflow` and the Trino consumers; the exporter writes their credential volumes. MinIO key/secret values must match the workload environment; restart consumers after changing credentials. See [setup](../docs/setup.md#2-build-và-chọn-profile).
 3. Build the Airflow image (`infrastructure/airflow/Dockerfile`). It carries the pipeline runtime as a separate venv at `/opt/pipeline-venv`, exposed as `PIPELINE_PYTHON`; run jobs by hand with `docker compose exec airflow-scheduler`.
 
 ## DAGs

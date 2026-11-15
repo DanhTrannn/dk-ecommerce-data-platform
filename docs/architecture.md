@@ -25,8 +25,8 @@ Không có marketplace đa người bán, thu thập dữ liệu đối thủ ho
 | `platform-app` | Một container, hai process FastAPI/Streamlit; khi một process dừng thì container đóng process còn lại | [Dockerfile](../services/platform-app/Dockerfile), [package](../services/platform-app/src/platform_app/) |
 | Generator | Quy luật, preset và lệnh `datagen` sinh lịch sử OLTP và log truy cập tổng hợp | [generator](../generator/), [OLTP presets](../generator/oltp/configs/), [log rules](../generator/logs/configs/) |
 | PostgreSQL 16.8 | OLTP `ecommerce`; metadata `airflow`, `polaris`; metadata `superset` được tạo riêng khi bật BI | [schema](../database/schema.sql), [scripts](../infrastructure/postgres/) |
-| MinIO | Object storage cho staging và dữ liệu/metadata Iceberg | [provisioning/policy](../infrastructure/minio/) |
-| Polaris 1.8.0 | Iceberg REST catalog, namespace và quyền principal/catalog | [RBAC](../infrastructure/polaris/rbac.yml) |
+| MinIO | Object storage cho staging và dữ liệu/metadata Iceberg | [policy mẫu](../infrastructure/minio/policies/) |
+| Polaris 1.8.0 | Iceberg REST catalog, namespace và quyền principal/catalog | [quản trị Polaris](../services/platform-app/src/platform_app/access_admin/polaris.py) |
 | Polars 2.1 / PyIceberg 0.12 | Đọc nguồn, Bronze/Silver, quality audit, publication và maintenance trong process job | [lakehouse](../pipelines/src/lakehouse/), [jobs](../pipelines/src/jobs/), [image](../infrastructure/airflow/Dockerfile) |
 | dbt 1.11 (dbt-trino) | Dựng Gold/mart trên Trino; dbt tests là một phần của quality gate | [dbt project](../pipelines/dbt/) |
 | Airflow 3.3.2 | API/UI, scheduler và DAG processor riêng; LocalExecutor | [DAGs](../airflow/dags/), [image](../infrastructure/airflow/) |
@@ -34,7 +34,9 @@ Không có marketplace đa người bán, thu thập dữ liệu đối thủ ho
 | Flink 1.19 | Một job raw access-log capture vào Landing | [runtime](../infrastructure/flink/), [entrypoints](../pipelines/src/jobs/) |
 | Trino 483 | Truy vấn Iceberg qua Polaris; catalog `READ_ONLY` | [catalog](../infrastructure/trino/catalog/lakehouse.properties) |
 | Superset 6.1.0 | Dashboard từ publication, metadata riêng trên PostgreSQL | [implementation](../infrastructure/superset/) |
-| `lakehouse-access` | API nội bộ để đọc/gán/gỡ binding MinIO/Polaris | [access_admin](../services/platform-app/src/platform_app/access_admin/) |
+| API quản trị trong `platform-app` | Router `/api/v1/access` chung cổng 8000; CRUD và phân quyền MinIO/Polaris | [access_admin](../services/platform-app/src/platform_app/access_admin/) |
+| `credential-exporter` | API nội bộ nhận yêu cầu đã ký, ghi credential vào bốn volume consumer; chạy root riêng | [credential_export](../services/platform-app/src/platform_app/credential_export/) |
+| `platform-admin-init` | One-off khởi tạo schema nguồn trống, admin bootstrap và storage secret/audit | [admin bootstrap](../services/platform-app/src/platform_app/provisioning/admin.py) |
 
 Python workspace gồm `platform-app`, `batch-pipeline`, dùng chung [uv.lock](../uv.lock). Airflow (kèm venv batch Polars/PyIceberg/dbt), Flink và Superset có image/runtime riêng; không cài Superset vào virtualenv ứng dụng. Superset bổ sung driver Trino/PostgreSQL bằng lock riêng và không cần Redis/Celery trong PoC.
 
@@ -73,26 +75,27 @@ Superset dùng `mart_order_daily` và `mart_product_sales_daily` của cùng man
 
 - API giao dịch dùng JWT cookie, CSRF cho ghi và role/store checks theo từng route. Endpoint internal có secret riêng. Không khẳng định đã có HTTPS/rate limit hoặc triển khai public an toàn chỉ từ cấu hình local.
 - Batch dùng PostgreSQL reader riêng; ứng dụng/seed dùng owner nghiệp vụ. Không dùng Superset metadata owner làm account nguồn.
-- Provisioning MinIO tạo bốn account Polaris/batch/Flink/Trino với policy riêng. Workload không dùng root MinIO. Polaris tạo `batch_writer`, `flink_writer`, `trino_reader`, bốn volume credential consumer và state root riêng.
-- Provisioning khởi tạo tài nguyên còn thiếu; chạy lại giữ secret/quyền đã có, không phải bộ đồng bộ liên tục hoặc tự rotate.
-- Streamlit quản trị các binding có sẵn qua `lakehouse-access`. Backend kiểm tra nguồn auth, CSRF, revision, journal và readback. Không tạo account, sửa policy JSON hoặc xoay secret trong UI.
+- Không tự tạo account/role/policy mẫu. Admin bootstrap tạo workload user/policy MinIO và principal/role/catalog Polaris trên Streamlit; MinIO key/secret phải khớp cấu hình consumer. Workload dùng tài khoản riêng thay vì root MinIO.
+- Streamlit gọi `/api/v1/access` trên FastAPI của `platform-app`. Backend kiểm tra tài khoản còn active, role `admin` và danh tính đúng admin bootstrap ở mỗi request quản trị; thao tác ghi cần CSRF, revision, journal và readback. Admin khác hoặc `system_admin` không đủ quyền. UI hỗ trợ CRUD và policy theo form giới hạn; không xoay secret hoặc chỉnh group MinIO.
+- `platform-app` chạy non-root nhưng giữ credential admin MinIO/Polaris và mount `access-admin-secrets` chứa credential principal cùng khóa ký exporter. FastAPI và Streamlit dùng chung container/môi trường; đây là sự đánh đổi khi gộp backend. Exporter chạy root ở container riêng, đọc nguồn secret ở chế độ read-only và là service duy nhất ghi cả bốn volume credential consumer.
+- Tạo principal chỉ lưu credential nguồn. Admin dùng tab **Cấp cho workload** để cấp/thay/gỡ file qua exporter; trạng thái phân công nằm trong `credential-export-state`. Consumer giữ credential trong bộ nhớ cần restart hoặc submit lại job sau thay đổi. Bootstrap giữ nguyên password/dữ liệu đã có, không tự migrate hoặc reset tài nguyên.
 - Superset có login/role riêng, chưa kế thừa RBAC API hoặc phạm vi cửa hàng. Username Trino là nhãn client; quyền warehouse thực đến từ catalog reader/Polaris/MinIO hiện có.
 
 ## 6. Triển khai và điểm vào
 
 | Profile | Service |
 |---|---|
-| `core` | PostgreSQL, MinIO, Polaris/bootstrap, Airflow/init, Trino, platform-app, lakehouse-access; provisioning chạy thủ công scale 0 |
+| `core` | PostgreSQL, MinIO, Polaris/bootstrap, Airflow/init, Trino/auth init, platform-app, admin init và credential-exporter |
 | `streaming` | Kafka/topic init, Flink JM/TM; submit job scale 0 |
 | `bi` | Superset web; init/sync scale 0, dùng kèm core |
 
-Service và port cụ thể lấy từ [Compose](../docker-compose.yml). Không có Polaris Console, Next.js service hoặc profile `tools`. Build, healthcheck, schema bootstrap, nạp dataset, provisioning và chạy pipeline là các bước khác nhau.
+Service và port cụ thể lấy từ [Compose](../docker-compose.yml). Không có Polaris Console, Next.js service hoặc profile `tools`. `make up` khởi động console/API cùng dependency quản trị; `make up-all` khởi động toàn nhóm sau khi quyền và credential workload đã sẵn sàng. Schema/admin bootstrap tự chạy theo dependency; nạp dataset, tạo quyền workload và chạy pipeline vẫn là thao tác chủ động.
 
 | Thư mục | Trách nhiệm |
 |---|---|
 | `services/platform-app/src/platform_app/api/` | Route/service giao dịch và HTTP observability |
 | `services/platform-app/src/platform_app/ui/` | Platform Console: scenario API và quản trị quyền |
-| `services/platform-app/src/platform_app/access_admin/` | Quản trị binding riêng |
+| `services/platform-app/src/platform_app/access_admin/` | Router quản trị quyền dùng chung FastAPI |
 | `generator/` | Notebook EDA và preset YAML (`oltp/`, `logs/`) |
 | `pipelines/src/lakehouse/` | OLTP/log/streaming transforms, SQL templates, quality và publication |
 | `pipelines/src/jobs/` | Entry point thực thi trên engine |

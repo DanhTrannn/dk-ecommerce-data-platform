@@ -1,4 +1,4 @@
-"""Administrative credentials stay in the internal service, outside Streamlit."""
+"""Configuration for access administration in the shared platform-app backend."""
 
 from pathlib import Path
 from urllib.parse import urlsplit
