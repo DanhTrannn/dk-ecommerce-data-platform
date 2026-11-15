@@ -14,7 +14,6 @@ Cập nhật theo codebase ngày **15/11/2026**. Các kết quả nghiệm thu �
 | Batch | PostgreSQL (psycopg2, theo trang) → Bronze → Silver → Gold/mart → quality gate → publication | Cần chạy init trước; batch interval không tự backfill mọi lịch sử |
 | Access log | API → Kafka → Flink Landing; batch native xử lý Bronze/Silver/fact, dbt dựng ba mart, publication riêng | Producer opt-in; DLQ chưa tự replay; Landing và mart có độ mới khác nhau |
 | BI | Superset 6.1.0 qua Trino, PoC doanh thu với hai mart/bốn KPI/bốn chart | Admin-only, chưa bao phủ 18 mart/RBAC cửa hàng; sync tạo URL mới theo publication |
-| Frontend cũ | Next.js/React/ECharts còn trong `services/storefront`, vẫn có CI | Không có service Compose; các trang gọi API BI đã bỏ không còn hoạt động |
 
 Không có Spark, Debezium hoặc PostgreSQL CDC trong runtime hiện tại; Flink chỉ dùng cho log API. Không có marketplace đa người bán, thu thập dữ liệu đối thủ hoặc ML đang được nghiệm thu trong phạm vi này. Lịch sử thiết kế trong `FINAL_REPORT.md` không thay thế mô tả hiện trạng ở bốn tài liệu kỹ thuật.
 
@@ -89,7 +88,7 @@ Superset dùng `mart_order_daily` và `mart_product_sales_daily` của cùng man
 | `streaming` | Kafka/topic init, Flink JM/TM; submit job scale 0 |
 | `bi` | Superset web; init/sync scale 0, dùng kèm core |
 
-Service và port cụ thể lấy từ [Compose](../docker-compose.yml). Không có Polaris Console, Next.js service hoặc profile `tools`. `make up` khởi động console/API cùng dependency quản trị; `make up-all` khởi động toàn nhóm sau khi quyền và credential workload đã sẵn sàng. Schema/admin bootstrap tự chạy theo dependency; nạp dataset, tạo quyền workload và chạy pipeline vẫn là thao tác chủ động.
+Service và port cụ thể lấy từ [Compose](../docker-compose.yml). Không có Polaris Console hoặc profile `tools`. `make up` khởi động console/API cùng dependency quản trị; `make up-all` khởi động toàn nhóm sau khi quyền và credential workload đã sẵn sàng. Schema/admin bootstrap tự chạy theo dependency; nạp dataset, tạo quyền workload và chạy pipeline vẫn là thao tác chủ động.
 
 | Thư mục | Trách nhiệm |
 |---|---|
@@ -102,7 +101,6 @@ Service và port cụ thể lấy từ [Compose](../docker-compose.yml). Không 
 | `airflow/dags/` | Điều phối init/batch/log/maintenance |
 | `infrastructure/` | Docker/runtime/config, provisioning và Superset |
 | `database/` | PostgreSQL schema renderer và seed |
-| `services/storefront/` | Frontend cũ, chưa dọn khỏi repo |
 
 ### Engine batch
 
@@ -110,4 +108,4 @@ Image Airflow (`infrastructure/airflow/Dockerfile`) chứa venv riêng `/opt/pip
 
 ## 7. Phần chưa hoàn tất
 
-Loader log tổng hợp và mapping session/order chưa có. Cần nghiệm thu lại generator → pipeline → publication → dashboard với bộ dữ liệu hiện tại. Hard delete ở nguồn chưa được đồng bộ sang Silver. Superset còn cần mở rộng tới các nhóm mart khác, quyền viewer/store, chọn publication mới và vòng đời asset/snapshot. Chưa chuyển hết BI hoặc tự sync từ Airflow. Dọn Next.js sau khi có đủ chức năng thay thế. Generator chưa hiệu chỉnh toàn bộ hành vi theo dữ liệu Việt Nam; runner chưa bao phủ mọi API nghiệp vụ. Benchmark production, HA/disaster recovery, tự replay DLQ và hardening triển khai public chưa được nghiệm thu.
+Loader log tổng hợp và mapping session/order chưa có. Cần nghiệm thu lại generator → pipeline → publication → dashboard với bộ dữ liệu hiện tại. Hard delete ở nguồn chưa được đồng bộ sang Silver. Superset còn cần mở rộng tới các nhóm mart khác, quyền viewer/store, chọn publication mới và vòng đời asset/snapshot. Chưa chuyển hết BI hoặc tự sync từ Airflow. Generator chưa hiệu chỉnh toàn bộ hành vi theo dữ liệu Việt Nam; runner chưa bao phủ mọi API nghiệp vụ. Benchmark production, HA/disaster recovery, tự replay DLQ và hardening triển khai public chưa được nghiệm thu.

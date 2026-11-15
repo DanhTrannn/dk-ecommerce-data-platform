@@ -4,7 +4,7 @@
 
 > **Bản thiết kế lịch sử — đối chiếu codebase 15/11/2026:** nội dung các chương dưới đây được giữ làm hồ sơ tại thời điểm viết, không phải hướng dẫn chạy hoặc bằng chứng nghiệm thu cho code hiện tại. Không dùng các mô tả Spark/CDC, generator SQL/UI hoặc dashboard cũ bên dưới để suy ra chức năng đang được triển khai.
 >
-> Hiện trạng: batch dùng Polars/PyIceberg và dbt trên Trino; không còn Spark, Debezium hay PostgreSQL CDC. CLI `datagen` đã sinh/verify lịch sử OLTP và xuất log tổng hợp ra Parquet, nhưng loader các file log vào Lakehouse chưa có. Streamlit chạy scenario và CRUD/quản trị quyền qua API chung của `platform-app`; exporter riêng cấp file credential Polaris. Superset mới là PoC doanh thu hai mart; Next.js còn trong source/CI và không phải serving path đầy đủ.
+> Hiện trạng: batch dùng Polars/PyIceberg và dbt trên Trino; không còn Spark, Debezium hay PostgreSQL CDC. CLI `datagen` đã sinh/verify lịch sử OLTP và xuất log tổng hợp ra Parquet, nhưng loader các file log vào Lakehouse chưa có. Streamlit chạy scenario và CRUD/quản trị quyền qua API chung của `platform-app`; exporter riêng cấp file credential Polaris. Superset mới là PoC doanh thu hai mart; Source Next.js và job CI tương ứng đã được gỡ; các mô tả giao diện đó trong các chương dưới chỉ thuộc thiết kế lịch sử.
 >
 > Tài liệu hiện hành: [kiến trúc](architecture.md), [hợp đồng dữ liệu](data.md), [cài đặt](setup.md), [vận hành và phạm vi kiểm chứng](operations.md). Số đo nghiên cứu/nghiệm thu lịch sử trong báo cáo không phải số đo vừa tái lập trên phiên bản hiện tại.
 

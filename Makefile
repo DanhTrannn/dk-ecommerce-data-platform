@@ -1,4 +1,4 @@
-.PHONY: all up start up-all build build-all down stop restart ps logs status seed generate generate-verify source-reader typecheck help superset-db superset-init superset-sync
+.PHONY: all up start up-all build build-all down stop restart ps logs status seed generate generate-verify source-reader help superset-db superset-init superset-sync
 
 PROFILES ?= core
 SERVICES ?= platform-app
@@ -26,7 +26,6 @@ help:
 	@echo "  make superset-db               Create dedicated Superset metadata storage"
 	@echo "  make superset-init             Initialize BI metadata and first admin explicitly"
 	@echo "  make superset-sync             Create a sales dashboard pinned to a publication"
-	@echo "  make typecheck                 Check frontend TypeScript"
 
 up: start
 
@@ -81,6 +80,3 @@ superset-init:
 
 superset-sync:
 	@docker compose --profile bi run --rm --no-deps -T superset-sync
-
-typecheck:
-	@npm --prefix services/storefront run typecheck

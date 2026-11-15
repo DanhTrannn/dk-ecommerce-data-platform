@@ -25,7 +25,7 @@
 
 **D&K E-Commerce Data Platform** is a local Data Engineering project for a Vietnamese retailer with online and in-store sales. It combines configurable synthetic transaction data, a FastAPI source application, batch extraction from PostgreSQL, and real API access logs. Analytical tables use Apache Iceberg on MinIO, an Apache Polaris catalog, and Trino for SQL access.
 
-The current interface is a **Streamlit Platform Console** for running online purchase scenarios against the API and managing MinIO/Polaris accounts, roles, policies and workload credentials. An optional **Apache Superset sales PoC** reads two published sales marts. The legacy Next.js application remains in source and CI, but is not started by Compose; its retired business BI endpoints are no longer available.
+The current interface is a **Streamlit Platform Console** for running online purchase scenarios against the API and managing MinIO/Polaris accounts, roles, policies and workload credentials. An optional **Apache Superset sales PoC** reads two published sales marts.
 
 > **Two separate data paths:** Airflow-scheduled batch (Polars/PyIceberg ingestion, dbt on Trino for Gold) is the only writer of the serving OLTP Silver/Gold namespaces. API access logs flow through Kafka/Flink to Landing, then through a separate native pipeline and publication.
 
@@ -49,13 +49,12 @@ The current interface is a **Streamlit Platform Console** for running online pur
 | Storage and catalog | MinIO, Apache Iceberg 1.10.1, Apache Polaris 1.8.0 |
 | Analytics and BI | Trino 483, Apache Superset 6.1.0 |
 | Tooling | Docker Compose, uv workspace/lockfile, Ruff, unittest, GitHub Actions |
-| Legacy frontend | Next.js 15, React 19, Apache ECharts 6; retained outside the Compose runtime |
 
 ## Quick Start
 
 ### Prerequisites and configuration
 
-Use Docker Engine with Compose v2, Python 3.11 and uv. Node.js 22/npm are required only for legacy frontend development and its CI checks.
+Use Docker Engine with Compose v2, Python 3.11 and uv.
 
 ```bash
 # Only when .env does not exist:
@@ -155,8 +154,7 @@ Publication gates prevent a failed refresh from replacing the last accepted mani
 ```text
 .
 ├── services/
-│   ├── platform-app/       # FastAPI, Streamlit, workers, access administration, provisioning
-│   └── storefront/         # Legacy Next.js application
+│   └── platform-app/       # FastAPI, Streamlit, workers, access administration, provisioning
 ├── generator/              # datagen CLI, OLTP/log generators, EDA notebooks and YAML presets
 ├── database/               # PostgreSQL schema and explicit seeds
 ├── pipelines/              # Polars/PyIceberg batch, dbt project, Flink streaming and source contracts
@@ -208,7 +206,7 @@ make down
 
 **Current gaps:** synthetic-log ingestion and session/order mapping, synchronization of source hard deletes, broader BI and viewer/store permissions, and a fresh end-to-end acceptance using the current generator and pipeline. Spark, Debezium and PostgreSQL CDC are not part of the current Compose runtime.
 
-The [CI workflow](.github/workflows/ci.yml) has two jobs: repository validation (four Compose profile combinations, DAG compilation and Ruff) and legacy storefront validation (`npm ci`, lint, typecheck and production build). Documentation-only changes are skipped. Unit and opt-in integration suites are separate local checks. Next.js remains in CI until its removal is implemented.
+The [CI workflow](.github/workflows/ci.yml) validates four Compose profile combinations, compiles DAG Python and runs Ruff. Documentation-only changes are skipped. Unit and opt-in integration suites are separate local checks.
 
 ## Documentation Index
 

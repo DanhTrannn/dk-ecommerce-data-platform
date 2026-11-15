@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     environment: str = "local"
     database_url: str = Field(min_length=1)
     secret_key: str = Field(min_length=32)
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:8501"
     enable_docs: bool = True
     bootstrap_admin_email: str = "admin@web.local"
     bootstrap_admin_password: str = Field(default="Admin@12345", min_length=8)

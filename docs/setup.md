@@ -1,10 +1,10 @@
 # Cài đặt và khởi chạy
 
-Lệnh bên dưới chạy từ root repo. Xem [architecture.md](architecture.md) để chọn thành phần và [operations.md](operations.md) để kiểm tra/phục hồi. Không cần Next.js để chạy nguồn dữ liệu, Streamlit hoặc Superset.
+Lệnh bên dưới chạy từ root repo. Xem [architecture.md](architecture.md) để chọn thành phần và [operations.md](operations.md) để kiểm tra/phục hồi.
 
 ## 1. Chuẩn bị môi trường
 
-Cần Docker Engine/Compose có BuildKit, Python 3.11 và `uv`. Node.js 22 chỉ cần nếu phát triển frontend cũ. Version image/package lấy từ [Compose](../docker-compose.yml), [workspace](../pyproject.toml) và lock files; không cài Flink/Superset vào venv API.
+Cần Docker Engine/Compose có BuildKit, Python 3.11 và `uv`. Version image/package lấy từ [Compose](../docker-compose.yml), [workspace](../pyproject.toml) và lock files; không cài Flink/Superset vào venv API.
 
 ```bash
 cp .env.example .env
@@ -235,7 +235,7 @@ Port dưới đây là mặc định, cần xem override/bind address trong `.en
 | Lakehouse access admin | `127.0.0.1:8000/api/v1/access`, chung FastAPI; yêu cầu admin bootstrap |
 | Credential exporter | Nội bộ `credential-exporter:8011`, không publish port |
 
-Không liệt kê Storefront/Polaris Console như service đang được Compose chạy. Một số port PostgreSQL/Kafka/Flink trong Compose không bind localhost; kiểm tra trước khi dùng trên máy có public interface. Đây là cấu hình local, không phải production recipe.
+Polaris Console không được Compose chạy. Một số port PostgreSQL/Kafka/Flink trong Compose không bind localhost; kiểm tra trước khi dùng trên máy có public interface. Đây là cấu hình local, không phải production recipe.
 
 ```bash
 make ps

@@ -25,7 +25,6 @@ concurrency:
 
 env:
   UV_VERSION: "0.11.32"
-  NODE_VERSION: "22.18.0"
 
 jobs:
   repository-validation:
@@ -53,39 +52,3 @@ jobs:
 
       - name: Lint Python codebase with ruff
         run: uvx ruff check .
-
-  storefront:
-    name: Storefront checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: services/storefront
-    env:
-      CI: "true"
-      NEXT_TELEMETRY_DISABLED: "1"
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
-      NEXT_PUBLIC_CSRF_COOKIE_NAME: web_csrf
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: services/storefront/package-lock.json
-
-      - name: Install frontend dependencies
-        run: npm ci --no-audit --no-fund
-
-      - name: Lint storefront
-        run: npm run lint
-
-      - name: Type-check storefront
-        run: npm run typecheck
-
-      - name: Build storefront
-        run: npm run build
-

@@ -1,6 +1,6 @@
 # Ecommerce API and Access Administration
 
-FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. Its active surface comprises source transactions, the ID lookups needed by scenarios, two HTTP observability reads, and MinIO/Polaris administration under `/api/v1/access`. The current console uses this API; the retained Next.js storefront is a legacy client with unsupported calls.
+FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. Its active surface comprises source transactions, the ID lookups needed by scenarios, two HTTP observability reads, and MinIO/Polaris administration under `/api/v1/access`. The Streamlit console uses this API; business sales BI uses the separate Superset PoC.
 
 [Models](models) map 28 OLTP tables; the [physical schema](../../../../../database/schema.sql) is PostgreSQL. [Router registration](routes/router.py) and [handlers](modules) define supported endpoints. There is no separate access-admin web service: access routes share the API process, cookie session and port 8000. The credential exporter is a separate internal service on port 8011.
 
@@ -71,7 +71,7 @@ Valid projected envelopes are grouped by event ID. Identical payload hashes coun
 
 The response contains `snapshot_id` (string, or null when the table has no snapshot), `snapshot_current_at`, `window_start`, `observed_at`, `queried_at`, latest in-scope ingest/event times, nullable totals, observed minute `series` and at most 20 routes ordered by error count, request count and route/method. Rates and approximate p95 are computed directly over eligible unique requests at each grain; p95 totals are not averaged minute/route percentiles. Duration uses nanoseconds / 1e6; success counts 200–399, errors 400–599, and total requests includes accepted 100–599 statuses. No eligible requests means null total fields and empty series/routes; observed zero errors or zero latency remains zero. No raw payload, event IDs, actor identifiers or individual request records are returned.
 
-The endpoint reports HTTP observations, not business-event realtime or full Silver validation. Captured traffic includes console/analytics requests as well as shopping requests. Polling is a client concern; the retained Next.js System view is legacy and its other dependencies include retired endpoints.
+The endpoint reports HTTP observations, not business-event realtime or full Silver validation. Captured traffic includes console/analytics requests as well as shopping requests. Polling is a client concern and does not trigger pipeline execution.
 
 ## Settings and request conventions
 
@@ -177,11 +177,11 @@ Authentication names: **Customer** means any active cookie-authenticated user; o
 
 In addition to the six retired BI routes above, these ten former administrative GET routes are absent: `/api/v1/admin/orders`, `/api/v1/admin/inbound/receipts`, `/api/v1/admin/coupons`, `/api/v1/admin/reviews`, `/api/v1/admin/returns`, `/api/v1/admin/shipments`, `/api/v1/admin/shipments/{order_number}`, `/api/v1/admin/store/orders`, `/api/v1/admin/store/inventory`, `/api/v1/admin/store/staff`. Retained POST/detail routes with related prefixes do not restore their former list APIs. Unsupported requests may return 404 or 405 depending on another registered method/path; they are not supported reads.
 
-- Order, delivery-staff and admin return operations require `admin`. The legacy UI's operations-manager menu does not grant these API permissions.
+- Order, delivery-staff and admin return operations require `admin`. Operations-manager roles do not grant these API write permissions.
 - Category CRUD, self-service customer profile editing, a separate shipper login and size/color exchange workflows are absent.
 - Access administration supports MinIO user/bucket/policy and Polaris principal/role/catalog resources, bindings and explicit workload credential assignment. MinIO group administration and arbitrary policy JSON editing are not exposed. Sensitive credential responses use `Cache-Control: no-store`; access audit data and saved credentials use private persistent paths.
 - This guide verifies registrations and source behavior. Successful runtime transactions still require initialized source data, provider permissions and reachable dependencies.
 
 ## References
 
-[Setup](../../../../../docs/setup.md) · [Architecture and serving](../../../../../docs/architecture.md) · [Schema, access logs and marts](../../../../../docs/data.md) · [Operations and recovery](../../../../../docs/operations.md) · [Legacy storefront](../../../../storefront/README.md)
+[Setup](../../../../../docs/setup.md) · [Architecture and serving](../../../../../docs/architecture.md) · [Schema, access logs and marts](../../../../../docs/data.md) · [Operations and recovery](../../../../../docs/operations.md)

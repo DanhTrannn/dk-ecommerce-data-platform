@@ -163,10 +163,7 @@ Không coi `Ran 0 tests` là bằng chứng có test coverage. Checkout mới kh
 
 Kiểm chứng local ghi nhận ngày **15/11/2026** cho phần gộp API: 86 test platform-app (5 opt-in bỏ qua), build image và bốn test tích hợp riêng đạt trên stack quyền cô lập; stack test đã dọn. Phạm vi gồm CRUD MinIO/Polaris, quyền MinIO thực, cấp/gỡ credential và Streamlit. Đây không phải lần nghiệm thu toàn bộ generator → Lakehouse → BI. Số đo generator trong [generator README](../generator/README.md) là các lần đo được ghi lại trước đó, không phải job đang chạy hoặc benchmark lặp lại ở mỗi lần sửa tài liệu.
 
-CI có hai job theo [workflow](../.github/workflows/ci.yml):
-
-- Repository validation: **bốn** tổ hợp profile `core`, `core,streaming`, `core,bi`, `core,streaming,bi`; compile DAG và Ruff.
-- Storefront: `npm ci`, lint, typecheck và production build của Next.js cũ.
+CI có một job `repository-validation` theo [workflow](../.github/workflows/ci.yml): kiểm tra **bốn** tổ hợp profile `core`, `core,streaming`, `core,bi`, `core,streaming,bi`, compile DAG và Ruff.
 
 CI không chạy unit/integration Python, không dựng và nghiệm thu cả stack dữ liệu. Docs/Markdown-only có thể bị bỏ qua theo `paths-ignore`; các kết quả local không thay thế trạng thái CI thực tế.
 
@@ -176,4 +173,4 @@ CI không chạy unit/integration Python, không dựng và nghiệm thu cả st
 - Bộ kiểm chứng có thể tái lập generator → batch/log → publication → Superset trên stack cô lập, gồm khối lượng và đối soát dữ liệu.
 - Chính sách đồng bộ hard delete nguồn; mở rộng BI ngoài hai mart doanh thu, viewer/store và vòng đời publication/assets/snapshot.
 - Runner cho nghiệp vụ ngoài mua online, replay DLQ và kịch bản phục hồi đã được kiểm chứng.
-- Dọn Next.js/CI/dependency sau khi xác định đủ chức năng thay thế. Không mô tả hạng mục kế hoạch như chức năng đã nghiệm thu.
+- Không mô tả hạng mục kế hoạch như chức năng đã nghiệm thu; phạm vi giao diện hiện tại là Streamlit và Superset.
