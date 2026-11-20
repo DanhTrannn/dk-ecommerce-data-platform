@@ -10,7 +10,7 @@ from pyiceberg.transforms import DayTransform
 from lakehouse.logs.parser import InvalidAccessEvent, parse_access_event
 from lakehouse.utils.snapshots import capture, read_snapshot
 from lakehouse.oltp.polars.schema import align_arrow, ddl_schema
-from lakehouse.oltp.polars.writer import PROPERTIES
+from lakehouse.utils.iceberg import PROPERTIES
 from lakehouse.utils.namespaces import namespace as ns
 
 FLAT_FIELDS = {

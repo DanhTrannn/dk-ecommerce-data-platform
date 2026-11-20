@@ -1,4 +1,4 @@
-"""Native PostgreSQL/Silver ingestion followed by dbt/Trino Gold publication."""
+"""Daily incremental OLTP batch: changed source rows to Bronze, pre-merge checks, Silver upsert, dbt/Trino Gold."""
 
 import os
 from datetime import timedelta
@@ -7,11 +7,9 @@ from airflow import DAG
 from airflow.providers.standard.operators.bash import BashOperator
 
 PYTHON = os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/python")
-DATE = "{{ data_interval_start.astimezone(dag.timezone).strftime('%Y-%m-%d') }}"
 ENV = {
     "PIPELINE_RUN_ID": "{{ run_id }}",
     "PIPELINE_AS_OF": "{{ dag_run.start_date.isoformat() }}",
-    "PIPELINE_BATCH_DATE": DATE,
     "PIPELINE_START": '{{ data_interval_start.isoformat() if data_interval_start else "" }}',
     "PIPELINE_END": '{{ data_interval_end.isoformat() if data_interval_end else "" }}',
 }
@@ -31,5 +29,5 @@ with DAG(
         env=ENV,
         append_env=True,
         bash_command=PYTHON
-        + ' -m jobs.oltp.run_batch_pipeline --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --mode incremental --as-of "$PIPELINE_AS_OF" --batch-date "$PIPELINE_BATCH_DATE" --interval-start "$PIPELINE_START" --interval-end "$PIPELINE_END"',
+        + ' -m jobs.oltp.run_batch_pipeline --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --mode incremental --as-of "$PIPELINE_AS_OF" --interval-start "$PIPELINE_START" --interval-end "$PIPELINE_END"',
     )

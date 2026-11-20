@@ -66,11 +66,7 @@ def ddl_schema(resource):
 
 
 def silver_schema(table):
-    return ddl_schema(f"contracts/silver/{table.silver_table}.sql")
-
-
-def quarantine_schema():
-    return ddl_schema("contracts/silver/silver_quarantine.sql")
+    return ddl_schema(f"contracts/silver/{table.name}.sql")
 
 
 def align_arrow(data, schema):

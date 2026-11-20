@@ -66,8 +66,8 @@ def run_marts(
             ensure_target(catalog, prefix, name, schema(name))
         if not verify_only:
             inputs = {
-                "products": next(v for k, v in sources.items() if k.endswith(".silver_products")),
-                "product_variants": next(v for k, v in sources.items() if k.endswith(".silver_product_variants")),
+                "products": next(v for k, v in sources.items() if k.endswith(".products")),
+                "product_variants": next(v for k, v in sources.items() if k.endswith(".product_variants")),
                 "fact_web_events": fact_snapshot,
             }
             run_models(
@@ -76,7 +76,7 @@ def run_marts(
                 observed,
                 inputs,
                 group="logs",
-                silver_schema=next(k.split(".")[1] for k in sources if k.endswith(".silver_products")),
+                silver_schema=next(k.split(".")[1] for k in sources if k.endswith(".products")),
                 events_schema=fact_name.split(".")[1],
             )
         snapshots, actual = {}, {}

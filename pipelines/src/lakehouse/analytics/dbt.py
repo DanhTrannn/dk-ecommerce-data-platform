@@ -2,7 +2,6 @@
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -11,8 +10,7 @@ from pathlib import Path
 
 from pyiceberg.transforms import IdentityTransform
 
-from lakehouse.oltp.polars.writer import PROPERTIES
-from lakehouse.utils.iceberg import load_or_create
+from lakehouse.utils.iceberg import PROPERTIES, load_or_create
 from lakehouse.utils.namespaces import namespace as ns
 
 
@@ -27,20 +25,14 @@ def project_directory():
     raise ValueError("Set DBT_PROJECT_DIR to the checked-in analytical project")
 
 
-def ensure_target(catalog, prefix, name, schema, ddl=None):
+def ensure_target(catalog, prefix, name, schema):
+    """Pre-create a log Gold table with its reviewed schema; log marts are partitioned by metric_date."""
     catalog.create_namespace_if_not_exists(ns(prefix, "gold"))
     table = load_or_create(catalog, (ns(prefix, "gold"), name), schema=schema, properties=PROPERTIES)
     if set(schema.names) - set(table.schema().column_names):
         with table.update_schema() as update:
             update.union_by_name(schema)
-    partition = re.search(r"PARTITIONED BY\s*\(([a-z_]+)\)", ddl or "")
-    field = (
-        partition[1]
-        if partition
-        else "metric_date"
-        if name.startswith("mart_") and "metric_date" in schema.names
-        else None
-    )
+    field = "metric_date" if name.startswith("mart_") and "metric_date" in schema.names else None
     if field:
         fields = table.spec().fields
         transform = IdentityTransform()
@@ -52,17 +44,15 @@ def ensure_target(catalog, prefix, name, schema, ddl=None):
     return table
 
 
-def run_models(prefix, run_id, observed, inputs, *, group, silver_schema=None, events_schema=None, date_bounds=None):
+def run_models(prefix, run_id, observed, inputs=None, *, group, silver_schema=None, events_schema=None):
     variables = dict(
         run_id=run_id,
         as_of=observed.isoformat(),
-        inputs=inputs,
+        inputs=inputs or {},
         silver_schema=silver_schema or ns(prefix, "silver"),
         events_schema=events_schema or ns(prefix, "gold"),
         gold_schema=ns(prefix, "gold"),
     )
-    if date_bounds is not None:
-        variables["date_start"], variables["date_end"] = date_bounds
     environment = {
         **os.environ,
         "DBT_GOLD_SCHEMA": ns(prefix, "gold"),
@@ -103,4 +93,5 @@ def run_models(prefix, run_id, observed, inputs, *, group, silver_schema=None, e
         return {
             "executed": len(result["results"]),
             "statuses": {item["unique_id"]: str(item["status"]) for item in result["results"]},
+            "warnings": sorted(item["unique_id"] for item in result["results"] if str(item["status"]) == "warn"),
         }

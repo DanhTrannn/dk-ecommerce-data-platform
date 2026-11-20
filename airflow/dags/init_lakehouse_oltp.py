@@ -1,4 +1,4 @@
-"""Native PostgreSQL/Silver ingestion followed by dbt/Trino Gold publication."""
+"""Full OLTP batch: every source row to Bronze, pre-merge checks, Silver replaced, dbt/Trino Gold."""
 
 import os
 from datetime import timedelta
@@ -7,11 +7,9 @@ from airflow import DAG
 from airflow.providers.standard.operators.bash import BashOperator
 
 PYTHON = os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/python")
-DATE = "{{ dag_run.start_date.astimezone(dag.timezone).strftime('%Y-%m-%d') }}"
 ENV = {
     "PIPELINE_RUN_ID": "{{ run_id }}",
     "PIPELINE_AS_OF": "{{ dag_run.start_date.isoformat() }}",
-    "PIPELINE_BATCH_DATE": DATE,
 }
 
 with DAG(
@@ -29,5 +27,5 @@ with DAG(
         env=ENV,
         append_env=True,
         bash_command=PYTHON
-        + ' -m jobs.oltp.run_batch_pipeline --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --mode full --as-of "$PIPELINE_AS_OF" --batch-date "$PIPELINE_BATCH_DATE"',
+        + ' -m jobs.oltp.run_batch_pipeline --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --mode full --as-of "$PIPELINE_AS_OF"',
     )

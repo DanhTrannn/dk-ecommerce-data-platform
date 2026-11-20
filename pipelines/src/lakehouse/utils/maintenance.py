@@ -1,4 +1,4 @@
-"""Native Iceberg maintenance with publication-aware retention and bounded orphan scope."""
+"""Native Iceberg maintenance with log-publication-aware retention and bounded orphan scope."""
 
 import json
 import os
@@ -6,9 +6,8 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
 import boto3
-from pyiceberg.expressions import LessThan
 
-from lakehouse.oltp.gold.schema import TABLES
+from lakehouse.analytics.dbt import project_directory
 from lakehouse.utils.snapshots import capture, read_snapshot
 from lakehouse.utils.config import SOURCE_TABLES
 from lakehouse.utils.namespaces import namespace as ns
@@ -26,8 +25,10 @@ TABLE_PROFILES = {
     ],
     "oltp": [
         *(f"bronze.{t.name}" for t in SOURCE_TABLES),
-        *(f"silver.{t.silver_table}" for t in SOURCE_TABLES),
-        *(f"gold.{name}" for name in TABLES),
+        *(f"silver.{t.name}" for t in SOURCE_TABLES),
+        # dbt builds one Gold table per OLTP model and per seed.
+        *(f"gold.{path.stem}" for path in sorted((project_directory() / "models" / "oltp").glob("*.sql"))),
+        *(f"gold.{path.stem}" for path in sorted((project_directory() / "seeds").glob("*.csv"))),
     ],
 }
 TABLE_PROFILES["all"] = list(dict.fromkeys(TABLE_PROFILES["streaming"] + TABLE_PROFILES["oltp"]))
@@ -35,34 +36,17 @@ TABLE_PROFILES["all"] = list(dict.fromkeys(TABLE_PROFILES["streaming"] + TABLE_P
 
 def protected_snapshots(catalog, prefix):
     protected = {}
-    for name in ("analytics_publications", "logs_analytics_publications"):
-        key = (ns(prefix, "system"), name)
-        if not catalog.table_exists(key):
-            continue
-        table = catalog.load_table(key)
-        for row in read_snapshot(table, capture(table)).to_dicts():
-            for field in ("snapshots_json", "source_snapshots_json"):
-                for physical, snapshot in json.loads(row.get(field) or "{}").items():
-                    if snapshot is not None:
-                        if type(snapshot) is not int:
-                            raise ValueError("Invalid publication snapshot reference")
-                        protected.setdefault(physical, set()).add(snapshot)
-
-    runs_key = (ns(prefix, "system"), "batch_runs")
-    if catalog.table_exists(runs_key):
-        from lakehouse.oltp.run_state import resume_cutoff
-
-        runs_table = catalog.load_table(runs_key)
-        cutoff = resume_cutoff()
-        for row in read_snapshot(runs_table, capture(runs_table)).to_dicts():
-            row_updated = row.get("updated_at")
-            if row_updated is not None:
-                ts = row_updated.replace(tzinfo=UTC) if row_updated.tzinfo is None else row_updated.astimezone(UTC)
-                if ts >= cutoff and row.get("status") not in {"PUBLISHED", "ABANDONED"}:
-                    for field in ("silver_snapshots_json", "bronze_snapshots_json", "gold_snapshots_json"):
-                        for physical, snapshot in json.loads(row.get(field) or "{}").items():
-                            if type(snapshot) is int and snapshot > 0:
-                                protected.setdefault(physical, set()).add(snapshot)
+    key = (ns(prefix, "system"), "logs_analytics_publications")
+    if not catalog.table_exists(key):
+        return protected
+    table = catalog.load_table(key)
+    for row in read_snapshot(table, capture(table)).to_dicts():
+        for field in ("snapshots_json", "source_snapshots_json"):
+            for physical, snapshot in json.loads(row.get(field) or "{}").items():
+                if snapshot is not None:
+                    if type(snapshot) is not int:
+                        raise ValueError("Invalid publication snapshot reference")
+                    protected.setdefault(physical, set()).add(snapshot)
     return protected
 
 
@@ -134,12 +118,7 @@ def orphan_files(table, *, cutoff, delete=False):
 
 
 def maintain_tables(catalog, connection, args):
-    if (
-        args.retain_snapshots < 1
-        or args.older_than_days < 1
-        or args.quarantine_retention_days < 1
-        or args.target_file_size_bytes < 1
-    ):
+    if args.retain_snapshots < 1 or args.older_than_days < 1 or args.target_file_size_bytes < 1:
         raise ValueError("Maintenance retention and target size must be positive")
     if args.delete_orphans and not args.writers_stopped:
         raise ValueError("Physical orphan deletion requires --writers-stopped; schedules only report candidates")
@@ -147,13 +126,6 @@ def maintain_tables(catalog, connection, args):
     cutoff = datetime.now(UTC) - timedelta(days=args.older_than_days)
     with namespace_lock(connection, prefix):
         protected = protected_snapshots(catalog, prefix)
-        if args.action == "quarantine":
-            key = (ns(prefix, "quarantine"), "silver_oltp_violations")
-            if catalog.table_exists(key):
-                catalog.load_table(key).delete(
-                    LessThan("_quarantined_at", datetime.now(UTC) - timedelta(days=args.quarantine_retention_days))
-                )
-            return {"quarantine_cleanup": True}
         names = args.tables.split(",") if args.tables else TABLE_PROFILES[args.profile or "all"]
         result = {}
         for name in names:

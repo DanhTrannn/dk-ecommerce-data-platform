@@ -60,15 +60,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--action",
-        choices=["all", "compact", "expire", "orphan", "quarantine"],
+        choices=["all", "compact", "expire", "orphan"],
         default="all",
         help="Maintenance action to perform (default: all)",
-    )
-    parser.add_argument(
-        "--quarantine-retention-days",
-        type=int,
-        default=30,
-        help="Delete quarantined records older than this many days (default: 30)",
     )
     parser.add_argument("--namespace-prefix", default="serving")
     parser.add_argument("--delete-orphans", action="store_true")
