@@ -1,10 +1,10 @@
-"""Publish immutable Superset sales assets from one validated Iceberg publication."""
+"""Create the Superset sales assets over the current Gold marts, once per asset definition."""
 
 import json
 import os
 from uuid import NAMESPACE_URL, uuid5
 
-from sales import COLUMNS, METRICS, Publication, chart_specs
+from sales import COLUMNS, DATE_COLUMNS, METRICS, chart_specs, dataset_sql, fingerprint
 from dashboard import chart_payload, layout
 
 
@@ -28,20 +28,13 @@ def trino_connection():
     )
 
 
-def read_publication():
+def check_datasets():
     connection = trino_connection()
     try:
         cursor = connection.cursor()
-        cursor.execute("""SELECT run_id, published_at, snapshots_json, schema_version, source_mode
-            FROM lakehouse.system.analytics_publications ORDER BY published_at DESC, run_id DESC LIMIT 1""")
-        rows = cursor.fetchall()
-        if not rows:
-            raise ValueError("No completed OLTP publication; run the batch pipeline first")
-        publication = Publication.parse(dict(zip([column[0] for column in cursor.description], rows[0])))
         for name in COLUMNS:
-            cursor.execute("SELECT * FROM (" + publication.dataset_sql(name) + ") published LIMIT 1")
+            cursor.execute("SELECT * FROM (" + dataset_sql(name) + ") gold LIMIT 1")
             cursor.fetchall()
-        return publication
     finally:
         connection.close()
 
@@ -51,7 +44,8 @@ def asset_uuid(fingerprint, key):
 
 
 def sync():
-    publication = read_publication()  # Fail before changing any metadata when snapshots cannot be read.
+    check_datasets()  # Fail before changing any metadata when a Gold mart cannot be read.
+    version = fingerprint()
     from flask import g
     from sqlalchemy.engine import URL
     from superset.app import create_app
@@ -68,14 +62,14 @@ def sync():
         if owner is None:
             raise ValueError("Initialize the Superset admin before synchronizing assets")
         g.user = owner
-        identifier = asset_uuid(publication.fingerprint, "dashboard")
+        identifier = asset_uuid(version, "dashboard")
         existing = db.session.query(Dashboard).filter_by(uuid=identifier).one_or_none()
         if existing:
             return {
                 "reused": True,
                 "dashboard_id": existing.id,
                 "url": f"/superset/dashboard/{existing.slug}/",
-                "fingerprint": publication.fingerprint,
+                "fingerprint": version,
             }
         try:
             database = db.session.query(Database).filter_by(database_name="Retail Lakehouse (read only)").one_or_none()
@@ -104,24 +98,20 @@ def sync():
             datasets = {}
             for name, columns in COLUMNS.items():
                 table = SqlaTable(
-                    table_name=f"retail_{name}_{publication.fingerprint}",
+                    table_name=f"retail_{name}_{version}",
                     database=database,
                     schema="gold",
                     catalog="lakehouse",
-                    sql=publication.dataset_sql(name),
-                    main_dttm_col="order_date",
+                    sql=dataset_sql(name),
+                    main_dttm_col=DATE_COLUMNS[name],
                     owners=[owner],
-                    uuid=asset_uuid(publication.fingerprint, name),
+                    uuid=asset_uuid(version, name),
                 )
                 table.columns = [
                     TableColumn(
-                        column_name=column, type=kind, is_dttm=column == "order_date", groupby=True, filterable=True
+                        column_name=column, type=kind, is_dttm=column == DATE_COLUMNS[name], groupby=True, filterable=True
                     )
-                    for column, kind in {
-                        **columns,
-                        "publication_run_id": "VARCHAR",
-                        "publication_at_utc": "VARCHAR",
-                    }.items()
+                    for column, kind in columns.items()
                 ]
                 table.metrics = [
                     SqlMetric(metric_name=metric, verbose_name=label, expression=expression, d3format=fmt)
@@ -129,7 +119,7 @@ def sync():
                     if metric in columns
                 ]
                 # Native filter plugins request this conventional helper metric.
-                # It counts mart rows only; business order KPIs use total_orders.
+                # It counts mart rows only; business KPIs use the mart metrics.
                 table.metrics.append(
                     SqlMetric(
                         metric_name="count",
@@ -154,7 +144,7 @@ def sync():
                     params=json.dumps(params),
                     query_context=json.dumps(context),
                     owners=[owner],
-                    uuid=asset_uuid(publication.fingerprint, spec["key"]),
+                    uuid=asset_uuid(version, spec["key"]),
                 )
                 db.session.add(chart)
                 db.session.flush()
@@ -162,11 +152,12 @@ def sync():
             metadata = {
                 "native_filter_configuration": [
                     {
-                        "id": "NATIVE_FILTER-order-date",
-                        "name": "Ngày đặt hàng",
+                        "id": "NATIVE_FILTER-date",
+                        "name": "Ngày (đặt hàng / ghi nhận doanh thu)",
                         "filterType": "filter_time",
                         "targets": [
-                            {"datasetId": table.id, "column": {"name": "order_date"}} for table in datasets.values()
+                            {"datasetId": table.id, "column": {"name": DATE_COLUMNS[name]}}
+                            for name, table in datasets.items()
                         ],
                         "defaultDataMask": {
                             "extraFormData": {"time_range": "No filter"},
@@ -176,23 +167,19 @@ def sync():
                         "controlValues": {},
                     }
                 ],
-                "publication": {
-                    "run_id": publication.run_id,
-                    "published_at_utc": publication.published_at,
-                    "fingerprint": publication.fingerprint,
-                },
+                "asset_fingerprint": version,
                 "refresh_frequency": 0,
                 "cross_filters_enabled": False,
             }
             dashboard = Dashboard(
-                dashboard_title=f"Doanh thu bán lẻ · {publication.published_at}",
-                slug="retail-sales-" + publication.fingerprint,
+                dashboard_title="Doanh thu bán lẻ",
+                slug="retail-sales-" + version,
                 published=True,
                 owners=[owner],
                 slices=charts,
-                position_json=json.dumps(layout(charts, publication)),
+                position_json=json.dumps(layout(charts)),
                 json_metadata=json.dumps(metadata),
-                description=f"Publication: {publication.run_id} | Published (UTC): {publication.published_at}. VND; ngày đặt hàng. COD chưa thu không được tính thành doanh thu ghi nhận.",
+                description="Đọc bảng Gold hiện tại. VND. Đơn đặt theo ngày đặt; doanh thu theo ngày đơn hoàn tất và đã thanh toán, hoàn tiền trừ vào ngày hoàn.",
                 uuid=identifier,
             )
             db.session.add(dashboard)
@@ -201,9 +188,8 @@ def sync():
                 "reused": False,
                 "dashboard_id": dashboard.id,
                 "url": f"/superset/dashboard/{dashboard.slug}/",
-                "fingerprint": publication.fingerprint,
-                "run_id": publication.run_id,
-                "datasets": 2,
+                "fingerprint": version,
+                "datasets": len(datasets),
                 "charts": len(charts),
             }
         except BaseException:

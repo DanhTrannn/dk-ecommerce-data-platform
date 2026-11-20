@@ -2,11 +2,12 @@
 
 
 def chart_payload(spec, dataset_id):
+    date_column = spec["date_column"]
     params = dict(
         datasource=f"{dataset_id}__table",
         viz_type=spec["viz"],
         time_range="No filter",
-        granularity_sqla="order_date",
+        granularity_sqla=date_column,
         adhoc_filters=[],
         row_limit=10000,
         color_scheme="supersetColors",
@@ -15,7 +16,7 @@ def chart_payload(spec, dataset_id):
     )
     query = dict(
         time_range="No filter",
-        granularity="order_date",
+        granularity=date_column,
         filters=[],
         extras={"having": "", "where": ""},
         row_limit=10000,
@@ -38,20 +39,20 @@ def chart_payload(spec, dataset_id):
             )
             query.update(columns=[column], is_timeseries=False, row_limit=10, orderby=[[spec["metrics"][0], False]])
         else:
-            params.update(x_axis="order_date", time_grain_sqla="P1D", rich_tooltip=True, markerEnabled=False)
+            params.update(x_axis=date_column, time_grain_sqla="P1D", rich_tooltip=True, markerEnabled=False)
             query.update(
                 columns=[
                     {
                         "columnType": "BASE_AXIS",
-                        "sqlExpression": "order_date",
-                        "label": "order_date",
+                        "sqlExpression": date_column,
+                        "label": date_column,
                         "expressionType": "SQL",
                         "timeGrain": "P1D",
                     }
                 ],
-                granularity="order_date",
+                granularity=date_column,
                 is_timeseries=False,
-                orderby=[["order_date", True]],
+                orderby=[[date_column, True]],
                 time_grain_sqla="P1D",
             )
     context = dict(
@@ -65,7 +66,7 @@ def chart_payload(spec, dataset_id):
     return params, context
 
 
-def layout(charts, publication):
+def layout(charts):
     position = {
         "DASHBOARD_VERSION_KEY": "v2",
         "ROOT_ID": {"id": "ROOT_ID", "type": "ROOT", "children": ["GRID_ID"]},
@@ -86,7 +87,7 @@ def layout(charts, publication):
         children=[],
         parents=["ROOT_ID", "GRID_ID", "ROW-SCOPE"],
         meta={
-            "code": f"Publication: `{publication.run_id}` · Công bố (UTC): {publication.published_at} · Đơn vị: VND",
+            "code": "Đọc bảng Gold hiện tại · Đơn đặt theo ngày đặt, doanh thu theo ngày ghi nhận · Đơn vị: VND",
             "width": 12,
             "height": 8,
         },

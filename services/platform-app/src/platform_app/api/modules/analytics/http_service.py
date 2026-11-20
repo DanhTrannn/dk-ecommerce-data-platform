@@ -51,4 +51,4 @@ def get_http_metrics(days=7, trino_client=None):
             latency_groups=[HttpLatencyGroup(**r) for r in latency],
         )
 
-    return serve(("http-metrics", days), build, trino_client, source="logs")
+    return serve(("http-metrics", days), build, trino_client)
