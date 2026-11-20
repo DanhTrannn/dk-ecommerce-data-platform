@@ -10,7 +10,24 @@ import polars as pl
 import pyarrow as pa
 
 from lakehouse.oltp.polars.schema import align_arrow, quarantine_schema
-from lakehouse.oltp.polars.validation import validate_rows
+from lakehouse.oltp.polars.validation import STATUS_RULES, validate_rows
+
+
+VIOLATION_FIELDS = {
+    "negative_price": ("price_vnd",),
+    "negative_payment": ("amount_vnd",),
+    "negative_refund": ("amount_vnd",),
+    "negative_inventory": ("on_hand",),
+    "negative_total_cost": ("total_cost_vnd",),
+    "negative_total_items_count": ("total_items_count",),
+    "invalid_quantity": ("quantity",),
+    "invalid_rating": ("rating",),
+    "invalid_discount_percentage": ("discount_type", "discount_value"),
+    "order_total_mismatch": ("subtotal_vnd", "discount_amount_vnd", "shipping_fee_vnd", "total_vnd"),
+    "order_item_total_mismatch": ("quantity", "unit_price_vnd", "line_total_vnd"),
+    "inbound_item_total_mismatch": ("quantity", "unit_cost_vnd", "total_cost_vnd"),
+    **{label: (field,) for field, label, _ in STATUS_RULES.values()},
+}
 
 
 def record_json(row):
@@ -57,36 +74,46 @@ def prepare_silver(page, table, schema, run_id, observed):
         pl.lit(observed).alias("_silver_ingested_at"),
         pl.lit(run_id).alias("_source_bronze_run_id"),
     )
-    return align_arrow(valid.to_arrow(), schema), quarantine_rows(invalid, table.name, run_id, observed)
+    return align_arrow(valid.to_arrow(), schema), quarantine_rows(invalid, table, run_id, observed)
 
 
-def quarantine_rows(invalid, table_name, run_id, observed):
-    rows = [
-        dict(
-            record_data=record_json(row),
+def quarantine_rows(invalid, table, run_id, observed):
+    rows = []
+    for row in invalid.iter_rows(named=True):
+        fields = {table.pk, table.cursor_field}
+        for label in row["_violation_types"]:
+            if label in VIOLATION_FIELDS:
+                fields.update(VIOLATION_FIELDS[label])
+            elif label.startswith(("missing_required_", "negative_")):
+                fields.add(label.removeprefix("missing_required_").removeprefix("negative_"))
+        rows.append(dict(
+            record_data=record_json({name: row[name] for name in fields & row.keys()}),
             violation_type=row["_violation_type"],
             violation_types=row["_violation_types"],
-            violation_detail=f"Business rule violation in {table_name}",
-            source_table=table_name,
+            violation_detail=f"Business rule violation in {table.name}",
+            source_table=table.name,
             _run_id=run_id,
             _quarantined_at=observed,
-        )
-        for row in invalid.iter_rows(named=True)
-    ]
+        ))
     return pa.Table.from_pylist(rows, schema=quarantine_schema())
 
 
 def filter_current(delta, current, table):
     if not delta.num_rows or not current.num_rows:
         return delta
-    frame = (
-        pl.from_arrow(delta)
-        .join(
-            pl.from_arrow(current).select(table.pk, pl.col(table.cursor_field).alias("_current_cursor")),
-            on=table.pk,
-            how="left",
-        )
-        .filter(pl.col("_current_cursor").is_null() | (pl.col(table.cursor_field) >= pl.col("_current_cursor")))
-        .drop("_current_cursor")
-    )
+    business = [
+        name for name in delta.column_names if name in current.column_names
+        and name not in {table.pk, table.cursor_field} and not name.startswith("_")
+    ]
+    previous = pl.col("_current_cursor")
+    cursor = pl.col(table.cursor_field)
+    changed = pl.any_horizontal([pl.col(name).ne_missing(pl.col("_current_" + name)) for name in business]) if business else pl.lit(True)
+    frame = pl.from_arrow(delta).join(
+        pl.from_arrow(current).select(
+            table.pk, cursor.alias("_current_cursor"),
+            *(pl.col(name).alias("_current_" + name) for name in business),
+        ),
+        on=table.pk,
+        how="left",
+    ).filter(previous.is_null() | (cursor > previous) | ((cursor == previous) & changed)).select(delta.column_names)
     return align_arrow(frame.to_arrow(), delta.schema)

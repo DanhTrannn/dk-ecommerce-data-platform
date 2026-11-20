@@ -32,7 +32,7 @@ def validate_run(prefix, run_id, bucket, page_size):
         raise ValueError("page_size must be between 1 and 10000")
 
 
-def add_lineage(page, table, observed):
+def add_lineage(page, table, observed, run_id):
     return (
         pl.from_arrow(page)
         .with_columns(
@@ -42,6 +42,7 @@ def add_lineage(page, table, observed):
             pl.col(table.pk).cast(pl.String).alias("_source_primary_key"),
             pl.col(table.cursor_field).alias("_source_cursor_at"),
             pl.lit(observed).alias("_ingested_at_utc"),
+            pl.lit(run_id).alias("_source_bronze_run_id"),
         )
         .to_arrow()
     )
@@ -64,13 +65,14 @@ def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end
     observed, results = datetime.now(UTC), {}
     with source_read_transaction(connection):
         for table in specs:
-            count, pages, valid_total, quarantined_total = 0, 0, 0, 0
+            count, pages, accepted, merged, quarantined_total = 0, 0, 0, 0, 0
             for source in source_pages(connection, table, start, end, page_size=page_size):
-                page = add_lineage(source, table, observed)
+                page = add_lineage(source, table, observed, run_id)
                 outcome = ingest_page(catalog, prefix, table, page, run_id, observed)
                 count += page.num_rows
                 pages += 1
-                valid_total += outcome.get("valid", 0)
+                accepted += outcome.get("accepted", 0)
+                merged += outcome.get("valid", 0)
                 quarantined_total += outcome.get("quarantined", 0)
 
             bronze_count = catalog.load_table((ns(prefix, "bronze"), table.name)).scan().count()
@@ -78,7 +80,9 @@ def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end
             results[table.name] = {
                 "source_rows": count,
                 "pages": pages,
-                "valid": valid_total,
+                "accepted": accepted,
+                "valid": merged,
+                "merged": merged,
                 "quarantined": quarantined_total,
                 "bronze_rows": bronze_count,
                 "silver_rows": silver_count,

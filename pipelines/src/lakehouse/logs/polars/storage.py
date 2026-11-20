@@ -106,7 +106,7 @@ def pinned_catalog(catalog, prefix, run_id=None):
     rows = [
         r
         for r in rows
-        if r["schema_version"] == 3 and r["source_mode"] == "batch" and (run_id is None or r["run_id"] == run_id)
+        if r["schema_version"] in {3, 4} and r["source_mode"] == "batch" and (run_id is None or r["run_id"] == run_id)
     ]
     if not rows:
         raise ValueError("Publish the requested OLTP catalog before building native log marts")

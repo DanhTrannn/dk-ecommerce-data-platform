@@ -94,11 +94,16 @@ def namespace_lock(connection, namespace):
     lock = int.from_bytes(hashlib.sha256(namespace.encode()).digest()[:8], "big", signed=True)
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_try_advisory_lock(%s)", (lock,))
-        if not cursor.fetchone()[0]:
-            raise RuntimeError("Another writer owns this batch namespace")
+        acquired = cursor.fetchone()[0]
+    if not acquired:
+        connection.rollback()
+        raise RuntimeError("Another writer owns this batch namespace")
     try:
+        # End the implicit SQL transaction while retaining the session-level lock.
+        connection.rollback()
         yield
     finally:
         connection.rollback()
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_unlock(%s)", (lock,))
+        connection.rollback()

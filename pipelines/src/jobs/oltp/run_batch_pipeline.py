@@ -21,6 +21,10 @@ def main():
     parser.add_argument("--interval-start", help="UTC ISO timestamp for lower bound")
     parser.add_argument("--interval-end", help="UTC ISO timestamp for upper bound")
     parser.add_argument("--page-size", type=int, default=10000)
+    parser.add_argument("--date-start", help="First date in dim_date")
+    parser.add_argument("--date-end", help="Last date in dim_date")
+    parser.add_argument("--migrate-schema", action="store_true", help="Apply the legacy-to-v4 schema evolution in a full run")
+    parser.add_argument("--trino-reconciliation", action="store_true", help="Compare the SQL and native reconciliation on pinned inputs")
 
     args = parser.parse_args()
 
@@ -31,8 +35,10 @@ def main():
         if interval_start is not None or interval_end is not None:
             raise ValueError("Full mode reads all rows; interval bounds must be omitted")
     elif args.mode == "incremental":
-        if (interval_start is None) != (interval_end is None):
-            raise ValueError("Incremental mode requires both interval bounds or neither for all rows")
+        if interval_start is None or interval_end is None:
+            parser.error("Incremental mode requires both interval bounds")
+        if args.migrate_schema:
+            parser.error("--migrate-schema requires full mode")
 
     identity = BatchRunIdentity(
         run_id=args.run_id,
@@ -42,7 +48,10 @@ def main():
         interval_end=interval_end,
         as_of=args.as_of,
         batch_date=args.batch_date,
-        contract_version=4,
+        date_start=args.date_start,
+        date_end=args.date_end,
+        migrate_schema=args.migrate_schema,
+        trino_reconciliation=args.trino_reconciliation,
     )
 
     with closing(postgres_reader()) as connection:

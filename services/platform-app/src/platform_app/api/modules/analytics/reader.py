@@ -27,10 +27,13 @@ class PublishedReader:
             FROM lakehouse.system.{table} ORDER BY published_at DESC LIMIT 1""")
         if not rows:
             raise AppError(INTERNAL_ERROR, "Lakehouse chưa có lần công bố hoàn tất.", status_code=503)
-        if rows[0].get("schema_version") != (3 if source == "oltp" else 1):
+        versions = {3, 4} if source == "oltp" else {1}
+        if rows[0].get("schema_version") not in versions or rows[0].get("source_mode") != ("batch" if source == "oltp" else "logs_rollup"):
             raise AppError(INTERNAL_ERROR, "Dữ liệu phân tích cần được xây dựng lại theo schema mới.", status_code=503)
         self.publication = rows[0]
         self.snapshots = json.loads(rows[0]["snapshots_json"])
+        if not isinstance(self.snapshots, dict):
+            raise AppError(INTERNAL_ERROR, "Publication snapshot map không hợp lệ.", status_code=503)
 
     def query(self, sql):
         def pin(match):
@@ -38,6 +41,8 @@ class PublishedReader:
             if table not in self.snapshots:
                 raise AppError(INTERNAL_ERROR, f"Bảng chưa được công bố: {table}", status_code=503)
             snapshot = self.snapshots[table]
+            if snapshot is not None and (type(snapshot) is not int or snapshot <= 0):
+                raise AppError(INTERNAL_ERROR, f"Snapshot không hợp lệ: {table}", status_code=503)
             return (
                 f"{table} FOR VERSION AS OF {int(snapshot)}"
                 if snapshot is not None
