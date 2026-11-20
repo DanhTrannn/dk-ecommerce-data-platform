@@ -1,44 +1,62 @@
+{{ config(properties={"partitioning": "ARRAY['month(order_date)']"}) }}
+-- Revenue is recognized on the day an order is both completed and paid (the later of the two, design §5).
+WITH cancellations AS (
+  SELECT order_id, max_by(reason, transitioned_at) AS cancel_reason
+  FROM {{ source('silver', 'order_status_history') }}
+  WHERE to_status = 'cancelled'
+  GROUP BY order_id
+),
+items AS (
+  SELECT order_id, sum(quantity) AS item_quantity
+  FROM {{ source('silver', 'order_items') }}
+  GROUP BY order_id
+),
+refunds AS (
+  SELECT p.order_id, sum(r.amount_vnd) AS refunded_vnd
+  FROM {{ source('silver', 'refunds') }} r
+  JOIN {{ source('silver', 'payments') }} p ON p.payment_id = r.payment_id
+  WHERE r.status = 'succeeded'
+  GROUP BY p.order_id
+)
 SELECT
-  CAST(b."order_id" AS bigint) AS "order_id",
-  CAST(b."order_number" AS varchar) AS "order_number",
-  CAST(b."customer_key" AS bigint) AS "customer_key",
-  CAST(b."store_key" AS bigint) AS "store_key",
-  CAST(b."order_date_key" AS integer) AS "order_date_key",
-  CAST(b."order_date" AS date) AS "order_date",
-  CAST(b."channel" AS varchar) AS "channel",
-  CAST(b."status" AS varchar) AS "status",
-  CAST(b."payment_method" AS varchar) AS "payment_method",
-  CAST(b."payment_status" AS varchar) AS "payment_status",
-  CAST(b."coupon_id" AS bigint) AS "coupon_id",
-  CAST(b."subtotal_vnd" AS bigint) AS "subtotal_vnd",
-  CAST(b."discount_vnd" AS bigint) AS "discount_vnd",
-  CAST(b."shipping_fee_vnd" AS bigint) AS "shipping_fee_vnd",
-  CAST(b."gross_revenue_vnd" AS bigint) AS "gross_revenue_vnd",
-  CAST(b."total_cost_vnd" AS bigint) AS "total_cost_vnd",
-  CAST(b."gross_profit_vnd" AS bigint) AS "gross_profit_vnd",
-  CAST(b."net_revenue_vnd" AS bigint) AS "net_revenue_vnd",
-  CAST(b."net_profit_vnd" AS bigint) AS "net_profit_vnd",
-  CAST(b."is_boom" AS boolean) AS "is_boom",
-  CAST(b."is_delivered" AS boolean) AS "is_delivered",
-  CAST(b."order_total_vnd" AS bigint) AS "order_total_vnd",
-  CAST(b."refunded_amount_vnd" AS bigint) AS "refunded_amount_vnd",
-  CAST(b."created_at" AS timestamp(6) with time zone) AS "created_at",
-  CAST(b."order_date_vn" AS date) AS "order_date_vn",
-  CAST(b."shipping_region" AS varchar) AS "shipping_region",
-  CAST(b."is_revenue_recognized" AS boolean) AS "is_revenue_recognized",
-  CAST(CAST(current_timestamp AS timestamp(6) with time zone) AS timestamp(6) with time zone) AS "_gold_ingested_at",
-  CAST('{{ var("run_id", "unconfigured") }}' AS varchar) AS "_source_run_id"
-FROM (
-WITH totals AS (SELECT order_id,sum(gross_revenue_vnd) gross_revenue_vnd,sum(refunded_amount_vnd) refunded_amount_vnd,
-sum(net_revenue_vnd) net_revenue_vnd,sum(item_cost_vnd) total_cost_vnd,sum(item_profit_vnd) net_profit_vnd FROM {{ ref('fact_order_item') }} GROUP BY order_id)
-SELECT o.order_id,o.order_number,coalesce(o.customer_id,-1) customer_key,coalesce(o.store_id,0) store_key,o.created_at,
-c.name shipping_region,o.channel,o.status,o.payment_method,p.status payment_status,o.coupon_id,o.subtotal_vnd,
-o.discount_amount_vnd discount_vnd,o.shipping_fee_vnd,o.total_vnd order_total_vnd,t.gross_revenue_vnd,t.refunded_amount_vnd,
-t.net_revenue_vnd,t.total_cost_vnd,t.net_profit_vnd gross_profit_vnd,t.net_profit_vnd,o.status='failed_delivery' is_boom,
-o.status IN ('delivered','completed') is_delivered,o.status IN ('delivered','completed','returned') is_revenue_recognized,
-CAST(at_timezone(o.created_at,'Asia/Ho_Chi_Minh') AS date) order_date,
-CAST(at_timezone(o.created_at,'Asia/Ho_Chi_Minh') AS date) order_date_vn,
-CAST(date_format(at_timezone(o.created_at,'Asia/Ho_Chi_Minh'),'%Y%m%d') AS integer) order_date_key
-FROM {{ pinned('orders') }} o LEFT JOIN totals t ON o.order_id=t.order_id LEFT JOIN {{ pinned('payments') }} p ON o.order_id=p.order_id
-LEFT JOIN {{ pinned('cities') }} c ON o.shipping_city_id=c.city_id
-) b
+  o.order_id,
+  o.order_number,
+  o.channel,
+  o.store_id AS store_key,
+  -- Online orders ship to shipping_city_id; POS orders are handed over in the store's city.
+  coalesce(o.shipping_city_id, s.city_id) AS city_key,
+  o.customer_id AS customer_key,
+  CASE WHEN o.staff_id IS NOT NULL THEN 'sales-' || CAST(o.staff_id AS varchar) END AS sales_staff_key,
+  o.payment_method,
+  o.coupon_id,
+  o.coupon_code_snapshot AS coupon_code,
+  CASE WHEN o.coupon_type_snapshot = 'percentage' THEN o.coupon_value_snapshot END AS coupon_discount_pct,
+  -- The generator names sale-campaign coupons SALE-<event>.
+  CASE WHEN o.coupon_code_snapshot LIKE 'SALE-%' THEN substr(o.coupon_code_snapshot, 6) END AS sale_event,
+  o.status,
+  CASE
+    WHEN o.status IN ('completed', 'returned') THEN 'completed'
+    WHEN o.status = 'cancelled' THEN 'cancelled'
+    WHEN o.status IN ('failed_delivery', 'payment_failed') THEN 'failed'
+    ELSE 'processing'
+  END AS status_group,
+  o.created_at,
+  o.paid_at,
+  o.confirmed_at,
+  o.completed_at,
+  o.cancelled_at,
+  {{ vn_date('o.created_at') }} AS order_date,
+  CASE WHEN o.completed_at IS NOT NULL AND o.paid_at IS NOT NULL THEN {{ vn_date('greatest(o.completed_at, o.paid_at)') }} END AS revenue_date,
+  {{ vn_date('o.cancelled_at') }} AS cancelled_date,
+  c.cancel_reason,
+  coalesce(i.item_quantity, 0) AS item_quantity,
+  o.subtotal_vnd,
+  o.discount_amount_vnd AS discount_vnd,
+  o.shipping_fee_vnd,
+  o.total_vnd,
+  coalesce(r.refunded_vnd, 0) AS refunded_vnd
+FROM {{ source('silver', 'orders') }} o
+LEFT JOIN {{ source('silver', 'stores') }} s ON s.store_id = o.store_id
+LEFT JOIN cancellations c ON c.order_id = o.order_id
+LEFT JOIN items i ON i.order_id = o.order_id
+LEFT JOIN refunds r ON r.order_id = o.order_id

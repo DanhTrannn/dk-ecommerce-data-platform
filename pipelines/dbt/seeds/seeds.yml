@@ -1,0 +1,12 @@
+version: 2
+seeds:
+- name: delivery_sla
+  description: Delivery SLA per zone (design §5); the central warehouse city is intra_city, every other city inter_province.
+  config:
+    column_types: {delivery_zone: varchar, sla_days: integer}
+- name: calendar_events
+  description: >
+    Vietnamese public holidays (Labour Code 2019 art. 112; lunar ones at their first day) and the sale days of the
+    generator preset (11-11, Black Friday, 12-12) for the years of the loaded data.
+  config:
+    column_types: {event_date: date, event_type: varchar, event_name: varchar}

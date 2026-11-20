@@ -27,3 +27,15 @@
           greatest(CAST({{ total }} AS decimal(38,0)), decimal '1')))
     / greatest(CAST({{ total }} AS decimal(38,0)), decimal '1') AS bigint)
 {%- endmacro %}
+
+{% macro as_of() -%}
+  from_iso8601_timestamp('{{ var("as_of", "1970-01-01T00:00:00Z") }}')
+{%- endmacro %}
+
+{% macro vn_date(column) -%}
+  CAST(at_timezone({{ column }}, 'Asia/Ho_Chi_Minh') AS date)
+{%- endmacro %}
+
+{% macro vn_hour(column) -%}
+  hour(at_timezone({{ column }}, 'Asia/Ho_Chi_Minh'))
+{%- endmacro %}

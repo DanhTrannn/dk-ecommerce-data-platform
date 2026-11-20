@@ -1,19 +1,28 @@
+-- Product sales on the revenue day; returned quantity (accepted at inspection) on the day the return resolved.
+WITH events AS (
+  SELECT revenue_date, channel, store_key, product_key, quantity, revenue_vnd, cost_vnd, 0 AS returned_quantity
+  FROM {{ ref('fact_order_item') }}
+  WHERE revenue_date IS NOT NULL
+  UNION ALL
+  SELECT r.resolved_date, o.channel, o.store_key, r.product_key, 0, 0, 0, r.accepted_quantity
+  FROM {{ ref('fact_return') }} r
+  JOIN {{ ref('fact_order') }} o ON o.order_id = r.order_id
+  WHERE r.status = 'completed' AND r.resolved_date IS NOT NULL
+)
 SELECT
-  CAST(b."order_date" AS date) AS "order_date",
-  CAST(b."product_id" AS bigint) AS "product_id",
-  CAST(b."product_name" AS varchar) AS "product_name",
-  CAST(b."units_sold" AS bigint) AS "units_sold",
-  CAST(b."gross_revenue_vnd" AS bigint) AS "gross_revenue_vnd",
-  CAST(b."refunded_amount_vnd" AS bigint) AS "refunded_amount_vnd",
-  CAST(b."net_revenue_vnd" AS bigint) AS "net_revenue_vnd",
-  CAST(b."cogs_vnd" AS bigint) AS "cogs_vnd",
-  CAST(b."gross_profit_vnd" AS bigint) AS "gross_profit_vnd",
-  CAST(CAST(current_timestamp AS timestamp(6) with time zone) AS timestamp(6) with time zone) AS "_gold_ingested_at",
-  CAST('{{ var("run_id", "unconfigured") }}' AS varchar) AS "_source_run_id"
-FROM (
-SELECT i.order_date,p.product_id,p.product_name,sum(i.recognized_quantity) units_sold,
-        sum(i.gross_revenue_vnd) gross_revenue_vnd,sum(i.refunded_amount_vnd) refunded_amount_vnd,
-        sum(i.net_revenue_vnd) net_revenue_vnd,sum(i.item_cost_vnd) cogs_vnd,sum(i.item_profit_vnd) gross_profit_vnd
-        FROM {{ ref('fact_order_item') }} i JOIN {{ ref('dim_product') }} p ON i.product_key=p.product_key WHERE i.order_status IN ('delivered','completed','returned')
-        GROUP BY i.order_date,p.product_id,p.product_name
-) b
+  e.revenue_date,
+  e.channel,
+  e.store_key,
+  s.store_name,
+  e.product_key,
+  p.product_name,
+  p.category_name,
+  sum(e.quantity) AS quantity,
+  sum(e.revenue_vnd) AS revenue_vnd,
+  sum(e.cost_vnd) AS cogs_vnd,
+  sum(e.revenue_vnd - e.cost_vnd) AS gross_profit_vnd,
+  sum(e.returned_quantity) AS returned_quantity
+FROM events e
+LEFT JOIN {{ ref('dim_store') }} s ON s.store_key = e.store_key
+LEFT JOIN {{ ref('dim_product') }} p ON p.product_key = e.product_key
+GROUP BY 1, 2, 3, 4, 5, 6, 7
