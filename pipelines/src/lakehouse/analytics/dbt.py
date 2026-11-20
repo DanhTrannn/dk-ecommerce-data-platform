@@ -12,6 +12,7 @@ from pathlib import Path
 from pyiceberg.transforms import IdentityTransform
 
 from lakehouse.oltp.polars.writer import PROPERTIES
+from lakehouse.utils.iceberg import load_or_create
 from lakehouse.utils.namespaces import namespace as ns
 
 
@@ -28,7 +29,7 @@ def project_directory():
 
 def ensure_target(catalog, prefix, name, schema, ddl=None):
     catalog.create_namespace_if_not_exists(ns(prefix, "gold"))
-    table = catalog.create_table_if_not_exists((ns(prefix, "gold"), name), schema=schema, properties=PROPERTIES)
+    table = load_or_create(catalog, (ns(prefix, "gold"), name), schema=schema, properties=PROPERTIES)
     if set(schema.names) - set(table.schema().column_names):
         with table.update_schema() as update:
             update.union_by_name(schema)
@@ -40,13 +41,18 @@ def ensure_target(catalog, prefix, name, schema, ddl=None):
         if name.startswith("mart_") and "metric_date" in schema.names
         else None
     )
-    if field and not table.spec().fields:
-        with table.update_spec() as update:
-            update.add_field(field, IdentityTransform(), field)
+    if field:
+        fields = table.spec().fields
+        transform = IdentityTransform()
+        if not fields:
+            with table.update_spec() as update:
+                update.add_field(field, transform, field)
+        elif len(fields) != 1 or fields[0].source_id != table.schema().find_field(field).field_id or fields[0].transform != transform:
+            raise ValueError(f"Partition migration is required for {ns(prefix, 'gold')}.{name}")
     return table
 
 
-def run_models(prefix, run_id, observed, inputs, *, group, silver_schema=None, events_schema=None):
+def run_models(prefix, run_id, observed, inputs, *, group, silver_schema=None, events_schema=None, date_bounds=None):
     variables = dict(
         run_id=run_id,
         as_of=observed.isoformat(),
@@ -55,6 +61,8 @@ def run_models(prefix, run_id, observed, inputs, *, group, silver_schema=None, e
         events_schema=events_schema or ns(prefix, "gold"),
         gold_schema=ns(prefix, "gold"),
     )
+    if date_bounds is not None:
+        variables["date_start"], variables["date_end"] = date_bounds
     environment = {
         **os.environ,
         "DBT_GOLD_SCHEMA": ns(prefix, "gold"),

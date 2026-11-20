@@ -1,9 +1,7 @@
 CREATE TABLE IF NOT EXISTS lakehouse.gold.dim_customer (
     customer_key                    BIGINT                          COMMENT 'Customer key (customer_id)',
     customer_id                     BIGINT                          COMMENT 'Original OLTP customer id',
-    email                           STRING                          COMMENT 'Pseudonymized email address',
-    phone                           STRING                          COMMENT 'Pseudonymized phone number',
-    full_name                       STRING                          COMMENT 'Pseudonymized customer full name',
+    full_name                       STRING                          COMMENT 'Customer display name',
     role                            STRING                          COMMENT 'Account role (customer, admin, etc.)',
     status                          STRING                          COMMENT 'Account status (active, suspended)',
     city_id                         BIGINT                          COMMENT 'Registered city id',

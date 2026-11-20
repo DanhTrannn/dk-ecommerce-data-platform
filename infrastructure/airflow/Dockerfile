@@ -16,6 +16,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM apache/airflow:3.3.2-python3.11
 USER root
 COPY --from=pipeline-runtime /opt/pipeline-venv /opt/pipeline-venv
+RUN ln -sf /usr/local/bin/python3 /opt/pipeline-venv/bin/python \
+    && /opt/pipeline-venv/bin/python -c "import sys; assert sys.version_info[:2] == (3, 11)"
 USER airflow
 RUN python -m pip install --no-cache-dir "apache-airflow==3.3.2" \
     apache-airflow-providers-fab==3.9.0 apache-airflow-providers-standard==1.19.0

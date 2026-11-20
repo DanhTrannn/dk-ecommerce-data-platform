@@ -33,7 +33,11 @@ def reader_settings():
 
 
 def source_query(table, interval_start=None, interval_end=None):
-    query = f'SELECT * FROM "public".{identifier(table.name)}'
+    if hasattr(table, "bronze_columns") and table.bronze_columns:
+        columns_sql = ", ".join(identifier(c) for c in table.bronze_columns)
+    else:
+        columns_sql = "*"
+    query = f'SELECT {columns_sql} FROM "public".{identifier(table.name)}'
     if interval_start is None and interval_end is None:
         return query
     lower = datetime.fromisoformat(interval_start.replace("Z", "+00:00"))
@@ -75,16 +79,31 @@ def postgres_reader():
 
 
 @contextmanager
+def source_read_transaction(connection):
+    """Enclose source reads in a repeatable-read read-only transaction without releasing session lock."""
+    connection.set_session(isolation_level="REPEATABLE READ", readonly=True)
+    try:
+        yield
+    finally:
+        connection.rollback()
+
+
+@contextmanager
 def namespace_lock(connection, namespace):
     """Serialize native source and Gold jobs using one session-scoped namespace key."""
     lock = int.from_bytes(hashlib.sha256(namespace.encode()).digest()[:8], "big", signed=True)
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_try_advisory_lock(%s)", (lock,))
-        if not cursor.fetchone()[0]:
-            raise RuntimeError("Another writer owns this batch namespace")
+        acquired = cursor.fetchone()[0]
+    if not acquired:
+        connection.rollback()
+        raise RuntimeError("Another writer owns this batch namespace")
     try:
+        # End the implicit SQL transaction while retaining the session-level lock.
+        connection.rollback()
         yield
     finally:
         connection.rollback()
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_unlock(%s)", (lock,))
+        connection.rollback()

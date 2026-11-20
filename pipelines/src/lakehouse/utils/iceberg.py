@@ -4,7 +4,9 @@ import os
 import shlex
 from pathlib import Path
 
+import pyarrow as pa
 from pyiceberg.catalog import load_catalog
+from pyiceberg.exceptions import NoSuchTableError
 
 
 def catalog_properties():
@@ -52,3 +54,27 @@ def catalog_properties():
 
 def iceberg_catalog():
     return load_catalog(os.environ.get("POLARIS_CATALOG_NAME", "lakehouse"), **catalog_properties())
+
+
+def load_or_create(catalog, key, **settings):
+    try:
+        return catalog.load_table(key)
+    except NoSuchTableError:
+        return catalog.create_table_if_not_exists(key, **settings)
+
+
+def evolve_table_schema(table, schema, *, drop=()):
+    added = set(schema.names) - set(table.schema().column_names)
+    current = table.current_snapshot()
+    stale = current is not None and current.schema_id != table.schema().schema_id
+    if not (added or drop or stale):
+        return
+    with table.transaction() as transaction:
+        if added or drop:
+            with transaction.update_schema() as update:
+                update.union_by_name(schema)
+                for name in sorted(drop):
+                    update.delete_column(name)
+        if current is not None:
+            # Existing files stay referenced while scans of main use the evolved schema.
+            transaction.append(pa.Table.from_pylist([], schema=transaction.table_metadata.schema().as_arrow()))

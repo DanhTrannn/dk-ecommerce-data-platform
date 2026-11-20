@@ -19,5 +19,5 @@ SELECT day full_date,CAST(date_format(CAST(day AS timestamp),'%Y%m%d') AS intege
 day_of_month(day) day_of_month,day_of_year(day) day_of_year,week(day) week_of_year,
 month(day) month,date_format(CAST(day AS timestamp),'%M') month_name,quarter(day) quarter,year(day) year,
 day_of_week(day) IN (6,7) is_weekend,false is_holiday
-FROM UNNEST(sequence(DATE '2025-01-01',DATE '2027-12-31',INTERVAL '1' DAY)) AS dates(day)
+FROM UNNEST(sequence(DATE '{{ var("date_start", "1970-01-01") }}',DATE '{{ var("date_end", "1970-01-01") }}',INTERVAL '1' DAY)) AS dates(day)
 ) b

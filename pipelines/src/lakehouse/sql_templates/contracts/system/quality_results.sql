@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS {{quality_results_table}} (
     run_id                         STRING,
     batch_date                     DATE,
     phase                          STRING,
+    rule_id                        STRING,
     check_name                     STRING,
     dataset                        STRING,
     severity                       STRING,

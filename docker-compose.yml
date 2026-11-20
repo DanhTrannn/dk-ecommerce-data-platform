@@ -22,6 +22,7 @@ x-airflow-common: &airflow-common
     DBT_ARTIFACTS_DIR: /opt/airflow/logs/dbt
     DBT_TRINO_HOST: trino
     DBT_TRINO_PASSWORD: ${DBT_TRINO_PASSWORD:?set DBT_TRINO_PASSWORD}
+    BATCH_RESUME_RETENTION_DAYS: ${BATCH_RESUME_RETENTION_DAYS:-7}
     POSTGRES_SOURCE_HOST: postgres
     POSTGRES_SOURCE_PORT: "5432"
     POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
@@ -34,7 +35,6 @@ x-airflow-common: &airflow-common
     POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
     POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
     POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
-    SILVER_PSEUDONYMIZE_SALT: ${SILVER_PSEUDONYMIZE_SALT:-}
     AWS_REGION: ${AWS_REGION:-us-east-1}
   volumes:
     - ./airflow/dags:/opt/airflow/dags:ro

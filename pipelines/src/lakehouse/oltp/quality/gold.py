@@ -1,10 +1,12 @@
 """Blocking post-Gold checks, independent from builder outputs and before publication."""
 
 from dataclasses import asdict
+from zoneinfo import ZoneInfo
 
 import polars as pl
 
 from lakehouse.oltp.quality.contracts import QualityCheckResult
+from lakehouse.oltp.quality.required_rules import REQUIRED_CHECKS_VERSION
 from .domains import domain_checks
 from lakehouse.utils.frames import query
 
@@ -25,12 +27,19 @@ FRESH = (
     "mart_admin_overview",
 )
 
+AUDIT_TABLES = frozenset(FRESH) | {
+    "orders", "order_items", "payments", "refunds", "inbound_receipts", "return_requests",
+    "coupons", "coupon_redemptions", "product_reviews", "products", "product_variants", "customers",
+    "dim_customer", "dim_product", "dim_variant", "dim_store", "fact_inventory_current",
+    "fact_shipment", "fact_return_exchange", "mart_product_returns", "mart_logistics_performance",
+}
+
 
 def amount(frame, name):
     return int(frame[name].sum() or 0)
 
 
-def evaluate(frames, run_id):
+def evaluate(frames, run_id, observation_time=None):
     results = []
 
     def record(name, dataset, observed, expected, passed, details, failed_rows=0):
@@ -78,10 +87,15 @@ def evaluate(frames, run_id):
         int(observed != expected),
     )
     current = frames["fact_inventory_current"]
+    inventory_date = (
+        pl.lit(observation_time.astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date())
+        if observation_time is not None
+        else pl.col("_gold_ingested_at").dt.convert_time_zone("Asia/Ho_Chi_Minh").dt.date()
+    )
     wrong = current.filter(
         pl.col("snapshot_date").is_null()
         | pl.col("_gold_ingested_at").is_null()
-        | (pl.col("snapshot_date") != pl.col("_gold_ingested_at").dt.convert_time_zone("Asia/Ho_Chi_Minh").dt.date())
+        | (pl.col("snapshot_date") != inventory_date)
     ).height
     record(
         "inventory_observation_date",
@@ -164,7 +178,7 @@ def evaluate(frames, run_id):
         record("primary_key_unique_not_null", "lakehouse.gold." + table, n, 0, n == 0, "Unique non-null primary key", n)
     for key, dimension in (("product_key", "dim_product"), ("variant_key", "dim_variant")):
         n = items.filter(pl.col(key) > 0).join(frames[dimension].select(key), on=key, how="anti").height
-        record("referential_integrity", "lakehouse.gold.fact_order_item", n, 0, n == 0, "No orphan " + key, n)
+        record("referential_integrity_" + key, "lakehouse.gold.fact_order_item", n, 0, n == 0, "No orphan " + key, n)
     for name in FRESH:
         frame = frames[name]
         n = frame.filter(pl.col("_source_run_id") == run_id).height
@@ -178,20 +192,14 @@ def evaluate(frames, run_id):
             "Current logical run marker",
             int(not passed),
         )
-    for table, columns in (
-        ("dim_customer", ("email", "phone", "full_name")),
-        ("dim_delivery_staff", ("phone", "full_name")),
-    ):
-        for name in columns:
-            n = frames[table].filter(pl.col(name).is_not_null() & ~pl.col(name).str.contains(r"^[0-9a-f]{64}$")).height
-            record(
-                "pii_pseudonymization", f"lakehouse.gold.{table}.{name}", n, 0, n == 0, "Only SHA-256 tokens or NULL", n
-            )
     failed = [r for r in results if not r.passed and r.severity == "ERROR"]
+    executed_ids = [r.rule_id for r in results]
     return {
         "total_checks": len(results),
         "passed_checks": len(results) - len(failed),
         "failed_checks": len(failed),
         "status": "FAILED" if failed else "PASSED",
+        "required_checks_version": REQUIRED_CHECKS_VERSION,
+        "executed_check_ids": executed_ids,
         "results": [asdict(r) for r in results],
     }

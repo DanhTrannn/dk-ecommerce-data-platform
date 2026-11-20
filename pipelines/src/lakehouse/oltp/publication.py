@@ -5,10 +5,15 @@ import json
 from datetime import datetime, UTC
 
 import pyarrow as pa
+from pyiceberg.expressions import EqualTo
 
 from lakehouse.oltp.polars.writer import PROPERTIES
 from lakehouse.utils.config import SOURCE_TABLES
+from lakehouse.utils.iceberg import load_or_create
 from lakehouse.oltp.gold.schema import TABLES
+
+from lakehouse.oltp.quality.contracts import validate_required_checks
+from lakehouse.oltp.quality.required_rules import REQUIRED_CHECK_IDS
 
 PUBLICATION_SCHEMA = pa.schema(
     [
@@ -24,9 +29,21 @@ PUBLICATION_SCHEMA = pa.schema(
 )
 
 
+def load_publication(catalog, prefix, run_id):
+    key = (ns(prefix, "system"), "analytics_publications")
+    if not catalog.table_exists(key):
+        return None
+    rows = catalog.load_table(key).scan(row_filter=EqualTo("run_id", run_id)).to_arrow().to_pylist()
+    matching = [row for row in rows if row["source_mode"] == "batch"]
+    if len(matching) > 1:
+        raise ValueError("Multiple publications match the batch run ID")
+    return matching[0] if matching else None
+
+
 def publish(catalog, prefix, run_id, snapshots, summary):
-    if summary["status"] != "PASSED" or summary["failed_checks"] or summary["total_checks"] != 55:
+    if not isinstance(summary, dict) or summary.get("status") != "PASSED" or summary.get("failed_checks", 0) > 0:
         raise ValueError("A complete successful native quality gate is required")
+    validate_required_checks(summary, REQUIRED_CHECK_IDS)
     expected = {f"lakehouse.{ns(prefix, 'silver')}.{t.silver_table}" for t in SOURCE_TABLES}
     expected.update(f"lakehouse.{ns(prefix, 'gold')}.{name}" for name in TABLES)
     if set(snapshots) != expected:
@@ -36,8 +53,14 @@ def publish(catalog, prefix, run_id, snapshots, summary):
         if snapshot is not None:
             if type(snapshot) is not int or snapshot <= 0 or table.snapshot_by_id(snapshot) is None:
                 raise ValueError("An audited snapshot is no longer readable")
-    target = catalog.create_table_if_not_exists(
-        (ns(prefix, "system"), "analytics_publications"), schema=PUBLICATION_SCHEMA, properties=PROPERTIES
+    existing = load_publication(catalog, prefix, run_id)
+    if existing is not None:
+        if json.loads(existing["snapshots_json"]) != snapshots:
+            raise ValueError("An existing publication has different snapshots for this run ID")
+        return existing
+    catalog.create_namespace_if_not_exists(ns(prefix, "system"))
+    target = load_or_create(
+        catalog, (ns(prefix, "system"), "analytics_publications"), schema=PUBLICATION_SCHEMA, properties=PROPERTIES
     )
     row = dict(
         run_id=run_id,
@@ -46,7 +69,7 @@ def publish(catalog, prefix, run_id, snapshots, summary):
         snapshots_json=json.dumps(snapshots, sort_keys=True),
         offsets_json="{}",
         changed_tables_json="[]",
-        schema_version=3,
+        schema_version=4,
         source_mode="batch",
     )
     target.upsert(pa.Table.from_pylist([row], schema=target.schema().as_arrow()), join_cols=["run_id", "source_mode"])

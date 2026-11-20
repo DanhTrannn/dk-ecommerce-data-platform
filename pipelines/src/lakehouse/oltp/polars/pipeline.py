@@ -5,13 +5,11 @@ import re
 from datetime import UTC, datetime
 
 import polars as pl
-import pyarrow.parquet as pq
 
-from lakehouse.oltp.polars.privacy import required_salt
 from lakehouse.oltp.polars.source import source_pages
-from lakehouse.oltp.polars.writer import PROPERTIES, evolve_bronze, ingest_page
+from lakehouse.oltp.polars.writer import ingest_page
 from lakehouse.utils.config import SOURCE_TABLES
-from lakehouse.utils.postgres import namespace_lock, source_query
+from lakehouse.utils.postgres import namespace_lock, source_query, source_read_transaction
 
 
 def selected_tables(names=None):
@@ -34,7 +32,7 @@ def validate_run(prefix, run_id, bucket, page_size):
         raise ValueError("page_size must be between 1 and 10000")
 
 
-def add_lineage(page, table, observed):
+def add_lineage(page, table, observed, run_id):
     return (
         pl.from_arrow(page)
         .with_columns(
@@ -44,6 +42,7 @@ def add_lineage(page, table, observed):
             pl.col(table.pk).cast(pl.String).alias("_source_primary_key"),
             pl.col(table.cursor_field).alias("_source_cursor_at"),
             pl.lit(observed).alias("_ingested_at_utc"),
+            pl.lit(run_id).alias("_source_bronze_run_id"),
         )
         .to_arrow()
     )
@@ -51,46 +50,42 @@ def add_lineage(page, table, observed):
 
 def run_batch(catalog, connection, prefix, *, bucket, run_id, tables=None, start=None, end=None, page_size=10000):
     validate_run(prefix, run_id, bucket, page_size)
-    specs, salt = selected_tables(tables), required_salt()
+    specs = selected_tables(tables)
     if (start is None) != (end is None):
         raise ValueError("Both interval bounds are required")
     for table in specs:
         source_query(table, start, end)
     with namespace_lock(connection, prefix):
-        return execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size, salt)
+        return execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size)
 
 
-def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size, salt):
+def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size):
     for layer in ("bronze", "silver", "quarantine"):
         catalog.create_namespace_if_not_exists(ns(prefix, layer))
-    observed, staged, results = datetime.now(UTC), {}, {}
-    for table in specs:
-        pages, count = [], 0
-        for index, source in enumerate(source_pages(connection, table, start, end, page_size=page_size)):
-            page = add_lineage(source, table, observed)
-            bronze = catalog.create_table_if_not_exists(
-                (ns(prefix, "bronze"), table.name), schema=page.schema, properties=PROPERTIES
-            )
-            evolve_bronze(bronze, page.schema)
-            path = f"s3://{bucket}/landing/polars-batch/{prefix}/{run_id}/{table.name}/page-{index:06}.parquet"
-            with bronze.io.new_output(path).create(overwrite=True) as stream:
-                pq.write_table(page, stream)
-            pages.append(path)
-            count += page.num_rows
-        staged[table.name] = pages
-        results[table.name] = {"source_rows": count, "pages": len(pages), "valid": 0, "quarantined": 0}
-    # No Bronze/Silver data commit until every selected source table is staged successfully.
-    for table in specs:
-        bronze = catalog.load_table((ns(prefix, "bronze"), table.name))
-        for path in staged[table.name]:
-            with bronze.io.new_input(path).open() as stream:
-                page = pq.read_table(stream)
-            outcome = ingest_page(catalog, prefix, table, page, run_id, observed, salt)
-            for name in ("valid", "quarantined"):
-                results[table.name][name] += outcome[name]
-        results[table.name].update(
-            bronze_rows=catalog.load_table((ns(prefix, "bronze"), table.name)).scan().count(),
-            silver_rows=catalog.load_table((ns(prefix, "silver"), table.silver_table)).scan().count(),
-        )
-        print(f"POLARS_BATCH table={table.name} source_rows={results[table.name]['source_rows']}", flush=True)
+    observed, results = datetime.now(UTC), {}
+    with source_read_transaction(connection):
+        for table in specs:
+            count, pages, accepted, merged, quarantined_total = 0, 0, 0, 0, 0
+            for source in source_pages(connection, table, start, end, page_size=page_size):
+                page = add_lineage(source, table, observed, run_id)
+                outcome = ingest_page(catalog, prefix, table, page, run_id, observed)
+                count += page.num_rows
+                pages += 1
+                accepted += outcome.get("accepted", 0)
+                merged += outcome.get("valid", 0)
+                quarantined_total += outcome.get("quarantined", 0)
+
+            bronze_count = catalog.load_table((ns(prefix, "bronze"), table.name)).scan().count()
+            silver_count = catalog.load_table((ns(prefix, "silver"), table.silver_table)).scan().count()
+            results[table.name] = {
+                "source_rows": count,
+                "pages": pages,
+                "accepted": accepted,
+                "valid": merged,
+                "merged": merged,
+                "quarantined": quarantined_total,
+                "bronze_rows": bronze_count,
+                "silver_rows": silver_count,
+            }
+            print(f"POLARS_BATCH table={table.name} source_rows={count}", flush=True)
     return {"namespace_prefix": prefix, "run_id": run_id, "tables": results, "published": False}

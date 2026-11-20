@@ -44,8 +44,8 @@ class Publication:
 
     @classmethod
     def parse(cls, row):
-        if row.get("schema_version") != 3 or row.get("source_mode") != "batch":
-            raise ValueError("A completed schema-v3 OLTP batch publication is required")
+        if row.get("schema_version") not in {3, 4} or row.get("source_mode") != "batch":
+            raise ValueError("A completed schema-v3 or schema-v4 OLTP batch publication is required")
         run_id = row.get("run_id")
         if not isinstance(run_id, str) or not run_id.strip():
             raise ValueError("Publication run ID is required")
