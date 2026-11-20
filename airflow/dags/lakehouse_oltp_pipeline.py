@@ -26,18 +26,10 @@ with DAG(
     start_date=pendulum.datetime(2026, 8, 15, tz="Asia/Ho_Chi_Minh"),
     tags=["lakehouse", "oltp", "native"],
 ) as dag:
-    ingest = BashOperator(
-        task_id="ingest_source",
+    run_batch = BashOperator(
+        task_id="run_batch_pipeline",
         env=ENV,
         append_env=True,
         bash_command=PYTHON
-        + ' -m jobs.oltp.run_polars_batch --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --interval-start "$PIPELINE_START" --interval-end "$PIPELINE_END"',
+        + ' -m jobs.oltp.run_batch_pipeline --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --mode incremental --as-of "$PIPELINE_AS_OF" --batch-date "$PIPELINE_BATCH_DATE" --interval-start "$PIPELINE_START" --interval-end "$PIPELINE_END"',
     )
-    publish = BashOperator(
-        task_id="build_validate_publish",
-        env=ENV,
-        append_env=True,
-        bash_command=PYTHON
-        + ' -m jobs.oltp.build_oltp_gold --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --as-of "$PIPELINE_AS_OF" --batch-date "$PIPELINE_BATCH_DATE"',
-    )
-    ingest >> publish

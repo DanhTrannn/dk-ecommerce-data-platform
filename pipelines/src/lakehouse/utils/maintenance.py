@@ -47,6 +47,21 @@ def protected_snapshots(catalog, prefix):
                         if type(snapshot) is not int:
                             raise ValueError("Invalid publication snapshot reference")
                         protected.setdefault(physical, set()).add(snapshot)
+
+    # Protect snapshots in batch_runs within 7 days retention for safe retries
+    runs_key = (ns(prefix, "system"), "batch_runs")
+    if catalog.table_exists(runs_key):
+        runs_table = catalog.load_table(runs_key)
+        cutoff_7d = datetime.now(UTC) - timedelta(days=7)
+        for row in read_snapshot(runs_table, capture(runs_table)).to_dicts():
+            row_updated = row.get("updated_at")
+            if row_updated is not None:
+                ts = row_updated.replace(tzinfo=UTC) if row_updated.tzinfo is None else row_updated.astimezone(UTC)
+                if ts >= cutoff_7d:
+                    for field in ("silver_snapshots_json", "bronze_snapshots_json", "gold_snapshots_json"):
+                        for physical, snapshot in json.loads(row.get(field) or "{}").items():
+                            if isinstance(snapshot, int):
+                                protected.setdefault(physical, set()).add(snapshot)
     return protected
 
 

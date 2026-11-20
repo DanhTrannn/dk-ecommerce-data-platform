@@ -12,8 +12,6 @@ ENV = {
     "PIPELINE_RUN_ID": "{{ run_id }}",
     "PIPELINE_AS_OF": "{{ dag_run.start_date.isoformat() }}",
     "PIPELINE_BATCH_DATE": DATE,
-    "PIPELINE_START": '{{ data_interval_start.isoformat() if data_interval_start else "" }}',
-    "PIPELINE_END": '{{ data_interval_end.isoformat() if data_interval_end else "" }}',
 }
 
 with DAG(
@@ -26,17 +24,10 @@ with DAG(
     start_date=pendulum.datetime(2026, 8, 15, tz="Asia/Ho_Chi_Minh"),
     tags=["lakehouse", "oltp", "native"],
 ) as dag:
-    ingest = BashOperator(
-        task_id="ingest_source",
-        env=ENV,
-        append_env=True,
-        bash_command=PYTHON + ' -m jobs.oltp.run_polars_batch --namespace-prefix serving --run-id "$PIPELINE_RUN_ID"',
-    )
-    publish = BashOperator(
-        task_id="build_validate_publish",
+    run_batch = BashOperator(
+        task_id="run_batch_pipeline",
         env=ENV,
         append_env=True,
         bash_command=PYTHON
-        + ' -m jobs.oltp.build_oltp_gold --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --as-of "$PIPELINE_AS_OF" --batch-date "$PIPELINE_BATCH_DATE"',
+        + ' -m jobs.oltp.run_batch_pipeline --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --mode full --as-of "$PIPELINE_AS_OF" --batch-date "$PIPELINE_BATCH_DATE"',
     )
-    ingest >> publish
