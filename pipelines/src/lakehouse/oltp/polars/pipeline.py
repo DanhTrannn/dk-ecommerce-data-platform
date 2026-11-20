@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 import polars as pl
 import pyarrow.parquet as pq
 
-from lakehouse.oltp.polars.privacy import required_salt
 from lakehouse.oltp.polars.source import source_pages
 from lakehouse.oltp.polars.writer import PROPERTIES, evolve_bronze, ingest_page
 from lakehouse.utils.config import SOURCE_TABLES
@@ -51,16 +50,16 @@ def add_lineage(page, table, observed):
 
 def run_batch(catalog, connection, prefix, *, bucket, run_id, tables=None, start=None, end=None, page_size=10000):
     validate_run(prefix, run_id, bucket, page_size)
-    specs, salt = selected_tables(tables), required_salt()
+    specs = selected_tables(tables)
     if (start is None) != (end is None):
         raise ValueError("Both interval bounds are required")
     for table in specs:
         source_query(table, start, end)
     with namespace_lock(connection, prefix):
-        return execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size, salt)
+        return execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size)
 
 
-def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size, salt):
+def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size):
     for layer in ("bronze", "silver", "quarantine"):
         catalog.create_namespace_if_not_exists(ns(prefix, layer))
     observed, staged, results = datetime.now(UTC), {}, {}
@@ -85,7 +84,7 @@ def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end
         for path in staged[table.name]:
             with bronze.io.new_input(path).open() as stream:
                 page = pq.read_table(stream)
-            outcome = ingest_page(catalog, prefix, table, page, run_id, observed, salt)
+            outcome = ingest_page(catalog, prefix, table, page, run_id, observed)
             for name in ("valid", "quarantined"):
                 results[table.name][name] += outcome[name]
         results[table.name].update(

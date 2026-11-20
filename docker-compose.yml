@@ -34,7 +34,6 @@ x-airflow-common: &airflow-common
     POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
     POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
     POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
-    SILVER_PSEUDONYMIZE_SALT: ${SILVER_PSEUDONYMIZE_SALT:-}
     AWS_REGION: ${AWS_REGION:-us-east-1}
   volumes:
     - ./airflow/dags:/opt/airflow/dags:ro

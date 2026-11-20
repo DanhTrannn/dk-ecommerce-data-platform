@@ -178,15 +178,6 @@ def evaluate(frames, run_id):
             "Current logical run marker",
             int(not passed),
         )
-    for table, columns in (
-        ("dim_customer", ("email", "phone", "full_name")),
-        ("dim_delivery_staff", ("phone", "full_name")),
-    ):
-        for name in columns:
-            n = frames[table].filter(pl.col(name).is_not_null() & ~pl.col(name).str.contains(r"^[0-9a-f]{64}$")).height
-            record(
-                "pii_pseudonymization", f"lakehouse.gold.{table}.{name}", n, 0, n == 0, "Only SHA-256 tokens or NULL", n
-            )
     failed = [r for r in results if not r.passed and r.severity == "ERROR"]
     executed_ids = [r.rule_id for r in results]
     return {

@@ -31,21 +31,21 @@ def quarantine_table(catalog, namespace):
     return table
 
 
-def ingest_page(catalog, prefix, table, page, run_id, observed, salt):
+def ingest_page(catalog, prefix, table, page, run_id, observed):
     bronze = catalog.load_table((ns(prefix, "bronze"), table.name))
     evolve_bronze(bronze, page.schema)
     if page.num_rows:
         bronze.upsert(align_arrow(page, bronze.schema()), join_cols=[table.pk, table.cursor_field])
-    return merge_silver(catalog, prefix, table, page, run_id, observed, salt)
+    return merge_silver(catalog, prefix, table, page, run_id, observed)
 
 
-def merge_silver(catalog, prefix, table, page, run_id, observed, salt):
+def merge_silver(catalog, prefix, table, page, run_id, observed):
     schema = silver_schema(table)
     silver = catalog.create_table_if_not_exists(
         (ns(prefix, "silver"), table.silver_table), schema=schema, properties=PROPERTIES
     )
     rejected = quarantine_table(catalog, ns(prefix, "quarantine"))
-    delta, violations = prepare_silver(page, table, schema, run_id, observed, salt)
+    delta, violations = prepare_silver(page, table, schema, run_id, observed)
     if violations.num_rows:
         violations = (
             pl.from_arrow(violations)
