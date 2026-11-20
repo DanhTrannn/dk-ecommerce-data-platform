@@ -188,10 +188,13 @@ def evaluate(frames, run_id):
                 "pii_pseudonymization", f"lakehouse.gold.{table}.{name}", n, 0, n == 0, "Only SHA-256 tokens or NULL", n
             )
     failed = [r for r in results if not r.passed and r.severity == "ERROR"]
+    executed_ids = [r.rule_id for r in results]
     return {
         "total_checks": len(results),
         "passed_checks": len(results) - len(failed),
         "failed_checks": len(failed),
         "status": "FAILED" if failed else "PASSED",
+        "required_checks_version": 1,
+        "executed_check_ids": executed_ids,
         "results": [asdict(r) for r in results],
     }

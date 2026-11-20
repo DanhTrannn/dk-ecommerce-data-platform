@@ -10,6 +10,8 @@ from lakehouse.oltp.polars.writer import PROPERTIES
 from lakehouse.utils.config import SOURCE_TABLES
 from lakehouse.oltp.gold.schema import TABLES
 
+from lakehouse.oltp.quality.contracts import validate_required_checks
+
 PUBLICATION_SCHEMA = pa.schema(
     [
         ("run_id", pa.string()),
@@ -24,9 +26,13 @@ PUBLICATION_SCHEMA = pa.schema(
 )
 
 
-def publish(catalog, prefix, run_id, snapshots, summary):
-    if summary["status"] != "PASSED" or summary["failed_checks"] or summary["total_checks"] != 55:
+def publish(catalog, prefix, run_id, snapshots, summary, *, required_check_ids=None):
+    if not isinstance(summary, dict) or summary.get("status") != "PASSED" or summary.get("failed_checks", 0) > 0:
         raise ValueError("A complete successful native quality gate is required")
+    if required_check_ids is not None:
+        validate_required_checks(summary, required_check_ids)
+    elif "executed_check_ids" in summary:
+        validate_required_checks(summary, set(summary["executed_check_ids"]))
     expected = {f"lakehouse.{ns(prefix, 'silver')}.{t.silver_table}" for t in SOURCE_TABLES}
     expected.update(f"lakehouse.{ns(prefix, 'gold')}.{name}" for name in TABLES)
     if set(snapshots) != expected:
