@@ -79,6 +79,16 @@ def postgres_reader():
 
 
 @contextmanager
+def source_read_transaction(connection):
+    """Enclose source reads in a repeatable-read read-only transaction without releasing session lock."""
+    connection.set_session(isolation_level="REPEATABLE READ", readonly=True)
+    try:
+        yield
+    finally:
+        connection.rollback()
+
+
+@contextmanager
 def namespace_lock(connection, namespace):
     """Serialize native source and Gold jobs using one session-scoped namespace key."""
     lock = int.from_bytes(hashlib.sha256(namespace.encode()).digest()[:8], "big", signed=True)

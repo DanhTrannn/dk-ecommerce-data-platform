@@ -5,12 +5,11 @@ import re
 from datetime import UTC, datetime
 
 import polars as pl
-import pyarrow.parquet as pq
 
 from lakehouse.oltp.polars.source import source_pages
-from lakehouse.oltp.polars.writer import PROPERTIES, evolve_bronze, ingest_page
+from lakehouse.oltp.polars.writer import ingest_page
 from lakehouse.utils.config import SOURCE_TABLES
-from lakehouse.utils.postgres import namespace_lock, source_query
+from lakehouse.utils.postgres import namespace_lock, source_query, source_read_transaction
 
 
 def selected_tables(names=None):
@@ -62,34 +61,27 @@ def run_batch(catalog, connection, prefix, *, bucket, run_id, tables=None, start
 def execute_batch(catalog, connection, prefix, bucket, run_id, specs, start, end, page_size):
     for layer in ("bronze", "silver", "quarantine"):
         catalog.create_namespace_if_not_exists(ns(prefix, layer))
-    observed, staged, results = datetime.now(UTC), {}, {}
-    for table in specs:
-        pages, count = [], 0
-        for index, source in enumerate(source_pages(connection, table, start, end, page_size=page_size)):
-            page = add_lineage(source, table, observed)
-            bronze = catalog.create_table_if_not_exists(
-                (ns(prefix, "bronze"), table.name), schema=page.schema, properties=PROPERTIES
-            )
-            evolve_bronze(bronze, page.schema)
-            path = f"s3://{bucket}/landing/polars-batch/{prefix}/{run_id}/{table.name}/page-{index:06}.parquet"
-            with bronze.io.new_output(path).create(overwrite=True) as stream:
-                pq.write_table(page, stream)
-            pages.append(path)
-            count += page.num_rows
-        staged[table.name] = pages
-        results[table.name] = {"source_rows": count, "pages": len(pages), "valid": 0, "quarantined": 0}
-    # No Bronze/Silver data commit until every selected source table is staged successfully.
-    for table in specs:
-        bronze = catalog.load_table((ns(prefix, "bronze"), table.name))
-        for path in staged[table.name]:
-            with bronze.io.new_input(path).open() as stream:
-                page = pq.read_table(stream)
-            outcome = ingest_page(catalog, prefix, table, page, run_id, observed)
-            for name in ("valid", "quarantined"):
-                results[table.name][name] += outcome[name]
-        results[table.name].update(
-            bronze_rows=catalog.load_table((ns(prefix, "bronze"), table.name)).scan().count(),
-            silver_rows=catalog.load_table((ns(prefix, "silver"), table.silver_table)).scan().count(),
-        )
-        print(f"POLARS_BATCH table={table.name} source_rows={results[table.name]['source_rows']}", flush=True)
+    observed, results = datetime.now(UTC), {}
+    with source_read_transaction(connection):
+        for table in specs:
+            count, pages, valid_total, quarantined_total = 0, 0, 0, 0
+            for source in source_pages(connection, table, start, end, page_size=page_size):
+                page = add_lineage(source, table, observed)
+                outcome = ingest_page(catalog, prefix, table, page, run_id, observed)
+                count += page.num_rows
+                pages += 1
+                valid_total += outcome.get("valid", 0)
+                quarantined_total += outcome.get("quarantined", 0)
+
+            bronze_count = catalog.load_table((ns(prefix, "bronze"), table.name)).scan().count()
+            silver_count = catalog.load_table((ns(prefix, "silver"), table.silver_table)).scan().count()
+            results[table.name] = {
+                "source_rows": count,
+                "pages": pages,
+                "valid": valid_total,
+                "quarantined": quarantined_total,
+                "bronze_rows": bronze_count,
+                "silver_rows": silver_count,
+            }
+            print(f"POLARS_BATCH table={table.name} source_rows={count}", flush=True)
     return {"namespace_prefix": prefix, "run_id": run_id, "tables": results, "published": False}

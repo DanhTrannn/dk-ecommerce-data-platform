@@ -32,7 +32,9 @@ def quarantine_table(catalog, namespace):
 
 
 def ingest_page(catalog, prefix, table, page, run_id, observed):
-    bronze = catalog.load_table((ns(prefix, "bronze"), table.name))
+    bronze = catalog.create_table_if_not_exists(
+        (ns(prefix, "bronze"), table.name), schema=page.schema, properties=PROPERTIES
+    )
     evolve_bronze(bronze, page.schema)
     if page.num_rows:
         bronze.upsert(align_arrow(page, bronze.schema()), join_cols=[table.pk, table.cursor_field])
