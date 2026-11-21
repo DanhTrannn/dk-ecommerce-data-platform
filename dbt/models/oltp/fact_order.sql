@@ -2,19 +2,19 @@
 -- Revenue is recognized on the day an order is both completed and paid (the later of the two, design §5).
 WITH cancellations AS (
   SELECT order_id, max_by(reason, transitioned_at) AS cancel_reason
-  FROM {{ source('silver', 'order_status_history') }}
+  FROM {{ ref('order_status_history') }}
   WHERE to_status = 'cancelled'
   GROUP BY order_id
 ),
 items AS (
   SELECT order_id, sum(quantity) AS item_quantity
-  FROM {{ source('silver', 'order_items') }}
+  FROM {{ ref('order_items') }}
   GROUP BY order_id
 ),
 refunds AS (
   SELECT p.order_id, sum(r.amount_vnd) AS refunded_vnd
-  FROM {{ source('silver', 'refunds') }} r
-  JOIN {{ source('silver', 'payments') }} p ON p.payment_id = r.payment_id
+  FROM {{ ref('refunds') }} r
+  JOIN {{ ref('payments') }} p ON p.payment_id = r.payment_id
   WHERE r.status = 'succeeded'
   GROUP BY p.order_id
 )
@@ -55,8 +55,8 @@ SELECT
   o.shipping_fee_vnd,
   o.total_vnd,
   coalesce(r.refunded_vnd, 0) AS refunded_vnd
-FROM {{ source('silver', 'orders') }} o
-LEFT JOIN {{ source('silver', 'stores') }} s ON s.store_id = o.store_id
+FROM {{ ref('orders') }} o
+LEFT JOIN {{ ref('stores') }} s ON s.store_id = o.store_id
 LEFT JOIN cancellations c ON c.order_id = o.order_id
 LEFT JOIN items i ON i.order_id = o.order_id
 LEFT JOIN refunds r ON r.order_id = o.order_id

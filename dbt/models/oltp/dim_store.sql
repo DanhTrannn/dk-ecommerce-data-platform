@@ -7,5 +7,5 @@ SELECT
   s.address,
   s.phone,
   s.is_active
-FROM {{ source('silver', 'stores') }} s
-LEFT JOIN {{ source('silver', 'cities') }} c ON c.city_id = s.city_id
+FROM {{ ref('stores') }} s
+LEFT JOIN {{ ref('cities') }} c ON c.city_id = s.city_id

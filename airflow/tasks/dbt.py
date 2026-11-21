@@ -17,9 +17,12 @@ def gold_seeds(project=DBT_PROJECT):
 
 def gold_dependencies(project=DBT_PROJECT):
     """Each OLTP model and seed, with the models and seeds its SQL refers to through ref()."""
+    models = sorted((project / "models" / "oltp").glob("*.sql"))
+    names = gold_seeds(project) | {path.stem for path in models}
     graph = {name: () for name in sorted(gold_seeds(project))}
-    for path in sorted((project / "models" / "oltp").glob("*.sql")):
-        graph[path.stem] = tuple(dict.fromkeys(REF.findall(path.read_text())))
+    for path in models:
+        # Refs to Silver models are left out: the Silver group runs before the Gold one.
+        graph[path.stem] = tuple(ref for ref in dict.fromkeys(REF.findall(path.read_text())) if ref in names)
     return graph
 
 

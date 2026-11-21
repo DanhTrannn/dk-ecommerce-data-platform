@@ -1,5 +1,5 @@
 {% macro generate_schema_name(custom_schema_name, node) -%}
-  gold
+  {{ (custom_schema_name or 'gold') | trim }}
 {%- endmacro %}
 
 {% macro pinned(name) -%}

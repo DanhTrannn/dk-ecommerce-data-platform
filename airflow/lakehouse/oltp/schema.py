@@ -1,14 +1,12 @@
-"""Create the OLTP namespaces and the staging, Bronze and Silver tables; the load jobs only write to what this creates.
+"""Create the OLTP namespaces and the staging and Bronze tables; the load jobs only write to what this creates.
 
-Staging and Bronze copy the source, so their columns and types are read from PostgreSQL; Silver follows its
-reviewed contract.
-Gold tables are left to dbt, which rebuilds them from Silver on every run.
+Staging and Bronze copy the source, so their columns and types are read from PostgreSQL. Silver and Gold tables
+are created by their dbt models.
 """
 
 import pyarrow as pa
 
 from lakehouse.oltp.staging import LINEAGE_FIELDS
-from lakehouse.oltp.silver import silver_schema
 from lakehouse.oltp.source import arrow_source_schema
 from lakehouse.oltp.sources import SOURCE_TABLES
 from lakehouse.utils.iceberg import PROPERTIES, evolve_table_schema
@@ -39,10 +37,6 @@ def create_staging_and_bronze(catalog, table, schema):
     create_or_evolve(catalog, ("bronze", table.name), schema, PROPERTIES)
 
 
-def create_silver(catalog, table):
-    create_or_evolve(catalog, ("silver", table.name), silver_schema(table), PROPERTIES)
-
-
 def create_oltp_schema(catalog, connection):
     for layer in LAYERS:
         catalog.create_namespace_if_not_exists(layer)
@@ -50,5 +44,4 @@ def create_oltp_schema(catalog, connection):
         schemas = {table.name: source_schema(connection, table) for table in SOURCE_TABLES}
     for table in SOURCE_TABLES:
         create_staging_and_bronze(catalog, table, schemas[table.name])
-        create_silver(catalog, table)
         print(f"INIT table={table.name}", flush=True)

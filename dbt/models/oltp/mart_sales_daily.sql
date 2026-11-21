@@ -23,8 +23,8 @@ events AS (
   SELECT
     {{ vn_date('r.completed_at') }}, o.channel, o.store_key, o.city_key,
     0, 0, 0, 0, 0, r.amount_vnd, 0
-  FROM {{ source('silver', 'refunds') }} r
-  JOIN {{ source('silver', 'payments') }} p ON p.payment_id = r.payment_id
+  FROM {{ ref('refunds') }} r
+  JOIN {{ ref('payments') }} p ON p.payment_id = r.payment_id
   JOIN {{ ref('fact_order') }} o ON o.order_id = p.order_id
   WHERE r.status = 'succeeded' AND r.completed_at IS NOT NULL AND o.revenue_date IS NOT NULL
   UNION ALL

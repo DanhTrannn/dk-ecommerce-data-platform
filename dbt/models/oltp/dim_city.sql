@@ -6,5 +6,5 @@ SELECT
   sla.delivery_zone,
   sla.carrier_days,
   sla.sla_days
-FROM {{ source('silver', 'cities') }} c
+FROM {{ ref('cities') }} c
 LEFT JOIN {{ ref('delivery_sla') }} sla ON sla.city_code = c.code

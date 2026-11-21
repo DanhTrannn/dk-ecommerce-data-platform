@@ -8,6 +8,6 @@ SELECT
   c.boom_count,
   c.created_at,
   {{ vn_date('c.created_at') }} AS created_date
-FROM {{ source('silver', 'customers') }} c
-LEFT JOIN {{ source('silver', 'cities') }} city ON city.city_id = c.city_id
+FROM {{ ref('customers') }} c
+LEFT JOIN {{ ref('cities') }} city ON city.city_id = c.city_id
 WHERE c.role = 'customer'

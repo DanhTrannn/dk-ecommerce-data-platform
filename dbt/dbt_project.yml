@@ -16,6 +16,16 @@ models:
       # Every run rebuilds OLTP Gold from Silver; CREATE OR REPLACE is one Iceberg commit per table.
       +materialized: table
       +on_table_exists: replace
+    silver:
+      +schema: silver
+      +tags: [silver]
+      # An incremental run merges the Bronze rows written since the last merge, by primary key. A full refresh
+      # rebuilds with CREATE OR REPLACE, since Polaris refuses DROP TABLE (purge).
+      +materialized: incremental
+      +incremental_strategy: merge
+      +on_table_exists: replace
+      # MERGE writes position-delete files; optimize folds them into the data files, which PyIceberg can then read.
+      +post-hook: "ALTER TABLE {{ this }} EXECUTE optimize"
     logs:
       +tags: [logs]
 seeds:

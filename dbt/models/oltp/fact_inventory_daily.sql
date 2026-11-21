@@ -16,7 +16,7 @@ WITH movements AS (
     -sum(CASE WHEN movement_type = 'exchange_out' THEN quantity_delta ELSE 0 END) AS exchange_out_qty,
     sum(CASE WHEN movement_type = 'adjustment' THEN quantity_delta ELSE 0 END) AS adjustment_qty,
     sum(quantity_delta) AS net_qty
-  FROM {{ source('silver', 'inventory_transactions') }}
+  FROM {{ ref('inventory_transactions') }}
   WHERE created_at <= {{ as_of() }}
   GROUP BY 1, 2, 3, 4
 ),
@@ -49,4 +49,4 @@ SELECT
   b.closing_qty * v.cost_price_vnd AS closing_value_vnd
 FROM balances b
 CROSS JOIN UNNEST(sequence(b.movement_date, date_add('day', -1, b.next_movement_date))) AS calendar(day)
-LEFT JOIN {{ source('silver', 'product_variants') }} v ON v.variant_id = b.variant_key
+LEFT JOIN {{ ref('product_variants') }} v ON v.variant_id = b.variant_key

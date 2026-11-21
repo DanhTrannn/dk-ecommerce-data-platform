@@ -7,5 +7,5 @@ SELECT
   c.name AS category_name,
   p.is_active,
   p.created_at
-FROM {{ source('silver', 'products') }} p
-LEFT JOIN {{ source('silver', 'categories') }} c ON c.category_id = p.category_id
+FROM {{ ref('products') }} p
+LEFT JOIN {{ ref('categories') }} c ON c.category_id = p.category_id

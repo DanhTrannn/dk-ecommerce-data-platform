@@ -1,8 +1,8 @@
 """Python tasks of the OLTP DAGs, called by PythonOperator.
 
 Airflow fills the parameters named after its context (dag_run, data_interval_start, data_interval_end).
-Each load truncates staging.<table> and extracts into it, merges the extract into Bronze, then Bronze into
-Silver, so rerunning a task gives the same result.
+Each load truncates staging.<table> and extracts into it, then merges the extract into Bronze, so rerunning a
+task gives the same result. Silver and Gold are dbt models (tasks/dbt.py).
 The source is the `oltp_postgres` Airflow connection; its Extra sets a read-only UTC session.
 
 - Full load (lakehouse_oltp_init): reads every source row created before the run's logical start
@@ -19,7 +19,6 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 from lakehouse.oltp.bronze import merge_bronze
 from lakehouse.oltp.checks import check_foreign_keys, check_table, source_reconciliation
 from lakehouse.oltp.schema import create_oltp_schema
-from lakehouse.oltp.silver import merge_silver
 from lakehouse.oltp.sources import SOURCE_TABLES, TABLES_BY_NAME
 from lakehouse.oltp.staging import extract_table
 from lakehouse.utils.iceberg import iceberg_catalog
@@ -92,22 +91,16 @@ def foreign_keys():
     check_foreign_keys(iceberg_catalog())
 
 
-def silver_full(table):
-    """Replace silver.<table> with all of Bronze in one commit."""
-    merge_silver(iceberg_catalog(), TABLES_BY_NAME[table], full=True)
-
-
-def silver_incremental(table):
-    """Upsert the Bronze rows this load changed into silver.<table>."""
-    merge_silver(iceberg_catalog(), TABLES_BY_NAME[table], full=False)
-
-
 def maintain(action):
-    """One maintenance action on every OLTP table: staging, Bronze, Silver and each Gold model and seed."""
+    """One maintenance action on every OLTP table: staging, Bronze, Silver and each Gold model and seed.
+
+    Silver is left out of compaction: its dbt models run optimize after every merge, and PyIceberg cannot read the
+    position-delete files Trino's MERGE writes before that.
+    """
     tables = [
         *(("staging", table.name) for table in SOURCE_TABLES),
         *(("bronze", table.name) for table in SOURCE_TABLES),
-        *(("silver", table.name) for table in SOURCE_TABLES),
+        *((("silver", table.name) for table in SOURCE_TABLES) if action != "compact" else ()),
         *(("gold", name) for name in gold_dependencies()),
     ]
     result = maintain_tables(iceberg_catalog(), tables, action)

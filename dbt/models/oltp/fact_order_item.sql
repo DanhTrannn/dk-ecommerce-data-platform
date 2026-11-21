@@ -12,7 +12,7 @@ WITH running AS (
     cost_price_vnd,
     sum(line_total_vnd) OVER (PARTITION BY order_id) AS order_lines_vnd,
     sum(line_total_vnd) OVER (PARTITION BY order_id ORDER BY order_item_id ROWS UNBOUNDED PRECEDING) AS running_vnd
-  FROM {{ source('silver', 'order_items') }}
+  FROM {{ ref('order_items') }}
 ),
 lines AS (
   SELECT
@@ -46,4 +46,4 @@ SELECT
   l.order_date,
   l.revenue_date
 FROM lines l
-LEFT JOIN {{ source('silver', 'product_variants') }} v ON v.variant_id = l.variant_id
+LEFT JOIN {{ ref('product_variants') }} v ON v.variant_id = l.variant_id

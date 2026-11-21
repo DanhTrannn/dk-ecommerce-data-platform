@@ -1,6 +1,6 @@
 """Daily incremental load of the OLTP source at 03:00: staging → Bronze → checks → Silver → Gold.
 
-Each run loads the rows whose cursor falls in its data interval upserts them into Bronze, then upserts the changed Bronze rows into Silver. Catchup runs the
+Each run loads the rows whose cursor falls in its data interval upserts them into Bronze, then dbt merges the changed Bronze rows into Silver. Catchup runs the
 intervals missed while the DAG was paused; `airflow backfill create --dag-id lakehouse_oltp_incremental
 --from-date ... --to-date ...` reloads a past range. Run lakehouse_oltp_init first, and keep this DAG paused while
 it runs: both write the same tables.
@@ -9,12 +9,13 @@ it runs: both write the same tables.
 from datetime import timedelta
 
 import pendulum
+from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import DAG, TaskGroup
 
 from lakehouse.oltp.sources import SOURCE_TABLES
 from tasks import oltp
-from tasks.dbt import gold_task_group
+from tasks.dbt import dbt_command, dbt_env, gold_task_group
 
 POOL = "lakehouse_oltp"  # 4 slots (docker-compose.yml); each task holds a table's batches in memory
 
@@ -47,9 +48,14 @@ with DAG(
             )
 
     with TaskGroup("silver") as silver:
+        # Each Silver model merges the Bronze rows written since its last run.
         for table in SOURCE_TABLES:
-            PythonOperator(
-                task_id=table.name, python_callable=oltp.silver_incremental, op_kwargs={"table": table.name}, pool=POOL
+            BashOperator(
+                task_id=table.name,
+                bash_command=dbt_command("build", table.name) + "",
+                env=dbt_env(table.name),
+                append_env=True,
+                pool=POOL,
             )
 
     gold = gold_task_group(POOL)

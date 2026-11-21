@@ -1,7 +1,7 @@
 -- A return's succeeded refund pays exactly the refund amounts of its items.
 WITH refunds AS (
   SELECT return_id, max(completed_at) AS refunded_at
-  FROM {{ source('silver', 'refunds') }}
+  FROM {{ ref('refunds') }}
   WHERE status = 'succeeded' AND return_id IS NOT NULL
   GROUP BY return_id
 )
@@ -26,7 +26,7 @@ SELECT
   f.refunded_at,
   {{ vn_date('r.created_at') }} AS request_date,
   {{ vn_date('r.resolved_at') }} AS resolved_date
-FROM {{ source('silver', 'return_items') }} i
-JOIN {{ source('silver', 'return_requests') }} r ON r.return_id = i.return_id
-LEFT JOIN {{ source('silver', 'product_variants') }} v ON v.variant_id = i.variant_id
+FROM {{ ref('return_items') }} i
+JOIN {{ ref('return_requests') }} r ON r.return_id = i.return_id
+LEFT JOIN {{ ref('product_variants') }} v ON v.variant_id = i.variant_id
 LEFT JOIN refunds f ON f.return_id = i.return_id

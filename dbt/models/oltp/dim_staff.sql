@@ -6,7 +6,7 @@ SELECT
   full_name AS staff_name,
   CAST(NULL AS bigint) AS store_key,
   is_active
-FROM {{ source('silver', 'delivery_staff') }}
+FROM {{ ref('delivery_staff') }}
 UNION ALL
 SELECT
   'sales-' || CAST(customer_id AS varchar),
@@ -15,6 +15,6 @@ SELECT
   display_name,
   store_id,
   status = 'active'
-FROM {{ source('silver', 'customers') }}
+FROM {{ ref('customers') }}
 WHERE role <> 'customer'
-  AND customer_id IN (SELECT staff_id FROM {{ source('silver', 'orders') }} WHERE staff_id IS NOT NULL)
+  AND customer_id IN (SELECT staff_id FROM {{ ref('orders') }} WHERE staff_id IS NOT NULL)

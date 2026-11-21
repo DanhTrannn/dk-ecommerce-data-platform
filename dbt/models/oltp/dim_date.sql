@@ -4,8 +4,8 @@ WITH bounds AS (
     date_trunc('year', least(coalesce(o.first_day, {{ business_date() }}), coalesce(t.first_day, {{ business_date() }}), {{ business_date() }})) AS first_day,
     date_add('day', -1, date_add('year', 1, date_trunc('year',
       greatest(coalesce(o.last_day, {{ business_date() }}), coalesce(t.last_day, {{ business_date() }}), {{ business_date() }})))) AS last_day
-  FROM (SELECT min({{ vn_date('created_at') }}) AS first_day, max({{ vn_date('created_at') }}) AS last_day FROM {{ source('silver', 'orders') }}) o
-  CROSS JOIN (SELECT min({{ vn_date('created_at') }}) AS first_day, max({{ vn_date('created_at') }}) AS last_day FROM {{ source('silver', 'inventory_transactions') }}) t
+  FROM (SELECT min({{ vn_date('created_at') }}) AS first_day, max({{ vn_date('created_at') }}) AS last_day FROM {{ ref('orders') }}) o
+  CROSS JOIN (SELECT min({{ vn_date('created_at') }}) AS first_day, max({{ vn_date('created_at') }}) AS last_day FROM {{ ref('inventory_transactions') }}) t
 ),
 days AS (
   SELECT day AS date_day FROM bounds CROSS JOIN UNNEST(sequence(bounds.first_day, bounds.last_day)) AS calendar(day)

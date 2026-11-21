@@ -18,7 +18,7 @@ WITH stock AS (
 ),
 inbound AS (
   SELECT {{ vn_date('i.created_at') }} AS inventory_date, p.category_key, sum(i.total_cost_vnd) AS inbound_value_vnd
-  FROM {{ source('silver', 'inbound_receipt_items') }} i
+  FROM {{ ref('inbound_receipt_items') }} i
   LEFT JOIN {{ ref('dim_variant') }} v ON v.variant_key = i.variant_id
   LEFT JOIN {{ ref('dim_product') }} p ON p.product_key = v.product_key
   WHERE i.created_at <= {{ as_of() }}

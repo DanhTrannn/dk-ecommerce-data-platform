@@ -8,4 +8,4 @@ SELECT
   price_vnd,
   cost_price_vnd,
   is_active
-FROM {{ source('silver', 'product_variants') }}
+FROM {{ ref('product_variants') }}

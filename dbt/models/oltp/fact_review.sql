@@ -19,6 +19,6 @@ SELECT
     WHEN NOT d.is_on_time THEN 'late'
     ELSE 'not_shipped'
   END AS delivery_timeliness
-FROM {{ source('silver', 'product_reviews') }} r
-LEFT JOIN {{ source('silver', 'order_items') }} i ON i.order_item_id = r.order_item_id
+FROM {{ ref('product_reviews') }} r
+LEFT JOIN {{ ref('order_items') }} i ON i.order_item_id = r.order_item_id
 LEFT JOIN deliveries d ON d.order_id = i.order_id

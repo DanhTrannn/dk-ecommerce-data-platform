@@ -1,7 +1,7 @@
 -- Each position's as-of closing stock equals the sum of its ledger movements up to the as-of time.
 WITH ledger AS (
   SELECT location_type, store_id AS store_key, variant_id AS variant_key, sum(quantity_delta) AS balance
-  FROM {{ source('silver', 'inventory_transactions') }}
+  FROM {{ ref('inventory_transactions') }}
   WHERE created_at <= {{ as_of() }}
   GROUP BY 1, 2, 3
 ),

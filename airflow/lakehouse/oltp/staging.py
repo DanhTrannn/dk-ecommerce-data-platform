@@ -6,14 +6,26 @@ from here, and the checks run on it before Silver changes.
 
 import pyarrow as pa
 from pyiceberg.expressions import AlwaysTrue
+from pyiceberg.io.pyarrow import schema_to_pyarrow
 
-from lakehouse.oltp.merge import BATCH_ROWS
 from lakehouse.oltp.source import source_chunks
-from lakehouse.utils.contracts import align_arrow
 from lakehouse.utils.iceberg import load_table
 from lakehouse.utils.postgres import source_read_transaction
 
+BATCH_ROWS = 200_000  # rows per Iceberg commit; one batch is held in memory
 LINEAGE_FIELDS = (pa.field("_ingested_at", pa.timestamp("us", tz="UTC")),)
+
+
+def align_arrow(data, schema):
+    if not isinstance(schema, pa.Schema):
+        schema = schema_to_pyarrow(schema)
+    arrays = [
+        data[field.name].cast(field.type)
+        if field.name in data.column_names and data[field.name].null_count != len(data)
+        else pa.nulls(len(data), type=field.type)
+        for field in schema
+    ]
+    return pa.Table.from_arrays(arrays, schema=schema)
 
 
 def with_lineage(chunk, ingested_at):
