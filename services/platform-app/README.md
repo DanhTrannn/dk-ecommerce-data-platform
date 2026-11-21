@@ -8,11 +8,11 @@ Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và 
 
 Streamlit **Platform Console** có hai màn hình: **Mô phỏng API** (mua online qua API thật) và **Quản trị quyền** (CRUD, binding Polaris/MinIO và cấp credential workload). Console không còn chức năng sinh/nạp SQL của giao diện cũ. Package workspace `data-generator` hiện cung cấp CLI OLTP/log riêng, không chạy qua Streamlit.
 
-Thiết kế và quyết định kỹ thuật: [docs/setup.md](../../docs/setup.md).
+Thiết kế và quyết định kỹ thuật: [docs/SETUP.md](../../docs/SETUP.md).
 
 ## API nguồn
 
-FastAPI giữ nghiệp vụ và lookup phục vụ dữ liệu; sáu API BI và mười GET danh sách/trùng lặp đã bỏ cùng service/schema riêng; giữ toàn bộ API ghi, gồm add-to-cart/checkout. Lookup customer yêu cầu email và trả customer_id; lookup địa điểm trả store_id/city_id. Superset có PoC doanh thu dùng hai mart; các dashboard khác và quyền viewer/store chưa triển khai. Hai API quan sát HTTP vẫn giữ quyền admin/system_admin. Chi tiết endpoint, transaction, hợp đồng tồn đầu/ledger và giới hạn kiểm chứng tại [API_SOURCE_SCOPE](../../docs/architecture.md#1-phạm-vi-và-hiện-trạng).
+FastAPI giữ nghiệp vụ và lookup phục vụ dữ liệu; sáu API BI và mười GET danh sách/trùng lặp đã bỏ cùng service/schema riêng; giữ toàn bộ API ghi, gồm add-to-cart/checkout. Lookup customer yêu cầu email và trả customer_id; lookup địa điểm trả store_id/city_id. Superset có PoC doanh thu dùng hai mart; các dashboard khác và quyền viewer/store chưa triển khai. Hai API quan sát HTTP vẫn giữ quyền admin/system_admin. Chi tiết endpoint, transaction, hợp đồng tồn đầu/ledger và giới hạn kiểm chứng tại [API_SOURCE_SCOPE](../../docs/ARCHITECTURE.md#1-phạm-vi-và-hiện-trạng).
 
 ## Chạy cục bộ
 
@@ -95,7 +95,7 @@ HTTP 4xx là lượt thất bại (408 được coi chưa xác định); runner 
 
 Runner hiện là kịch bản kiểm chứng nghiệp vụ, không phải sampler đã hiệu chỉnh: mỗi lượt là khách mới, một SKU và chọn hàng theo thứ tự catalog. API vẫn ghi `data_origin=manual`/`generation_run_id=NULL`; HTTP middleware ghi `observed` cho request thực sự nhận, không chứng minh hành vi người dùng thật. Run journal liên kết các giao dịch mô phỏng bằng email và idempotency key; chưa bổ sung lineage mô phỏng vào schema/API. Không suy tỷ lệ mua lại, độ phổ biến sản phẩm hay conversion tự nhiên từ kịch bản này.
 
-Compose nhận `KAFKA_ENABLED` từ môi trường, mặc định `false`; bật `true` khi dùng streaming để ghi request thực qua Kafka/Flink. Runner không tự bật producer, tải log lịch sử, gửi trực tiếp Kafka hoặc kích hoạt DAG. Khi được bật, producer tự thử kết nối lại nếu Kafka khởi động muộn và giữ lượt gửi chưa xác nhận trong DLQ dưới `data/events/`; `KAFKA_ENABLED=false` bỏ qua cả gửi Kafka lẫn ghi DLQ; replay DLQ vẫn là thao tác riêng. Xem [hướng dẫn log thực](../../docs/setup.md#log-api-thực). Chưa có fulfillment, hủy đơn, coupon, POS, nhập kho, đổi trả hoặc tự khôi phục mật khẩu tài khoản mô phỏng.
+Compose nhận `KAFKA_ENABLED` từ môi trường, mặc định `false`; bật `true` khi dùng streaming để ghi request thực qua Kafka/Flink. Runner không tự bật producer, tải log lịch sử, gửi trực tiếp Kafka hoặc kích hoạt DAG. Khi được bật, producer tự thử kết nối lại nếu Kafka khởi động muộn và giữ lượt gửi chưa xác nhận trong DLQ dưới `data/events/`; `KAFKA_ENABLED=false` bỏ qua cả gửi Kafka lẫn ghi DLQ; replay DLQ vẫn là thao tác riêng. Xem [hướng dẫn log thực](../../docs/SETUP.md#log-api-thực). Chưa có fulfillment, hủy đơn, coupon, POS, nhập kho, đổi trả hoặc tự khôi phục mật khẩu tài khoản mô phỏng.
 
 ## Bootstrap ứng dụng
 
@@ -123,7 +123,7 @@ Tạo principal chưa tự cấu hình consumer. Trong tab **Cấp cho workload*
 
 UI cho xem trạng thái file/ownership và principal đã cấp. Thay file đã có cần xác nhận; gỡ cần nhập đúng workload. Principal còn được phân công bị chặn xóa. Consumer giữ credential trong bộ nhớ cần khởi động lại hoặc submit lại job để áp dụng. Gỡ file không tự thu hồi quyền/secret trên Polaris.
 
-Cấp file chỉ xử lý **credential Polaris**. MinIO user/secret phải khớp các biến `MINIO_*` consumer nhận từ `.env`; thao tác trên Streamlit không tự sửa `.env` hay cấu hình môi trường của container đã chạy. Xem [setup](../../docs/setup.md#2-build-và-chọn-profile) cho volume và thứ tự khởi động.
+Cấp file chỉ xử lý **credential Polaris**. MinIO user/secret phải khớp các biến `MINIO_*` consumer nhận từ `.env`; thao tác trên Streamlit không tự sửa `.env` hay cấu hình môi trường của container đã chạy. Xem [setup](../../docs/SETUP.md#2-build-và-chọn-profile) cho volume và thứ tự khởi động.
 
 ### Audit và chạy ứng dụng
 

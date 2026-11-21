@@ -52,7 +52,7 @@ Blocks without a notebook measurement are scenario assumptions: `scale.stores` (
 
 ## Running the OLTP generator
 
-The generator needs only PostgreSQL with the schema from `database/schema.sql` and the category seed (`make seed`; see [docs/setup.md](../docs/setup.md)). It generates its own products, stores and locations while reusing seeded category IDs. It reads the connection from `GENERATOR_DATABASE_URL` in `.env`; `.env.example` derives it from the source database owner.
+The generator needs only PostgreSQL with the schema from `database/schema.sql` and the category seed (`make seed`; see [docs/SETUP.md](../docs/SETUP.md)). It generates its own products, stores and locations while reusing seeded category IDs. It reads the connection from `GENERATOR_DATABASE_URL` in `.env`; `.env.example` derives it from the source database owner.
 
 ```bash
 make generate PRESET=1m          # datagen generate --preset 1m

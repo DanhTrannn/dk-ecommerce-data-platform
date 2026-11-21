@@ -1,6 +1,6 @@
 # Kiến trúc hệ thống
 
-Cấu trúc dữ liệu và KPI ở [data.md](data.md), cài đặt ở [setup.md](setup.md), vận hành ở [operations.md](operations.md). Chi tiết pipeline OLTP ở [airflow/README.md](../airflow/README.md).
+Cấu trúc dữ liệu và KPI ở [DATA.md](DATA.md), cài đặt ở [SETUP.md](SETUP.md), vận hành ở [OPERATIONS.md](OPERATIONS.md). Chi tiết pipeline OLTP ở [airflow/README.md](../airflow/README.md).
 
 ## 1. Phạm vi
 

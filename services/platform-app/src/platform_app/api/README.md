@@ -21,7 +21,7 @@ Shared-container components are siblings: [access administration](../access_admi
 
 ## Run with Docker
 
-From the repository root, configure `.env` using `.env.example` and the [setup guide](../../../../../docs/setup.md), then:
+From the repository root, configure `.env` using `.env.example` and the [setup guide](../../../../../docs/SETUP.md), then:
 
 ```bash
 make build
@@ -51,7 +51,7 @@ For the two analytics reads, the [Trino client](modules/analytics/trino_client.p
 
 ## HTTP observability
 
-The six former business BI reads are retired: GET `/api/v1/admin/overview`, `/api/v1/admin/store/dashboard` and `/api/v1/admin/analytics/{overview,role-metrics,sales-trend,stores}`. The retained analytics router has only the two endpoints below. Historical role dashboards and their types are not a current backend contract. Business sales serving uses the separately configured Superset PoC; see [architecture](../../../../../docs/architecture.md).
+The six former business BI reads are retired: GET `/api/v1/admin/overview`, `/api/v1/admin/store/dashboard` and `/api/v1/admin/analytics/{overview,role-metrics,sales-trend,stores}`. The retained analytics router has only the two endpoints below. Historical role dashboards and their types are not a current backend contract. Business sales serving uses the separately configured Superset PoC; see [architecture](../../../../../docs/ARCHITECTURE.md).
 
 ### HTTP metrics contract
 
@@ -184,4 +184,4 @@ In addition to the six retired BI routes above, these ten former administrative 
 
 ## References
 
-[Setup](../../../../../docs/setup.md) · [Architecture and serving](../../../../../docs/architecture.md) · [Schema, access logs and marts](../../../../../docs/data.md) · [Operations and recovery](../../../../../docs/operations.md)
+[Setup](../../../../../docs/SETUP.md) · [Architecture and serving](../../../../../docs/ARCHITECTURE.md) · [Schema, access logs and marts](../../../../../docs/DATA.md) · [Operations and recovery](../../../../../docs/OPERATIONS.md)

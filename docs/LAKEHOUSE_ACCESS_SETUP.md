@@ -14,7 +14,7 @@ Cần Docker Engine và Docker Compose v2. Nếu nạp dữ liệu mẫu, chuẩ
 if [ ! -f .env ]; then cp .env.example .env; fi
 ```
 
-Trong `.env`, kiểm tra `MINIO_LAKEHOUSE_BUCKET=lakehouse` và `POLARIS_CATALOG_NAME=lakehouse`. Kiểm tra các biến tài khoản quản trị MinIO và Polaris, các cặp `MINIO_*_ACCESS_KEY` và `MINIO_*_SECRET_KEY`, cùng `POSTGRES_ECOMMERCE_READER_USER`, `POSTGRES_ECOMMERCE_READER_PASSWORD`, `TRINO_READER_PASSWORD` và `DBT_TRINO_PASSWORD`. Nếu dùng Superset, cấu hình ba biến ở Bước 24 trước khi khởi động PostgreSQL lần đầu. [Mẫu cấu hình](../.env.example) · [Nhóm biến môi trường](setup.md#1-chuẩn-bị-môi-trường)
+Trong `.env`, kiểm tra `MINIO_LAKEHOUSE_BUCKET=lakehouse` và `POLARIS_CATALOG_NAME=lakehouse`. Kiểm tra các biến tài khoản quản trị MinIO và Polaris, các cặp `MINIO_*_ACCESS_KEY` và `MINIO_*_SECRET_KEY`, cùng `POSTGRES_ECOMMERCE_READER_USER`, `POSTGRES_ECOMMERCE_READER_PASSWORD`, `TRINO_READER_PASSWORD` và `DBT_TRINO_PASSWORD`. Nếu dùng Superset, cấu hình ba biến ở Bước 24 trước khi khởi động PostgreSQL lần đầu. [Mẫu cấu hình](../.env.example) · [Nhóm biến môi trường](SETUP.md#1-chuẩn-bị-môi-trường)
 
 ### Bước 2 Bật Console và đăng nhập
 
@@ -51,7 +51,7 @@ Giữ **Đối tượng mới → Account**. Nhập giá trị `MINIO_FLINK_ACCE
 
 ### Bước 7 Tạo account lưu trữ cho Trino reader
 
-Giữ **Đối tượng mới → Account**. Nhập giá trị `MINIO_TRINO_ACCESS_KEY`, mặc định là `lakehouse-trino`, vào ô tên. Nhập giá trị `MINIO_TRINO_SECRET_KEY` vào **Secret key** rồi bấm **Tạo trên MinIO**. Qua **Danh sách** và kiểm tra bốn account đều ở trạng thái **enabled**. [Cấu hình account lưu trữ](setup.md#tạo-quyền-và-credential-trên-streamlit)
+Giữ **Đối tượng mới → Account**. Nhập giá trị `MINIO_TRINO_ACCESS_KEY`, mặc định là `lakehouse-trino`, vào ô tên. Nhập giá trị `MINIO_TRINO_SECRET_KEY` vào **Secret key** rồi bấm **Tạo trên MinIO**. Qua **Danh sách** và kiểm tra bốn account đều ở trạng thái **enabled**. [Cấu hình account lưu trữ](SETUP.md#tạo-quyền-và-credential-trên-streamlit)
 
 ### Bước 8 Tạo policy đọc ghi cho Polaris và Flink
 
@@ -160,7 +160,7 @@ Kiểm tra bảng liên kết trong tab **Gán / Gỡ quyền** để thấy đ�
 | `batch-airflow` | `batch_airflow` |
 | `flink` | `flink_landing` |
 
-Kiểm tra cả bốn dòng có **Credential** là **Đã có** và **Quyền file** là **Đúng**. Exporter ghi `clients.env` vào volume từng workload. Trino đọc hai file riêng cho reader và writer. Khi thay credential đang dùng, khởi động lại consumer. Với Flink, dừng job cũ và submit lại khi cần áp dụng credential mới. [Màn hình cấp credential](../services/platform-app/src/platform_app/ui/views/access_workloads.py) · [Volume credential](setup.md#tạo-quyền-và-credential-trên-streamlit)
+Kiểm tra cả bốn dòng có **Credential** là **Đã có** và **Quyền file** là **Đúng**. Exporter ghi `clients.env` vào volume từng workload. Trino đọc hai file riêng cho reader và writer. Khi thay credential đang dùng, khởi động lại consumer. Với Flink, dừng job cũ và submit lại khi cần áp dụng credential mới. [Màn hình cấp credential](../services/platform-app/src/platform_app/ui/views/access_workloads.py) · [Volume credential](SETUP.md#tạo-quyền-và-credential-trên-streamlit)
 
 ## Chạy pipeline OLTP
 
@@ -215,7 +215,7 @@ docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_inc
 
 ## Luồng access log
 
-Luồng access log đang được thiết kế lại; chưa có job Flink hay DAG nào nạp log vào lakehouse. [Access log](setup.md#5-access-log)
+Luồng access log đang được thiết kế lại; chưa có job Flink hay DAG nào nạp log vào lakehouse. [Access log](SETUP.md#5-access-log)
 
 ## Bật Superset
 
@@ -238,7 +238,7 @@ docker compose --profile core --profile bi up -d --wait superset
 make superset-sync
 ```
 
-Đăng nhập [Superset](http://localhost:8088) bằng `SUPERSET_ADMIN_USER` và `SUPERSET_ADMIN_PASSWORD`. Mở đường dẫn dashboard trong dòng `SUPERSET_RESULT`. Dashboard đọc bảng Gold hiện tại nên batch mới hiện ngay, không cần sync lại. [Thiết lập và đồng bộ Superset](setup.md#6-superset-tùy-chọn)
+Đăng nhập [Superset](http://localhost:8088) bằng `SUPERSET_ADMIN_USER` và `SUPERSET_ADMIN_PASSWORD`. Mở đường dẫn dashboard trong dòng `SUPERSET_RESULT`. Dashboard đọc bảng Gold hiện tại nên batch mới hiện ngay, không cần sync lại. [Thiết lập và đồng bộ Superset](SETUP.md#6-superset-tùy-chọn)
 
 ## Khởi động lại và xử lý lỗi
 
@@ -261,7 +261,7 @@ make status
 | Batch không đăng nhập được PostgreSQL | Về Bước 19 và kiểm tra biến reader cùng kết quả `make source-reader`. |
 | Superset sync báo thiếu bảng Gold | Về Bước 23, kiểm tra `lakehouse_oltp_init` đã chạy xong rồi chạy lại Bước 25. |
 
-Xem log startup và trạng thái container bằng các lệnh dưới. [Hướng dẫn xử lý sự cố](operations.md#4-troubleshooting)
+Xem log startup và trạng thái container bằng các lệnh dưới. [Hướng dẫn xử lý sự cố](OPERATIONS.md#4-troubleshooting)
 
 ```bash
 docker compose --profile core logs --tail=100 trino credential-exporter

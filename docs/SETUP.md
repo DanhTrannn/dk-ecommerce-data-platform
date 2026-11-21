@@ -1,6 +1,6 @@
 # Cài đặt và khởi chạy
 
-Lệnh bên dưới chạy từ root repo. Xem [architecture.md](architecture.md) để chọn thành phần và [operations.md](operations.md) để kiểm tra/phục hồi.
+Lệnh bên dưới chạy từ root repo. Xem [ARCHITECTURE.md](ARCHITECTURE.md) để chọn thành phần và [OPERATIONS.md](OPERATIONS.md) để kiểm tra/phục hồi.
 
 ## 1. Chuẩn bị môi trường
 
@@ -186,7 +186,7 @@ Mở `http://127.0.0.1:8088`, đăng nhập bằng `SUPERSET_ADMIN_USER`/`SUPERS
 
 Init tạo metadata/migration/role/admin nếu thiếu, không reset password. Script metadata DB giữ password của role đang có. Dataset đọc bảng Gold hiện tại nên batch mới hiện ngay trên dashboard; chỉ cần sync lại khi định nghĩa dataset/chart thay đổi.
 
-Superset dùng Python/runtime và driver lock riêng trong [infrastructure/superset](../infrastructure/superset/), một web worker/bốn thread, không Redis/Celery. Chưa có RBAC viewer/store hoặc hardening public. Cookie/proxy flags không tự bật HTTPS. Lưu `SUPERSET_SECRET_KEY` ổn định cùng backup metadata; lifecycle snapshot ở [operations.md](operations.md#6-bảo-trì-và-lưu-trữ).
+Superset dùng Python/runtime và driver lock riêng trong [infrastructure/superset](../infrastructure/superset/), một web worker/bốn thread, không Redis/Celery. Chưa có RBAC viewer/store hoặc hardening public. Cookie/proxy flags không tự bật HTTPS. Lưu `SUPERSET_SECRET_KEY` ổn định cùng backup metadata; lifecycle snapshot ở [OPERATIONS.md](OPERATIONS.md#6-bảo-trì-và-lưu-trữ).
 
 ## 7. Endpoint và dừng dịch vụ
 

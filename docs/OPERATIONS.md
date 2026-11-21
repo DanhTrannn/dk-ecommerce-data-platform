@@ -1,6 +1,6 @@
 # Vận hành và xử lý sự cố
 
-Cài đặt ở [setup.md](setup.md); chi tiết pipeline ở [airflow/README.md](../airflow/README.md).
+Cài đặt ở [SETUP.md](SETUP.md); chi tiết pipeline ở [airflow/README.md](../airflow/README.md).
 
 ## 1. Kiểm tra nhanh
 

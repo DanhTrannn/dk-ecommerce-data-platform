@@ -49,7 +49,7 @@ The access-log path (API → Kafka → Flink → lakehouse) is being redesigned:
 
 ## Quick Start
 
-Requires Docker Engine with Compose v2, Python 3.11 and uv. Full steps and variables: [docs/setup.md](docs/setup.md).
+Requires Docker Engine with Compose v2, Python 3.11 and uv. Full steps and variables: [docs/SETUP.md](docs/SETUP.md).
 
 ```bash
 cp .env.example .env            # only if .env does not exist; then fill in the secrets
@@ -124,11 +124,11 @@ CI ([workflow](.github/workflows/ci.yml)) validates the Compose profiles, compil
 | Document | Content |
 |---|---|
 | [airflow/README.md](airflow/README.md) | OLTP pipeline: DAGs, layers, connections, running and testing |
-| [docs/architecture.md](docs/architecture.md) | Components, data flow, access control, deployment |
-| [docs/data.md](docs/data.md) | Source, lakehouse layers, Gold models and KPIs, generator assumptions |
-| [docs/setup.md](docs/setup.md) | Environment, bootstrap, startup |
-| [docs/operations.md](docs/operations.md) | Monitoring, troubleshooting, recovery, backups |
-| [docs/lakehouse-access-setup.md](docs/lakehouse-access-setup.md) | Step-by-step access setup in Streamlit |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, data flow, access control, deployment |
+| [docs/DATA.md](docs/DATA.md) | Source, lakehouse layers, Gold models and KPIs, generator assumptions |
+| [docs/SETUP.md](docs/SETUP.md) | Environment, bootstrap, startup |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Monitoring, troubleshooting, recovery, backups |
+| [docs/LAKEHOUSE_ACCESS_SETUP.md](docs/LAKEHOUSE_ACCESS_SETUP.md) | Step-by-step access setup in Streamlit |
 | [docs/FINAL_REPORT.md](docs/FINAL_REPORT.md) | Thesis report; historical, not the current specification |
 
 Components: [platform-app](services/platform-app/README.md), [API](services/platform-app/src/platform_app/api/README.md), [generator](generator/README.md), [database](database/README.md).
