@@ -29,8 +29,5 @@ data_tests:
     oltp:
       # Post-Gold checks only log; the blocking checks run before Silver changes.
       +severity: warn
-vars:
-  # The central warehouse ships from this city; deliveries there use the intra-city SLA.
-  central_warehouse_city_code: HCM
 flags:
   require_certificate_validation: true

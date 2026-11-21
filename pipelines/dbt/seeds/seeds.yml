@@ -1,9 +1,12 @@
 version: 2
 seeds:
 - name: delivery_sla
-  description: Delivery SLA per zone (design §5); the central warehouse city is intra_city, every other city inter_province.
+  description: >
+    Delivery promise per city. carrier_days is the upper bound of the GHTK Express range of the city's zone seen from
+    the central warehouse in TP.HCM (price list from 10/11/2026; generator EDA section 7.2). sla_days adds one day of
+    shop handling and one day of waiting for the carrier pickup, counted in Vietnamese calendar days from the order.
   config:
-    column_types: {delivery_zone: varchar, sla_days: integer}
+    column_types: {city_code: varchar, delivery_zone: varchar, carrier_days: integer, sla_days: integer}
 - name: calendar_events
   description: >
     Vietnamese public holidays (Labour Code 2019 art. 112; lunar ones at their first day) and the sale days of the
