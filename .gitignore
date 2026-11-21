@@ -57,5 +57,6 @@ AGENTS.md
 **/dbt/logs/
 **/dbt/dbt_packages/
 **/dbt/.user.yml
+!airflow/tests/
 !dbt/tests/
 !dbt/tests/**/*.sql

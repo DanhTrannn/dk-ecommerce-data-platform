@@ -1,4 +1,4 @@
-.PHONY: all up start core stream bi up-all build build-all down stop restart ps logs status seed generate generate-verify source-reader help superset-db superset-init superset-sync
+.PHONY: all up start core stream bi up-all build build-all down stop restart ps logs status seed generate generate-verify source-reader test help superset-db superset-init superset-sync
 
 PROFILES ?= core
 SERVICES ?= platform-app
@@ -32,6 +32,7 @@ help:
 	@echo "  make seed                      Seed the source catalog explicitly"
 	@echo "  make generate PRESET=1m        Load synthetic OLTP history"
 	@echo "  make generate-verify PRESET=1m Check the generated history"
+	@echo "  make test                      Run the pipeline tests in the Airflow scheduler"
 	@echo "  make superset-db               Create dedicated Superset metadata storage"
 	@echo "  make superset-init             Initialize BI metadata and its first admin"
 	@echo "  make superset-sync             Create the sales dashboard over current Gold marts"
@@ -91,6 +92,11 @@ generate-verify: .env
 
 source-reader:
 	@docker compose exec -T postgres sh /opt/project/configure-source-reader.sh
+
+test:
+	@docker compose exec -T -w /tmp -e PYTHONDONTWRITEBYTECODE=1 \
+		-e PYTHONPATH=/opt/project/airflow:/opt/project/airflow/tests airflow-scheduler \
+		python -m unittest discover -s /opt/project/airflow/tests -t /opt/project/airflow/tests
 
 superset-db:
 	@docker compose exec -T postgres sh /opt/project/configure-superset.sh
