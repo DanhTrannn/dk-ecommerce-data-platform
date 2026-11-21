@@ -1,11 +1,12 @@
 """Translate the reviewed declarative Iceberg column contracts."""
 
 import re
+from pathlib import Path
 
 import pyarrow as pa
 from pyiceberg.io.pyarrow import schema_to_pyarrow
 
-from lakehouse.utils.sql import load_sql
+SQL_TEMPLATES = Path(__file__).resolve().parent.parent / "sql_templates"
 
 TYPES = {
     "BIGINT": pa.int64(),
@@ -49,7 +50,7 @@ def arrow_type(value):
 
 
 def ddl_schema(resource):
-    ddl = load_sql(resource)
+    ddl = (SQL_TEMPLATES / resource).read_text(encoding="utf-8")
     match = re.search(r"\(\s*(.*?)\)\s*USING\s+iceberg", ddl, re.S | re.I)
     if not match:
         raise ValueError("Unsupported table schema contract")

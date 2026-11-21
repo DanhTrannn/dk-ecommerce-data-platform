@@ -18,7 +18,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock .python-version ./
-COPY pipelines/pyproject.toml pipelines/pyproject.toml
+COPY airflow/pyproject.toml airflow/pyproject.toml
 COPY generator/pyproject.toml generator/pyproject.toml
 COPY services/platform-app/pyproject.toml services/platform-app/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \

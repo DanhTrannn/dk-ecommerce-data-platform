@@ -9,15 +9,12 @@ dependencies = [
   "dbt-trino==1.11.0",
   "polars==2.1.0",
   "pyiceberg[pyarrow,pyiceberg-core]==0.12.0",
-  "psycopg2-binary==2.9.10",
+  "psycopg[binary]==3.3.5",
   "trino==0.340.0",
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-dir]
-"" = "src"
+include = ["lakehouse*"]
 
 [tool.setuptools.package-data]
 lakehouse = ["sql_templates/**/*.sql"]

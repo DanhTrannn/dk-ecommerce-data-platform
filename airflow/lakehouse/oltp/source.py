@@ -17,15 +17,13 @@ PG_TYPES = {
     25: pa.string(),
     1042: pa.string(),
     1043: pa.string(),
-    2950: pa.string(),
+    2950: pa.string(),  # uuid, as text
     1114: pa.timestamp("us", tz="UTC"),
     1184: pa.timestamp("us", tz="UTC"),
     1082: pa.date32(),
     700: pa.float32(),
     701: pa.float64(),
     17: pa.binary(),
-    114: pa.string(),
-    3802: pa.string(),
 }
 
 
@@ -52,8 +50,6 @@ def to_arrow(rows, description):
                     value = str(value)
                 elif column.type_code in (1114, 1184):
                     value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-                elif column.type_code == 17:
-                    value = bytes(value)
             record[column.name] = value
         records.append(record)
     return pa.Table.from_pylist(records, schema=schema)
@@ -62,7 +58,7 @@ def to_arrow(rows, description):
 def source_chunks(connection, table, start=None, end=None, *, created_before=None):
     """Run the source query once and yield its rows in chunks of CHUNK_ROWS; an empty result yields one empty chunk.
 
-    A named psycopg2 cursor keeps the result on the server, so memory holds one chunk, not the whole table.
+    A named (server-side) psycopg cursor keeps the result on the server, so memory holds one chunk, not the whole table.
     It must run inside a transaction, which source_read_transaction provides.
     """
     if (start is None) != (end is None):

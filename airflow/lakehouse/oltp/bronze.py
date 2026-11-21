@@ -34,7 +34,7 @@ def write_bronze(catalog, table, chunks, run_id, ingested_at):
         # Writing would silently drop a column the table lacks; the init DAG adds it first.
         unknown = sorted(set(chunk.column_names) - columns)
         if unknown:
-            raise ValueError(f"bronze.{table.name} lacks source columns {unknown}; run the lakehouse_init DAG")
+            raise ValueError(f"bronze.{table.name} lacks source columns {unknown}; run the lakehouse_oltp_init DAG")
         buffer.append(chunk)
         buffered += chunk.num_rows
         if buffered >= BRONZE_BATCH_ROWS:

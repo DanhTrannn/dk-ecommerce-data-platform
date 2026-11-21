@@ -53,14 +53,7 @@ def load_table(catalog, key):
     try:
         return catalog.load_table(key)
     except NoSuchTableError:
-        raise NoSuchTableError(f"{'.'.join(key)} does not exist; run the lakehouse_init DAG first") from None
-
-
-def load_or_create(catalog, key, **settings):
-    try:
-        return catalog.load_table(key)
-    except NoSuchTableError:
-        return catalog.create_table_if_not_exists(key, **settings)
+        raise NoSuchTableError(f"{'.'.join(key)} does not exist; run the lakehouse_oltp_init DAG first") from None
 
 
 def evolve_table_schema(table, schema):

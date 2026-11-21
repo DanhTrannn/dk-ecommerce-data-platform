@@ -38,7 +38,7 @@ skills/
 
 
 # Python package build output
-pipelines/build/
+airflow/build/
 
 # Tests & test cache
 # Test chỉ giữ local, không đưa lên git (trừ kiểm tra dữ liệu dbt bên dưới, pipeline chạy chúng).
@@ -56,5 +56,5 @@ AGENTS.md
 **/dbt/target/
 **/dbt/logs/
 **/dbt/dbt_packages/
-!pipelines/dbt/tests/
-!pipelines/dbt/tests/*.sql
+!dbt/tests/
+!dbt/tests/**/*.sql

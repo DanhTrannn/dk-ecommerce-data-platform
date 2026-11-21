@@ -16,18 +16,11 @@ x-airflow-common: &airflow-common
     AIRFLOW__SCHEDULER__CREATE_CRON_DATA_INTERVALS: "true"
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-change-me-airflow-secret}
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-change-me-airflow-jwt-secret}
-    PYTHONPATH: /opt/project/pipelines/src
+    PYTHONPATH: /opt/project/airflow
     POLARS_MAX_THREADS: "2"
     TRINO_CA_FILE: /run/trino-ca/ca.pem
-    DBT_ARTIFACTS_DIR: /opt/airflow/logs/dbt
     DBT_TRINO_HOST: trino
     DBT_TRINO_PASSWORD: ${DBT_TRINO_PASSWORD:?set DBT_TRINO_PASSWORD}
-    BATCH_RESUME_RETENTION_DAYS: ${BATCH_RESUME_RETENTION_DAYS:-7}
-    POSTGRES_SOURCE_HOST: postgres
-    POSTGRES_SOURCE_PORT: "5432"
-    POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
-    POSTGRES_ECOMMERCE_READER_USER: ${POSTGRES_ECOMMERCE_READER_USER:-ecommerce_reader}
-    POSTGRES_ECOMMERCE_READER_PASSWORD: ${POSTGRES_ECOMMERCE_READER_PASSWORD:-}
     MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
     POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
     POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
@@ -35,7 +28,8 @@ x-airflow-common: &airflow-common
     AWS_REGION: ${AWS_REGION:-us-east-1}
   volumes:
     - ./airflow/dags:/opt/airflow/dags:ro
-    - ./pipelines:/opt/project/pipelines:ro
+    - ./airflow:/opt/project/airflow:ro
+    - ./dbt:/opt/project/dbt:ro
     - airflow-logs:/opt/airflow/logs
     - polaris-batch-airflow-credentials:/run/polaris:ro
     - trino-ca:/run/trino-ca:ro
@@ -220,6 +214,16 @@ services:
       - >-
         airflow db migrate &&
         airflow pools set lakehouse_oltp 4 "OLTP batch tasks" &&
+        (airflow connections get oltp_postgres >/dev/null 2>&1 ||
+        airflow connections add oltp_postgres
+        --conn-type postgres
+        --conn-host postgres
+        --conn-port 5432
+        --conn-schema "$${POSTGRES_ECOMMERCE_DB}"
+        --conn-login "$${POSTGRES_ECOMMERCE_READER_USER}"
+        --conn-password "$${POSTGRES_ECOMMERCE_READER_PASSWORD}"
+        --conn-extra '{"options": "-c timezone=UTC -c default_transaction_read_only=on"}'
+        --conn-description "OLTP source; Extra keeps the session read-only and in UTC") &&
         (airflow users create
         --username $${AIRFLOW_ADMIN_USER}
         --password $${AIRFLOW_ADMIN_PASSWORD}
@@ -231,6 +235,10 @@ services:
       <<: *airflow-environment
       AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-airflow}
       AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-password}
+      # Seeds the oltp_postgres connection on the first start only; later changes are made in the Airflow UI.
+      POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
+      POSTGRES_ECOMMERCE_READER_USER: ${POSTGRES_ECOMMERCE_READER_USER:-ecommerce_reader}
+      POSTGRES_ECOMMERCE_READER_PASSWORD: ${POSTGRES_ECOMMERCE_READER_PASSWORD:-}
 
   airflow-api-server:
     <<: *airflow-common
