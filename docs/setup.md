@@ -142,67 +142,35 @@ uv run --locked --env-file .env --package platform-app platform-app
 
 Compose truyền `API_BOOTSTRAP_ADMIN_EMAIL` vào API để xác định người được quản trị hạ tầng; `platform-admin-init` nhận cả email/password để tạo tài khoản lần đầu. Đổi password trong `.env` không rotate password đã lưu. Chạy host cần schema/admin đã khởi tạo và các đường dẫn credential/exporter phù hợp; API/Streamlit trên host không tự mount volume Docker. `--env-file .env` đưa cả biến Kafka/Trino/UI vào môi trường tiến trình, ngoài nhóm API Settings đọc `.env`.
 
-## 4. Cấp quyền và chạy batch
+## 4. Chạy pipeline OLTP
 
-Sau bootstrap schema, tạo quyền và cấp credential workload trên Streamlit, áp dụng env/mount PostgreSQL nếu cần rồi cấu hình reader:
-
-```bash
-make source-reader
-docker compose --profile core up -d \
-  airflow-api-server airflow-scheduler airflow-dag-processor trino
-```
-
-Batch reader được SELECT 27 bảng (`customer_credentials` bị loại); job nạp 19 bảng và chỉ đọc `inventory`, `store_inventory` để đối soát sổ kho. Airflow (môi trường batch Polars/PyIceberg/dbt) cần reader password, MinIO batch key và Polaris credential file. Bật DAG `lakehouse_oltp` rồi chạy full lần đầu:
+Sau khi có schema nguồn, dữ liệu và quyền workload (`batch-airflow`, `trino-reader`, `trino-writer`):
 
 ```bash
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp
-docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp --conf '{"mode": "full"}'
+make source-reader   # role chỉ SELECT 27 bảng, cần POSTGRES_ECOMMERCE_READER_PASSWORD
+make core            # bật Airflow và Trino
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_init
+docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_init
+# Khi lần init xong:
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
 ```
 
-DAG chạy 03:00 Asia/Ho_Chi_Minh ở chế độ incremental, đọc interval `[start,end)` của lần chạy. Các DAG mới ở trạng thái paused theo Compose; khi unpause, Airflow xếp ngay lần chạy incremental gần nhất, và `max_active_runs=1` khiến lần full ở trên chạy sau nó (full ghi đè Silver nên không sao).
-
-Trong Airflow UI, DAG có năm nhóm `bronze` → `checks` → `silver` → `gold` → `maintenance`, mỗi bảng nguồn hoặc model dbt là một task. Task đỏ ở nhóm nào thì:
-
-| Nhóm | Nghĩa | Xử lý |
-|---|---|---|
-| `bronze.<bảng>` | Không đọc được nguồn hoặc không ghi được Bronze | Sửa kết nối/quyền, **Clear** task đó; Bronze xóa dòng của lần thử trước rồi ghi lại |
-| `checks.<bảng>`, `checks.foreign_keys` | Dữ liệu trượt kiểm tra (log ghi `<bảng>: <kiểm tra> = <số dòng>`); Silver chưa đổi | Sửa dữ liệu nguồn, **Clear** `bronze.<bảng>` kèm downstream |
-| `silver.<bảng>` | Không merge được vào Silver | Xem log, **Clear** task đó |
-| `gold.<model>` | dbt lỗi; log có dòng `DBT_GOLD_SCHEMA=… DBT_SILVER_SCHEMA=… DBT_AS_OF=…` và lệnh `dbt build --select <model> …` | Chạy tay lại theo phần 8, **Clear** task kèm downstream |
-
-Trigger tay ở chế độ incremental cần một lần chạy có data interval; chạy full không cần.
+`airflow-init` tạo connection `oltp_postgres` từ `POSTGRES_ECOMMERCE_DB` và `POSTGRES_ECOMMERCE_READER_*` ở lần khởi động đầu; sau đó sửa trong Airflow UI (**Admin → Connections**). DAG, tầng dữ liệu và cách chạy lại: [airflow/README.md](../airflow/README.md).
 
 ## 5. Access log
 
-### Log API thực
+Luồng access log đang được thiết kế lại. Đặt `KAFKA_ENABLED=true` thì API vẫn gửi log request vào topic `KAFKA_ACCESS_LOG_TOPIC` (profile `streaming`), nhưng chưa có job Flink hay DAG nào đưa log vào lakehouse. `KAFKA_ENABLED=false` tắt gửi Kafka; API vẫn ghi structured log.
 
-Đặt `KAFKA_ENABLED=true` trong `.env`, áp dụng lại cấu hình platform-app, rồi submit job log:
-
-```bash
-docker compose --profile core --profile streaming up -d \
-  kafka flink-jobmanager flink-taskmanager platform-app
-docker compose --profile core --profile streaming run --rm flink-submit
-```
-
-`kafka-init` tạo topic dùng chung trước submit. API trong Compose dùng `kafka:9092`, DLQ `/data/events/dlq_access_logs.jsonl` được mount ra host. API chạy host dùng các giá trị host `localhost:9094`/đường dẫn tương đối trong `.env.example`.
-
-Gọi API/runner và đối chiếu `X-Request-ID` với Landing. Sau lần batch OLTP full đầu tiên (pipeline log đọc danh mục sản phẩm từ Silver hiện tại), trigger DAG log khi idle:
+`datagen logs` xuất log tổng hợp ra Parquet theo ngày và không nạp vào lakehouse:
 
 ```bash
-docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_logs_marts
+uv run --locked --env-file .env --package data-generator -- \
+  datagen logs --preset 1m --out data/generator/logs/1m
 ```
-
-`KAFKA_ENABLED=false` tắt gửi Kafka và tắt ghi event vào DLQ; API vẫn ghi structured access log. DLQ chỉ giữ event chưa xác nhận khi producer được bật. Khi chạy host, dùng `uv run --env-file .env ...` hoặc export rõ `KAFKA_*` vì producer đọc trực tiếp môi trường tiến trình.
-
-Bật lịch hourly trong Airflow khi cần. Flink chỉ append Landing; job `build_logs_gold` làm Bronze/Silver/fact, dbt dựng mart rồi publication. Health probes không sinh event. DLQ cũ chưa được replay tự động khi Kafka phục hồi.
-
-### Log lịch sử tổng hợp
-
-`datagen logs` chỉ xuất file `session_date=YYYY-MM-DD.parquet` với `raw_payload` và `event_at`. Chưa có command nạp chúng vào `landing.access_logs`; không dùng `flink-submit` như bộ import file. Cần bổ sung loader, bảo toàn `data_origin=synthetic` và mapping `session.id`/`ecommerce.order_number` trước khi dùng log sinh để phân tích phiên/đơn. Contract middleware hiện là 1.0.0; generator là 1.1.0.
 
 ## 6. Superset tùy chọn
 
-PoC dành cho admin, ba mart doanh thu, bốn KPI/bốn chart; không kế thừa role/cửa hàng FastAPI. Cần Trino và một lần batch OLTP full đã xong. Điền ba secret Superset độc lập trong `.env`, rồi:
+PoC dành cho admin, ba mart doanh thu, bốn KPI/bốn chart; không kế thừa role/cửa hàng FastAPI. Cần Trino và một lần chạy `lakehouse_oltp_init` đã xong. Điền ba secret Superset độc lập trong `.env`, rồi:
 
 ```bash
 docker compose --profile core --profile bi build superset
@@ -249,28 +217,3 @@ make down
 ```
 
 `make stop` là alias của thao tác down trong Makefile, không phải `docker compose stop`. Không dùng xóa volume như bước khắc phục mặc định.
-
-## 8. Chạy job batch bằng CLI
-
-DAG gọi các job dưới đây bằng `PIPELINE_PYTHON` (venv Polars/PyIceberg/dbt trong image Airflow). Chạy tay trong container scheduler, vốn đã có reader, Polaris credential file và MinIO batch key:
-
-```bash
-# OLTP, một bảng mỗi lần gọi: Bronze → kiểm tra → Silver (full đọc mọi dòng tạo trước --run-started-at)
-A="--namespace-prefix polars_batch_try --run-id manual_oltp_20261121 --mode full --run-started-at 2026-11-21T03:00:00+07:00"
-docker compose exec -T airflow-scheduler sh -c "\"\$PIPELINE_PYTHON\" -m jobs.oltp.bronze $A --table orders"
-docker compose exec -T airflow-scheduler sh -c "\"\$PIPELINE_PYTHON\" -m jobs.oltp.check $A --table orders"
-docker compose exec -T airflow-scheduler sh -c "\"\$PIPELINE_PYTHON\" -m jobs.oltp.check $A --foreign-keys"
-docker compose exec -T airflow-scheduler sh -c "\"\$PIPELINE_PYTHON\" -m jobs.oltp.silver $A --table orders"
-# Incremental: --mode incremental kèm --interval-start/--interval-end có múi giờ
-
-# Gold, một model: đặt ngữ cảnh như dòng đầu log của task rồi gọi dbt
-docker compose exec -T -e DBT_GOLD_SCHEMA=polars_batch_try_gold -e DBT_SILVER_SCHEMA=polars_batch_try_silver \
-  -e DBT_AS_OF=2026-11-21T03:00:00+07:00 -e DBT_PROJECT_DIR=/opt/project/pipelines/dbt -e DBT_PROFILES_DIR=/opt/project/pipelines/dbt \
-  -e DBT_TARGET_PATH=/tmp/dbt/manual -e DBT_LOG_PATH=/tmp/dbt/manual airflow-scheduler dbt build --select dim_city
-
-# Log: Landing → Bronze/Silver/fact → ba mart → publication log
-docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.logs.build_logs_gold \
-  --namespace-prefix serving --run-id manual_logs_20261115 --as-of 2026-11-15T00:00:00Z'
-```
-
-Các run ID và thời gian ở ví dụ cần được chọn lại theo lần chạy/dữ liệu. Prefix khác `serving` phải có dạng `polars_batch_*` để chạy thử trong namespace riêng. Retry dùng lại run ID và `--run-started-at`: Bronze xóa dòng của bảng đó trong lần thử trước rồi đọc lại nguồn. `DBT_AS_OF` là ngày hiện tại của Gold (cuối các chuỗi ngày tồn kho/backlog). Kiểm tra trượt làm lệnh lỗi với `CheckFailed` trước khi Silver thay đổi.

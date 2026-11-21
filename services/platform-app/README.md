@@ -60,7 +60,7 @@ Có thể build riêng image ứng dụng bằng `docker compose --profile core 
 
 ## Kiểm tra
 
-Test Python chỉ giữ local (mọi thư mục `tests/` bị gitignore, trừ dbt data tests). Các lệnh dưới đây cần bộ test local đã có, không được cung cấp bởi checkout mới:
+Test của platform-app chỉ giữ local (`tests/` bị gitignore; chỉ `airflow/tests` và `dbt/tests` nằm trong git). Các lệnh dưới đây cần bộ test local đã có, không được cung cấp bởi checkout mới:
 
 ```bash
 uv run --locked --package platform-app -- \

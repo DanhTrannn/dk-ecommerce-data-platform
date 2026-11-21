@@ -13,7 +13,7 @@ help:
 	@echo "Daily commands:"
 	@echo "  make start                     Start the console/API and management dependencies"
 	@echo "  make core                      Start the full core, including Airflow and Trino"
-	@echo "  make stream                    Start core + Kafka/Flink; submit the Flink job separately"
+	@echo "  make stream                    Start core + Kafka/Flink (the log pipeline is being redesigned)"
 	@echo "  make bi                        Start core + Superset; initialize BI metadata first"
 	@echo "  make stop                      Stop/remove all containers; retain data volumes"
 	@echo "  make status                    Show all container groups"

@@ -1,6 +1,6 @@
 # Dữ liệu, pipeline và chỉ số
 
-Cập nhật theo codebase ngày **15/11/2026**. Nguồn định nghĩa chính là [schema PostgreSQL](../database/schema.sql), [catalog trích xuất](../pipelines/src/lakehouse/oltp/sources.py), [Gold schema](../pipelines/src/lakehouse/oltp/gold/schema.py), [log transforms](../pipelines/src/lakehouse/logs/) và [presets generator](../generator/README.md). Các con số mô phỏng/nghiệm thu không phải số liệu kinh doanh thực tế.
+Nguồn định nghĩa: [schema PostgreSQL](../database/schema.sql), [danh sách bảng trích xuất](../airflow/lakehouse/oltp/sources.py), [dbt](../dbt/) và [preset generator](../generator/README.md). Chi tiết chạy pipeline ở [airflow/README.md](../airflow/README.md). Số liệu mô phỏng không phải số liệu kinh doanh thật.
 
 ## 1. Nguồn và lineage
 
@@ -11,7 +11,7 @@ Cập nhật theo codebase ngày **15/11/2026**. Nguồn định nghĩa chính l
 | HTTP log | Request thực nhận bởi middleware | ID server 32 ký tự hex, `data_origin=observed`; không đồng nhất với khách thật/session |
 | Public dataset nghiên cứu | Notebook EDA (H&M, Olist, eCommerce Behavior) → preset YAML | Runtime `datagen` đọc/validate YAML OLTP và log; khảo sát Việt Nam chỉ để đối chiếu |
 
-Không dùng chung `generation_run_id`, Airflow `run_id` và HTTP `request.id` như cùng một khóa. Chúng mô tả các vòng đời khác nhau. Source/processing/publication time cũng không thay thế nhau.
+Không dùng chung `generation_run_id` và HTTP `request.id` như cùng một khóa. Chúng mô tả các vòng đời khác nhau. Source/processing/publication time cũng không thay thế nhau.
 
 ## 2. Schema OLTP
 
@@ -62,32 +62,27 @@ Batch nạp 19 bảng được cấu hình tường minh trong `SOURCE_TABLES`, 
 | `inventory_transactions` | `transaction_id` | `created_at` |
 | `inbound_receipt_items` | `item_id` | `created_at` |
 
-## 3. Landing, Bronze, Silver và Gold
+## 3. Các tầng lakehouse
 
-Catalog mặc định `lakehouse`, bucket theo `MINIO_LAKEHOUSE_BUCKET` (mặc định `lakehouse`), các namespace `landing`, `bronze`, `silver`, `gold`, `system`. Dữ liệu/metadata Iceberg lưu trên MinIO, Polaris giữ catalog.
+Catalog Polaris `lakehouse`, bucket `MINIO_LAKEHOUSE_BUCKET`, namespace `staging`, `bronze`, `silver`, `gold`.
 
-| Tầng | Batch OLTP | Access log |
+| Tầng | Nội dung | Ghi bởi |
 |---|---|---|
-| Landing | Không có | `landing.access_logs` append raw envelope và projected fields, giữ cả payload không hợp lệ/lặp |
-| Bronze | `bronze.<bảng>`: dòng nguồn đúng như đọc được, chỉ ghi thêm, kèm `_ingested_at` và `_run_id`, phân vùng theo ngày `_ingested_at` | `bronze.web_events` giữ raw hash, typed envelope, `_validation_error`; distinct raw payload |
-| Silver | `silver.<bảng>`: dòng hiện tại theo khóa chính, cùng cột với Bronze | `silver.silver_logs` chỉ event hợp lệ, dedup theo immutable request ID |
-| Gold | 7 dimension + 6 fact + 14 mart, dựng lại toàn bộ mỗi lần chạy | `fact_web_events` + 3 mart log |
-| System | Không dùng cho OLTP | Kết quả kiểm tra và publication của log |
+| `staging.<bảng>` | Bản trích xuất của lần chạy gần nhất, kèm `_ingested_at`; xoá trắng mỗi lần nạp | PyIceberg |
+| `bronze.<bảng>` | Dòng nguồn giữ kiểu dữ liệu của PostgreSQL, phiên bản hiện tại theo khoá chính | PyIceberg |
+| `silver.<bảng>` | Cùng dòng với Bronze; UUID thành 16 byte, timestamp `timestamp(6) with time zone` | dbt (merge) |
+| `gold` | 7 dimension, 6 fact, 14 mart, 2 seed | dbt (dựng lại) |
 
-### Batch Polars/PyIceberg
-
-DAG `lakehouse_oltp` chạy mỗi bảng nguồn một task ở từng tầng (`jobs.oltp.bronze`, `jobs.oltp.check`, `jobs.oltp.silver`) và mỗi model dbt một task ở Gold.
-
-1. **Bronze.** Mỗi bảng được đọc trong giao dịch REPEATABLE READ riêng, theo khóa chính, mỗi trang tối đa 10.000 dòng, gom lô 200.000 dòng rồi append. `--mode full` đọc mọi dòng tạo trước `--run-started-at` (mốc chung của lần chạy); `--mode incremental` đọc cursor trong `[start, end)` có múi giờ, không lookback. Interval rỗng không xóa lịch sử. Bronze giữ trạng thái tại mỗi lần chạy, không phải CDC của mọi thay đổi nguồn. Retry cùng run ID xóa dòng Bronze của lần thử trước rồi ghi lại.
-2. **Kiểm tra trước merge,** trên các dòng Bronze của lần chạy. Luật theo dòng luôn chạy: khóa chính và trường bắt buộc không rỗng, tổng dòng phiếu nhập = số lượng × giá nhập. Trạng thái hợp lệ, tiền không âm, tổng đơn và tổng dòng đơn là CHECK constraint ở PostgreSQL nên không kiểm lại. Chạy full thêm, so với nguồn tại cùng mốc: khóa chính trùng, số dòng, tổng tiền `orders`/`payments`/`refunds`, và sổ kho cộng dồn so với `on_hand − opening_on_hand` ở `inventory`/`store_inventory` trừ các biến động ghi sau mốc; task `checks.foreign_keys` kiểm tra khóa ngoại tìm thấy trong cùng lần chạy. Incremental bỏ các kiểm tra này vì đơn tạo trong cửa sổ nhưng cập nhật sau đó sẽ vào lần chạy kế tiếp, nên dòng con có thể tạm trỏ tới cha chưa nạp. Trượt bất kỳ kiểm tra nào thì task của bảng đó lỗi với `CheckFailed` (bảng, tên kiểm tra và số dòng); không task Silver nào chạy nên Silver và Gold giữ nguyên.
-3. **Silver.** Full ghi đè cả bảng trong một commit, nên dòng đã xóa ở nguồn cũng biến mất. Incremental upsert theo lô và không để dòng có cursor cũ hơn ghi đè bản hiện có. UUID đọc từ PostgreSQL dạng chuỗi được chuẩn hóa thành 16 bytes.
-4. **Gold.** dbt dựng lại toàn bộ Gold từ Silver hiện tại (mục 9).
-
-Dữ liệu cá nhân không bị băm; Silver chỉ nạp các cột có trong danh sách cấu hình. DAG chạy với prefix `serving`; CLI nhận prefix `polars_batch_*` để chạy thử trong namespace riêng.
+- **Init** đọc mọi dòng tạo trước mốc bắt đầu lần chạy, đối soát với nguồn tại cùng mốc (số dòng; tổng tiền `orders`/`payments`/`refunds`; số dư sổ kho so với `on_hand − opening_on_hand` của `inventory`/`store_inventory` trừ biến động sau mốc), rồi ghi đè Bronze trong một commit. Dòng đã xoá ở nguồn vì vậy cũng biến mất.
+- **Incremental** đọc các dòng có cursor trong data interval `[start, end)`, không lookback. Bronze upsert và không để dòng có cursor cũ hơn ghi đè bản hiện có. Bronze là trạng thái hiện tại, không phải lịch sử mọi thay đổi.
+- **Silver** chỉ merge các dòng Bronze mới hơn `_ingested_at` lớn nhất của Silver; test `matches_bronze` chặn khi Silver và Bronze lệch khoá.
+- Khoá chính, trường bắt buộc, khoá ngoại và CHECK đã được PostgreSQL bảo đảm nên không kiểm tra lại. Dữ liệu cá nhân không bị băm; chỉ các cột khai báo trong `sources.py` được nạp.
 
 ## 4. Access-log contract và xử lý
 
-Middleware API phát `schema.name=ecommerce.access`, version `1.0.0`; generator phát `1.1.0` với `session.id` và `ecommerce.order_number`. Parser giữ version (mặc định `1.0.0` khi thiếu), không chặn theo version/schema name. Parser thực thi tại [parser.py](../pipelines/src/lakehouse/logs/parser.py); middleware/builder tại [API core](../services/platform-app/src/platform_app/api/core/access_logging.py). Không mô tả parser như một full JSON Schema validator.
+Thiết kế cho luồng log đang làm lại; chưa có job nào nạp log vào lakehouse.
+
+Middleware API phát `schema.name=ecommerce.access`, version `1.0.0`; generator phát `1.1.0` với `session.id` và `ecommerce.order_number`. Parser giữ version (mặc định `1.0.0` khi thiếu), không chặn theo version/schema name. Middleware/builder tại [API core](../services/platform-app/src/platform_app/api/core/access_logging.py). Không mô tả parser như một full JSON Schema validator.
 
 | Trường | Ý nghĩa |
 |---|---|
@@ -120,7 +115,7 @@ Dimension: `dim_date` (lịch, ngày lễ và ngày sale từ seed `calendar_eve
 | `mart_delivery_daily` | Ngày kết thúc giao × thành phố × nhân viên giao × phương thức thanh toán; đúng hạn, thời gian giao, COD |
 | `mart_fulfilment_backlog_daily` | Ngày × giai đoạn (chờ xuất kho / đang giao) × nhóm tuổi đơn 0–4 / 5–8 / 9+ ngày |
 | `mart_returns_daily` | Ngày yêu cầu × biến thể × loại (đổi/hoàn) |
-| `mart_inventory_current` | Vị trí × biến thể tại ngày `--as-of`; bán trung bình 28 ngày |
+| `mart_inventory_current` | Vị trí × biến thể tại ngày `DBT_AS_OF`; bán trung bình 28 ngày |
 | `mart_inventory_health_daily` | Ngày × vị trí × danh mục; số biến thể còn/hết hàng, giá trị nhập |
 | `mart_coupon_daily` | Ngày đặt × coupon × đợt sale |
 | `mart_reviews_daily` | Ngày đánh giá × sản phẩm × giao đúng hạn/trễ |
@@ -130,7 +125,7 @@ Dimension: `dim_date` (lịch, ngày lễ và ngày sale từ seed `calendar_eve
 | `mart_daily_product_demand` | Ngày UTC × product/resolved-or-raw key (log) |
 | `mart_marketing_funnel_daily` | Ngày UTC; request-event counts (log) |
 
-Không cộng nhiều ngày tồn thành tồn hiện tại. Model và data test nằm trong [models OLTP](../pipelines/dbt/models/oltp/).
+Không cộng nhiều ngày tồn thành tồn hiện tại. Model và data test nằm trong [dbt/models/oltp](../dbt/models/oltp/).
 
 ## 6. Định nghĩa KPI và chất lượng
 
@@ -152,9 +147,9 @@ Không cộng nhiều ngày tồn thành tồn hiện tại. Model và data test
 
 Funnel là **request events**, không phải unique people/session/order; step có thể chồng lặp và tỷ lệ vượt 100%. PUT giỏ không chứng minh lượng tăng. Không cộng distinct actor qua ngày/sản phẩm thành số khách duy nhất của kỳ. COD checkout chưa thu chưa tạo doanh thu; refund và thanh toán là dòng tiền riêng.
 
-Phân biệt NULL/chưa quan sát, 0 được đo từ nguồn hợp lệ và unavailable. Không tự tạo target, dự báo, biến động kỳ trước hoặc nhận định nhân quả. Mọi cột ngày trong Gold OLTP theo giờ Việt Nam; timestamp giữ UTC; mart log có UTC grain. Chuỗi ngày tồn kho và backlog kết thúc ở ngày `--as-of`.
+Phân biệt NULL/chưa quan sát, 0 được đo từ nguồn hợp lệ và unavailable. Không tự tạo target, dự báo, biến động kỳ trước hoặc nhận định nhân quả. Mọi cột ngày trong Gold OLTP theo giờ Việt Nam; timestamp giữ UTC; mart log có UTC grain. Chuỗi ngày tồn kho và backlog kết thúc ở ngày `DBT_AS_OF`.
 
-Kiểm tra chặn nằm trước Silver (mục 3). Sau Gold, data test dbt (khóa, phân bổ giảm giá bảo toàn, đơn khớp Silver, các mart doanh thu khớp nhau, tồn khớp sổ kho) chỉ ghi cảnh báo vào log, không chặn.
+Kiểm tra chặn gồm đối soát với nguồn và `matches_bronze` (mục 3). Sau Gold, data test dbt (khóa, phân bổ giảm giá bảo toàn, đơn khớp Silver, các mart doanh thu khớp nhau, tồn khớp sổ kho) chỉ ghi cảnh báo vào log, không chặn.
 
 ## 7. Dữ liệu sinh và căn cứ
 
@@ -294,16 +289,14 @@ Phần này giữ hồ sơ nguồn S01–S11 của nghiên cứu ngày **08/11/2
 
 ## 9. Hợp đồng Gold dbt/Trino
 
-Gold OLTP có 27 bảng: 7 dimension, 6 fact, 14 mart và 2 seed (`delivery_sla`, `calendar_events`); `mart_web_funnel_daily` của thiết kế chờ phần log. Job batch chạy `dbt build --select tag:oltp` trên Trino sau khi Silver đã merge; [models OLTP](../pipelines/dbt/models/oltp/) chứa logic biến đổi. Mỗi model là bảng `CREATE OR REPLACE`, một commit Iceberg mỗi bảng, dựng lại toàn bộ từ Silver hiện tại mỗi lần chạy (ở 1m khoảng một phút). Giảm giá đơn được phân bổ cho các dòng theo tỷ lệ tiền dòng với làm tròn xuống tích lũy, nên tổng phân bổ bằng đúng giảm giá đơn. Giá vốn lấy snapshot dòng đơn.
+Gold OLTP có 27 bảng: 7 dimension, 6 fact, 14 mart và 2 seed (`delivery_sla`, `calendar_events`). Mỗi model là bảng `CREATE OR REPLACE` (một commit Iceberg), dựng lại từ Silver hiện tại mỗi lần chạy, một task Airflow mỗi model theo thứ tự `ref()`. Giảm giá đơn được phân bổ cho các dòng theo tỷ lệ tiền dòng, làm tròn xuống tích luỹ, nên tổng phân bổ bằng đúng giảm giá đơn. Giá vốn lấy snapshot dòng đơn.
 
-`--as-of` (có múi giờ) là ngày hiện tại của Gold: kết thúc chuỗi ngày tồn kho và backlog, và cửa sổ 28 ngày của `mart_inventory_current`. `dim_date` phủ trọn các năm có dữ liệu. Data test trong `pipelines/dbt/tests/oltp` và test khóa trong `gold.yml` chạy với severity `warn`.
+`DBT_AS_OF` (mốc bắt đầu lần chạy) là ngày hiện tại của Gold: kết thúc chuỗi ngày tồn kho và backlog, và cửa sổ 28 ngày của `mart_inventory_current`. `dim_date` phủ trọn các năm có dữ liệu. Data test trong `dbt/tests/oltp` và test khoá trong `gold.yml` chạy với severity `warn`.
 
 ## 10. Hợp đồng ba mart log dbt/Trino
 
-[Wrapper log](../pipelines/src/lakehouse/logs/pipeline.py) dùng Polars/PyIceberg cho ingestion/quality, chạy `dbt build --select tag:logs` trên Trino rồi đối chiếu output persist với tham chiếu Polars. Giữ tên/cột/grain của `mart_hourly_route_metrics`, `mart_daily_product_demand` và `mart_marketing_funnel_daily`. Ngày/giờ tính theo UTC. Các chỉ số funnel là số request thành công, không phải số người/session/đơn hàng duy nhất; visitor đếm actor khác NULL. Tên cũ `success_2xx_count` vẫn tính HTTP dưới 400 (gồm 3xx). Mẫu số bằng 0 trả NULL.
+Thiết kế, chưa chạy: model ở [dbt/models/logs](../dbt/models/logs/), DDL ở [streaming/sql](../streaming/sql/). Giữ tên/cột/grain của `mart_hourly_route_metrics`, `mart_daily_product_demand` và `mart_marketing_funnel_daily`. Ngày/giờ tính theo UTC. Các chỉ số funnel là số request thành công, không phải số người/session/đơn hàng duy nhất; visitor đếm actor khác NULL. Tên cũ `success_2xx_count` vẫn tính HTTP dưới 400 (gồm 3xx). Mẫu số bằng 0 trả NULL.
 
 Ánh xạ sản phẩm hỗ trợ slug, ID số và UUID 16 bytes; UUID có dấu gạch được chuẩn hóa, slug giữ dấu gạch. Product token có ưu tiên hơn variant token. Khóa chưa khớp giữ `raw-product:`/`raw-variant:` để vẫn thấy nhu cầu chưa ánh xạ; mapping làm nhân bản event bị chặn.
 
 Percentile SQL sắp xếp duration khác NULL và chọn vị trí `ceil(n × p)` (nearest-rank chính xác), làm tròn ba chữ số; tham chiếu Polars dùng quantile `equiprobable`.
-
-15 kiểm tra gồm timestamp/ID/ngày UTC, trạng thái HTTP/flags, miền duration, ba đối chiếu output sau ghi, ba kiểm tra grain, bảo toàn tổng request route/funnel, checkout và product actions. Với prefix `serving`, audit append vào `system.logs_quality_results`, publication ở `system.logs_analytics_publications`; prefix thử nghiệm dùng `<prefix>_system`. Manifest log `schema_version=1`, `source_mode=logs_rollup` giữ cutoff `observed_at`, event time mới nhất `source_event_at`, snapshot output/input, gồm snapshot hiện tại của `silver.products` và `silver.product_variants` dùng để ánh xạ sản phẩm. Gate này không thay thế kiểm tra raw-payload conflict ở Bronze.

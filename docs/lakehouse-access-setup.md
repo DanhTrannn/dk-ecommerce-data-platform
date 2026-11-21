@@ -1,6 +1,6 @@
 # Tạo bucket và cấp quyền để chạy toàn bộ Lakehouse
 
-Làm theo thứ tự từ **Bước 1 đến Bước 23** để chạy full batch OLTP. Khi batch full chạy xong, tiếp tục **Bước 24 đến Bước 26** để thu và xử lý access log, hoặc **Bước 27 đến Bước 28** để xem dashboard Superset. Sau khi đã cấp quyền và khởi tạo Superset, dùng **Bước 29** để mở lại toàn bộ stack.
+Làm theo thứ tự từ **Bước 1 đến Bước 23** để chạy pipeline OLTP. Sau đó **Bước 24 đến Bước 25** bật dashboard Superset, và **Bước 26** mở lại toàn bộ stack.
 
 Các lệnh chạy từ thư mục gốc repo. Các bước dùng tên mặc định `lakehouse` cho cả bucket MinIO và catalog Polaris. Trino đang được cấu hình chọn warehouse Polaris `lakehouse`. Nếu đã tạo một tài nguyên, đối chiếu tên, cấu hình và quyền rồi tiếp tục bước kế tiếp. [Cấu hình catalog Trino](../infrastructure/trino/catalog)
 
@@ -14,7 +14,7 @@ Cần Docker Engine và Docker Compose v2. Nếu nạp dữ liệu mẫu, chuẩ
 if [ ! -f .env ]; then cp .env.example .env; fi
 ```
 
-Trong `.env`, kiểm tra `MINIO_LAKEHOUSE_BUCKET=lakehouse` và `POLARIS_CATALOG_NAME=lakehouse`. Kiểm tra các biến tài khoản quản trị MinIO và Polaris, các cặp `MINIO_*_ACCESS_KEY` và `MINIO_*_SECRET_KEY`, cùng `POSTGRES_ECOMMERCE_READER_USER`, `POSTGRES_ECOMMERCE_READER_PASSWORD`, `TRINO_READER_PASSWORD` và `DBT_TRINO_PASSWORD`. Nếu dùng Superset, cấu hình ba biến ở Bước 27 trước khi khởi động PostgreSQL lần đầu. [Mẫu cấu hình](../.env.example) · [Nhóm biến môi trường](setup.md#1-chuẩn-bị-môi-trường)
+Trong `.env`, kiểm tra `MINIO_LAKEHOUSE_BUCKET=lakehouse` và `POLARIS_CATALOG_NAME=lakehouse`. Kiểm tra các biến tài khoản quản trị MinIO và Polaris, các cặp `MINIO_*_ACCESS_KEY` và `MINIO_*_SECRET_KEY`, cùng `POSTGRES_ECOMMERCE_READER_USER`, `POSTGRES_ECOMMERCE_READER_PASSWORD`, `TRINO_READER_PASSWORD` và `DBT_TRINO_PASSWORD`. Nếu dùng Superset, cấu hình ba biến ở Bước 24 trước khi khởi động PostgreSQL lần đầu. [Mẫu cấu hình](../.env.example) · [Nhóm biến môi trường](setup.md#1-chuẩn-bị-môi-trường)
 
 ### Bước 2 Bật Console và đăng nhập
 
@@ -162,7 +162,7 @@ Kiểm tra bảng liên kết trong tab **Gán / Gỡ quyền** để thấy đ�
 
 Kiểm tra cả bốn dòng có **Credential** là **Đã có** và **Quyền file** là **Đúng**. Exporter ghi `clients.env` vào volume từng workload. Trino đọc hai file riêng cho reader và writer. Khi thay credential đang dùng, khởi động lại consumer. Với Flink, dừng job cũ và submit lại khi cần áp dụng credential mới. [Màn hình cấp credential](../services/platform-app/src/platform_app/ui/views/access_workloads.py) · [Volume credential](setup.md#tạo-quyền-và-credential-trên-streamlit)
 
-## Chạy full batch OLTP
+## Chạy pipeline OLTP
 
 ### Bước 19 Cấp quyền đọc PostgreSQL cho Airflow
 
@@ -190,73 +190,36 @@ make seed
 make generate PRESET=1m
 ```
 
-### Bước 22 Trigger full batch
+### Bước 22 Chạy lần nạp đầu
 
-Chạy hai lệnh dưới để bật DAG OLTP và tạo một lần chạy full. Khi bật, Airflow xếp thêm lần chạy incremental gần nhất; mỗi lúc chỉ một lần chạy hoạt động, lần full chạy sau và ghi đè Silver. [DAG OLTP](../airflow/dags/lakehouse_oltp.py)
+Bật và chạy DAG init. DAG này tạo bảng, nạp toàn bộ nguồn rồi dựng Silver và Gold. [Pipeline OLTP](../airflow/README.md)
 
 ```bash
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp
-docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp --conf '{"mode": "full"}'
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_init
+docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_init
 ```
 
-### Bước 23 Xác nhận batch đã chạy xong
+### Bước 23 Xác nhận và bật lịch hằng ngày
 
-Trong **Airflow → DAGs → `lakehouse_oltp` → lần chạy mới nhất**, mọi task trong năm nhóm `bronze`, `checks`, `silver`, `gold`, `maintenance` phải xanh. Log task `bronze.<bảng>` có dòng `BRONZE table=… rows=…`, `checks.<bảng>` có `CHECKS table=… passed`, `silver.<bảng>` có `SILVER table=…`; task `gold.<model>` in log dbt của model đó. Task đỏ chỉ ra đúng bảng hoặc model lỗi; **Clear** task đó để chạy lại riêng nó. Có thể đếm Gold qua Trino. [Kiểm tra bằng SQL Trino](operations.md#3-kiểm-tra-bằng-sql-trino)
+Trong **Airflow → DAGs → `lakehouse_oltp_init` → lần chạy mới nhất**, mọi task trong các nhóm `staging`, `reconcile`, `bronze`, `silver`, `gold`, `maintenance` phải xanh. Kiểm tra Gold có dữ liệu:
 
 ```sql
 SELECT count(*) FROM lakehouse.gold.fact_order;
 ```
 
-Sau lần full, DAG tiếp tục chạy incremental hằng ngày lúc **03:00 giờ Việt Nam**. Muốn dừng lịch, pause DAG:
+Sau đó bật DAG chạy incremental lúc **03:00 giờ Việt Nam** mỗi ngày:
 
 ```bash
-docker compose exec -T airflow-scheduler airflow dags pause lakehouse_oltp
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
 ```
 
-## Bật luồng access log
+## Luồng access log
 
-### Bước 24 Bật Kafka cho FastAPI và mở profile streaming
-
-Đặt `KAFKA_ENABLED=true` trong `.env`, lưu lại rồi chạy lệnh dưới. `make stream` bật `core,streaming` và áp dụng cấu hình Kafka vào `platform-app`.
-
-```bash
-make stream
-```
-
-### Bước 25 Submit job Flink
-
-```bash
-docker compose --profile core --profile streaming run --rm flink-submit
-```
-
-Mở [Flink UI](http://localhost:8085) và đợi job lên **RUNNING**. [Script submit Flink](../infrastructure/flink/bin/submit-job.sh)
-
-### Bước 26 Tạo access log và bật DAG xử lý log
-
-Gọi API hoặc dùng **Mô phỏng API** trên Streamlit để tạo request sau khi Flink đã chạy. Dùng client SQL kết nối Trino để kiểm tra Landing có sự kiện.
-
-```sql
-SELECT event_id, event_ts
-FROM lakehouse.landing.access_logs
-ORDER BY event_ts DESC
-LIMIT 5;
-```
-
-Khi truy vấn trả về sự kiện và batch OLTP đã công bố, bật `lakehouse_logs_marts` để xử lý log theo giờ.
-
-```bash
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_logs_marts
-```
-
-Nếu cần xem ngay, chạy lệnh sau khi không có run log hoặc batch nào đang chạy. Trong Airflow, mở task `rollup_logs_gold_marts` của run mới và xem kết quả `NATIVE_LOG_RESULT` trong **Logs**. [Thiết lập access log](setup.md#5-access-log) · [DAG mart log](../airflow/dags/lakehouse_logs_marts.py)
-
-```bash
-docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_logs_marts
-```
+Luồng access log đang được thiết kế lại; chưa có job Flink hay DAG nào nạp log vào lakehouse. [Access log](setup.md#5-access-log)
 
 ## Bật Superset
 
-### Bước 27 Chuẩn bị database và admin Superset
+### Bước 24 Chuẩn bị database và admin Superset
 
 Kiểm tra `SUPERSET_DB_PASSWORD`, `SUPERSET_SECRET_KEY` và `SUPERSET_ADMIN_PASSWORD` trong `.env`. Nếu vừa đổi biến PostgreSQL cho Superset, chạy `docker compose --profile core up -d --wait postgres` khi các job đang rảnh để container nhận cấu hình mới. Sau đó chạy:
 
@@ -266,7 +229,7 @@ make superset-db
 make superset-init
 ```
 
-### Bước 28 Bật Superset và sync dashboard
+### Bước 25 Bật Superset và sync dashboard
 
 Sau khi batch full đã chạy xong, chạy:
 
@@ -279,13 +242,12 @@ make superset-sync
 
 ## Khởi động lại và xử lý lỗi
 
-### Bước 29 Mở lại đầy đủ ba profile
+### Bước 26 Mở lại toàn bộ stack
 
-Dùng lệnh dưới khi tài nguyên MinIO, credential Polaris và metadata Superset đã sẵn sàng. `flink-submit` bỏ qua thao tác submit nếu đã có job phù hợp ở trạng thái **RUNNING**.
+Dùng lệnh dưới khi tài nguyên MinIO, credential Polaris và metadata Superset đã sẵn sàng.
 
 ```bash
-make up-all PROFILES=core,streaming,bi
-docker compose --profile core --profile streaming run --rm flink-submit
+make up-all PROFILES=core,bi
 make status
 ```
 
@@ -297,9 +259,7 @@ make status
 | Workload báo S3 `403` | Về Bước 4 đến Bước 11. Kiểm tra access key và secret khớp `.env`, policy gán đúng bucket, prefix và quyền object. |
 | Iceberg REST báo thiếu quyền đọc hoặc ghi bảng | Về Bước 15 đến Bước 18. Kiểm tra principal được cấp và lần theo liên kết đến catalog role. |
 | Batch không đăng nhập được PostgreSQL | Về Bước 19 và kiểm tra biến reader cùng kết quả `make source-reader`. |
-| Batch báo `CheckFailed: <bảng>: <kiểm tra> = <số dòng>` | Dữ liệu nguồn vi phạm luật; Silver và Gold chưa đổi. Sửa dòng nguồn hoặc luật rồi chạy lại cùng run ID. [Batch OLTP](operations.md#batch-oltp) |
-| Flink chạy nhưng Landing trống | Về Bước 24 đến Bước 26, kiểm tra `KAFKA_ENABLED=true` đã áp dụng cho `platform-app` và tạo request sau khi Flink `RUNNING`. |
-| Superset sync báo thiếu bảng Gold | Về Bước 23, kiểm tra batch full đã chạy xong rồi chạy lại Bước 28. |
+| Superset sync báo thiếu bảng Gold | Về Bước 23, kiểm tra `lakehouse_oltp_init` đã chạy xong rồi chạy lại Bước 25. |
 
 Xem log startup và trạng thái container bằng các lệnh dưới. [Hướng dẫn xử lý sự cố](operations.md#4-troubleshooting)
 
