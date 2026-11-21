@@ -1,9 +1,7 @@
-"""Daily incremental load of the OLTP source at 03:00: staging → Bronze → Silver → Gold.
+"""Load the OLTP rows changed in each daily interval: staging, Bronze, Silver and Gold.
 
-Each run extracts the rows whose cursor falls in its data interval and upserts them into Bronze; dbt then merges
-the changed Bronze rows into Silver. Catchup runs the intervals missed while the DAG was paused; `airflow backfill
-create --dag-id lakehouse_oltp_incremental --from-date ... --to-date ...` reloads a past range. Run lakehouse_oltp_init first, and keep this DAG paused while
-it runs: both write the same tables.
+Run lakehouse_oltp_init first and keep this DAG paused while it runs; both DAGs write the same tables. To reload a
+past range, use `airflow backfill create --dag-id lakehouse_oltp_incremental --from-date ... --to-date ...`.
 """
 
 from datetime import timedelta
@@ -17,12 +15,12 @@ from lakehouse.oltp.sources import SOURCE_TABLES
 from tasks import oltp
 from tasks.dbt import dbt_command, dbt_env, gold_task_group
 
-POOL = "lakehouse_oltp"  # 4 slots (docker-compose.yml); each task holds a table's batches in memory
+# Each task holds a table's batches in memory, so the pool (4 slots) bounds memory use.
+POOL = "lakehouse_oltp"
 
 with DAG(
     dag_id="lakehouse_oltp_incremental",
     schedule="0 3 * * *",
-    # Catchup runs every interval from here on; rows created before the init DAG's full load are already loaded.
     start_date=pendulum.datetime(2026, 11, 21, tz="Asia/Ho_Chi_Minh"),
     catchup=True,
     max_active_runs=1,
@@ -42,11 +40,10 @@ with DAG(
             )
 
     with TaskGroup("silver") as silver:
-        # Each Silver model merges the Bronze rows written since its last run.
         for table in SOURCE_TABLES:
             BashOperator(
                 task_id=table.name,
-                bash_command=dbt_command("build", table.name) + "",
+                bash_command=dbt_command("build", table.name),
                 env=dbt_env(table.name),
                 append_env=True,
                 pool=POOL,

@@ -1,5 +1,3 @@
-"""Python Iceberg catalog access using the existing workload credential files."""
-
 import os
 import shlex
 from pathlib import Path
@@ -47,7 +45,6 @@ def iceberg_catalog():
 
 
 def load_table(catalog, key):
-    """Load a table the init DAG created; the load jobs never create tables themselves."""
     try:
         return catalog.load_table(key)
     except NoSuchTableError:

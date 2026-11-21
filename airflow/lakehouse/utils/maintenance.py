@@ -1,5 +1,3 @@
-"""Iceberg maintenance of the OLTP tables: compaction, snapshot expiry and an orphan-file report."""
-
 import os
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
@@ -8,7 +6,8 @@ import boto3
 
 RETAIN_SNAPSHOTS = 20
 TARGET_FILE_SIZE_BYTES = 128 * 1024 * 1024
-MIN_AGE = timedelta(days=3)  # younger snapshots and files stay: a reader or a write in progress may use them
+# Younger snapshots and files stay, since a reader or a write in progress may still use them.
+MIN_AGE = timedelta(days=3)
 
 
 def compact(table):
@@ -65,5 +64,4 @@ ACTIONS = {"compact": compact, "expire": expire, "orphan": orphan_files}
 
 
 def maintain_tables(catalog, tables, action):
-    """Run one action on each table; tables are (namespace, name) keys."""
     return {".".join(key): ACTIONS[action](catalog.load_table(key)) for key in tables}

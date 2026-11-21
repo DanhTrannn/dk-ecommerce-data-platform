@@ -1,9 +1,3 @@
-"""Create the OLTP namespaces and the staging and Bronze tables; the load jobs only write to what this creates.
-
-Staging and Bronze copy the source, so their columns and types are read from PostgreSQL. Silver and Gold tables
-are created by their dbt models.
-"""
-
 import pyarrow as pa
 
 from lakehouse.oltp.staging import LINEAGE_FIELDS
@@ -16,14 +10,13 @@ LAYERS = ("staging", "bronze", "silver", "gold")
 
 
 def source_schema(connection, table):
-    """The source columns the batch reads, typed as the source reports them, plus the lineage columns."""
     with connection.cursor() as cursor:
         cursor.execute(source_query(table) + " LIMIT 0")
         return pa.schema([*arrow_source_schema(cursor.description), *LINEAGE_FIELDS])
 
 
 def create_or_evolve(catalog, key, schema, properties):
-    """Create the table, or add the columns its schema gained since it was created."""
+    """Create the table, or add the columns the source gained; columns dropped at the source are kept."""
     if catalog.table_exists(key):
         table = catalog.load_table(key)
         if set(schema.names) - set(table.schema().column_names):
@@ -34,7 +27,6 @@ def create_or_evolve(catalog, key, schema, properties):
 
 
 def create_staging_and_bronze(catalog, table, schema):
-    """Both copy the source, so both take its columns and types."""
     create_or_evolve(catalog, ("staging", table.name), schema, PROPERTIES)
     create_or_evolve(catalog, ("bronze", table.name), schema, PROPERTIES)
 

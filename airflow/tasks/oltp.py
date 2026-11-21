@@ -1,13 +1,7 @@
-"""Python tasks of the OLTP DAGs, called by PythonOperator.
+"""Callables of the OLTP DAGs.
 
-Airflow fills the parameters named after its context (dag_run, data_interval_start, data_interval_end).
-Each load truncates staging.<table> and extracts into it, then merges the extract into Bronze, so rerunning a
-task gives the same result. Silver and Gold are dbt models (tasks/dbt.py).
-The source is the `oltp_postgres` Airflow connection; its Extra sets a read-only UTC session.
-
-- Full load (lakehouse_oltp_init): reads every source row created before the run's logical start
-  (`dag_run.run_after`, which stays the same when a task is cleared), so every table stops at the same moment.
-- Incremental load (lakehouse_oltp_incremental): reads the rows whose cursor falls in the run's data interval.
+Airflow fills the parameters named after its context keys: dag_run, data_interval_start and data_interval_end.
+A full load cuts off at `dag_run.run_after`, which stays the same when a task is cleared and retried.
 """
 
 import json
@@ -64,17 +58,14 @@ def staging_incremental(table, data_interval_start=None, data_interval_end=None)
 
 
 def bronze_full(table):
-    """Replace bronze.<table> with the extract in one commit."""
     merge_bronze(iceberg_catalog(), TABLES_BY_NAME[table], full=True)
 
 
 def bronze_incremental(table):
-    """Upsert the extract into bronze.<table>, never replacing a row with an older version."""
     merge_bronze(iceberg_catalog(), TABLES_BY_NAME[table], full=False)
 
 
 def reconcile(table, dag_run):
-    """Compare the full extract with the source, both up to the run's cutoff."""
     table = TABLES_BY_NAME[table]
     with source_connection() as connection, source_read_transaction(connection):
         source = source_reconciliation(connection, table, dag_run.run_after.isoformat())
@@ -82,11 +73,8 @@ def reconcile(table, dag_run):
 
 
 def maintain(action):
-    """One maintenance action on every OLTP table: staging, Bronze, Silver and each Gold model and seed.
-
-    Silver is left out of compaction: its dbt models run optimize after every merge, and PyIceberg cannot read the
-    position-delete files Trino's MERGE writes before that.
-    """
+    # Compaction skips Silver: dbt optimizes it after every merge, and PyIceberg cannot read the position deletes
+    # Trino's MERGE leaves before that.
     tables = [
         *(("staging", table.name) for table in SOURCE_TABLES),
         *(("bronze", table.name) for table in SOURCE_TABLES),

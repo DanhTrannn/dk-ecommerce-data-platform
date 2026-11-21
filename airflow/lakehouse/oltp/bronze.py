@@ -1,10 +1,3 @@
-"""Merge the latest extract into bronze.<table>: the source rows as the source holds them, current version per key.
-
-A full load replaces the table in one commit; an incremental load upserts by primary key and never replaces a row
-with an older version. Every row of one extract carries the same `_ingested_at`, which Silver uses to pick up the
-rows Bronze just changed.
-"""
-
 import polars as pl
 import pyarrow as pa
 from pyiceberg.expressions import In
@@ -14,7 +7,7 @@ from lakehouse.utils.iceberg import load_table
 
 
 def filter_current(delta, current, table):
-    """Drop the rows that would replace a newer version: an older cursor, or the same cursor with nothing changed."""
+    """Drop rows that would replace a newer version: an older cursor, or the same cursor with no change."""
     if not delta.num_rows or not current.num_rows:
         return delta
     business = [
@@ -36,7 +29,7 @@ def filter_current(delta, current, table):
 
 
 def lots(reader, rows):
-    """Regroup a batch stream into tables of at least `rows` rows (the last may be smaller)."""
+    """Regroup record batches into tables of at least `rows` rows; the last one may be smaller."""
     buffer, buffered = [], 0
     for batch in reader:
         buffer.append(batch)
@@ -49,7 +42,7 @@ def lots(reader, rows):
 
 
 def replace_table(target, reader, transform, schema):
-    """Full load: one overwrite commit, so readers see either the old or the new table, never a partial one."""
+    """Write the whole table in one commit, so readers never see a partial load."""
     written = 0
 
     def batches():
@@ -65,7 +58,6 @@ def replace_table(target, reader, transform, schema):
 
 
 def upsert_table(target, reader, transform, schema, table):
-    """Incremental load: upsert by primary key, never replacing a row with an older version."""
     business = tuple(name for name in schema.names if not name.startswith("_"))
     written = 0
     for lot in lots(reader, BATCH_ROWS):
@@ -79,7 +71,6 @@ def upsert_table(target, reader, transform, schema, table):
 
 
 def merge_bronze(catalog, table, *, full):
-    """Return the number of rows written to Bronze."""
     target = load_table(catalog, ("bronze", table.name))
     schema = target.schema().as_arrow()
     reader = staging_rows(catalog, table)

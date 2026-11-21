@@ -1,5 +1,3 @@
-"""Source rows streamed in chunks through a PostgreSQL server-side cursor, with explicit Arrow types."""
-
 from datetime import UTC
 
 import pyarrow as pa
@@ -56,10 +54,9 @@ def to_arrow(rows, description):
 
 
 def source_chunks(connection, table, start=None, end=None, *, created_before=None):
-    """Run the source query once and yield its rows in chunks of CHUNK_ROWS; an empty result yields one empty chunk.
+    """Yield the source rows in chunks of CHUNK_ROWS, or one empty chunk when there are none.
 
-    A named (server-side) psycopg cursor keeps the result on the server, so memory holds one chunk, not the whole table.
-    It must run inside a transaction, which source_read_transaction provides.
+    The named cursor keeps the result on the server and needs the transaction source_read_transaction opens.
     """
     if (start is None) != (end is None):
         raise ValueError("Both interval bounds are required")

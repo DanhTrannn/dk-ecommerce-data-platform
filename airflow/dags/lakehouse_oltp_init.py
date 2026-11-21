@@ -1,8 +1,7 @@
-"""Full load of the OLTP source, triggered by hand: create the tables, then staging → reconcile → Bronze → Silver → Gold.
+"""Load the whole OLTP source: create the tables, then staging, reconcile, Bronze, Silver and Gold.
 
-Run it once to set the lakehouse up, again after a source column is added, or to reload everything. Each table
-reads the source rows created before the run started, so every table stops at the same moment. Keep
-lakehouse_oltp_incremental paused while this runs: both write the same tables.
+Trigger it by hand to set the lakehouse up, after a source column is added, or to reload everything. Keep
+lakehouse_oltp_incremental paused while it runs; both DAGs write the same tables.
 """
 
 from datetime import timedelta
@@ -16,7 +15,8 @@ from lakehouse.oltp.sources import SOURCE_TABLES
 from tasks import oltp
 from tasks.dbt import dbt_command, dbt_env, gold_task_group
 
-POOL = "lakehouse_oltp"  # 4 slots (docker-compose.yml); each task holds a table's batches in memory
+# Each task holds a table's batches in memory, so the pool (4 slots) bounds memory use.
+POOL = "lakehouse_oltp"
 
 with DAG(
     dag_id="lakehouse_oltp_init",
@@ -35,7 +35,7 @@ with DAG(
                 task_id=table.name, python_callable=oltp.staging_full, op_kwargs={"table": table.name}, pool=POOL
             )
 
-    # Stops the run before Bronze and Silver change if the extract is not the whole source at the cutoff.
+    # Runs before Bronze so that an incomplete extract never replaces Bronze, Silver or Gold.
     with TaskGroup("reconcile") as reconcile:
         for table in SOURCE_TABLES:
             PythonOperator(
@@ -49,7 +49,6 @@ with DAG(
             )
 
     with TaskGroup("silver") as silver:
-        # --full-refresh rebuilds each Silver table from all of Bronze.
         for table in SOURCE_TABLES:
             BashOperator(
                 task_id=table.name,

@@ -1,11 +1,3 @@
-"""Reconcile a full extract in staging with the source at the run's cutoff, before Bronze and Silver change.
-
-PostgreSQL already enforces the row constraints (keys, NOT NULL, foreign keys, CHECKs), so they are not checked
-again. What only this step proves is that the pipeline copied the source completely: same row count, same money
-totals and, for the stock ledger, the same balances. Any mismatch fails the task, so Bronze, Silver and Gold keep
-their previous state.
-"""
-
 from datetime import UTC, datetime
 
 import polars as pl
@@ -15,7 +7,7 @@ from lakehouse.utils.postgres import identifier
 
 MONEY_TOTALS = {"orders": "total_vnd", "payments": "amount_vnd", "refunds": "amount_vnd"}
 # Ledger movements exclude the opening stock, so a position's ledger sum up to the cutoff equals
-# on_hand - opening_on_hand minus the movements recorded since the cutoff; one query keeps both sides at one moment.
+# on_hand - opening_on_hand minus the movements since the cutoff. One query reads both sides at one moment.
 SOURCE_STOCK = """
     WITH later AS (
         SELECT store_id, variant_id, sum(quantity_delta) AS moved
@@ -32,11 +24,11 @@ SOURCE_STOCK = """
 
 
 class ReconciliationFailed(RuntimeError):
-    """The extract does not match the source; nothing downstream changes."""
+    """The extract does not match the source."""
 
 
 def source_reconciliation(connection, table, created_before):
-    """Row count, money total and (for the ledger) stock balances of one table, up to the run's cutoff."""
+    """Return the row count, money total and, for the ledger, stock balances created before the cutoff."""
     cutoff = datetime.fromisoformat(created_before.replace("Z", "+00:00")).astimezone(UTC)
     total = f"sum({identifier(MONEY_TOTALS[table.name])})" if table.name in MONEY_TOTALS else "NULL"
     with connection.cursor() as cursor:
@@ -67,7 +59,6 @@ def ledger_failures(catalog, ledger, source_stock):
 
 
 def reconcile_table(catalog, table, source):
-    """Raise ReconciliationFailed listing every mismatch between the extract and the `source` figures."""
     columns = [table.pk, *([MONEY_TOTALS[table.name]] if table.name in MONEY_TOTALS else [])]
     frame = read_extract(catalog, table, columns)
     failures = []

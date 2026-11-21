@@ -1,8 +1,3 @@
-"""PostgreSQL source SQL and the source read transaction.
-
-Connections come from the Airflow `oltp_postgres` connection, through PostgresHook.
-"""
-
 from contextlib import contextmanager
 import re
 from datetime import datetime, timezone
@@ -24,8 +19,10 @@ def _utc(value, label):
 
 
 def source_query(table, interval_start=None, interval_end=None, *, created_before=None):
-    """Incremental: rows whose cursor is in [start, end). Full: rows created before the run start, so every table of
-    one run is read up to the same moment even though each is read at a different time."""
+    """Build the source SELECT for a cursor interval [start, end), or for rows created before a cutoff.
+
+    The cutoff keeps every table of a full load at the same moment, although each is read at a different time.
+    """
     columns = ", ".join(identifier(column) for column in table.columns)
     query = f'SELECT {columns} FROM "public".{identifier(table.name)}'
     if created_before is not None:
@@ -46,7 +43,6 @@ def source_query(table, interval_start=None, interval_end=None, *, created_befor
 
 @contextmanager
 def source_read_transaction(connection):
-    """Enclose source reads in one repeatable-read snapshot without releasing the session lock."""
     connection.isolation_level = IsolationLevel.REPEATABLE_READ
     try:
         yield
