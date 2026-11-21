@@ -7,11 +7,11 @@ Bronze drops that run's earlier rows, Silver merges by primary key and dbt rebui
 from datetime import UTC, datetime
 
 from lakehouse.analytics.dbt import run_models
-from lakehouse.oltp.polars.bronze import ingest
-from lakehouse.oltp.polars.checks import check_run, source_reconciliation
-from lakehouse.oltp.polars.pipeline import validate_run
-from lakehouse.oltp.polars.silver import merge_silver
-from lakehouse.utils.config import SOURCE_TABLES
+from lakehouse.oltp.bronze import ingest
+from lakehouse.oltp.checks import check_run, source_reconciliation
+from lakehouse.utils.runs import validate_run
+from lakehouse.oltp.silver import merge_silver
+from lakehouse.oltp.sources import SOURCE_TABLES
 from lakehouse.utils.namespaces import namespace as ns
 from lakehouse.utils.postgres import namespace_lock, source_query, source_read_transaction
 

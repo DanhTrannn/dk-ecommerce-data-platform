@@ -219,3 +219,5 @@ FOREIGN_KEYS = (
     ("inventory_transactions", "return_id", "return_requests"),
     ("inbound_receipt_items", "variant_id", "product_variants"),
 )
+
+TABLES_BY_NAME = {table.name: table for table in SOURCE_TABLES}

@@ -9,7 +9,7 @@ import boto3
 
 from lakehouse.analytics.dbt import project_directory
 from lakehouse.utils.snapshots import capture, read_snapshot
-from lakehouse.utils.config import SOURCE_TABLES
+from lakehouse.oltp.sources import SOURCE_TABLES
 from lakehouse.utils.namespaces import namespace as ns
 from lakehouse.utils.postgres import namespace_lock
 

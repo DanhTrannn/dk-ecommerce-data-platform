@@ -1,13 +1,47 @@
 """Merge a run's Bronze rows into silver.<table>, the current state of each source row."""
 
+import polars as pl
 import pyarrow as pa
 from pyiceberg.expressions import In
 
-from lakehouse.oltp.polars.bronze import BRONZE_BATCH_ROWS, run_rows
-from lakehouse.oltp.polars.schema import silver_schema
-from lakehouse.oltp.polars.transforms import filter_current, to_silver
+from lakehouse.oltp.bronze import BRONZE_BATCH_ROWS, run_rows
+from lakehouse.oltp.sources import LINEAGE
+from lakehouse.utils.contracts import align_arrow, ddl_schema
 from lakehouse.utils.iceberg import PROPERTIES, load_or_create
 from lakehouse.utils.namespaces import namespace as ns
+
+
+def silver_schema(table):
+    return ddl_schema(f"contracts/silver/{table.name}.sql")
+
+
+def to_silver(rows, table, schema):
+    """Keep the configured columns and lineage, typing UUID strings as the 16-byte binary Silver stores."""
+    frame = pl.from_arrow(rows).select([*table.columns, *LINEAGE])
+    uuids = [field.name for field in schema if pa.types.is_binary(field.type) and frame.schema[field.name] == pl.String]
+    frame = frame.with_columns(pl.col(name).str.replace_all("-", "").str.decode("hex") for name in uuids)
+    return align_arrow(frame.to_arrow(), schema)
+
+
+def filter_current(delta, current, table):
+    if not delta.num_rows or not current.num_rows:
+        return delta
+    business = [
+        name for name in delta.column_names if name in current.column_names
+        and name not in {table.pk, table.cursor_field} and not name.startswith("_")
+    ]
+    previous = pl.col("_current_cursor")
+    cursor = pl.col(table.cursor_field)
+    changed = pl.any_horizontal([pl.col(name).ne_missing(pl.col("_current_" + name)) for name in business]) if business else pl.lit(True)
+    frame = pl.from_arrow(delta).join(
+        pl.from_arrow(current).select(
+            table.pk, cursor.alias("_current_cursor"),
+            *(pl.col(name).alias("_current_" + name) for name in business),
+        ),
+        on=table.pk,
+        how="left",
+    ).filter(previous.is_null() | (cursor > previous) | ((cursor == previous) & changed)).select(delta.column_names)
+    return align_arrow(frame.to_arrow(), delta.schema)
 
 
 def lots(reader, rows):

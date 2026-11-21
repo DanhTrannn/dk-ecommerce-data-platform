@@ -4,8 +4,8 @@ import pyarrow as pa
 from pyiceberg.expressions import EqualTo
 from pyiceberg.transforms import DayTransform
 
-from lakehouse.oltp.polars.schema import align_arrow
-from lakehouse.oltp.polars.source import source_pages
+from lakehouse.utils.contracts import align_arrow
+from lakehouse.oltp.source import source_pages
 from lakehouse.utils.iceberg import PROPERTIES, evolve_table_schema, load_or_create
 from lakehouse.utils.namespaces import namespace as ns
 

@@ -4,9 +4,9 @@ from collections import Counter
 
 import polars as pl
 
-from lakehouse.oltp.polars.bronze import run_rows
-from lakehouse.oltp.polars.validation import violation_counts
-from lakehouse.utils.config import FOREIGN_KEYS
+from lakehouse.oltp.bronze import run_rows
+from lakehouse.oltp.rules import violation_counts
+from lakehouse.oltp.sources import FOREIGN_KEYS
 from lakehouse.utils.postgres import identifier
 
 MONEY_TOTALS = {"orders": "total_vnd", "payments": "amount_vnd", "refunds": "amount_vnd"}
