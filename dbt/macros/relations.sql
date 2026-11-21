@@ -3,7 +3,7 @@
 {%- endmacro %}
 
 {% macro pinned(name) -%}
-  {% set relation = source('events' if name == 'fact_web_events' else 'silver', name) %}
+  {% set relation = source('events', name) if name == 'fact_web_events' else ref(name) %}
   {% if execute and name not in var('inputs', {}) %}{{ exceptions.raise_compiler_error('Use the pipeline wrapper to freeze input snapshots') }}{% endif %}
   {% set snapshot = var('inputs', {}).get(name) %}
   {% if snapshot is none %}

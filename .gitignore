@@ -56,5 +56,6 @@ AGENTS.md
 **/dbt/target/
 **/dbt/logs/
 **/dbt/dbt_packages/
+**/dbt/.user.yml
 !dbt/tests/
 !dbt/tests/**/*.sql

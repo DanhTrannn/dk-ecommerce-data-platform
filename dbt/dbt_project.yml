@@ -9,7 +9,6 @@ test-paths: [tests]
 clean-targets: [target, dbt_packages]
 models:
   retail_lakehouse:
-    +materialized: iceberg_merge
     +schema: gold
     oltp:
       +tags: [oltp]
@@ -28,6 +27,7 @@ models:
       +post-hook: "ALTER TABLE {{ this }} EXECUTE optimize"
     logs:
       +tags: [logs]
+      +materialized: iceberg_merge
 seeds:
   retail_lakehouse:
     +schema: gold
@@ -37,7 +37,7 @@ seeds:
 data_tests:
   retail_lakehouse:
     oltp:
-      # Post-Gold checks only log; the blocking checks run before Silver changes.
+      # Post-Gold checks only log; the blocking ones are the source reconciliation and the Silver matches_bronze tests.
       +severity: warn
 flags:
   require_certificate_validation: true
