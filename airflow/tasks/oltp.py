@@ -1,8 +1,8 @@
 """Python tasks of the OLTP DAGs, called by PythonOperator.
 
 Airflow fills the parameters named after its context (dag_run, data_interval_start, data_interval_end).
-Each load truncates staging.<table> and extracts into it, then merges the extract into Bronze and Silver, so
-rerunning a task gives the same result.
+Each load truncates staging.<table> and extracts into it, merges the extract into Bronze, then Bronze into
+Silver, so rerunning a task gives the same result.
 The source is the `oltp_postgres` Airflow connection; its Extra sets a read-only UTC session.
 
 - Full load (lakehouse_oltp_init): reads every source row created before the run's logical start
@@ -93,12 +93,12 @@ def foreign_keys():
 
 
 def silver_full(table):
-    """Replace silver.<table> with the extract in one commit."""
+    """Replace silver.<table> with all of Bronze in one commit."""
     merge_silver(iceberg_catalog(), TABLES_BY_NAME[table], full=True)
 
 
 def silver_incremental(table):
-    """Upsert the extract into silver.<table>, never replacing a row with an older version."""
+    """Upsert the Bronze rows this load changed into silver.<table>."""
     merge_silver(iceberg_catalog(), TABLES_BY_NAME[table], full=False)
 
 
