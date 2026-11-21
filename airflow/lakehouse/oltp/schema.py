@@ -1,22 +1,23 @@
-"""Create the OLTP namespaces and the Bronze and Silver tables; the load jobs only write to what this creates.
+"""Create the OLTP namespaces and the staging, Bronze and Silver tables; the load jobs only write to what this creates.
 
-Bronze copies the source, so its columns and types are read from PostgreSQL; Silver follows its reviewed contract.
+Staging and Bronze copy the source, so their columns and types are read from PostgreSQL; Silver follows its
+reviewed contract.
 Gold tables are left to dbt, which rebuilds them from Silver on every run.
 """
 
 import pyarrow as pa
 
-from lakehouse.oltp.bronze import LINEAGE_FIELDS
+from lakehouse.oltp.staging import LINEAGE_FIELDS
 from lakehouse.oltp.silver import silver_schema
 from lakehouse.oltp.source import arrow_source_schema
 from lakehouse.oltp.sources import SOURCE_TABLES
 from lakehouse.utils.iceberg import PROPERTIES, evolve_table_schema
 from lakehouse.utils.postgres import source_query, source_read_transaction
 
-LAYERS = ("bronze", "silver", "gold")
+LAYERS = ("staging", "bronze", "silver", "gold")
 
 
-def bronze_schema(connection, table):
+def source_schema(connection, table):
     """The source columns the batch reads, typed as the source reports them, plus the lineage columns."""
     with connection.cursor() as cursor:
         cursor.execute(source_query(table) + " LIMIT 0")
@@ -32,7 +33,9 @@ def create_or_evolve(catalog, key, schema, properties):
     return catalog.create_table(key, schema=schema, properties=properties)
 
 
-def create_bronze(catalog, table, schema):
+def create_staging_and_bronze(catalog, table, schema):
+    """Both copy the source, so both take its columns and types."""
+    create_or_evolve(catalog, ("staging", table.name), schema, PROPERTIES)
     create_or_evolve(catalog, ("bronze", table.name), schema, PROPERTIES)
 
 
@@ -44,8 +47,8 @@ def create_oltp_schema(catalog, connection):
     for layer in LAYERS:
         catalog.create_namespace_if_not_exists(layer)
     with source_read_transaction(connection):
-        schemas = {table.name: bronze_schema(connection, table) for table in SOURCE_TABLES}
+        schemas = {table.name: source_schema(connection, table) for table in SOURCE_TABLES}
     for table in SOURCE_TABLES:
-        create_bronze(catalog, table, schemas[table.name])
+        create_staging_and_bronze(catalog, table, schemas[table.name])
         create_silver(catalog, table)
         print(f"INIT table={table.name}", flush=True)

@@ -1,6 +1,6 @@
-"""Daily incremental load of the OLTP source at 03:00: Bronze → checks → Silver → Gold.
+"""Daily incremental load of the OLTP source at 03:00: staging → Bronze → checks → Silver → Gold.
 
-Each run loads the rows whose cursor falls in its data interval and upserts them into Silver. Catchup runs the
+Each run loads the rows whose cursor falls in its data interval and upserts them into Bronze and Silver. Catchup runs the
 intervals missed while the DAG was paused; `airflow backfill create --dag-id lakehouse_oltp_incremental
 --from-date ... --to-date ...` reloads a past range. Run lakehouse_oltp_init first, and keep this DAG paused while
 it runs: both write the same tables.
@@ -28,6 +28,12 @@ with DAG(
     default_args={"owner": "lakehouse", "retries": 2, "retry_delay": timedelta(minutes=2)},
     tags=["lakehouse", "oltp", "incremental"],
 ) as dag:
+    with TaskGroup("staging") as staging:
+        for table in SOURCE_TABLES:
+            PythonOperator(
+                task_id=table.name, python_callable=oltp.staging_incremental, op_kwargs={"table": table.name}, pool=POOL
+            )
+
     with TaskGroup("bronze") as bronze:
         for table in SOURCE_TABLES:
             PythonOperator(
@@ -54,4 +60,4 @@ with DAG(
         orphan = PythonOperator(task_id="orphan", python_callable=oltp.maintain, op_kwargs={"action": "orphan"})
         compact >> expire >> orphan
 
-    bronze >> checks >> silver >> gold >> maintenance
+    staging >> bronze >> checks >> silver >> gold >> maintenance

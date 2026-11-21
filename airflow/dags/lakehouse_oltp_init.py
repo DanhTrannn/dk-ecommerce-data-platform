@@ -1,4 +1,4 @@
-"""Full load of the OLTP source, triggered by hand: create the tables, then Bronze → checks → Silver → Gold.
+"""Full load of the OLTP source, triggered by hand: create the tables, then staging → Bronze → checks → Silver → Gold.
 
 Run it once to set the lakehouse up, again after a source column is added, or to reload everything. Each table
 reads the source rows created before the run started, so every table stops at the same moment. Keep
@@ -27,6 +27,12 @@ with DAG(
     tags=["lakehouse", "oltp", "full"],
 ) as dag:
     create_schema = PythonOperator(task_id="create_schema", python_callable=oltp.create_schema)
+
+    with TaskGroup("staging") as staging:
+        for table in SOURCE_TABLES:
+            PythonOperator(
+                task_id=table.name, python_callable=oltp.staging_full, op_kwargs={"table": table.name}, pool=POOL
+            )
 
     with TaskGroup("bronze") as bronze:
         for table in SOURCE_TABLES:
@@ -57,4 +63,4 @@ with DAG(
         orphan = PythonOperator(task_id="orphan", python_callable=oltp.maintain, op_kwargs={"action": "orphan"})
         compact >> expire >> orphan
 
-    create_schema >> bronze >> checks >> silver >> gold >> maintenance
+    create_schema >> staging >> bronze >> checks >> silver >> gold >> maintenance

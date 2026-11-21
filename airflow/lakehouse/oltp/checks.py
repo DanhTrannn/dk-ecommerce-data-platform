@@ -1,11 +1,11 @@
-"""Checks on a run's Bronze rows; any failure stops the run before Silver changes."""
+"""Checks on the latest extract in staging; any failure stops the run before Silver changes."""
 
 from collections import Counter
 from datetime import UTC, datetime
 
 import polars as pl
 
-from lakehouse.oltp.bronze import bronze_rows
+from lakehouse.oltp.staging import staging_rows
 from lakehouse.oltp.rules import violation_counts
 from lakehouse.oltp.sources import FOREIGN_KEYS, TABLES_BY_NAME
 from lakehouse.utils.postgres import identifier
@@ -49,13 +49,13 @@ def source_reconciliation(connection, table, created_before):
     return {"rows": rows, "total": None if table.name not in MONEY_TOTALS else int(amount or 0), "ledger": ledger}
 
 
-def read_bronze(catalog, table, columns):
-    return pl.from_arrow(bronze_rows(catalog, table, columns).read_all())
+def read_extract(catalog, table, columns):
+    return pl.from_arrow(staging_rows(catalog, table, columns).read_all())
 
 
 def row_rule_failures(catalog, table):
     counts = Counter()
-    for batch in bronze_rows(catalog, table):
+    for batch in staging_rows(catalog, table):
         counts.update(violation_counts(pl.from_arrow(batch), table))
     return [f"{table.name}: {label} = {count}" for label, count in sorted(counts.items())]
 
@@ -63,7 +63,7 @@ def row_rule_failures(catalog, table):
 def full_load_failures(catalog, table, source):
     """Whole-table checks; valid only when the run holds every source row created before the cutoff."""
     columns = [table.pk, *([MONEY_TOTALS[table.name]] if table.name in MONEY_TOTALS else [])]
-    frame = read_bronze(catalog, table, columns)
+    frame = read_extract(catalog, table, columns)
     failures = []
     duplicates = frame.height - frame[table.pk].n_unique()
     if duplicates:
@@ -87,11 +87,11 @@ def foreign_key_failures(catalog):
     keys = {}
     for name in {parent for _, _, parent in FOREIGN_KEYS}:
         table = TABLES_BY_NAME[name]
-        keys[name] = read_bronze(catalog, table, [table.pk])[table.pk]
+        keys[name] = read_extract(catalog, table, [table.pk])[table.pk]
     failures = []
     for child in dict.fromkeys(child for child, _, _ in FOREIGN_KEYS):
         references = [(column, parent) for name, column, parent in FOREIGN_KEYS if name == child]
-        frame = read_bronze(catalog, TABLES_BY_NAME[child], [column for column, _ in references])
+        frame = read_extract(catalog, TABLES_BY_NAME[child], [column for column, _ in references])
         for column, parent in references:
             missing = frame[column].drop_nulls().is_in(keys[parent].implode()).not_().sum()
             if missing:
@@ -100,7 +100,7 @@ def foreign_key_failures(catalog):
 
 
 def ledger_failures(catalog, ledger, source_stock):
-    movements = read_bronze(catalog, ledger, ["store_id", "variant_id", "quantity_delta"])
+    movements = read_extract(catalog, ledger, ["store_id", "variant_id", "quantity_delta"])
     balances = {
         (row["store_id"], row["variant_id"]): row["quantity_delta"]
         for row in movements.group_by("store_id", "variant_id").agg(pl.col("quantity_delta").sum()).iter_rows(named=True)
