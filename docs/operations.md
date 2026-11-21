@@ -72,7 +72,7 @@ Với log, đối chiếu theo snapshot/cutoff publication log, không gộp th�
 | Job batch không thấy credential | Kiểm tra tab Cấp cho workload, trạng thái exporter và consumer file đúng volume/UID/GID; không thay bằng MinIO root hoặc chmod mở rộng toàn bộ |
 | Thiếu interval | Chạy init nếu chưa có nền; incremental phải có cả `--interval-start` và `--interval-end` kèm múi giờ; interval rỗng hợp lệ không xóa lịch sử Bronze/Silver |
 | Giá trị UUID không nối log–product | Xem 16-byte canonical và encoding UTF-8 cũ; resolver hỗ trợ cả hai. Muốn sửa toàn bộ current Silver phải init có kiểm soát |
-| `CheckFailed` | Log nêu kiểm tra và số dòng (vd `orders: order_total_mismatch = 1`); Silver/Gold chưa đổi. Sửa nguồn hoặc luật rồi chạy lại cùng run ID. Không tắt kiểm tra để job qua |
+| `CheckFailed` | Log nêu kiểm tra và số dòng (vd `inbound_receipt_items: inbound_item_total_mismatch = 1`); Silver/Gold chưa đổi. Sửa nguồn hoặc luật rồi chạy lại cùng run ID. Không tắt kiểm tra để job qua |
 | Dashboard nghiệp vụ không đổi sau UPDATE | Chờ hoặc chạy batch có interval bao thời điểm sửa; dashboard đọc Gold hiện tại nên không cần sync lại |
 | API có request nhưng Landing trống | `KAFKA_ENABLED`, topic chung, producer/DLQ, job access RUNNING và checkpoint. Seed dữ liệu không tạo access log |
 | Kafka phục hồi nhưng log cũ thiếu | Producer phục hồi chỉ gửi event mới; DLQ cũ cần thao tác replay riêng |
