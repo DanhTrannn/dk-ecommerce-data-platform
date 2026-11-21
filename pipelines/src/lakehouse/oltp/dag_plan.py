@@ -43,7 +43,10 @@ def command(module: str, *extra: str) -> str:
 def dbt_command(verb: str, select: str) -> str:
     """The dbt call of a Gold task. The echo prints the run context (no secrets) so the call can be repeated by hand."""
     context = 'echo "DBT_GOLD_SCHEMA=$DBT_GOLD_SCHEMA DBT_SILVER_SCHEMA=$DBT_SILVER_SCHEMA DBT_AS_OF=$DBT_AS_OF"'
-    return f"{context} && dbt {verb} --select {select}"
+    # Singular tests join several models; in a model's task the others may not be built yet, so they run once in
+    # the final Gold task. Generic tests (unique, not_null) of the model still run with it.
+    exclude = f" --exclude {GOLD_TESTS}" if verb == "build" else ""
+    return f"{context} && dbt {verb} --select {select}{exclude}"
 
 
 def dbt_env(node: str) -> dict[str, str]:
