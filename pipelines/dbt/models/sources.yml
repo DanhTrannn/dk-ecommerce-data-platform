@@ -2,7 +2,7 @@ version: 2
 sources:
 - name: silver
   database: lakehouse_etl
-  schema: '{{ var(''silver_schema'', ''silver'') }}'
+  schema: '{{ var(''silver_schema'', env_var(''DBT_SILVER_SCHEMA'', ''silver'')) }}'
   tables:
   - name: customers
   - name: categories

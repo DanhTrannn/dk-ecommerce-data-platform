@@ -22,4 +22,6 @@ USER airflow
 RUN python -m pip install --no-cache-dir "apache-airflow==3.3.2" \
     apache-airflow-providers-fab==3.9.0 apache-airflow-providers-standard==1.19.0
 ENV PIPELINE_PYTHON=/opt/pipeline-venv/bin/python
+# Appended, so Airflow's own python stays first; only the pipeline venv has dbt.
+ENV PATH="${PATH}:/opt/pipeline-venv/bin"
 WORKDIR /opt/project
