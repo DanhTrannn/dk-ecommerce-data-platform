@@ -32,7 +32,7 @@ help:
 	@echo "  make seed                      Seed the source catalog explicitly"
 	@echo "  make generate PRESET=1m        Load synthetic OLTP history"
 	@echo "  make generate-verify PRESET=1m Check the generated history"
-	@echo "  make test                      Run the pipeline tests in the Airflow scheduler"
+	@echo "  make test                      Run every test suite (pipeline tests in the Airflow scheduler)"
 	@echo "  make superset-db               Create dedicated Superset metadata storage"
 	@echo "  make superset-init             Initialize BI metadata and its first admin"
 	@echo "  make superset-sync             Create the sales dashboard over current Gold marts"
@@ -97,6 +97,12 @@ test:
 	@docker compose exec -T -w /tmp -e PYTHONDONTWRITEBYTECODE=1 \
 		-e PYTHONPATH=/opt/project/airflow:/opt/project/airflow/tests airflow-scheduler \
 		python -m unittest discover -s /opt/project/airflow/tests -t /opt/project/airflow/tests
+	@PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=services/platform-app/tests uv run --locked --package platform-app -- \
+		python -m unittest discover -s services/platform-app/tests -t services/platform-app/tests
+	@PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=generator/tests uv run --locked --package data-generator -- \
+		python -m unittest discover -s generator/tests -t generator/tests
+	@PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=infrastructure/superset uv run --locked --package platform-app -- \
+		python -m unittest discover -s infrastructure/superset/tests -t infrastructure/superset/tests
 
 superset-db:
 	@docker compose exec -T postgres sh /opt/project/configure-superset.sh
