@@ -1,10 +1,11 @@
 """Python tasks of the OLTP DAGs, called by PythonOperator.
 
 Airflow fills the parameters named after its context (run_id, dag_run, data_interval_start, data_interval_end).
-A full run reads every source row created before the run's logical start (`dag_run.run_after`, which stays the same
-when a task is cleared), so every table of one run stops at the same moment. An incremental run reads the rows
-whose cursor falls in the run's data interval. The source is the `oltp_postgres` Airflow connection; its Extra sets
-a read-only UTC session.
+The source is the `oltp_postgres` Airflow connection; its Extra sets a read-only UTC session.
+
+- Full load (lakehouse_oltp_init): reads every source row created before the run's logical start
+  (`dag_run.run_after`, which stays the same when a task is cleared), so every table stops at the same moment.
+- Incremental load (lakehouse_oltp_incremental): reads the rows whose cursor falls in the run's data interval.
 """
 
 import json
@@ -35,34 +36,59 @@ def create_schema():
         create_oltp_schema(iceberg_catalog(), connection)
 
 
-def bronze(table, mode, run_id, dag_run, data_interval_start=None, data_interval_end=None):
-    if mode == "full":
-        window = {"start": None, "end": None, "created_before": dag_run.run_after.isoformat()}
-    elif data_interval_start is None or data_interval_end is None:
-        raise ValueError("An incremental run needs a data interval: let the schedule run it, or use `airflow backfill create`")
-    else:
-        window = {"start": data_interval_start.isoformat(), "end": data_interval_end.isoformat(), "created_before": None}
+def bronze_full(table, run_id, dag_run):
     with source_connection() as connection:
-        ingest_table(iceberg_catalog(), connection, TABLES_BY_NAME[table], run_id, datetime.now(UTC), **window)
+        ingest_table(
+            iceberg_catalog(),
+            connection,
+            TABLES_BY_NAME[table],
+            run_id,
+            datetime.now(UTC),
+            created_before=dag_run.run_after.isoformat(),
+        )
 
 
-def check(table, mode, run_id, dag_run):
-    """Row rules on the run's Bronze rows; a full run also reconciles them with the source at the same cutoff."""
+def bronze_incremental(table, run_id, data_interval_start=None, data_interval_end=None):
+    if data_interval_start is None or data_interval_end is None:
+        raise ValueError("An incremental run needs a data interval: let the schedule run it, or use `airflow backfill create`")
+    with source_connection() as connection:
+        ingest_table(
+            iceberg_catalog(),
+            connection,
+            TABLES_BY_NAME[table],
+            run_id,
+            datetime.now(UTC),
+            start=data_interval_start.isoformat(),
+            end=data_interval_end.isoformat(),
+        )
+
+
+def check_full(table, run_id, dag_run):
+    """Row rules on the run's Bronze rows, reconciled with the source at the same cutoff."""
     table = TABLES_BY_NAME[table]
-    source = None
-    if mode == "full":
-        with source_connection() as connection, source_read_transaction(connection):
-            source = source_reconciliation(connection, table, dag_run.run_after.isoformat())
+    with source_connection() as connection, source_read_transaction(connection):
+        source = source_reconciliation(connection, table, dag_run.run_after.isoformat())
     check_table(iceberg_catalog(), table, run_id, source)
 
 
+def check_incremental(table, run_id):
+    """Row rules on the run's Bronze rows; one interval cannot be reconciled with the whole source table."""
+    check_table(iceberg_catalog(), TABLES_BY_NAME[table], run_id, None)
+
+
 def foreign_keys(run_id):
-    """Only a full run holds every parent row, so only the init DAG runs this check."""
+    """Every child row has its parent; only a full load holds every parent row."""
     check_foreign_keys(iceberg_catalog(), run_id)
 
 
-def silver(table, mode, run_id):
-    merge_silver(iceberg_catalog(), TABLES_BY_NAME[table], run_id, full=mode == "full")
+def silver_full(table, run_id):
+    """Replace silver.<table> with the run's Bronze rows in one commit."""
+    merge_silver(iceberg_catalog(), TABLES_BY_NAME[table], run_id, full=True)
+
+
+def silver_incremental(table, run_id):
+    """Upsert the run's Bronze rows into silver.<table>, never replacing a row with an older version."""
+    merge_silver(iceberg_catalog(), TABLES_BY_NAME[table], run_id, full=False)
 
 
 def maintain(action):

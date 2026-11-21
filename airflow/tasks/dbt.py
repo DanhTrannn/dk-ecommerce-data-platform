@@ -1,7 +1,10 @@
-"""The dbt Gold tasks: the task graph from the ref() calls in the SQL, and each task's command and environment."""
+"""The dbt Gold tasks: one task per model or seed, wired by the ref() calls in their SQL."""
 
 import re
 from pathlib import Path
+
+from airflow.providers.standard.operators.bash import BashOperator
+from airflow.sdk import TaskGroup
 
 DBT_PROJECT = Path("/opt/project/dbt")
 GOLD_TESTS = "path:tests/oltp"  # OLTP singular tests; tests/ also holds the log pipeline's
@@ -42,3 +45,30 @@ def dbt_env(node):
         "DBT_PARTIAL_PARSE": "false",
         "DBT_SEND_ANONYMOUS_USAGE_STATS": "false",
     }
+
+
+def gold_task_group(pool):
+    """The Gold TaskGroup both OLTP DAGs run: one dbt task per model or seed, wired by ref(), then the tests."""
+    with TaskGroup("gold") as group:
+        graph, seeds = gold_dependencies(), gold_seeds()
+        models = {
+            node: BashOperator(
+                task_id=node,
+                bash_command=dbt_command("seed" if node in seeds else "build", node),
+                env=dbt_env(node),
+                append_env=True,
+                pool=pool,
+            )
+            for node in graph
+        }
+        for node, refs in graph.items():
+            for ref in refs:
+                models[ref] >> models[node]
+        list(models.values()) >> BashOperator(
+            task_id="tests",
+            bash_command=dbt_command("test", GOLD_TESTS),
+            env=dbt_env("tests"),
+            append_env=True,
+            pool=pool,
+        )
+    return group
