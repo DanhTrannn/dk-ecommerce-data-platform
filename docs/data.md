@@ -20,7 +20,7 @@ PostgreSQL có **28 bảng**. [ORM](../services/platform-app/src/platform_app/ap
 - UUID nguồn là native UUID; tiền/ID chủ yếu BIGINT, trạng thái được ràng buộc bằng CHECK/FK/UNIQUE. Số ID tự sinh dùng identity.
 - Thời gian là `TIMESTAMPTZ`; API ghi UTC có tzinfo, trigger `updated_at` dùng `statement_timestamp()` khi dữ liệu đổi mà caller không đổi timestamp (giữ timestamp lịch sử tường minh). Trigger không tự tạo ledger/history nghiệp vụ.
 - Công cụ nạp ID tường minh phải đồng bộ sequence trong cùng transaction với dữ liệu. Schema bootstrap chỉ dành cho database trống, không phải migration/reset cho volume đang có.
-- Số dư tồn = `opening_on_hand` + tổng ledger theo variant/location; tồn đầu không phải trần tồn. Phiếu nhập và hoàn hàng có thể làm tăng tồn.
+- Số dư tồn = `opening_on_hand` + tổng ledger theo variant/location; tồn đầu không phải trần tồn. Phiếu nhập và hoàn hàng có thể làm tăng tồn. Generator nhập hàng ban đầu bằng phiếu nhập, còn seed catalog ghi tồn đầu thành giao dịch `adjustment`; cả hai để `opening_on_hand = 0`, nên riêng sổ kho đã cộng ra `on_hand`. Gold tính tồn chỉ từ sổ kho.
 
 | Nhóm | Bảng và quan hệ chính |
 |---|---|
@@ -38,63 +38,52 @@ Checkout ghi đơn/item/payment/history, trừ tồn và xử lý coupon trong t
 
 ### Catalog trích xuất
 
-27 bảng được cấu hình tường minh, không tự đưa bảng mới vào batch. `customer_credentials` không được cấp SELECT cho batch reader. Các PK/cursor sau là khóa trích xuất; `store_inventory_id` là khóa kỹ thuật dù PK vật lý của tồn cửa hàng là `(store_id, variant_id)`.
+Batch nạp 19 bảng được cấu hình tường minh trong `SOURCE_TABLES`, không tự đưa bảng mới vào. Mỗi bảng có danh sách cột được nạp. `customer_credentials` không được cấp SELECT cho batch reader. Reader còn được SELECT `inventory` và `store_inventory`, nhưng chỉ để đối soát sổ kho khi chạy full; carts, cart_items, wishlist_items, coupon_redemptions, shipment_attempts và inbound_receipts không được nạp vì không bảng Gold nào dùng.
 
-| Bảng | Khóa trích xuất | Cursor | Kiểu |
-|---|---|---|---|
-| `customers` | `customer_id` | `updated_at` | `mutable` |
-| `categories` | `category_id` | `updated_at` | `mutable` |
-| `products` | `product_id` | `updated_at` | `mutable` |
-| `product_variants` | `variant_id` | `updated_at` | `mutable` |
-| `carts` | `cart_id` | `updated_at` | `mutable` |
-| `cart_items` | `cart_item_id` | `updated_at` | `mutable` |
-| `wishlist_items` | `wishlist_item_id` | `updated_at` | `mutable` |
-| `orders` | `order_id` | `updated_at` | `mutable` |
-| `order_items` | `order_item_id` | `created_at` | `append_only` |
-| `payments` | `payment_id` | `updated_at` | `mutable` |
-| `order_status_history` | `order_status_history_id` | `created_at` | `append_only` |
-| `inventory` | `variant_id` | `updated_at` | `mutable` |
-| `coupons` | `coupon_id` | `updated_at` | `mutable` |
-| `coupon_redemptions` | `coupon_redemption_id` | `updated_at` | `mutable` |
-| `refunds` | `refund_id` | `updated_at` | `mutable` |
-| `product_reviews` | `review_id` | `updated_at` | `mutable` |
-| `cities` | `city_id` | `updated_at` | `mutable` |
-| `stores` | `store_id` | `updated_at` | `mutable` |
-| `store_inventory` | `store_inventory_id` | `updated_at` | `mutable` |
-| `delivery_staff` | `staff_id` | `updated_at` | `mutable` |
-| `shipments` | `shipment_id` | `updated_at` | `mutable` |
-| `return_requests` | `return_id` | `updated_at` | `mutable` |
-| `return_items` | `return_item_id` | `updated_at` | `mutable` |
-| `inventory_transactions` | `transaction_id` | `created_at` | `append_only` |
-| `inbound_receipts` | `receipt_id` | `updated_at` | `mutable` |
-| `inbound_receipt_items` | `item_id` | `created_at` | `append_only` |
-| `shipment_attempts` | `attempt_id` | `created_at` | `append_only` |
+| Bảng | Khóa | Cursor |
+|---|---|---|
+| `customers` | `customer_id` | `updated_at` |
+| `categories` | `category_id` | `updated_at` |
+| `products` | `product_id` | `updated_at` |
+| `product_variants` | `variant_id` | `updated_at` |
+| `cities` | `city_id` | `updated_at` |
+| `stores` | `store_id` | `updated_at` |
+| `delivery_staff` | `staff_id` | `updated_at` |
+| `orders` | `order_id` | `updated_at` |
+| `order_items` | `order_item_id` | `created_at` |
+| `payments` | `payment_id` | `updated_at` |
+| `refunds` | `refund_id` | `updated_at` |
+| `order_status_history` | `order_status_history_id` | `created_at` |
+| `coupons` | `coupon_id` | `updated_at` |
+| `shipments` | `shipment_id` | `updated_at` |
+| `return_requests` | `return_id` | `updated_at` |
+| `return_items` | `return_item_id` | `updated_at` |
+| `product_reviews` | `review_id` | `updated_at` |
+| `inventory_transactions` | `transaction_id` | `created_at` |
+| `inbound_receipt_items` | `item_id` | `created_at` |
 
 ## 3. Landing, Bronze, Silver và Gold
 
-Catalog mặc định `lakehouse`, bucket theo `MINIO_LAKEHOUSE_BUCKET` (mặc định `lakehouse`), các namespace `landing`, `bronze`, `silver`, `gold`, `system`, `quarantine`. Dữ liệu/metadata Iceberg lưu trên MinIO, Polaris giữ catalog. Object storage không tự xác nhận một bộ bảng đã sẵn sàng cho BI.
+Catalog mặc định `lakehouse`, bucket theo `MINIO_LAKEHOUSE_BUCKET` (mặc định `lakehouse`), các namespace `landing`, `bronze`, `silver`, `gold`, `system`. Dữ liệu/metadata Iceberg lưu trên MinIO, Polaris giữ catalog.
 
 | Tầng | Batch OLTP | Access log |
 |---|---|---|
-| Landing/staging | Parquet `landing/polars-batch/<prefix>/<run_id>/<table>/page-*.parquet` theo từng run; không phải lịch sử bất biến | `landing.access_logs` append raw envelope và projected fields, giữ cả payload không hợp lệ/lặp |
-| Bronze | `<table>` giữ source versions và `_source_system=postgresql_ecommerce`, metadata nguồn/ingestion | `bronze.web_events` giữ raw hash, typed envelope, `_validation_error`; distinct raw payload |
-| Silver | `silver_<table>` upsert theo PK/cursor; giữ state mới hơn, PII tokenization | `silver.silver_logs` chỉ event hợp lệ, dedup theo immutable request ID |
-| Gold | 6 dimension + 6 fact + 15 mart nghiệp vụ | `fact_web_events` + 3 mart log |
-| System/quarantine | Kết quả DQ, publication; dòng vi phạm được cách ly | Publication log độc lập; raw lỗi vẫn ở Bronze |
-
-Batch interval dùng UTC có timezone `[start,end)`; append-only đọc `created_at`, mutable đọc `updated_at`. Extract phân trang theo PK 10.000 dòng; mọi trang của mọi bảng được ghi staging trước, rồi mới ghi Bronze/Silver. Interval rỗng không xóa lịch sử. Bronze upsert theo source PK/cursor: giữ phiên bản có cursor khác nhau, có thể cập nhật lại cùng cặp PK/cursor; đây không phải lịch sử CDC của mọi thay đổi nguồn; Silver đọc delta tương ứng, không ghi đè state mới bằng backfill cũ. Gold được xây lại, quality gate chạy rồi mới publish.
-
-Silver chuẩn hóa UUID đọc từ PostgreSQL dạng chuỗi thành **16 bytes** theo schema phân tích BINARY hiện có. Interval chỉ chuẩn hóa các dòng được đọc; cần init có kiểm soát nếu muốn chuẩn hóa toàn bộ current state. Không tự sửa snapshot lịch sử.
-
-PII của customer, đơn và nhân sự được chuẩn hóa lower/trim rồi token hóa SHA-256 với salt bắt buộc; giữ NULL, bỏ cột raw theo mapping. Quarantine cũng xử lý tên cột PII. Đây là pseudonymization, không phải bảo đảm ẩn danh tuyệt đối; raw OLTP/Bronze vẫn cần quyền phù hợp. Salt thay đổi làm đổi token.
+| Landing | Không có | `landing.access_logs` append raw envelope và projected fields, giữ cả payload không hợp lệ/lặp |
+| Bronze | `bronze.<bảng>`: dòng nguồn đúng như đọc được, chỉ ghi thêm, kèm `_ingested_at` và `_run_id`, phân vùng theo ngày `_ingested_at` | `bronze.web_events` giữ raw hash, typed envelope, `_validation_error`; distinct raw payload |
+| Silver | `silver.<bảng>`: dòng hiện tại theo khóa chính, cùng cột với Bronze | `silver.silver_logs` chỉ event hợp lệ, dedup theo immutable request ID |
+| Gold | 7 dimension + 6 fact + 14 mart, dựng lại toàn bộ mỗi lần chạy | `fact_web_events` + 3 mart log |
+| System | Không dùng cho OLTP | Kết quả kiểm tra và publication của log |
 
 ### Batch Polars/PyIceberg
 
-Mỗi job ingestion/Gold/log khóa theo namespace bằng PostgreSQL session advisory lock; khóa không bao trùm toàn DAG. Schema Bronze đọc từ metadata cursor PostgreSQL, UUID giữ dạng chuỗi ở Bronze; schema Silver đọc hợp đồng cột trong `sql_templates/contracts` qua adapter chỉ hỗ trợ các kiểu đã khai báo và từ chối kiểu khác. JSON nguồn được giữ dạng văn bản, không parse rồi serialize lại. Schema mới phải được review trước khi mở rộng adapter.
+Một job `jobs.oltp.run_batch_pipeline` làm cả lần chạy, giữ PostgreSQL advisory lock theo namespace suốt job.
 
-Batch dedup theo PK/cursor/thời gian ingest, giữ guard chống backfill cũ và ghi nhiều mã lỗi validation theo thứ tự cố định. Token SHA-256 giữ trim ký tự space U+0020, lowercase, salt và NULL. Gold lấy `shipping_region` là tên thành phố từ `orders.shipping_city_id`, không dò địa chỉ gốc. Quarantine chỉ giữ JSON đã token hóa các cột PII theo pattern hiện có, bỏ trường NULL, dedup bằng source table/record/mã lỗi và partition theo ngày. Không có thêm cam kết ẩn danh cho nội dung free-text/JSON.
+1. **Bronze.** Trong một giao dịch đọc REPEATABLE READ, mỗi bảng được đọc theo khóa chính, mỗi trang tối đa 10.000 dòng, gom lô 200.000 dòng rồi append. `--mode full` đọc toàn bộ; `--mode incremental` đọc cursor trong `[start, end)` có múi giờ, không lookback. Interval rỗng không xóa lịch sử. Bronze giữ trạng thái tại mỗi lần chạy, không phải CDC của mọi thay đổi nguồn. Retry cùng run ID xóa dòng Bronze của lần thử trước rồi ghi lại.
+2. **Kiểm tra trước merge,** trên các dòng Bronze của lần chạy. Luật theo dòng luôn chạy: trường bắt buộc, trạng thái hợp lệ, tiền không âm, tổng đơn = tạm tính − giảm giá + phí giao, tổng dòng = số lượng × đơn giá, tổng phiếu nhập. Chạy full thêm: khóa chính trùng, khóa ngoại tìm thấy trong cùng lần chạy, số dòng 19 bảng so với nguồn, tổng tiền `orders`/`payments`/`refunds`, và sổ kho cộng dồn so với `on_hand − opening_on_hand` ở `inventory`/`store_inventory`. Incremental bỏ các kiểm tra này vì đơn tạo trong cửa sổ nhưng cập nhật sau đó sẽ vào lần chạy kế tiếp, nên dòng con có thể tạm trỏ tới cha chưa nạp. Trượt bất kỳ kiểm tra nào thì job lỗi với `CheckFailed` (tên kiểm tra và số dòng), Silver và Gold giữ nguyên.
+3. **Silver.** Full ghi đè cả bảng trong một commit, nên dòng đã xóa ở nguồn cũng biến mất. Incremental upsert theo lô và không để dòng có cursor cũ hơn ghi đè bản hiện có. UUID đọc từ PostgreSQL dạng chuỗi được chuẩn hóa thành 16 bytes.
+4. **Gold.** dbt dựng lại toàn bộ Gold từ Silver hiện tại (mục 9).
 
-DAG chạy với prefix `serving`; CLI nhận prefix khác để chạy thử trong namespace riêng. Việc stage toàn bộ nguồn hoàn tất trước khi merge dữ liệu, nhưng các commit bảng vẫn độc lập, không phải transaction đa bảng. Đọc nguồn theo trang không đồng nghĩa snapshot giao dịch nhất quán toàn bộ 27 bảng khi nguồn đang thay đổi.
+Dữ liệu cá nhân không bị băm; Silver chỉ nạp các cột có trong danh sách cấu hình. DAG chạy với prefix `serving`; CLI nhận prefix `polars_batch_*` để chạy thử trong namespace riêng.
 
 ## 4. Access-log contract và xử lý
 
@@ -115,65 +104,61 @@ Không ghi request body, password, Authorization/cookie hoặc thanh toán nhạ
 
 Flink giữ decoded raw payload, kể cả sai contract. Pipeline log dùng raw hash để chống nhân bản Bronze, rồi ID cho Silver/fact; ID trùng nhưng hai valid payload khác nhau làm job lỗi trước publication. Mỗi layer đọc predecessor đã persist nên retry có thể tiếp tục sau lỗi giữa các commit. Cutoff cố định, không dùng event-time watermark để bỏ log đến muộn.
 
-Product resolver dùng Silver products/variants theo snapshot OLTP đã công bố khi build log mart. Khóa chưa resolve giữ riêng; không gán sản phẩm tùy ý. Log publication lưu các snapshot đầu vào và mốc `observed_at`. Không tự nạp JSONL lịch sử vào Gold hoặc replay DLQ. Chưa có loader cho Parquet `datagen logs`; các file đó chưa tự vào Landing/publication. `event_ts` lấy từ payload `timestamp`; `observed_timestamp` do producer ghi nhận (generator đặt bằng event time); parser tạo `ingest_ts` theo đồng hồ xử lý. `--as-of` là cutoff event-time có timezone.
+Product resolver dùng snapshot hiện tại của Silver products/variants khi build log mart. Khóa chưa resolve giữ riêng; không gán sản phẩm tùy ý. Log publication lưu các snapshot đầu vào và mốc `observed_at`. Không tự nạp JSONL lịch sử vào Gold hoặc replay DLQ. Chưa có loader cho Parquet `datagen logs`; các file đó chưa tự vào Landing/publication. `event_ts` lấy từ payload `timestamp`; `observed_timestamp` do producer ghi nhận (generator đặt bằng event time); parser tạo `ingest_ts` theo đồng hồ xử lý. `--as-of` là cutoff event-time có timezone.
 
-## 5. Dimension, fact và 18 mart
+## 5. Dimension, fact và 17 mart
 
-Dimension nghiệp vụ: `dim_date`, `dim_customer`, `dim_product`, `dim_variant`, `dim_store`, `dim_delivery_staff`. Fact nghiệp vụ: `fact_order` (một dòng/đơn), `fact_order_item` (một dòng/item), `fact_shipment`, `fact_return_exchange`, `fact_inventory_daily_snapshot`, `fact_inventory_current`. Log có `fact_web_events` theo request ID.
+Dimension: `dim_date` (lịch, ngày lễ và ngày sale từ seed `calendar_events`), `dim_city` (vùng giao và SLA từ seed `delivery_sla`), `dim_store`, `dim_product`, `dim_variant`, `dim_customer`, `dim_staff` (nhân viên giao và nhân viên bán). Fact: `fact_order` (một dòng/đơn), `fact_order_item` (một dòng/dòng đơn), `fact_shipment`, `fact_return` (một dòng/dòng trả hàng), `fact_inventory_daily` (ngày × vị trí × biến thể, dựng từ sổ kho), `fact_review`. Log có `fact_web_events` theo request ID.
 
-| Mart | Grain/phạm vi |
+| Mart | Grain |
 |---|---|
-| `mart_order_daily` | Ngày đặt hàng × kênh × điểm bán; đếm đơn cộng được |
-| `mart_sales_daily` | Ngày × kênh × điểm bán × danh mục; order count không cộng qua danh mục |
-| `mart_product_sales_daily` | Ngày × sản phẩm |
-| `mart_logistics_performance` | Ngày shipment UTC × nhân sự × địa bàn phân công |
-| `mart_product_returns` | Ngày × variant × action/reason; không cộng distinct request qua SKU |
-| `mart_inventory_health` | Ngày quan sát × nhóm địa điểm/danh mục |
-| `mart_inventory_current` | Location type/id × variant; số dư hiện tại |
-| `mart_inventory_summary` | Tổng quan tại mốc quan sát; một summary key |
-| `mart_store_overview` | Một cửa hàng, số dư và tổng quan theo mốc build |
-| `mart_operations_summary` | Một summary, thời gian chờ tại `operations_observed_at` |
-| `mart_cod_region_daily` | Ngày shipment UTC × thành phố giao của đơn COD (thiếu thì `Khu vực khác`) |
-| `mart_marketing_summary` | Một summary tại `marketing_observed_at` |
-| `mart_coupon_usage` | Một coupon, usage và cửa sổ redemption |
-| `mart_product_review_summary` | Một sản phẩm, số review và negative window |
-| `mart_admin_overview` | Một summary theo mốc build |
-| `mart_hourly_route_metrics` | Ngày UTC × giờ × route × method |
-| `mart_daily_product_demand` | Ngày UTC × product/resolved-or-raw key |
-| `mart_marketing_funnel_daily` | Ngày UTC; request-event counts |
+| `mart_orders_daily` | Ngày đặt × kênh × cửa hàng × thành phố × phương thức thanh toán; đơn theo nhóm trạng thái |
+| `mart_sales_daily` | Ngày ghi nhận × kênh × cửa hàng × thành phố; doanh thu, hoàn tiền, giá vốn, lãi gộp |
+| `mart_product_sales_daily` | Ngày ghi nhận × kênh × cửa hàng × sản phẩm |
+| `mart_pos_hourly` | Ngày × cửa hàng × nhân viên bán × giờ; đơn POS đã ghi nhận |
+| `mart_cancellations_daily` | Ngày đặt × kênh × lý do hủy × phương thức thanh toán |
+| `mart_delivery_daily` | Ngày kết thúc giao × thành phố × nhân viên giao × phương thức thanh toán; đúng hạn, thời gian giao, COD |
+| `mart_fulfilment_backlog_daily` | Ngày × giai đoạn (chờ xuất kho / đang giao) × nhóm tuổi đơn 0–4 / 5–8 / 9+ ngày |
+| `mart_returns_daily` | Ngày yêu cầu × biến thể × loại (đổi/hoàn) |
+| `mart_inventory_current` | Vị trí × biến thể tại ngày `--as-of`; bán trung bình 28 ngày |
+| `mart_inventory_health_daily` | Ngày × vị trí × danh mục; số biến thể còn/hết hàng, giá trị nhập |
+| `mart_coupon_daily` | Ngày đặt × coupon × đợt sale |
+| `mart_reviews_daily` | Ngày đánh giá × sản phẩm × giao đúng hạn/trễ |
+| `mart_customer_value` | Một khách đã mua; giá trị theo đơn đã ghi nhận |
+| `mart_customer_cohort_monthly` | Tháng mua đầu × tháng hoạt động |
+| `mart_hourly_route_metrics` | Ngày UTC × giờ × route × method (log) |
+| `mart_daily_product_demand` | Ngày UTC × product/resolved-or-raw key (log) |
+| `mart_marketing_funnel_daily` | Ngày UTC; request-event counts (log) |
 
-Bốn summary hiện tại không phải chuỗi lịch sử theo mọi mốc build. Không cộng nhiều ngày snapshot tồn thành tồn hiện tại. DDL đầy đủ và partition nằm trong [SQL contracts](../pipelines/src/lakehouse/sql_templates/contracts/gold/).
+Không cộng nhiều ngày tồn thành tồn hiện tại. Model và data test nằm trong [models OLTP](../pipelines/dbt/models/oltp/).
 
 ## 6. Định nghĩa KPI và chất lượng
 
 | Chỉ số | Công thức/diễn giải |
 |---|---|
-| Tổng đơn | `SUM(mart_order_daily.total_orders)`; mọi trạng thái, không cộng count theo category |
-| Giá trị đặt hàng | `SUM(order_total_vnd)` từ total đơn, gồm phí giao hàng; không phải doanh thu ghi nhận |
-| Doanh thu hàng hóa | Dòng hàng trừ giảm giá phân bổ, chỉ recognized delivered/completed/returned; không gồm phí vận chuyển |
-| Hoàn tiền hàng hóa | Refund succeeded, liên kết đúng payment/đơn, phân bổ/giới hạn theo tiền hàng; không đồng nhất mọi cash refund |
-| Doanh thu thuần | Gross merchandise revenue − successful merchandise refunds |
-| Giá vốn | Snapshot `order_items.cost_price_vnd` theo lượng đã ghi nhận, hoàn nhập lượng trả completed/inspection passed; thiếu cost làm gate thất bại |
-| Lợi nhuận gộp | Net revenue − recognized COGS; chưa trừ đầy đủ thuế/quảng cáo/chi phí vận hành |
+| Tổng đơn | `SUM(mart_orders_daily.orders)`; mọi trạng thái |
+| Giá trị đặt hàng | `SUM(mart_orders_daily.order_value_vnd)`, gồm phí giao hàng; không phải doanh thu ghi nhận |
+| Doanh thu hàng hóa | Dòng hàng trừ giảm giá phân bổ, ghi nhận vào ngày muộn hơn giữa `completed_at` và `paid_at`; không gồm phí vận chuyển |
+| Hoàn tiền | Refund succeeded của đơn đã ghi nhận, vào ngày hoàn thành công; refund của đơn chưa từng ghi nhận (trả tiền rồi hủy) không trừ doanh thu |
+| Doanh thu thuần | Doanh thu hàng hóa − hoàn tiền |
+| Giá vốn | Snapshot `order_items.cost_price_vnd` × số lượng đã ghi nhận; hàng trả đạt kiểm định về kho được trừ lại giá vốn vào ngày hoàn tiền (`returned_cogs_vnd`) |
+| Lợi nhuận gộp | Doanh thu thuần − (giá vốn − giá vốn hàng trả về); đơn bị trả toàn bộ cho lãi 0. Chưa trừ thuế/quảng cáo/chi phí vận hành |
 | Tỷ lệ/biên | Tính từ tổng tử/mẫu hợp lệ, không trung bình tỷ lệ các dòng; không có mẫu số thì giữ NULL |
-| Tồn | Opening + ledger; current value = on_hand × cost hiện có; low-stock thường ≤5 gồm 0, stockout =0 |
-| Giao vận | Duration trung bình = tổng duration/tổng mẫu, không AVG của AVG; thiếu estimated_delivery_at không chứng nhận đúng hạn/SLA |
-| Vận hành chờ | paid/confirmed tại mốc build; ngưỡng 2 giờ là tiêu chí rà soát, không phải SLA |
-| Coupon gần đây | Redeemed trong 15 phút tại mốc marketing, bỏ released/future; usage_limit NULL là không giới hạn |
-| Negative review | Approved 1–2 sao trong 45 phút tại mốc marketing, không suy nguyên nhân từ số lượng |
+| Tồn | Cộng dồn sổ kho theo vị trí tới ngày; giá trị = tồn × giá vốn hiện tại của biến thể |
+| Giao vận | Đúng hạn khi ngày giao (giờ VN) ≤ ngày đặt + `sla_days` của thành phố nhận. SLA = mức trên của vùng GHTK + 1 ngày xử lý + 1 ngày chờ lấy hàng: TP.HCM 4, Bình Dương/Cần Thơ/Hà Nội 6, Đà Nẵng/Hải Phòng 8. Thời gian trung bình = tổng/tổng mẫu, không AVG của AVG |
 | HTTP lỗi | `(4xx + 5xx) / total_requests ×100`; duration ns/1e6 thành ms; percentile theo route/giờ |
 | HTTP success | Cột legacy `success_2xx_count` thực tế đếm status <400; không gọi là chỉ 2xx |
 | Funnel | Thành công product_detail/catalog_search → cart_item_set/cart_add → checkout_quote/checkout_submit; purchase chỉ checkout_submit |
 
 Funnel là **request events**, không phải unique people/session/order; step có thể chồng lặp và tỷ lệ vượt 100%. PUT giỏ không chứng minh lượng tăng. Không cộng distinct actor qua ngày/sản phẩm thành số khách duy nhất của kỳ. COD checkout chưa thu chưa tạo doanh thu; refund và thanh toán là dòng tiền riêng.
 
-Phân biệt NULL/chưa quan sát, 0 được đo từ nguồn hợp lệ và unavailable. Không tự tạo target, dự báo, biến động kỳ trước hoặc nhận định nhân quả. Ngày nghiệp vụ OLTP là ngày đặt theo Việt Nam; logs/shipments có UTC grain. Tồn kho dùng ngày quan sát thực, không backdate số dư hiện tại theo interval lịch sử.
+Phân biệt NULL/chưa quan sát, 0 được đo từ nguồn hợp lệ và unavailable. Không tự tạo target, dự báo, biến động kỳ trước hoặc nhận định nhân quả. Mọi cột ngày trong Gold OLTP theo giờ Việt Nam; timestamp giữ UTC; mart log có UTC grain. Chuỗi ngày tồn kho và backlog kết thúc ở ngày `--as-of`.
 
-Gold gate kiểm tra count/tiền/key/reference/lineage/PII và parity item → order → mart; chỉ publish sau khi đạt. Kết quả lưu `lakehouse.system.data_quality_results`. Đối soát source–Silver đọc nguồn hiện tại, nên cần nguồn đứng yên để so cùng thời điểm; tolerance theo cấu hình/lệnh, không coi so lệch thời gian là mất dữ liệu.
+Kiểm tra chặn nằm trước Silver (mục 3). Sau Gold, data test dbt (khóa, phân bổ giảm giá bảo toàn, đơn khớp Silver, các mart doanh thu khớp nhau, tồn khớp sổ kho) chỉ ghi cảnh báo vào log, không chặn.
 
 ## 7. Dữ liệu sinh và căn cứ
 
-Lệnh `datagen` trong [generator](../generator/README.md) nạp 12 tháng lịch sử OLTP tổng hợp vào PostgreSQL theo preset (`make generate PRESET=1m`), và `make generate-verify PRESET=1m` đối chiếu dữ liệu đã nạp với quy luật của preset (sổ kho, R01–R06, tỷ lệ kịch bản, POS, địa điểm). `datagen logs --preset 1m --out <thư mục>` sinh log truy cập 01/11–15/12/2025 khớp với đơn online đã nạp: mỗi đơn một phiên kết thúc bằng `checkout_submit` mang `order_number`, ghi mỗi ngày một file Parquet (`raw_payload`, `event_at`) theo hợp đồng `ecommerce.access` 1.1.0. Các khối quy luật YAML ghi `source`: `measured` (đo trong notebook), `transfer` (đo ở nguồn nước ngoài, áp cho shop thời trang VN như giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản). YAML là danh mục tham số runtime; các bảng dưới tóm tắt quy luật. Preset `schema_version: 3` khác version access event/publication. Loader Parquet tổng hợp chưa có; session/order number chưa được ánh xạ vào typed layers.
+Lệnh `datagen` trong [generator](../generator/README.md) nạp 12 tháng lịch sử OLTP tổng hợp vào PostgreSQL theo preset (`make generate PRESET=1m`), và `make generate-verify PRESET=1m` đối chiếu dữ liệu đã nạp với quy luật của preset (sổ kho, R01–R07, tỷ lệ kịch bản, POS, địa điểm). `datagen logs --preset 1m --out <thư mục>` sinh log truy cập 01/11–15/12/2025 khớp với đơn online đã nạp: mỗi đơn một phiên kết thúc bằng `checkout_submit` mang `order_number`, ghi mỗi ngày một file Parquet (`raw_payload`, `event_at`) theo hợp đồng `ecommerce.access` 1.1.0. Các khối quy luật YAML ghi `source`: `measured` (đo trong notebook), `transfer` (đo ở nguồn nước ngoài, áp cho shop thời trang VN như giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản). YAML là danh mục tham số runtime; các bảng dưới tóm tắt quy luật. Preset `schema_version: 3` khác version access event/publication. Loader Parquet tổng hợp chưa có; session/order number chưa được ánh xạ vào typed layers.
 
 ### Preset OLTP
 
@@ -189,8 +174,9 @@ Quy luật đo trong [purchase_behavior_eda.ipynb](../generator/oltp/notebooks/p
 | R04 | Giỏ hàng | Hình học p = 0,296; bảng biến thể/số lượng | transfer |
 | R05 | Lịch | Ngày sale ×6,39, ba ngày sau ×2,6; thứ trong tuần bằng nhau; giờ theo Olist | transfer |
 | R06 | Đánh giá theo giao trễ | Bảng số sao theo mức trễ; tỷ lệ trễ 5,5% | measured/transfer |
+| R07 | Thời gian giao | Hãng lấy hàng cùng ngày nếu shop giao trước 10h30, sau đó lấy ngày kế; từ ngày lấy, số ngày đều trong khoảng của vùng: nội thành TP.HCM 1–2, nội miền (Bình Dương, Cần Thơ) 2–4, Hà Nội 3–4, liên miền (Đà Nẵng, Hải Phòng) 4–6 | cam kết công bố của GHTK Express (bảng giá từ 10/11/2026) |
 
-Khoảng giá, số ngày giao, tỷ lệ hủy/COD/trả hàng, coupon, Tết, wishlist và giỏ bỏ dở là `assumption`. Notebook mục 7.1 đối chiếu một số giá trị với số liệu Việt Nam công khai; các số đó không dùng để hiệu chỉnh.
+Khoảng giá, tỷ lệ hủy/COD/trả hàng, coupon, Tết, wishlist và giỏ bỏ dở là `assumption`. Notebook mục 7.1 đối chiếu một số giá trị với số liệu Việt Nam công khai; các số đó không dùng để hiệu chỉnh. Mục 7.2 lấy thời gian giao theo vùng (R07) từ bảng công bố của GHTK, đối chiếu GHN.
 
 ### Quy luật access log
 
@@ -306,14 +292,11 @@ Phần này giữ hồ sơ nguồn S01–S11 của nghiên cứu ngày **08/11/2
 - **Giới hạn:** chưa xác minh quyền truy cập/giấy phép dữ liệu gốc. Tập gán nhãn không mặc nhiên đại diện tỷ lệ phàn nàn, phân phối sao hoặc tỷ lệ hoàn hàng ngoài thị trường. Không cần thêm mô hình NLP vào repo chỉ để sử dụng ý tưởng này.
 
 
-## 9. Hợp đồng Gold dbt/Trino và publication
+## 9. Hợp đồng Gold dbt/Trino
 
-Gold có 27 bảng: 6 dimension, 6 fact và 15 mart OLTP. [Wrapper commerce](../pipelines/src/lakehouse/analytics/commerce.py) ghim 27 snapshot Silver, chuẩn bị schema Iceberg và chạy `dbt build --select tag:oltp` trên Trino; [models OLTP](../pipelines/dbt/models/oltp/) chứa logic biến đổi. Adapter Arrow đọc SQL contracts để tạo schema, Polars thực hiện quality gate sau build. Materialization `iceberg_merge` dùng MERGE vào bảng đã tạo, xóa dòng không còn trong output mong đợi và giữ identity/lịch sử snapshot của bảng. Phân bổ giảm giá/hoàn tiền dùng `decimal(38,0)`, modulo và hiệu phần nguyên tích lũy qua macro `floor_allocate`, trả VND BIGINT. Giá vốn lấy snapshot dòng đơn. COD chưa ghi nhận doanh thu được giữ tách khỏi doanh thu đã ghi nhận.
+Gold OLTP có 27 bảng: 7 dimension, 6 fact, 14 mart và 2 seed (`delivery_sla`, `calendar_events`); `mart_web_funnel_daily` của thiết kế chờ phần log. Job batch chạy `dbt build --select tag:oltp` trên Trino sau khi Silver đã merge; [models OLTP](../pipelines/dbt/models/oltp/) chứa logic biến đổi. Mỗi model là bảng `CREATE OR REPLACE`, một commit Iceberg mỗi bảng, dựng lại toàn bộ từ Silver hiện tại mỗi lần chạy (ở 1m khoảng một phút). Giảm giá đơn được phân bổ cho các dòng theo tỷ lệ tiền dòng với làm tròn xuống tích lũy, nên tổng phân bổ bằng đúng giảm giá đơn. Giá vốn lấy snapshot dòng đơn.
 
-`--as-of` là mốc nghiệp vụ có timezone cho cửa sổ coupon 15 phút, review 45 phút và các bảng quan sát. `_gold_ingested_at` là thời điểm xử lý thực. `--batch-date` chỉ định ngày logic của audit, mặc định ngày UTC của mốc nghiệp vụ. Snapshot tồn kho dùng ngày Việt Nam: model tính lại ngày quan sát và giữ các dòng ngày cũ; bảng current/summary chỉ đọc ngày đang quan sát. Dimension ngày thay thế phạm vi năm 2025–2027.
-
-Gate native giữ 55 kiểm tra về đối soát, tài chính, tồn kho, vận hành, marketing, admin, khóa, freshness và PII. Với prefix `serving`, audit ở `system.data_quality_results`, publication ở `system.analytics_publications`; prefix thử nghiệm dùng `<prefix>_system`. Manifest OLTP `schema_version=3`, `source_mode=batch` ghim đúng 27 Silver và 27 Gold đã audit; `source_event_at=NULL`, `offsets_json={}`, `changed_tables_json=[]`, không phải watermark CDC. Trạng thái không có snapshot được giữ NULL trong manifest. Đọc lại publication cũ vẫn dùng snapshot cũ dù các bảng được rebuild; retention snapshot phải tôn trọng các manifest còn dùng.
-
+`--as-of` (có múi giờ) là ngày hiện tại của Gold: kết thúc chuỗi ngày tồn kho và backlog, và cửa sổ 28 ngày của `mart_inventory_current`. `dim_date` phủ trọn các năm có dữ liệu. Data test trong `pipelines/dbt/tests/oltp` và test khóa trong `gold.yml` chạy với severity `warn`.
 
 ## 10. Hợp đồng ba mart log dbt/Trino
 
@@ -323,4 +306,4 @@ Gate native giữ 55 kiểm tra về đối soát, tài chính, tồn kho, vận
 
 Percentile SQL sắp xếp duration khác NULL và chọn vị trí `ceil(n × p)` (nearest-rank chính xác), làm tròn ba chữ số; tham chiếu Polars dùng quantile `equiprobable`.
 
-15 kiểm tra gồm timestamp/ID/ngày UTC, trạng thái HTTP/flags, miền duration, ba đối chiếu output sau ghi, ba kiểm tra grain, bảo toàn tổng request route/funnel, checkout và product actions. Với prefix `serving`, audit append vào `system.logs_quality_results`, publication ở `system.logs_analytics_publications`; prefix thử nghiệm dùng `<prefix>_system`. Manifest log `schema_version=1`, `source_mode=logs_rollup` giữ cutoff `observed_at`, event time mới nhất `source_event_at`, snapshot output/input và catalog từ publication OLTP v3. Gate này không thay thế kiểm tra raw-payload conflict ở Bronze.
+15 kiểm tra gồm timestamp/ID/ngày UTC, trạng thái HTTP/flags, miền duration, ba đối chiếu output sau ghi, ba kiểm tra grain, bảo toàn tổng request route/funnel, checkout và product actions. Với prefix `serving`, audit append vào `system.logs_quality_results`, publication ở `system.logs_analytics_publications`; prefix thử nghiệm dùng `<prefix>_system`. Manifest log `schema_version=1`, `source_mode=logs_rollup` giữ cutoff `observed_at`, event time mới nhất `source_event_at`, snapshot output/input, gồm snapshot hiện tại của `silver.products` và `silver.product_variants` dùng để ánh xạ sản phẩm. Gate này không thay thế kiểm tra raw-payload conflict ở Bronze.

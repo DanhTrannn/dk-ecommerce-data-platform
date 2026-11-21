@@ -8,7 +8,7 @@ Tài liệu này mô tả kiểm tra/phục hồi sau [setup.md](setup.md). Đ�
 |---|---|---|
 | Container | `make ps`, Compose health | Schema, quyền bucket/catalog, pipeline nghiệp vụ hoặc dữ liệu mới |
 | API | `/health/live`, `/health/ready` | Ready chỉ kiểm tra DB; không xác nhận Kafka/Trino/Gold |
-| Airflow | DAG/task state, run/interval, gate và publication | Task green riêng lẻ không đủ để chứng nhận cả bộ mart |
+| Airflow | DAG/task state, run/interval, dòng `BATCH_PIPELINE_RESULT` (số dòng Bronze/Silver, trạng thái dbt) | Task green chứng nhận kiểm tra trước merge đã qua; test dbt chỉ cảnh báo, cần đọc log |
 | Flink | Job access-log RUNNING, checkpoint, Landing có event mới | Có job không chứng minh đã bắt đủ request |
 | Lakehouse | Row count theo grain/run/snapshot, DQ/parity, manifest | Bronze count khác current source count; không cộng lịch sử làm tổng đơn |
 | BI | Publication/run/time đúng, KPI đối chiếu SQL, trạng thái cache | Refresh trang không tự làm snapshot mới hoặc đổi thời điểm quan sát |
@@ -34,8 +34,8 @@ Các curl cần service tương ứng đã bật; dùng port override nếu khá
 | `data/scenarios/` | Scenario/run/attempt, idempotency key, order number và kết quả hậu kiểm |
 | `data/access-admin/audit.jsonl` | Access CRUD/binding/workload assignment journal/readback và operation ID; không phải tamper-proof audit store |
 | `airflow-logs` | Task logs của các DAG batch/log |
-| `lakehouse.system.data_quality_results` | Chẩn đoán kiểm tra chất lượng; kết quả gắn dataset/run |
-| `system.analytics_publications` / `logs_analytics_publications` | Snapshot manifest độc lập theo từng nguồn |
+| Log task Airflow | Kiểm tra OLTP trượt (`CheckFailed`, tên kiểm tra, số dòng) và cảnh báo test dbt; không ghi vào lakehouse |
+| `system.logs_analytics_publications` | Snapshot manifest của log mart |
 | `data/pipeline-runs/` | Report/log/screenshot local của opt-in acceptance; ignored, không phải dataset production |
 
 Không lưu password/cookie/token vào scenario journal. Request `X-Request-ID` giúp nối API log → Kafka payload → Landing/Silver/fact. `generation_run_id`, Airflow `run_id` và operation ID quản trị có namespace riêng.
@@ -47,20 +47,19 @@ Ví dụ chạy qua Trino SQL client hoặc client đang có của dự án:
 ```sql
 SHOW SCHEMAS FROM lakehouse;
 SHOW TABLES FROM lakehouse.gold;
-SELECT run_id, published_at, schema_version, source_mode, snapshots_json
-FROM lakehouse.system.analytics_publications ORDER BY published_at DESC LIMIT 1;
+SELECT _run_id, _ingested_at, count(*) FROM lakehouse.bronze.orders GROUP BY 1, 2 ORDER BY 2 DESC LIMIT 5;
 SELECT run_id, published_at, observed_at, snapshots_json
 FROM lakehouse.system.logs_analytics_publications ORDER BY published_at DESC LIMIT 1;
 ```
 
-Để so KPI, lấy snapshot ID trong manifest rồi dùng cú pháp sau, **thay `<snapshot_id>` bằng số thực**, không chạy nguyên placeholder:
+So KPI OLTP trên bảng Gold hiện tại, đúng bảng dashboard đang đọc:
 
 ```sql
-SELECT sum(total_orders), sum(order_total_vnd), sum(net_revenue_vnd), sum(gross_profit_vnd)
-FROM lakehouse.gold.mart_order_daily FOR VERSION AS OF <snapshot_id>;
+SELECT sum(orders), sum(order_value_vnd) FROM lakehouse.gold.mart_orders_daily;
+SELECT sum(net_revenue_vnd), sum(gross_profit_vnd) FROM lakehouse.gold.mart_sales_daily;
 ```
 
-Không lấy current mart chưa publish để kết luận dashboard sai. Với log, đối chiếu theo snapshot/cutoff publication log, không gộp thời điểm OLTP vào cùng một nhãn freshness. Đối soát source–Silver cần nguồn không đổi trong cửa sổ đo.
+Với log, đối chiếu theo snapshot/cutoff publication log, không gộp thời điểm OLTP vào cùng một nhãn freshness. Đối soát nguồn với Silver đã chạy trong mỗi lần full; tự đối soát thêm thì cần nguồn không đổi trong lúc đo.
 
 ## 4. Troubleshooting
 
@@ -71,16 +70,15 @@ Không lấy current mart chưa publish để kết luận dashboard sai. Với 
 | Đổi password env nhưng không login | Init PostgreSQL/seed/metadata không tự đổi password đã lưu; xác nhận credential retained trước khi rotate có kiểm soát |
 | Batch đọc PostgreSQL lỗi auth/permission | Reader password/env đúng và script `make source-reader` đã chạy sau đủ schema; không đưa credential vào URL kết nối |
 | Job batch không thấy credential | Kiểm tra tab Cấp cho workload, trạng thái exporter và consumer file đúng volume/UID/GID; không thay bằng MinIO root hoặc chmod mở rộng toàn bộ |
-| Silver lỗi salt | Cấp `SILVER_PSEUDONYMIZE_SALT` ổn định; không bỏ pseudonymization để job qua |
-| Thiếu staging/interval | Chạy init nếu chưa có nền; manual interval phải có UTC start/end; interval rỗng hợp lệ không xóa lịch sử Bronze/Silver |
+| Thiếu interval | Chạy init nếu chưa có nền; incremental phải có cả `--interval-start` và `--interval-end` kèm múi giờ; interval rỗng hợp lệ không xóa lịch sử Bronze/Silver |
 | Giá trị UUID không nối log–product | Xem 16-byte canonical và encoding UTF-8 cũ; resolver hỗ trợ cả hai. Muốn sửa toàn bộ current Silver phải init có kiểm soát |
-| Gold gate thất bại | Đọc failed check/key/cost/refund/lineage; sửa nguồn hoặc transform, chạy lại đúng writer/run. Không publish bỏ qua gate |
-| Dashboard nghiệp vụ không đổi sau UPDATE | Chờ/chạy batch phù hợp và publication mới. Superset còn cần sync/mở URL mới |
+| `CheckFailed` | Log nêu kiểm tra và số dòng (vd `orders: order_total_mismatch = 1`); Silver/Gold chưa đổi. Sửa nguồn hoặc luật rồi chạy lại cùng run ID. Không tắt kiểm tra để job qua |
+| Dashboard nghiệp vụ không đổi sau UPDATE | Chờ hoặc chạy batch có interval bao thời điểm sửa; dashboard đọc Gold hiện tại nên không cần sync lại |
 | API có request nhưng Landing trống | `KAFKA_ENABLED`, topic chung, producer/DLQ, job access RUNNING và checkpoint. Seed dữ liệu không tạo access log |
 | Kafka phục hồi nhưng log cũ thiếu | Producer phục hồi chỉ gửi event mới; DLQ cũ cần thao tác replay riêng |
 | Trino unavailable/permission denied | Kiểm tra Polaris/MinIO reader binding và credential; read-only write denial là đúng thiết kế |
 | HTTP 503/cache degraded | Xem publication log/Trino; cache last-good có giới hạn tuổi, không coi là dữ liệu vừa được cập nhật |
-| Superset sync không tạo assets | Metadata init/admin, publication schema 3/mode batch và hai snapshot phải đọc được; giữ nguyên dashboard cũ khi lỗi |
+| Superset sync không tạo assets | Metadata init/admin và ba mart Gold phải đọc được qua Trino; giữ nguyên dashboard cũ khi lỗi |
 | Bộ lọc Superset báo metric count | Dùng image hiện tại; dataset có helper `count=COUNT(*)`, KPI đơn dùng `SUM(total_orders)`. Không sửa KPI thành đếm dòng mart |
 | Quản trị binding trả 409 | Reload snapshot/revision; nếu kết quả ghi chưa rõ thì xem journal/readback trước khi thử lại |
 
@@ -92,9 +90,9 @@ Các lỗi kiểu dữ liệu/constraint không giải quyết bằng tắt FK, 
 
 Scenario chạy bằng worker độc lập. Mất process có thể chuyển unknown. Worker mất hoặc write timeout không tự replay checkout; dùng key/mã đơn đã ghi để xác minh. Nút dừng scenario ngăn lượt tiếp theo, không hủy transaction đang chạy.
 
-### Batch và publication
+### Batch OLTP
 
-Giữ staging/Bronze/Silver và failed task logs để retry. Job ingest/Gold/log/maintenance dùng advisory lock chung theo namespace; writer đồng thời bị từ chối. Lock không bao cả DAG nhiều task, nên vẫn cần tạm dừng DAG còn lại khi phục hồi để tránh xen kẽ. Một lần ghi Gold dở có thể làm current physical tables thay đổi, nhưng reader vẫn dùng manifest cũ. Sau khi sửa lỗi, chạy quality gate/publish đúng logical run; manifest dùng PyIceberg upsert theo `run_id`/`source_mode` chống trùng logical run, không chỉnh snapshot ID bằng tay để “làm mới” dashboard.
+Job batch/log/maintenance dùng advisory lock chung theo namespace; writer đồng thời bị từ chối, nên tạm dừng DAG còn lại khi phục hồi. Retry với cùng run ID chạy lại cả job: Bronze xóa dòng của lần thử trước, Silver merge theo khóa chính, dbt dựng lại Gold. Nếu job lỗi sau khi Silver đã merge (ví dụ ở dbt), Gold có thể lệch Silver tới lần chạy kế tiếp; chạy lại cùng run ID là đủ vì Gold luôn dựng lại toàn bộ.
 
 ### Flink/Kafka
 
@@ -118,11 +116,11 @@ Raw malformed event được giữ để điều tra, không đưa vào Silver/f
 
 DAG OLTP maintenance chạy **04:00**, sau lịch batch 03:00 nhưng không đảm bảo batch dài đã kết thúc. DAG streaming maintenance chạy hai giờ/lần. Các job maintenance giữ advisory lock theo namespace như writer batch/log; vẫn cần điều phối với Flink đang append vì Flink không dùng khóa PostgreSQL này.
 
-[Table profiles](../pipelines/src/lakehouse/utils/maintenance.py) lấy OLTP từ `SOURCE_TABLES` và Gold `TABLES`, còn streaming liệt kê Landing/Bronze/Silver/fact/ba mart. `--tables` vẫn bị giới hạn vào whitelist này. Compaction overwrite dữ liệu hiện tại trong transaction; expire giữ snapshot mới nhất theo retention, snapshot refs và các snapshot xuất hiện trong **mọi dòng publication hiện có**, gồm snapshot đầu vào log.
+[Table profiles](../pipelines/src/lakehouse/utils/maintenance.py) lấy OLTP từ `SOURCE_TABLES` và các model/seed dbt OLTP, còn streaming liệt kê Landing/Bronze/Silver/fact/ba mart. `--tables` vẫn bị giới hạn vào whitelist này. Compaction overwrite dữ liệu hiện tại trong transaction; expire giữ snapshot mới nhất theo retention, snapshot refs và các snapshot xuất hiện trong **mọi dòng publication log hiện có**, gồm snapshot đầu vào.
 
-Orphan mặc định chỉ **báo số candidate**, giới hạn trong thư mục `data/` của bảng thuộc bucket cấu hình. Xóa vật lý cần đồng thời `--delete-orphans --writers-stopped`; các DAG định kỳ không truyền hai cờ này. CLI còn có cleanup quarantine theo tuổi; xem [entrypoint](../pipelines/src/jobs/maintenance/iceberg_table_maintenance.py) cho tham số thực tế.
+Orphan mặc định chỉ **báo số candidate**, giới hạn trong thư mục `data/` của bảng thuộc bucket cấu hình. Xóa vật lý cần đồng thời `--delete-orphans --writers-stopped`; các DAG định kỳ không truyền hai cờ này. Xem [entrypoint](../pipelines/src/jobs/maintenance/iceberg_table_maintenance.py) cho tham số thực tế.
 
-Publication-aware retention chưa phải quản lý vòng đời dashboard: giữ mọi manifest có thể giữ snapshot cũ lâu dài và làm dung lượng tăng. Không tự xóa manifest/snapshot để giảm dung lượng nếu chưa đối chiếu report còn dùng. Nếu snapshot mất do thao tác ngoài luồng, reader phải báo lỗi thay vì chuyển sang current data. Sync publication mới tạo URL mới, không sửa dashboard cũ.
+Giữ mọi manifest log có thể giữ snapshot cũ lâu dài và làm dung lượng tăng. Không tự xóa manifest/snapshot để giảm dung lượng nếu chưa đối chiếu report còn dùng. Nếu snapshot log mất do thao tác ngoài luồng, reader phải báo lỗi thay vì chuyển sang current data.
 
 | Tài nguyên | Nội dung cần bảo toàn |
 |---|---|
@@ -170,7 +168,7 @@ CI không chạy unit/integration Python, không dựng và nghiệm thu cả st
 ## 8. Phần cần hoàn thiện
 
 - Loader log tổng hợp Parquet vào Lakehouse và mapping typed cho `session.id`/`ecommerce.order_number`; giữ tách provenance synthetic/observed.
-- Bộ kiểm chứng có thể tái lập generator → batch/log → publication → Superset trên stack cô lập, gồm khối lượng và đối soát dữ liệu.
-- Chính sách đồng bộ hard delete nguồn; mở rộng BI ngoài hai mart doanh thu, viewer/store và vòng đời publication/assets/snapshot.
+- Bộ kiểm chứng có thể tái lập generator → batch/log → Superset trên stack cô lập, gồm khối lượng và đối soát dữ liệu.
+- Đồng bộ hard delete nguồn ở chạy incremental; mở rộng BI ngoài ba mart doanh thu và quyền viewer/store.
 - Runner cho nghiệp vụ ngoài mua online, replay DLQ và kịch bản phục hồi đã được kiểm chứng.
 - Không mô tả hạng mục kế hoạch như chức năng đã nghiệm thu; phạm vi giao diện hiện tại là Streamlit và Superset.

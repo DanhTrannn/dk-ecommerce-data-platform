@@ -19,7 +19,6 @@ Chỉ copy khi chưa có `.env`; `make up` cũng chỉ tạo file nếu thiếu.
 | PostgreSQL | `POSTGRES_*`, các database/user nguồn, Airflow và Polaris; password reader không để trống |
 | API | `API_SECRET_KEY` ít nhất 32 ký tự; host `API_DATABASE_URL` dùng owner nguồn; schema trống và admin bootstrap được khởi tạo bởi `platform-admin-init` |
 | Storage/catalog | Root chỉ dùng quản trị/provisioning; đủ `MINIO_*_ACCESS_KEY/SECRET_KEY`, bucket, realm/catalog và Polaris root secret |
-| Silver | `SILVER_PSEUDONYMIZE_SALT` ổn định, không trống |
 | Airflow | Secret/JWT/Fernet, admin và `AIRFLOW_UID` phù hợp; Fernet phải là key hợp lệ |
 | Streamlit | Bind/port/UID/GID qua `PLATFORM_APP_*`; `./data` cần ghi được với UID đó |
 | Log | `KAFKA_ENABLED=false` cho core-only; bật true khi dùng streaming; topic chung `KAFKA_ACCESS_LOG_TOPIC` |
@@ -153,19 +152,19 @@ docker compose --profile core up -d \
   airflow-api-server airflow-scheduler airflow-dag-processor trino
 ```
 
-Batch reader chỉ SELECT 27 bảng; `customer_credentials` bị loại. Airflow (môi trường batch Polars/PyIceberg/dbt) cần reader password, MinIO batch key, Polaris credential file và salt PII. Chạy lần đầu bằng DAG thủ công:
+Batch reader được SELECT 27 bảng (`customer_credentials` bị loại); job nạp 19 bảng và chỉ đọc `inventory`, `store_inventory` để đối soát sổ kho. Airflow (môi trường batch Polars/PyIceberg/dbt) cần reader password, MinIO batch key và Polaris credential file. Chạy lần đầu bằng DAG thủ công:
 
 ```bash
 docker compose exec -T airflow-scheduler airflow dags trigger init_lakehouse_oltp
 ```
 
-Theo dõi trong Airflow UI tới khi mọi task/gate và publication hoàn tất. Sau đó bật DAG batch:
+Theo dõi task `run_batch_pipeline` trong Airflow UI tới khi xong; log có các dòng `BRONZE`, `CHECKS passed`, `SILVER` và cuối cùng `BATCH_PIPELINE_RESULT`. Sau đó bật DAG batch:
 
 ```bash
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_pipeline
 ```
 
-DAG định kỳ chạy 03:00 Asia/Ho_Chi_Minh, đọc interval `[start,end)`. Job ingest/Gold/log/maintenance có advisory lock dùng chung theo namespace, nhưng không giữ lock xuyên suốt nhiều task của một DAG. Tránh chạy init và interval DAG xen kẽ; `max_active_runs=1` chỉ áp dụng trong từng DAG. Các DAG mới được tạo ở trạng thái paused theo Compose.
+DAG định kỳ chạy 03:00 Asia/Ho_Chi_Minh, đọc interval `[start,end)`. Job batch/log/maintenance có advisory lock dùng chung theo namespace; job gặp lock đang bị giữ thì lỗi chứ không chờ. Tránh chạy init và interval DAG chồng nhau; `max_active_runs=1` chỉ áp dụng trong từng DAG. Các DAG mới được tạo ở trạng thái paused theo Compose.
 
 Manual run phải có interval hợp lệ khi gọi incremental ingestion. Không suy ra rằng chỉ đặt `logical_date` là đủ để chọn cửa sổ nguồn. Các tham số `--interval-start`/`--interval-end` của CLI ở phần 8 là hợp đồng kiểm tra được trong repo; contract/auth của Airflow API cần đối chiếu instance Airflow đang dùng khi tự động hóa trigger. Full init là job riêng, không được thay bằng một interval tùy ý.
 
@@ -183,7 +182,7 @@ docker compose --profile core --profile streaming run --rm flink-submit
 
 `kafka-init` tạo topic dùng chung trước submit. API trong Compose dùng `kafka:9092`, DLQ `/data/events/dlq_access_logs.jsonl` được mount ra host. API chạy host dùng các giá trị host `localhost:9094`/đường dẫn tương đối trong `.env.example`.
 
-Gọi API/runner và đối chiếu `X-Request-ID` với Landing. Sau publication catalog OLTP đầu tiên, trigger DAG log khi idle:
+Gọi API/runner và đối chiếu `X-Request-ID` với Landing. Sau lần batch OLTP full đầu tiên (pipeline log đọc danh mục sản phẩm từ Silver hiện tại), trigger DAG log khi idle:
 
 ```bash
 docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_logs_marts
@@ -199,7 +198,7 @@ Bật lịch hourly trong Airflow khi cần. Flink chỉ append Landing; job `bu
 
 ## 6. Superset tùy chọn
 
-PoC dành cho admin, hai mart doanh thu, bốn KPI/bốn chart; không kế thừa role/cửa hàng FastAPI. Cần Trino và publication OLTP đã hoàn tất. Điền ba secret Superset độc lập trong `.env`, rồi:
+PoC dành cho admin, ba mart doanh thu, bốn KPI/bốn chart; không kế thừa role/cửa hàng FastAPI. Cần Trino và một lần batch OLTP full đã xong. Điền ba secret Superset độc lập trong `.env`, rồi:
 
 ```bash
 docker compose --profile core --profile bi build superset
@@ -213,7 +212,7 @@ make superset-sync
 
 Mở `http://127.0.0.1:8088`, đăng nhập bằng `SUPERSET_ADMIN_USER`/`SUPERSET_ADMIN_PASSWORD`. Sync in đường dẫn dashboard trong `SUPERSET_RESULT`; mở URL tương ứng hoặc danh sách Dashboards.
 
-Init tạo metadata/migration/role/admin nếu thiếu, không reset password. Script metadata DB giữ password của role đang có. Sau batch mới, sync lại và mở URL mới; URL cũ giữ snapshot cũ. Không tự chạy sync theo Airflow hoặc tự refresh sang publication mới.
+Init tạo metadata/migration/role/admin nếu thiếu, không reset password. Script metadata DB giữ password của role đang có. Dataset đọc bảng Gold hiện tại nên batch mới hiện ngay trên dashboard; chỉ cần sync lại khi định nghĩa dataset/chart thay đổi.
 
 Superset dùng Python/runtime và driver lock riêng trong [infrastructure/superset](../infrastructure/superset/), một web worker/bốn thread, không Redis/Celery. Chưa có RBAC viewer/store hoặc hardening public. Cookie/proxy flags không tự bật HTTPS. Lưu `SUPERSET_SECRET_KEY` ổn định cùng backup metadata; lifecycle snapshot ở [operations.md](operations.md#6-bảo-trì-và-lưu-trữ).
 
@@ -249,20 +248,21 @@ make down
 
 ## 8. Chạy job batch bằng CLI
 
-DAG gọi các job dưới đây bằng `PIPELINE_PYTHON` (venv Polars/PyIceberg/dbt trong image Airflow). Chạy tay trong container scheduler, vốn đã có reader, Polaris credential file, MinIO batch key và salt PII:
+DAG gọi các job dưới đây bằng `PIPELINE_PYTHON` (venv Polars/PyIceberg/dbt trong image Airflow). Chạy tay trong container scheduler, vốn đã có reader, Polaris credential file và MinIO batch key:
 
 ```bash
-# Bronze/Silver cho 27 nguồn (thêm --interval-start/--interval-end cho interval [start,end); --table để chọn nhóm)
-docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.oltp.run_polars_batch \
-  --namespace-prefix serving --run-id manual_oltp_20261115'
+# OLTP: Bronze → kiểm tra → Silver → Gold trong một job (19 nguồn)
+docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.oltp.run_batch_pipeline \
+  --namespace-prefix serving --run-id manual_oltp_20261115 --mode full --as-of 2026-11-15T00:00:00Z'
 
-# Gold bằng dbt/Trino, quality gate và publication (--verify-only để chỉ audit)
-docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.oltp.build_oltp_gold \
-  --namespace-prefix serving --run-id manual_oltp_20261115 --as-of 2026-11-15T00:00:00Z'
+# Incremental: thêm cửa sổ [start, end) có múi giờ
+docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.oltp.run_batch_pipeline \
+  --namespace-prefix serving --run-id manual_oltp_20261116 --mode incremental --as-of 2026-11-16T00:00:00Z \
+  --interval-start 2026-11-15T00:00:00Z --interval-end 2026-11-16T00:00:00Z'
 
 # Log: Landing → Bronze/Silver/fact → ba mart → publication log
 docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.logs.build_logs_gold \
   --namespace-prefix serving --run-id manual_logs_20261115 --as-of 2026-11-15T00:00:00Z'
 ```
 
-Các run ID và thời gian ở ví dụ cần được chọn lại theo lần chạy/dữ liệu; ingest và Gold của cùng logical run dùng cùng ID. Prefix khác `serving` phải có dạng `polars_batch_*` để chạy thử trong namespace riêng. Giữ nguyên `--as-of` khi retry; nguồn PostgreSQL vẫn được đọc lại và snapshot đầu vào có thể thay đổi. Gate thất bại làm job lỗi sau khi lưu audit; publication trước đó được giữ nguyên.
+Các run ID và thời gian ở ví dụ cần được chọn lại theo lần chạy/dữ liệu. Prefix khác `serving` phải có dạng `polars_batch_*` để chạy thử trong namespace riêng. Retry dùng lại run ID và `--as-of`: Bronze xóa dòng của lần thử trước rồi đọc lại nguồn. `--as-of` là ngày hiện tại của Gold (cuối các chuỗi ngày tồn kho/backlog). Kiểm tra trượt làm job lỗi với `CheckFailed` trước khi Silver và Gold thay đổi.

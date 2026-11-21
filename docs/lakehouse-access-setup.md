@@ -1,6 +1,6 @@
 # Tạo bucket và cấp quyền để chạy toàn bộ Lakehouse
 
-Làm theo thứ tự từ **Bước 1 đến Bước 23** để chạy full batch OLTP. Khi Airflow báo `PUBLISHED`, tiếp tục **Bước 24 đến Bước 26** để thu và xử lý access log, hoặc **Bước 27 đến Bước 28** để xem dashboard Superset. Sau khi đã cấp quyền và khởi tạo Superset, dùng **Bước 29** để mở lại toàn bộ stack.
+Làm theo thứ tự từ **Bước 1 đến Bước 23** để chạy full batch OLTP. Khi batch full chạy xong, tiếp tục **Bước 24 đến Bước 26** để thu và xử lý access log, hoặc **Bước 27 đến Bước 28** để xem dashboard Superset. Sau khi đã cấp quyền và khởi tạo Superset, dùng **Bước 29** để mở lại toàn bộ stack.
 
 Các lệnh chạy từ thư mục gốc repo. Các bước dùng tên mặc định `lakehouse` cho cả bucket MinIO và catalog Polaris. Trino đang được cấu hình chọn warehouse Polaris `lakehouse`. Nếu đã tạo một tài nguyên, đối chiếu tên, cấu hình và quyền rồi tiếp tục bước kế tiếp. [Cấu hình catalog Trino](../infrastructure/trino/catalog)
 
@@ -166,7 +166,7 @@ Kiểm tra cả bốn dòng có **Credential** là **Đã có** và **Quyền fi
 
 ### Bước 19 Cấp quyền đọc PostgreSQL cho Airflow
 
-Khi PostgreSQL đã có schema nghiệp vụ, chạy lệnh dưới để tạo role reader và cấp `SELECT` trên 27 bảng nguồn. Nếu vừa đổi biến reader trong `.env`, áp dụng cấu hình bằng `docker compose --profile core up -d --wait postgres` trước. [Script cấp quyền reader](../infrastructure/postgres/configure-source-reader.sh)
+Khi PostgreSQL đã có schema nghiệp vụ, chạy lệnh dưới để tạo role reader và cấp `SELECT` trên 27 bảng nguồn (batch nạp 19 bảng, hai bảng tồn kho chỉ dùng để đối soát). Nếu vừa đổi biến reader trong `.env`, áp dụng cấu hình bằng `docker compose --profile core up -d --wait postgres` trước. [Script cấp quyền reader](../infrastructure/postgres/configure-source-reader.sh)
 
 ```bash
 make source-reader
@@ -199,15 +199,12 @@ docker compose exec -T airflow-scheduler airflow dags unpause init_lakehouse_olt
 docker compose exec -T airflow-scheduler airflow dags trigger init_lakehouse_oltp
 ```
 
-### Bước 23 Xác nhận batch đã công bố dữ liệu
+### Bước 23 Xác nhận batch đã chạy xong
 
-Trong **Airflow → DAGs**, mở **`init_lakehouse_oltp` → lần chạy mới nhất → `run_batch_pipeline` → Logs**. Dòng `POLARS_BATCH` hiện số dòng đọc theo bảng. Dòng `BATCH_PIPELINE_RESULT` có `"status": "PUBLISHED"` xác nhận đã công bố dữ liệu. Có thể truy vấn manifest qua Trino để xem phiên công bố mới nhất. [Kiểm tra bằng SQL Trino](operations.md#3-kiểm-tra-bằng-sql-trino)
+Trong **Airflow → DAGs**, mở **`init_lakehouse_oltp` → lần chạy mới nhất → `run_batch_pipeline` → Logs**. Dòng `BRONZE` hiện số dòng đọc theo bảng, `CHECKS passed` xác nhận kiểm tra trước merge đã qua, `SILVER` hiện số dòng merge. Dòng cuối `BATCH_PIPELINE_RESULT` liệt kê số dòng Bronze/Silver và trạng thái từng model dbt. Có thể đếm Gold qua Trino. [Kiểm tra bằng SQL Trino](operations.md#3-kiểm-tra-bằng-sql-trino)
 
 ```sql
-SELECT run_id, published_at, schema_version, source_mode
-FROM lakehouse.system.analytics_publications
-ORDER BY published_at DESC
-LIMIT 1;
+SELECT count(*) FROM lakehouse.gold.fact_order;
 ```
 
 Nếu cần lịch incremental hằng ngày, bật DAG bằng lệnh sau. DAG chạy lúc **03:00 giờ Việt Nam**. [DAG incremental](../airflow/dags/lakehouse_oltp_pipeline.py)
@@ -271,14 +268,14 @@ make superset-init
 
 ### Bước 28 Bật Superset và sync dashboard
 
-Sau khi batch đã `PUBLISHED`, chạy:
+Sau khi batch full đã chạy xong, chạy:
 
 ```bash
 docker compose --profile core --profile bi up -d --wait superset
 make superset-sync
 ```
 
-Đăng nhập [Superset](http://localhost:8088) bằng `SUPERSET_ADMIN_USER` và `SUPERSET_ADMIN_PASSWORD`. Mở đường dẫn dashboard trong dòng `SUPERSET_RESULT`. Khi cần xem publication batch mới, chạy lại `make superset-sync` và dùng URL được in ra. [Thiết lập và đồng bộ Superset](setup.md#6-superset-tùy-chọn)
+Đăng nhập [Superset](http://localhost:8088) bằng `SUPERSET_ADMIN_USER` và `SUPERSET_ADMIN_PASSWORD`. Mở đường dẫn dashboard trong dòng `SUPERSET_RESULT`. Dashboard đọc bảng Gold hiện tại nên batch mới hiện ngay, không cần sync lại. [Thiết lập và đồng bộ Superset](setup.md#6-superset-tùy-chọn)
 
 ## Khởi động lại và xử lý lỗi
 
@@ -300,9 +297,9 @@ make status
 | Workload báo S3 `403` | Về Bước 4 đến Bước 11. Kiểm tra access key và secret khớp `.env`, policy gán đúng bucket, prefix và quyền object. |
 | Iceberg REST báo thiếu quyền đọc hoặc ghi bảng | Về Bước 15 đến Bước 18. Kiểm tra principal được cấp và lần theo liên kết đến catalog role. |
 | Batch không đăng nhập được PostgreSQL | Về Bước 19 và kiểm tra biến reader cùng kết quả `make source-reader`. |
-| Batch báo `Legacy analytical schemas require a full run with --migrate-schema` | Catalog đã có schema cũ. Rà migration v3 sang v4 trước khi chạy full trên các bảng đang phục vụ. [Kiểm tra schema trước migration](../pipelines/src/lakehouse/oltp/contract_migration.py) |
+| Batch báo `CheckFailed: <bảng>: <kiểm tra> = <số dòng>` | Dữ liệu nguồn vi phạm luật; Silver và Gold chưa đổi. Sửa dòng nguồn hoặc luật rồi chạy lại cùng run ID. [Batch OLTP](operations.md#batch-oltp) |
 | Flink chạy nhưng Landing trống | Về Bước 24 đến Bước 26, kiểm tra `KAFKA_ENABLED=true` đã áp dụng cho `platform-app` và tạo request sau khi Flink `RUNNING`. |
-| Superset sync báo thiếu publication | Về Bước 23, kiểm tra batch đã `PUBLISHED` rồi chạy lại Bước 28. |
+| Superset sync báo thiếu bảng Gold | Về Bước 23, kiểm tra batch full đã chạy xong rồi chạy lại Bước 28. |
 
 Xem log startup và trạng thái container bằng các lệnh dưới. [Hướng dẫn xử lý sự cố](operations.md#4-troubleshooting)
 
