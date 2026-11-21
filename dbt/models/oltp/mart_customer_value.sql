@@ -1,3 +1,4 @@
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('customer_key', customer_keys()) }}") }}
 -- Registered customers' recognized orders (same basis as mart_sales_daily); walk-in POS sales have no customer.
 -- Net revenue per order: merchandise after discount minus the order's succeeded refunds.
 SELECT
@@ -15,5 +16,5 @@ SELECT
   count(*) > 1 AS is_repeat_customer
 FROM {{ ref('fact_order') }} o
 JOIN {{ ref('dim_customer') }} c ON c.customer_key = o.customer_key
-WHERE o.revenue_date IS NOT NULL
+WHERE o.revenue_date IS NOT NULL AND {{ filter_in('o.customer_key', customer_keys()) }}
 GROUP BY 1, 2, 3

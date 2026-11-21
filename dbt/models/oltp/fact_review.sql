@@ -42,7 +42,8 @@ SELECT
     ELSE 'not_shipped'
   END AS delivery_timeliness,
   {{ latest('r._ingested_at', 'r.item_ingested_at', 'd._ingested_at') }} AS _ingested_at,
-  {{ previous_dates('prev.review_date') }} AS _previous_dates
+  {{ previous_dates('prev.review_date') }} AS _previous_dates,
+  {{ gold_run() }} AS _gold_run
 FROM reviews r
 LEFT JOIN deliveries d ON d.order_id = r.order_id
 {% if is_incremental() %}

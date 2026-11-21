@@ -1,4 +1,5 @@
 -- Stock per position on the as-of day; average sales over the 28 days ending that day.
+-- Rebuilt every run: it is a snapshot of one day, so every row changes daily.
 WITH recent AS (
   SELECT location_type, store_key, variant_key, sum(sold_online_qty + sold_pos_qty) AS sold_28d
   FROM {{ ref('fact_inventory_daily') }}

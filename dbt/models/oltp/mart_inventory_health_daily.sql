@@ -1,3 +1,4 @@
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('inventory_date', inventory_days()) }}") }}
 -- Inbound value comes from receipt lines; receipts always stock the central warehouse.
 WITH stock AS (
   SELECT
@@ -14,6 +15,7 @@ WITH stock AS (
     sum(f.sold_online_qty + f.sold_pos_qty) AS sold_qty
   FROM {{ ref('fact_inventory_daily') }} f
   LEFT JOIN {{ ref('dim_product') }} p ON p.product_key = f.product_key
+  WHERE {{ filter_in('f.inventory_date', inventory_days()) }}
   GROUP BY 1, 2, 3, 4, 5
 ),
 inbound AS (
@@ -21,7 +23,7 @@ inbound AS (
   FROM {{ ref('inbound_receipt_items') }} i
   LEFT JOIN {{ ref('dim_variant') }} v ON v.variant_key = i.variant_id
   LEFT JOIN {{ ref('dim_product') }} p ON p.product_key = v.product_key
-  WHERE i.created_at <= {{ as_of() }}
+  WHERE i.created_at <= {{ as_of() }} AND {{ filter_in(vn_date('i.created_at'), inventory_days()) }}
   GROUP BY 1, 2
 )
 SELECT

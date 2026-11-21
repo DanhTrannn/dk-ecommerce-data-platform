@@ -1,3 +1,4 @@
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('order_date', order_days()) }}") }}
 -- Orders by the day they were placed; status_group splits them into completed, cancelled, failed and processing.
 SELECT
   o.order_date,
@@ -20,4 +21,5 @@ SELECT
 FROM {{ ref('fact_order') }} o
 LEFT JOIN {{ ref('dim_store') }} s ON s.store_key = o.store_key
 LEFT JOIN {{ ref('dim_city') }} c ON c.city_key = o.city_key
+WHERE {{ filter_in('o.order_date', order_days()) }}
 GROUP BY 1, 2, 3, 4, 5, 6, 7

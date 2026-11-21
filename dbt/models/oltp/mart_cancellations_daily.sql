@@ -1,3 +1,4 @@
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('order_date', order_days()) }}") }}
 SELECT
   order_date,
   channel,
@@ -6,5 +7,5 @@ SELECT
   count(*) AS cancelled_orders,
   sum(total_vnd) AS cancelled_value_vnd
 FROM {{ ref('fact_order') }}
-WHERE status_group = 'cancelled'
+WHERE status_group = 'cancelled' AND {{ filter_in('order_date', order_days()) }}
 GROUP BY 1, 2, 3, 4

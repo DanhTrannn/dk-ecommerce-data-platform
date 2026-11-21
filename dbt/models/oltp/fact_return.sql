@@ -49,7 +49,8 @@ SELECT
   {{ vn_date('r.created_at') }} AS request_date,
   {{ vn_date('r.resolved_at') }} AS resolved_date,
   {{ latest('i._ingested_at', 'r._ingested_at', 'v._ingested_at', 'f._ingested_at') }} AS _ingested_at,
-  {{ previous_dates('prev.request_date', 'prev.resolved_date', vn_date('prev.refunded_at')) }} AS _previous_dates
+  {{ previous_dates('prev.request_date', 'prev.resolved_date', vn_date('prev.refunded_at')) }} AS _previous_dates,
+  {{ gold_run() }} AS _gold_run
 FROM items i
 JOIN {{ ref('return_requests') }} r ON r.return_id = i.return_id
 LEFT JOIN {{ ref('product_variants') }} v ON v.variant_id = i.variant_id

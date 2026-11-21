@@ -1,3 +1,4 @@
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('end_date', delivery_days()) }}") }}
 -- Shipments that ended (delivered or failed) per day; durations are sums with their counts so averages stay
 -- correct at any roll-up.
 SELECT
@@ -20,5 +21,5 @@ SELECT
 FROM {{ ref('fact_shipment') }} s
 LEFT JOIN {{ ref('dim_city') }} c ON c.city_key = s.city_key
 LEFT JOIN {{ ref('dim_staff') }} st ON st.staff_key = s.delivery_staff_key
-WHERE s.end_date IS NOT NULL
+WHERE s.end_date IS NOT NULL AND {{ filter_in('s.end_date', delivery_days()) }}
 GROUP BY 1, 2, 3, 4, 5, 6

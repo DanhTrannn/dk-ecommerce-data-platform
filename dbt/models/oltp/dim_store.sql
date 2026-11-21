@@ -8,7 +8,8 @@ SELECT
   s.address,
   s.phone,
   s.is_active,
-  {{ latest('s._ingested_at', 'c._ingested_at') }} AS _ingested_at
+  {{ latest('s._ingested_at', 'c._ingested_at') }} AS _ingested_at,
+  {{ gold_run() }} AS _gold_run
 FROM {{ ref('stores') }} s
 LEFT JOIN {{ ref('cities') }} c ON c.city_id = s.city_id
 {% if is_incremental() %}

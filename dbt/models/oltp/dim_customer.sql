@@ -9,7 +9,8 @@ SELECT
   c.boom_count,
   c.created_at,
   {{ vn_date('c.created_at') }} AS created_date,
-  {{ latest('c._ingested_at', 'city._ingested_at') }} AS _ingested_at
+  {{ latest('c._ingested_at', 'city._ingested_at') }} AS _ingested_at,
+  {{ gold_run() }} AS _gold_run
 FROM {{ ref('customers') }} c
 LEFT JOIN {{ ref('cities') }} city ON city.city_id = c.city_id
 WHERE c.role = 'customer'

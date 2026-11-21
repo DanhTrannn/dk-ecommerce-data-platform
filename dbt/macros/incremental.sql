@@ -17,3 +17,9 @@
 {% macro previous_dates() -%}
   {% if is_incremental() %}filter(ARRAY[{{ varargs | join(', ') }}], day -> day IS NOT NULL){% else %}CAST(ARRAY[] AS array(date)){% endif %}
 {%- endmacro %}
+
+{#- The Airflow run that merged a Gold row; marts recompute what the current run changed. Set DBT_RUN_ID when
+    running dbt by hand, so the facts and the marts of one load share it. -#}
+{% macro gold_run() -%}
+  '{{ env_var("DBT_RUN_ID", invocation_id) }}'
+{%- endmacro %}

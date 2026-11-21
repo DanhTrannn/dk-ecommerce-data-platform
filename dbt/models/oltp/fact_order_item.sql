@@ -60,7 +60,8 @@ SELECT
   l.order_date,
   l.revenue_date,
   {{ latest('l._ingested_at', 'l.order_ingested_at', 'v._ingested_at') }} AS _ingested_at,
-  {{ previous_dates('prev.order_date', 'prev.revenue_date') }} AS _previous_dates
+  {{ previous_dates('prev.order_date', 'prev.revenue_date') }} AS _previous_dates,
+  {{ gold_run() }} AS _gold_run
 FROM lines l
 LEFT JOIN {{ ref('product_variants') }} v ON v.variant_id = l.variant_id
 {% if is_incremental() %}

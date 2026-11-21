@@ -1,4 +1,5 @@
 -- Cohort = month of a customer's first recognized order; same order basis as mart_customer_value.
+-- Rebuilt every run: placing any customer in a cohort needs every customer's first order.
 WITH orders AS (
   SELECT
     o.customer_key,

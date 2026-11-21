@@ -25,7 +25,7 @@ def gold_dependencies(project=DBT_PROJECT):
 
 def dbt_command(verb, select):
     exclude = f" --exclude {GOLD_TESTS}" if verb == "build" else ""
-    return f'echo "DBT_AS_OF=$DBT_AS_OF" && dbt {verb} --select {select}{exclude}'
+    return f'echo "DBT_AS_OF=$DBT_AS_OF DBT_RUN_ID=$DBT_RUN_ID" && dbt {verb} --select {select}{exclude}'
 
 
 def dbt_env(node):
@@ -37,6 +37,7 @@ def dbt_env(node):
         "DBT_TARGET_PATH": work,
         "DBT_LOG_PATH": work,
         "DBT_AS_OF": "{{ dag_run.run_after.isoformat() }}",
+        "DBT_RUN_ID": "{{ run_id }}",
         "DBT_USE_COLORS": "false",
         "DBT_PARTIAL_PARSE": "false",
         "DBT_SEND_ANONYMOUS_USAGE_STATS": "false",

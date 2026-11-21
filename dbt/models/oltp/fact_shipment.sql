@@ -38,7 +38,8 @@ SELECT
     THEN {{ vn_date('s.delivered_at') }} <= date_add('day', c.sla_days, {{ vn_date('o.created_at') }})
   END AS is_on_time,
   {{ latest('s._ingested_at', 'o._ingested_at', 'c._ingested_at') }} AS _ingested_at,
-  {{ previous_dates('prev.end_date', vn_date('prev.created_at'), vn_date('prev.dispatched_at'), vn_date('prev.order_created_at')) }} AS _previous_dates
+  {{ previous_dates('prev.end_date', vn_date('prev.created_at'), vn_date('prev.dispatched_at'), vn_date('prev.order_created_at')) }} AS _previous_dates,
+  {{ gold_run() }} AS _gold_run
 FROM shipments s
 JOIN {{ ref('fact_order') }} o ON o.order_id = s.order_id
 LEFT JOIN {{ ref('dim_city') }} c ON c.city_key = o.city_key
