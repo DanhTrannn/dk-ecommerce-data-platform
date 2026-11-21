@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 from lakehouse.analytics.dbt import run_models
 from lakehouse.oltp.bronze import ingest_table
-from lakehouse.oltp.checks import check_run, source_reconciliation
+from lakehouse.oltp.checks import check_foreign_keys, check_table, source_reconciliation
 from lakehouse.utils.runs import validate_run
 from lakehouse.oltp.silver import merge_silver
 from lakehouse.oltp.sources import SOURCE_TABLES
@@ -45,8 +45,11 @@ def run_pipeline(catalog, connection, prefix, *, run_id, mode, as_of, interval_s
     with namespace_lock(connection, prefix):
         bronze = ingest(catalog, connection, prefix, SOURCE_TABLES, run_id, ingested_at, interval_start, interval_end, page_size)
         with source_read_transaction(connection):
-            source = source_reconciliation(connection, SOURCE_TABLES) if full else None
-        check_run(catalog, prefix, SOURCE_TABLES, run_id, source)
+            source = {table.name: source_reconciliation(connection, table, as_of) for table in SOURCE_TABLES} if full else {}
+        for table in SOURCE_TABLES:
+            check_table(catalog, prefix, table, run_id, source.get(table.name))
+        if full:
+            check_foreign_keys(catalog, prefix, run_id)
         catalog.create_namespace_if_not_exists(ns(prefix, "silver"))
         silver = {table.name: merge_silver(catalog, prefix, table, run_id, full=full) for table in SOURCE_TABLES}
         catalog.create_namespace_if_not_exists(ns(prefix, "gold"))
