@@ -27,17 +27,17 @@
 
 The current interface is a **Streamlit Platform Console** for running online purchase scenarios against the API and managing MinIO/Polaris accounts, roles, policies and workload credentials. An optional **Apache Superset sales PoC** reads two published sales marts.
 
-> **Two separate data paths:** Airflow-scheduled batch (Polars/PyIceberg ingestion, dbt on Trino for Gold) is the only writer of the serving OLTP Silver/Gold namespaces. API access logs flow through Kafka/Flink to Landing, then through a separate native pipeline and publication.
+> **Two separate data paths:** Airflow-scheduled batch (Polars/PyIceberg ingestion, dbt on Trino for Gold) is the only writer of the serving OLTP Bronze/Silver/Gold namespaces. API access logs flow through Kafka/Flink to Landing, then through a separate native pipeline and publication.
 
 ## Features
 
 - **Synthetic data rules:** EDA notebooks derive purchase rules (H&M, Olist) and browsing rules (eCommerce Behavior) into YAML presets for OLTP (`1m`/`10m`/`50m` approximate online orders per year) and access logs. `datagen generate` loads OLTP history into PostgreSQL, `verify` checks it, and `logs` writes synthetic access-log Parquet files; see [generator/README.md](generator/README.md).
 - **Source workflows:** Retained APIs cover authentication, products, cart/checkout, POS, stock, inbound receipts, payments, delivery, returns and reviews. Streamlit currently automates online purchase attempts; it does not automate every retained API workflow.
-- **Incremental batch:** Fixed Airflow intervals, paginated PostgreSQL reads, Bronze history, Silver typing/deduplication/upsert and PII pseudonymization, followed by Gold rebuilds and validation.
-- **Open Lakehouse:** Iceberg snapshots, Polaris access control, MinIO workload accounts, a read-only Trino catalog for analytics, a separate dbt writer catalog, and publication-aware Iceberg maintenance.
-- **Data quality and publication:** Reconciliation, quality results and publication manifests keep analytical reads tied to validated snapshots. There are 15 OLTP marts and three access-log marts.
+- **Incremental batch:** Fixed Airflow intervals, paginated PostgreSQL reads, append-only Bronze per run, checks that block bad data before Silver changes, Silver merge by primary key, then a dbt rebuild of Gold.
+- **Open Lakehouse:** Iceberg snapshots, Polaris access control, MinIO workload accounts, a read-only Trino catalog for analytics, a separate dbt writer catalog, and Iceberg maintenance.
+- **Data quality:** Row rules, foreign keys and reconciliation with PostgreSQL run on each batch's Bronze rows before Silver merges; a failure stops the run and leaves Silver and Gold unchanged. Gold has 7 dimensions, 6 facts and 14 OLTP marts, plus three access-log marts.
 - **HTTP observability:** Real request capture, local delivery DLQ, Landing retention, deduplication and three HTTP/product/funnel marts. Published and provisional HTTP analytics retain separate contracts.
-- **Sales BI:** Superset provides four KPI cards and four charts over two publication-pinned sales marts. Viewer/store permissions and the remaining BI areas are pending.
+- **Sales BI:** Superset provides four KPI cards and four charts over three current Gold sales marts. Viewer/store permissions and the remaining BI areas are pending.
 
 ## Tech Stack
 
@@ -62,7 +62,7 @@ cp .env.example .env
 uv sync --locked
 ```
 
-Configure `.env` before starting services. It includes source/metadata database credentials, API auth settings, MinIO workload accounts, Polaris bootstrap credentials, Airflow keys and a stable `SILVER_PSEUDONYMIZE_SALT`. Superset additionally requires its metadata password, secret key and admin password. Example credentials are local placeholders; never commit real credentials. Host settings and Compose container settings differ; use [setup.md](docs/setup.md) for the complete variable groups and bootstrap sequence.
+Configure `.env` before starting services. It includes source/metadata database credentials, API auth settings, MinIO workload accounts, Polaris bootstrap credentials, and Airflow keys. Superset additionally requires its metadata password, secret key and admin password. Example credentials are local placeholders; never commit real credentials. Host settings and Compose container settings differ; use [setup.md](docs/setup.md) for the complete variable groups and bootstrap sequence.
 
 ```bash
 # Validate without printing resolved credentials:
@@ -93,7 +93,7 @@ make up-all
 ### Run data pipelines
 
 ```bash
-# First full OLTP publication; monitor completion in Airflow:
+# First full OLTP batch; monitor completion in Airflow:
 docker compose exec -T airflow-scheduler airflow dags trigger init_lakehouse_oltp
 
 # Enable daily incremental runs after initialization succeeds:
@@ -104,7 +104,7 @@ DAGs start paused. Do not overlap full initialization and incremental runs. For 
 
 ### Optional Superset
 
-After a successful OLTP publication and Superset environment configuration:
+After a successful full OLTP batch and Superset environment configuration:
 
 ```bash
 # Apply PostgreSQL BI environment/mount changes while jobs are idle:
@@ -115,7 +115,7 @@ docker compose --profile core --profile bi up -d superset
 make superset-sync
 ```
 
-Open the dashboard URL returned by sync. Each dashboard is pinned to one publication's Iceberg snapshots. After a new batch publication, run sync again and open its new URL; an existing URL stays on its earlier snapshots. The current PoC is admin-only and does not inherit source API roles or store permissions.
+Open the dashboard URL returned by sync. Datasets read the current Gold tables, so new batches appear without another sync; run sync again only after changing the dataset or chart definitions. The current PoC is admin-only and does not inherit source API roles or store permissions.
 
 ### Profiles and service endpoints
 
@@ -123,7 +123,7 @@ Open the dashboard URL returned by sync. Each dashboard is pinned to one publica
 |---|---|
 | `core` | PostgreSQL, MinIO, Polaris, Airflow (with the Polars/PyIceberg/dbt runtime), Trino, platform-app (FastAPI/Streamlit), admin bootstrap and credential exporter |
 | `streaming` | Kafka and Flink; the job submission service runs manually |
-| `bi` | Superset web and explicit initialization/publication-sync jobs |
+| `bi` | Superset web and explicit initialization/dashboard-sync jobs |
 
 | Interface | Default local address |
 |---|---|
@@ -142,10 +142,10 @@ Kafka host clients use `localhost:9094`; containers use `kafka:9092`. PostgreSQL
 
 | Path | Processing | Result |
 |---|---|---|
-| OLTP batch | PostgreSQL → Polars/PyIceberg Bronze → Silver → dbt/Trino Gold → quality gate/publication | Six dimensions, six facts and 15 business marts; Trino/Superset read published snapshots |
+| OLTP batch | PostgreSQL → Polars/PyIceberg Bronze → pre-merge checks → Silver → dbt/Trino Gold | 7 dimensions, 6 facts and 14 business marts; Trino/Superset read the current Gold tables |
 | API access logs | FastAPI → Kafka → Flink Landing → native Bronze/Silver/fact → dbt marts | HTTP fact and three marts, with an independent publication |
 
-The source has 28 tables; 27 are configured for analytical extraction, excluding `customer_credentials`. Mutable and append-only sources use different cursors. Currency is VND; business time uses Asia/Ho_Chi_Minh, with UTC handling defined per pipeline. Generated transactions, API-created transactions and observed request logs have distinct provenance.
+The source has 28 tables; the batch loads 19 of them (`customer_credentials`, carts, wishlists, coupon redemptions, shipment attempts, inbound receipt headers and the two stock balance tables are not loaded; the balances are read only to reconcile the ledger). Mutable and append-only sources use different cursors. Currency is VND; business time uses Asia/Ho_Chi_Minh, with UTC handling defined per pipeline. Generated transactions, API-created transactions and observed request logs have distinct provenance.
 
 Publication gates prevent a failed refresh from replacing the last accepted manifest. Superset SQL pins snapshot IDs; expired snapshots require operational coordination. The code implements these paths; source code and past component checks do not establish a fresh end-to-end run or production SLA. Details: [architecture](docs/architecture.md), [data model and KPI contracts](docs/data.md), [operational evidence and limits](docs/operations.md).
 
@@ -181,7 +181,7 @@ FastAPI retains source write operations and the lookups needed to supply their I
 
 Both require `admin`/`system_admin`. Infrastructure administration is stricter: only the configured bootstrap admin can use `/api/v1/access`. Streamlit supports MinIO user/bucket/policy CRUD, Polaris principal/role/catalog CRUD, grant management and assignment/removal of saved Polaris credentials for workloads. MinIO policy editing uses scoped forms; arbitrary policy JSON, group administration and secret rotation are not provided.
 
-Scheduled serving runs natively: Polars/PyIceberg ingest the 27 sources into Bronze/Silver with validation, PII pseudonymization and quarantine; dbt on Trino builds Gold, quality checks gate each run and validated snapshot manifests are published. The three log marts follow the same pattern from the Flink Landing table. See the [pipeline guide](pipelines/README.md).
+Scheduled serving runs natively: Polars/PyIceberg append the 19 sources to Bronze, check the run's rows and merge them into Silver; dbt on Trino then rebuilds Gold from Silver. The three log marts are built by a separate pipeline from the Flink Landing table and published as snapshot manifests. See the [pipeline guide](pipelines/README.md).
 
 ## Development Commands
 

@@ -44,10 +44,11 @@ Rules measured in [purchase_behavior_eda.ipynb](oltp/notebooks/purchase_behavior
 | R04 | Basket: geometric products per order; variant/quantity tables | p = 0.296 |
 | R05 | Sale days ×6.39, three days after ×2.6; flat weekdays; Olist hour profiles | — |
 | R06 | Review stars by delivery lateness (Olist table) | — |
+| R07 | Delivery time: the carrier picks a parcel handed over before 10:30 (local) up the same day, otherwise the next day, then delivers in a number of days drawn evenly from the zone of the receiving city (section 7.2, GHTK Express price list from 10 November 2026) | TP.HCM 1–2, Bình Dương/Cần Thơ 2–4, Hà Nội 3–4, Đà Nẵng/Hải Phòng 4–6 days |
 
-Section 7 lists scenario assumptions (COD, cancellations, returns, coupons, delivery days, Tết) and section 7.1 cross-checks them against public Vietnamese figures; those figures are not used for calibration.
+Section 7 lists scenario assumptions (COD, cancellations, returns, coupons, Tết) and section 7.1 cross-checks them against public Vietnamese figures; those figures are not used for calibration. Section 7.2 takes the delivery time per zone (R07) from the carrier's published table, cross-checked with GHN.
 
-Blocks without a notebook measurement are scenario assumptions: `scale.stores` (5 / 20 / 50 stores), `locations` (cities and their share of customers, shipping addresses and stores), `pos` (POS orders per online order, walk-in rate, payment methods, opening hours, staff per store) and `policies` (operational ranges such as `timing.payment_delay_minutes`, `timing.dispatch_delay_hours`, `timing.completion_delay_hours`, `carts.active_cart_rate`, `inventory.store_buffer_units` and `shipping.delivery_staff`).
+Blocks without a notebook measurement are scenario assumptions: `scale.stores` (5 / 20 / 50 stores), `locations` (cities, their share of customers, shipping addresses and stores, and their delivery zone seen from the central warehouse in TP.HCM), `pos` (POS orders per online order, walk-in rate, payment methods, opening hours, staff per store) and `policies` (operational ranges such as `timing.payment_delay_minutes`, `timing.dispatch_delay_hours`, `timing.completion_delay_hours`, `carts.active_cart_rate`, `inventory.store_buffer_units` and `shipping.delivery_staff`).
 
 ## Running the OLTP generator
 
@@ -120,7 +121,7 @@ uv run --locked --env-file .env --package data-generator -- datagen logs --prese
 - Each request is one JSON event of contract `ecommerce.access` 1.1.0 (adds `session.id` and `ecommerce.order_number` to 1.0.0) with `data_origin = "synthetic"`, `status_code = 200` and `duration_ns = 0` (latency is not simulated).
 - Output: `session_date=YYYY-MM-DD.parquet` per day with `raw_payload` (the JSON text) and `event_at` (UTC). A session that crosses midnight stays in its session day's file; existing lakehouse log tables use day partitions on `event_ts`, not these filenames. The window is `[2025-11-01, 2025-12-16)` in `Asia/Ho_Chi_Minh`; days without orders produce no file. Requests can cross the session day/window boundaries. Gaps are clipped to 1 µs–30 min. Each day has its own random stream, so the same preset, seed and database inputs give the same events.
 - The lakehouse loader for these files is not built yet; inspect them directly as Parquet. API middleware still emits 1.0.0 with `data_origin="observed"`, including scenario requests. The parser keeps the version field but does not map `session.id` or `ecommerce.order_number` into typed Silver/fact/marts; these stay in raw JSON. Current funnel marts count successful requests, not unique sessions/orders.
-- Synthetic `timestamp` and `observed_timestamp` both equal generated event time; ingestion supplies its own processing time. Preset `schema_version: 3`, event version `1.1.0`, OLTP publication version 3 and log publication version 1 are separate contracts.
+- Synthetic `timestamp` and `observed_timestamp` both equal generated event time; ingestion supplies its own processing time. Preset `schema_version: 3`, event version `1.1.0` and log publication version 1 are separate contracts.
 
 Previously recorded `1m` log run on the same machine (not rerun in this audit): 45 files, 206,632 buying and 7,147,494 browsing sessions, 45,083,918 requests, 2.4 GB of Parquet, 86 s, 2.9 GB peak memory. Every online order of the window appears once as a `checkout_submit`; the sale-event days carry 6.4 times the buying sessions of an ordinary day with r = 14.44 (41.39 × 0.35).
 

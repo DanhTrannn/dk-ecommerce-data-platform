@@ -1,5 +1,6 @@
 -- Online orders still open at the end of each day: confirmed but not dispatched, or dispatched but not yet
--- delivered or failed. Age buckets follow the SLAs (2 and 5 days).
+-- delivered or failed. Age buckets follow the delivery SLAs (seed delivery_sla): within the shortest (4 days),
+-- within the longest (8 days), past every SLA.
 WITH shipments AS (
   SELECT order_id, min(dispatched_at) AS dispatched_at, max(coalesce(delivered_at, failed_at)) AS ended_at
   FROM {{ ref('fact_shipment') }}
@@ -31,7 +32,7 @@ open_days AS (
 SELECT
   backlog_date,
   stage,
-  CASE WHEN age_days <= 2 THEN '0-2' WHEN age_days <= 5 THEN '3-5' ELSE '6+' END AS age_bucket_days,
+  CASE WHEN age_days <= 4 THEN '0-4' WHEN age_days <= 8 THEN '5-8' ELSE '9+' END AS age_bucket_days,
   count(*) AS orders,
   sum(age_days) AS age_days_total,
   sum(CASE WHEN payment_method = 'cod' THEN total_vnd ELSE 0 END) AS cod_pending_vnd

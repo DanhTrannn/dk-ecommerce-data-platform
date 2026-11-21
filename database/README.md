@@ -62,7 +62,7 @@ Schema hiện bỏ hai CHECK tồn hiện tại không vượt tồn đầu: `op
 - Mỗi yêu cầu trả hàng có tối đa một refund (`refunds.return_id`); refund hủy đơn không có `return_id` và unique theo payment.
 - Dòng `inventory_transactions` trỏ tới tối đa một chứng từ (`order_id`, `receipt_id` hoặc `return_id`); CHECK bắt buộc chứng từ đúng loại theo `movement_type`. Chuyển kho và điều chỉnh không cần chứng từ.
 - `orders.shipping_city_id` (tùy chọn) lấy từ `shipping_city_code` khi checkout.
-- Có 318 cột và 56 FK, khớp với ORM. Batch loại customer_credentials khỏi 27 nguồn phân tích.
+- Có 318 cột và 56 FK, khớp với ORM. Reader batch được SELECT 27 bảng (trừ `customer_credentials`); batch nạp 19 bảng và chỉ đọc `inventory`/`store_inventory` để đối soát sổ kho.
 
 ## Kiểm tra
 
@@ -83,7 +83,7 @@ Các kiểm tra nền tảng/DDL và test quản trị không thay thế nghiệ
 
 Sau bootstrap đủ bảng, đặt `POSTGRES_ECOMMERCE_READER_USER=ecommerce_reader` và password riêng trong `.env`; Compose truyền chúng vào PostgreSQL/Airflow/batch client. Cập nhật container PostgreSQL để nhận biến/mount mới rồi chạy `make source-reader`. Lệnh gọi `infrastructure/postgres/configure-source-reader.sh` bằng tài khoản quản trị PostgreSQL trong container, tạo/cấu hình role chuyên dụng trong một transaction; không tự chạy khi startup và không thay schema hay dữ liệu nghiệp vụ.
 
-Role chỉ SELECT 27 bảng nguồn của batch, không có quyền đọc `customer_credentials` hoặc quyền ghi bảng/sequence. Không dùng role ứng dụng/admin; script từ chối role có đặc quyền, membership hoặc sở hữu database/schema/relation. Mặc định phiên là UTC/read-only. Không grant mặc định cho bảng mới; khi whitelist thay đổi phải review và chạy lại. Script có thể áp lại password cấu hình khi chạy lại; đây không phải công cụ migrate database cũ. Cách batch dùng role này xem [pipeline guide](../pipelines/README.md#setup).
+Role chỉ SELECT 27 bảng nguồn phân tích (batch nạp 19 bảng, hai bảng tồn kho dùng để đối soát), không có quyền đọc `customer_credentials` hoặc quyền ghi bảng/sequence. Không dùng role ứng dụng/admin; script từ chối role có đặc quyền, membership hoặc sở hữu database/schema/relation. Mặc định phiên là UTC/read-only. Không grant mặc định cho bảng mới; khi whitelist thay đổi phải review và chạy lại. Script có thể áp lại password cấu hình khi chạy lại; đây không phải công cụ migrate database cũ. Cách batch dùng role này xem [pipeline guide](../pipelines/README.md#setup).
 
 ## Metadata Superset tùy chọn
 

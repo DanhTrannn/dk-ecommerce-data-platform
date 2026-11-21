@@ -2,7 +2,7 @@
 
 Explicit reference-data initialization for the PostgreSQL source. Schema must already exist; API startup never runs these scripts.
 
-- `seed_catalog.py`: categories, products/variants, opening inventory, welcome coupon and bootstrap admin configured by `API_BOOTSTRAP_ADMIN_*`.
+- `seed_catalog.py`: categories, products/variants, opening inventory (written as an `adjustment` ledger row, with `opening_on_hand = 0`), welcome coupon and bootstrap admin configured by `API_BOOTSTRAP_ADMIN_*`.
 - `__init__.py`: package marker.
 
 From the repository root, `make seed` executes `database.seeds.seed_catalog` with the locked `platform-app` environment. Configure host-reachable `API_DATABASE_URL` and `API_SECRET_KEY` in `.env`; see [database bootstrap](../README.md). Alternatively run each module with `docker compose exec -T platform-app python -m database.seeds.<module>` in the rebuilt container.
