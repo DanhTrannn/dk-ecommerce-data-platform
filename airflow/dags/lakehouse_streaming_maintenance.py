@@ -2,10 +2,12 @@
 
 import os
 from datetime import timedelta
+
 import pendulum
-from airflow import DAG
-from airflow.providers.standard.operators.bash import BashOperator
-from airflow.providers.standard.operators.python import PythonOperator
+from airflow.providers.standard.operators.python import ExternalPythonOperator, PythonOperator
+from airflow.sdk import DAG
+
+PIPELINE_PYTHON = os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/python")
 
 
 def check_flink_streaming_health():
@@ -30,6 +32,13 @@ def check_flink_streaming_health():
     return [running[name] for name in required]
 
 
+# Airflow sends the function's source to PIPELINE_PYTHON and runs it there, so the import stays inside.
+def maintain(action):
+    from jobs.maintenance.iceberg_table_maintenance import maintain
+
+    maintain(namespace_prefix="serving", profile="streaming", action=action)
+
+
 with DAG(
     dag_id="lakehouse_streaming_maintenance",
     schedule="0 */2 * * *",
@@ -39,17 +48,15 @@ with DAG(
     start_date=pendulum.datetime(2026, 8, 15, tz="Asia/Ho_Chi_Minh"),
     tags=["lakehouse", "maintenance", "native"],
 ) as dag:
-    tasks = []
     monitor = PythonOperator(task_id="check_flink_streaming_health", python_callable=check_flink_streaming_health)
-    for action in ["compact", "expire", "orphan"]:
-        tasks.append(
-            BashOperator(
-                task_id=action,
-                bash_command=os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/python")
-                + " -m jobs.maintenance.iceberg_table_maintenance --namespace-prefix serving --profile streaming --action "
-                + action,
-            )
+    steps = [
+        ExternalPythonOperator(
+            task_id=action,
+            python=PIPELINE_PYTHON,
+            python_callable=maintain,
+            op_args=[action],
+            expect_airflow=False,
         )
-    for before, after in zip(tasks, tasks[1:]):
-        before >> after
-    monitor >> tasks[0]
+        for action in ("compact", "expire", "orphan")
+    ]
+    monitor >> steps[0] >> steps[1] >> steps[2]

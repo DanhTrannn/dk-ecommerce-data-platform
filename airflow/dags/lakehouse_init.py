@@ -4,11 +4,23 @@ Trigger it once per namespace prefix before the first lakehouse_oltp run, and ag
 to the batch. It is safe to repeat: existing tables keep their data and only gain new columns. dbt owns Gold tables.
 """
 
+import os
+
 import pendulum
-from airflow.providers.standard.operators.bash import BashOperator
+from airflow.providers.standard.operators.python import ExternalPythonOperator
 from airflow.sdk import DAG, Param
 
-from lakehouse.oltp.dag_plan import NAMESPACE_PATTERN, init_command
+from lakehouse.oltp.dag_plan import NAMESPACE_PATTERN
+
+PIPELINE_PYTHON = os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/python")
+
+
+# Airflow sends the function's source to PIPELINE_PYTHON and runs it there, so the import stays inside.
+def create_schema(namespace_prefix):
+    from jobs.oltp import tasks
+
+    tasks.create_schema(namespace_prefix)
+
 
 with DAG(
     dag_id="lakehouse_init",
@@ -20,4 +32,10 @@ with DAG(
     default_args={"owner": "lakehouse"},
     tags=["lakehouse", "oltp", "init"],
 ) as dag:
-    BashOperator(task_id="create_schema", bash_command=init_command())
+    ExternalPythonOperator(
+        task_id="create_schema",
+        python=PIPELINE_PYTHON,
+        python_callable=create_schema,
+        op_args=["{{ params.namespace_prefix }}"],
+        expect_airflow=False,
+    )

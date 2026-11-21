@@ -2,9 +2,20 @@
 
 import os
 from datetime import timedelta
+
 import pendulum
-from airflow import DAG
-from airflow.providers.standard.operators.bash import BashOperator
+from airflow.providers.standard.operators.python import ExternalPythonOperator
+from airflow.sdk import DAG
+
+PIPELINE_PYTHON = os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/python")
+
+
+# Airflow sends the function's source to PIPELINE_PYTHON and runs it there, so the import stays inside.
+def rollup_logs_gold_marts(run_id, as_of):
+    from jobs.logs.build_logs_gold import run
+
+    run(namespace_prefix="serving", run_id=run_id, as_of=as_of)
+
 
 with DAG(
     dag_id="lakehouse_logs_marts",
@@ -15,10 +26,10 @@ with DAG(
     start_date=pendulum.datetime(2026, 8, 15, tz="Asia/Ho_Chi_Minh"),
     tags=["lakehouse", "logs", "native"],
 ) as dag:
-    BashOperator(
+    ExternalPythonOperator(
         task_id="rollup_logs_gold_marts",
-        append_env=True,
-        env={"PIPELINE_RUN_ID": "logs-{{ run_id }}", "PIPELINE_AS_OF": "{{ dag_run.start_date.isoformat() }}"},
-        bash_command=os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/python")
-        + ' -m jobs.logs.build_logs_gold --namespace-prefix serving --run-id "$PIPELINE_RUN_ID" --as-of "$PIPELINE_AS_OF"',
+        python=PIPELINE_PYTHON,
+        python_callable=rollup_logs_gold_marts,
+        op_args=["logs-{{ run_id }}", "{{ dag_run.start_date.isoformat() }}"],
+        expect_airflow=False,
     )

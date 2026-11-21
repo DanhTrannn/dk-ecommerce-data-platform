@@ -126,16 +126,29 @@ def maintenance_lock_key(prefix, profile):
     return f"{prefix}:oltp" if profile == "oltp" else prefix
 
 
-def maintain_tables(catalog, connection, args):
-    if args.retain_snapshots < 1 or args.older_than_days < 1 or args.target_file_size_bytes < 1:
+def maintain_tables(
+    catalog,
+    connection,
+    *,
+    namespace_prefix,
+    profile=None,
+    tables=None,
+    action="all",
+    retain_snapshots=20,
+    target_file_size_bytes=128 * 1024 * 1024,
+    older_than_days=3,
+    delete_orphans=False,
+    writers_stopped=False,
+):
+    if retain_snapshots < 1 or older_than_days < 1 or target_file_size_bytes < 1:
         raise ValueError("Maintenance retention and target size must be positive")
-    if args.delete_orphans and not args.writers_stopped:
+    if delete_orphans and not writers_stopped:
         raise ValueError("Physical orphan deletion requires --writers-stopped; schedules only report candidates")
-    prefix = args.namespace_prefix
-    cutoff = datetime.now(UTC) - timedelta(days=args.older_than_days)
-    with namespace_lock(connection, maintenance_lock_key(prefix, args.profile)):
+    prefix = namespace_prefix
+    cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+    with namespace_lock(connection, maintenance_lock_key(prefix, profile)):
         protected = protected_snapshots(catalog, prefix)
-        names = args.tables.split(",") if args.tables else TABLE_PROFILES[args.profile or "all"]
+        names = tables.split(",") if tables else TABLE_PROFILES[profile or "all"]
         result = {}
         for name in names:
             parts = name.strip().split(".")
@@ -150,14 +163,14 @@ def maintain_tables(catalog, connection, args):
                 continue
             table = catalog.load_table(key)
             outcome = {}
-            if args.action in {"all", "compact"}:
-                outcome.update(compact(table, args.target_file_size_bytes))
-            if args.action in {"all", "expire"}:
-                expired = expiry_candidates(table, physical, protected, retain=args.retain_snapshots, cutoff=cutoff)
+            if action in {"all", "compact"}:
+                outcome.update(compact(table, target_file_size_bytes))
+            if action in {"all", "expire"}:
+                expired = expiry_candidates(table, physical, protected, retain=retain_snapshots, cutoff=cutoff)
                 if expired:
                     table.maintenance.expire_snapshots().by_ids(expired).commit()
                 outcome["expired_snapshots"] = len(expired)
-            if args.action in {"all", "orphan"}:
-                outcome.update(orphan_files(table, cutoff=cutoff, delete=args.delete_orphans))
+            if action in {"all", "orphan"}:
+                outcome.update(orphan_files(table, cutoff=cutoff, delete=delete_orphans))
             result[physical] = outcome
         return result
