@@ -36,7 +36,7 @@ def run_marts(
     verify_only=False,
     layer_snapshots=None,
 ):
-    validate_run(run_id, bucket, 10000)
+    validate_run(run_id, bucket)
     observed = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
     if observed.tzinfo is None:
         raise ValueError("Log --as-of must include timezone")
@@ -103,7 +103,7 @@ def run_marts(
 
 def run_logs(catalog, connection, *, bucket, run_id, as_of):
     """One writer boundary for native ingestion, audit and log publication."""
-    validate_run(run_id, bucket, 10000)
+    validate_run(run_id, bucket)
     observed = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
     if observed.tzinfo is None:
         raise ValueError("Log --as-of must include timezone")

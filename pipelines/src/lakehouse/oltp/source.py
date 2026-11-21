@@ -1,10 +1,13 @@
-"""Bounded PostgreSQL pages with explicit Arrow types, including empty intervals."""
+"""Source rows streamed in chunks through a PostgreSQL server-side cursor, with explicit Arrow types."""
 
 from datetime import UTC
 
 import pyarrow as pa
 
-from lakehouse.utils.postgres import page_query, source_query
+from lakehouse.utils.postgres import source_query
+
+# Rows per fetch: each chunk is held as Python rows until it becomes an Arrow table.
+CHUNK_ROWS = 10_000
 
 PG_TYPES = {
     16: pa.bool_(),
@@ -38,33 +41,39 @@ def arrow_source_schema(description):
     return pa.schema(fields)
 
 
-def source_pages(connection, table, start=None, end=None, *, created_before=None, page_size=10000):
-    if (start is None) != (end is None):
-        raise ValueError("Both interval bounds are required")
-    if type(page_size) is not int or not 1 <= page_size <= 10000:
-        raise ValueError("page_size must be between 1 and 10000")
-    query, last = source_query(table, start, end, created_before=created_before), None
-    while True:
-        with connection.cursor() as cursor:
-            cursor.execute(page_query(query, table.pk, last, page_size))
-            description = cursor.description
-            schema = arrow_source_schema(description)
-            if not {table.pk, table.cursor_field}.issubset(schema.names):
-                raise ValueError("Source is missing the configured primary key/cursor")
-            rows = [dict(zip(schema.names, row)) for row in cursor.fetchall()]
-        for row in rows:
-            for column in description:
-                value = row[column.name]
-                if value is None:
-                    continue
+def to_arrow(rows, description):
+    schema = arrow_source_schema(description)
+    records = []
+    for row in rows:
+        record = {}
+        for column, value in zip(description, row):
+            if value is not None:
                 if column.type_code == 2950:
                     value = str(value)
                 elif column.type_code in (1114, 1184):
                     value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
                 elif column.type_code == 17:
                     value = bytes(value)
-                row[column.name] = value
-        yield pa.Table.from_pylist(rows, schema=schema)
-        if len(rows) < page_size:
-            break
-        last = rows[-1][table.pk]
+            record[column.name] = value
+        records.append(record)
+    return pa.Table.from_pylist(records, schema=schema)
+
+
+def source_chunks(connection, table, start=None, end=None, *, created_before=None):
+    """Run the source query once and yield its rows in chunks of CHUNK_ROWS; an empty result yields one empty chunk.
+
+    A named psycopg2 cursor keeps the result on the server, so memory holds one chunk, not the whole table.
+    It must run inside a transaction, which source_read_transaction provides.
+    """
+    if (start is None) != (end is None):
+        raise ValueError("Both interval bounds are required")
+    with connection.cursor(name=f"source_{table.name}") as cursor:
+        cursor.execute(source_query(table, start, end, created_before=created_before))
+        while True:
+            rows = cursor.fetchmany(CHUNK_ROWS)
+            chunk = to_arrow(rows, cursor.description)
+            if not {table.pk, table.cursor_field}.issubset(chunk.column_names):
+                raise ValueError("Source is missing the configured primary key/cursor")
+            yield chunk
+            if len(rows) < CHUNK_ROWS:
+                break

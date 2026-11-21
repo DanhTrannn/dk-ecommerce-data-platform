@@ -63,14 +63,6 @@ def source_query(table, interval_start=None, interval_end=None, *, created_befor
     )
 
 
-def page_query(query, pk, last_pk, limit):
-    if type(limit) is not int or limit <= 0 or (last_pk is not None and type(last_pk) is not int):
-        raise ValueError("Invalid source pagination")
-    key = identifier(pk)
-    after = f" WHERE {key} > {last_pk}" if last_pk is not None else ""
-    return f"SELECT * FROM ({query}) source_rows{after} ORDER BY {key} LIMIT {limit}"
-
-
 def postgres_reader():
     settings = reader_settings()
     connection = psycopg2.connect(

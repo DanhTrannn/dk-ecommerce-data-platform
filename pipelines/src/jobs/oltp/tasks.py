@@ -19,9 +19,6 @@ from lakehouse.utils.iceberg import iceberg_catalog
 from lakehouse.utils.postgres import postgres_reader, source_read_transaction
 from lakehouse.utils.runs import validate_run
 
-PAGE_SIZE = 10000
-
-
 @dataclass(frozen=True)
 class Run:
     run_id: str
@@ -39,7 +36,7 @@ class Run:
             raise ValueError(
                 "An incremental run needs a data interval: let the schedule run it, or use `airflow backfill create`"
             )
-        validate_run(self.run_id, os.environ["MINIO_LAKEHOUSE_BUCKET"], PAGE_SIZE)
+        validate_run(self.run_id, os.environ["MINIO_LAKEHOUSE_BUCKET"])
 
     @property
     def full(self):
@@ -63,7 +60,6 @@ def bronze(table, run):
             start=None if run.full else run.interval_start,
             end=None if run.full else run.interval_end,
             created_before=run.run_started_at if run.full else None,
-            page_size=PAGE_SIZE,
         )
 
 
