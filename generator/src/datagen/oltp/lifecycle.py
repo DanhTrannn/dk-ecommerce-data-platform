@@ -48,6 +48,27 @@ def _weighted(rng: np.random.Generator, labels, weights, size: int) -> np.ndarra
     return rng.choice(np.asarray(labels, dtype=object), size=size, p=weights / weights.sum())
 
 
+def _pickup_midnight(preset: OltpPreset, dispatched: np.ndarray) -> np.ndarray:
+    """R07: local midnight of the pickup day, the dispatch day before the cutoff and the next day after it."""
+    local = utc_series("dispatched_at", dispatched).dt.convert_time_zone(preset.business_timezone)
+    minute = (local.dt.hour().cast(pl.Int64) * 60 + local.dt.minute().cast(pl.Int64)).to_numpy()
+    midnight = (
+        local.dt.date().cast(pl.Datetime("us")).dt.replace_time_zone(preset.business_timezone).dt.epoch("us").to_numpy()
+    )
+    return midnight + (minute >= preset.fulfilment.pickup_cutoff_minutes) * MICROS_PER_DAY
+
+
+def _zone_days(preset: OltpPreset, reference: Reference, orders: pl.DataFrame, rng: np.random.Generator) -> np.ndarray:
+    """R07: days from pickup to delivery, drawn evenly from the range of the zone of each order's shipping city."""
+    ranges = {city.code: preset.fulfilment.delivery_days[city.delivery_zone] for city in preset.locations.cities}
+    codes = orders.select("city_id").join(
+        reference.cities.select("city_id", "code"), on="city_id", how="left", maintain_order="left"
+    )["code"]
+    low = codes.replace_strict({code: bounds[0] for code, bounds in ranges.items()}, return_dtype=pl.Int64).to_numpy()
+    high = codes.replace_strict({code: bounds[1] for code, bounds in ranges.items()}, return_dtype=pl.Int64).to_numpy()
+    return rng.integers(low, high + 1)
+
+
 def draw_lifecycle(
     preset: OltpPreset, reference: Reference, rng: np.random.Generator, orders: pl.DataFrame, items: pl.DataFrame
 ) -> pl.DataFrame:
@@ -99,10 +120,9 @@ def draw_lifecycle(
     late_days = np.zeros(n, dtype=np.int64)
     for index, rule in enumerate(buckets, start=1):
         late_days[bucket == index] = _uniform(rng, rule.days, int((bucket == index).sum()))
-    delivery_days = _uniform(rng, fulfilment.on_time_delivery_days, n) + late_days
     t["delivered_at"] = (
-        created
-        + delivery_days * MICROS_PER_DAY
+        _pickup_midnight(preset, t["dispatched_at"])
+        + (_zone_days(preset, reference, o, rng) + late_days) * MICROS_PER_DAY
         + rng.integers(8, 21, n) * MICROS_PER_HOUR
         + rng.integers(0, 60, n) * MICROS_PER_MINUTE
     )

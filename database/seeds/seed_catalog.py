@@ -13,6 +13,7 @@ from platform_app.api.core.security import hash_password
 from platform_app.api.models.catalog import Category, Product, ProductVariant
 from platform_app.api.models.customer import Customer, CustomerCredential
 from platform_app.api.models.inventory import Inventory
+from platform_app.api.models.inventory_tx import InventoryTransaction
 from platform_app.api.models.promotion import Coupon
 from sqlalchemy import func, select
 
@@ -185,8 +186,18 @@ def seed(session_factory=None, settings=None) -> None:
                     raise RuntimeError(f"Seed SKU belongs to another product: {sku}")
                 if session.get(Inventory, variant.variant_id) is None:
                     opening = _OPENING_BY_INDEX[idx % len(_OPENING_BY_INDEX)]
+                    # The opening stock is a ledger adjustment, so the ledger alone sums to on_hand.
+                    session.add(Inventory(variant_id=variant.variant_id, opening_on_hand=0, on_hand=opening, version=0))
                     session.add(
-                        Inventory(variant_id=variant.variant_id, opening_on_hand=opening, on_hand=opening, version=0)
+                        InventoryTransaction(
+                            public_id=_pid("inventory-opening", sku),
+                            variant_id=variant.variant_id,
+                            location_type="central_warehouse",
+                            movement_type="adjustment",
+                            quantity_delta=opening,
+                            reference_code="OPENING",
+                            notes="Tồn đầu kỳ",
+                        )
                     )
     print("[seed_catalog] reference records ensured; existing balances and credentials preserved.")
 

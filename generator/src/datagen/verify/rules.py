@@ -119,7 +119,8 @@ def checks(connection, preset: OltpPreset) -> list[Check]:
         "zone": preset.business_timezone,
         "sale_days": list(sale_event_dates(preset)),
         "minimum_subtotal": preset.coupons.minimum_subtotal_vnd,
-        "on_time_days": preset.fulfilment.on_time_delivery_days[1],
+        # Slowest on-time order: dispatch on the next local day, pickup the day after, then the longest zone range.
+        "on_time_days": max(days[1] for days in preset.fulfilment.delivery_days.values()) + 2,
     }
     expected = expectations(preset)
     return [check(name, expected[name], number(connection, sql, parameters)) for name, sql in MEASURES.items()]

@@ -101,7 +101,14 @@ calendar:
     holiday_multiplier: 0.3
 
 fulfilment:
-  on_time_delivery_days: [2, 6]  # assumption, lấy đều; iPrice/Parcel Perform: VN trung bình 5–6 ngày (§7.1)
+  # R07 (§7.2): GHTK Express, bảng giá áp dụng từ 0h 10/11/2026. Đơn giao cho hãng trước 10h30 được lấy cùng ngày,
+  # sau 10h30 lấy ngày kế tiếp; số ngày giao tính từ ngày lấy, lấy đều trong khoảng của vùng nhận hàng.
+  pickup_cutoff_minutes: 630  # 10h30 giờ Việt Nam
+  delivery_days:  # vùng tính từ kho trung tâm ở TP.HCM, xem locations.cities[].delivery_zone
+    intra_city: [1, 2]  # nội thành HN–HCM
+    intra_region: [2, 4]  # nội miền
+    special: [3, 4]  # đặc biệt tiêu chuẩn, Hà Nội ↔ TP.HCM đường bộ
+    inter_region: [4, 6]  # liên miền
   late_rate: 0.055  # transfer §6 — Olist 2017
   late_buckets:  # transfer §6 — tỷ trọng % trong các đơn trễ; số ngày trễ lấy đều trong khoảng
     late_1_3: {days: [1, 3], share: 29.2}
@@ -147,12 +154,12 @@ coupons:
 locations:
   source: assumption
   cities:  # tỷ trọng khách, địa chỉ giao hàng và cửa hàng; tổng = 1
-    - {code: HCM, name: Hồ Chí Minh, share: 0.40}
-    - {code: HN, name: Hà Nội, share: 0.30}
-    - {code: DN, name: Đà Nẵng, share: 0.10}
-    - {code: HP, name: Hải Phòng, share: 0.07}
-    - {code: BD, name: Bình Dương, share: 0.07}
-    - {code: CT, name: Cần Thơ, share: 0.06}
+    - {code: HCM, name: Hồ Chí Minh, share: 0.40, delivery_zone: intra_city}
+    - {code: HN, name: Hà Nội, share: 0.30, delivery_zone: special}
+    - {code: DN, name: Đà Nẵng, share: 0.10, delivery_zone: inter_region}
+    - {code: HP, name: Hải Phòng, share: 0.07, delivery_zone: inter_region}
+    - {code: BD, name: Bình Dương, share: 0.07, delivery_zone: intra_region}
+    - {code: CT, name: Cần Thơ, share: 0.06, delivery_zone: intra_region}
 
 pos:
   source: assumption
