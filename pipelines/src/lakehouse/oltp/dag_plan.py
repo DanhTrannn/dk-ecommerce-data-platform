@@ -11,6 +11,11 @@ GOLD_TESTS = "path:tests/oltp"  # OLTP singular tests; tests/ also holds the log
 POOL = "lakehouse_oltp"
 POOL_SLOTS = 4  # parallel OLTP tasks; each one loads a table's batches in the Airflow container's memory
 DBT_PROJECT = "/opt/project/pipelines/dbt"
+# Accepted prefixes, as lakehouse.utils.namespaces checks them; the DAG param enforces it before any shell sees it.
+NAMESPACE_PATTERN = r"^(serving|polars_batch_[a-z0-9_]{1,40})$"
+# Fixed for the whole run: Airflow resets dag_run.start_date when a task is cleared, but not run_after,
+# so every table of one run keeps the same full-load cutoff and Gold day after a retry.
+RUN_STARTED_AT = "{{ dag_run.run_after.isoformat() }}"
 # Namespace of a layer for the run's prefix, as lakehouse.utils.namespaces.namespace builds it.
 LAYER_SCHEMA = "{{{{ '{layer}' if params.namespace_prefix == 'serving' else params.namespace_prefix ~ '_{layer}' }}}}"
 
@@ -30,7 +35,7 @@ def command(module: str, *extra: str) -> str:
         "--namespace-prefix '{{ params.namespace_prefix }}'",
         "--run-id '{{ run_id }}'",
         "--mode '{{ params.mode }}'",
-        "--run-started-at '{{ dag_run.start_date.isoformat() }}'",
+        f"--run-started-at '{RUN_STARTED_AT}'",
         "{% if params.mode == 'incremental' %}"
         "--interval-start '{{ data_interval_start.isoformat() if data_interval_start else \"\" }}' "
         "--interval-end '{{ data_interval_end.isoformat() if data_interval_end else \"\" }}'"
@@ -59,7 +64,7 @@ def dbt_env(node: str) -> dict[str, str]:
         "DBT_LOG_PATH": work,
         "DBT_GOLD_SCHEMA": LAYER_SCHEMA.format(layer="gold"),
         "DBT_SILVER_SCHEMA": LAYER_SCHEMA.format(layer="silver"),
-        "DBT_AS_OF": "{{ dag_run.start_date.isoformat() }}",
+        "DBT_AS_OF": RUN_STARTED_AT,
         "DBT_USE_COLORS": "false",
         "DBT_PARTIAL_PARSE": "false",
         "DBT_SEND_ANONYMOUS_USAGE_STATS": "false",

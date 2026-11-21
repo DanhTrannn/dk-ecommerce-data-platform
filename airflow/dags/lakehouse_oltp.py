@@ -11,7 +11,16 @@ import pendulum
 from airflow.providers.standard.operators.bash import BashOperator
 from airflow.sdk import DAG, Param, TaskGroup
 
-from lakehouse.oltp.dag_plan import DBT_PROJECT, GOLD_TESTS, POOL, command, dbt_command, dbt_env, gold_dependencies
+from lakehouse.oltp.dag_plan import (
+    DBT_PROJECT,
+    GOLD_TESTS,
+    NAMESPACE_PATTERN,
+    POOL,
+    command,
+    dbt_command,
+    dbt_env,
+    gold_dependencies,
+)
 from lakehouse.oltp.sources import SOURCE_TABLES
 
 SEEDS = {path.stem for path in (Path(DBT_PROJECT) / "seeds").glob("*.csv")}
@@ -32,7 +41,7 @@ with DAG(
     max_active_runs=1,
     params={
         "mode": Param("incremental", enum=["incremental", "full"]),
-        "namespace_prefix": Param("serving", type="string"),
+        "namespace_prefix": Param("serving", type="string", pattern=NAMESPACE_PATTERN),
     },
     default_args={"owner": "lakehouse", "retries": 2, "retry_delay": timedelta(minutes=2)},
     tags=["lakehouse", "oltp", "native"],
