@@ -5,9 +5,8 @@ Gold tables are left to dbt, which rebuilds them from Silver on every run.
 """
 
 import pyarrow as pa
-from pyiceberg.transforms import DayTransform
 
-from lakehouse.oltp.bronze import BRONZE_PROPERTIES, LINEAGE_FIELDS
+from lakehouse.oltp.bronze import LINEAGE_FIELDS
 from lakehouse.oltp.silver import silver_schema
 from lakehouse.oltp.source import arrow_source_schema
 from lakehouse.oltp.sources import SOURCE_TABLES
@@ -34,10 +33,7 @@ def create_or_evolve(catalog, key, schema, properties):
 
 
 def create_bronze(catalog, table, schema):
-    target = create_or_evolve(catalog, ("bronze", table.name), schema, BRONZE_PROPERTIES)
-    if not target.spec().fields:
-        with target.update_spec() as update:
-            update.add_field("_ingested_at", DayTransform(), "_ingested_at_day")
+    create_or_evolve(catalog, ("bronze", table.name), schema, PROPERTIES)
 
 
 def create_silver(catalog, table):

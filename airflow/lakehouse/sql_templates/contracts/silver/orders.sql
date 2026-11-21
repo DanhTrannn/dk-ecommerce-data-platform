@@ -26,8 +26,7 @@ CREATE TABLE IF NOT EXISTS lakehouse.silver.orders (
     store_id                        BIGINT,
     channel                         STRING,
     staff_id                        BIGINT,
-    _ingested_at                    TIMESTAMP,
-    _run_id                         STRING
+    _ingested_at                    TIMESTAMP
 )
 USING iceberg
 TBLPROPERTIES (

@@ -10,8 +10,7 @@ CREATE TABLE IF NOT EXISTS lakehouse.silver.refunds (
     created_at                      TIMESTAMP,
     completed_at                    TIMESTAMP,
     updated_at                      TIMESTAMP,
-    _ingested_at                    TIMESTAMP,
-    _run_id                         STRING
+    _ingested_at                    TIMESTAMP
 )
 USING iceberg
 TBLPROPERTIES (

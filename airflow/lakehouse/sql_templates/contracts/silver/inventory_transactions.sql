@@ -12,8 +12,7 @@ CREATE TABLE IF NOT EXISTS lakehouse.silver.inventory_transactions (
     reference_code                  STRING,
     notes                           STRING,
     created_at                      TIMESTAMP,
-    _ingested_at                    TIMESTAMP,
-    _run_id                         STRING
+    _ingested_at                    TIMESTAMP
 )
 USING iceberg
 TBLPROPERTIES (

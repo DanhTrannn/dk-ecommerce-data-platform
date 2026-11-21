@@ -9,8 +9,7 @@ CREATE TABLE IF NOT EXISTS lakehouse.silver.inbound_receipt_items (
     previous_cost_price_vnd         BIGINT,
     new_cost_price_vnd              BIGINT,
     created_at                      TIMESTAMP,
-    _ingested_at                    TIMESTAMP,
-    _run_id                         STRING
+    _ingested_at                    TIMESTAMP
 )
 USING iceberg
 TBLPROPERTIES (

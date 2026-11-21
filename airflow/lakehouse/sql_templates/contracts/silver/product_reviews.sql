@@ -11,8 +11,7 @@ CREATE TABLE IF NOT EXISTS lakehouse.silver.product_reviews (
     moderated_at                    TIMESTAMP,
     created_at                      TIMESTAMP,
     updated_at                      TIMESTAMP,
-    _ingested_at                    TIMESTAMP,
-    _run_id                         STRING
+    _ingested_at                    TIMESTAMP
 )
 USING iceberg
 TBLPROPERTIES (

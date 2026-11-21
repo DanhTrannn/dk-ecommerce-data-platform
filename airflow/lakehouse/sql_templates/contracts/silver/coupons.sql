@@ -13,8 +13,7 @@ CREATE TABLE IF NOT EXISTS lakehouse.silver.coupons (
     used_count                      INT,
     created_at                      TIMESTAMP,
     updated_at                      TIMESTAMP,
-    _ingested_at                    TIMESTAMP,
-    _run_id                         STRING
+    _ingested_at                    TIMESTAMP
 )
 USING iceberg
 TBLPROPERTIES (

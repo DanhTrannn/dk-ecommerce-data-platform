@@ -180,7 +180,7 @@ SOURCE_TABLES = [
     ),
 ]
 
-LINEAGE = ("_ingested_at", "_run_id")
+LINEAGE = ("_ingested_at",)
 
 # (child table, column, parent table); the parent key is always the parent's primary key.
 # From database/schema.sql, limited to columns and tables loaded above.

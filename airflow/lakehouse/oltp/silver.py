@@ -4,7 +4,7 @@ import polars as pl
 import pyarrow as pa
 from pyiceberg.expressions import In
 
-from lakehouse.oltp.bronze import BRONZE_BATCH_ROWS, run_rows
+from lakehouse.oltp.bronze import BRONZE_BATCH_ROWS, bronze_rows
 from lakehouse.oltp.sources import LINEAGE
 from lakehouse.utils.contracts import align_arrow, ddl_schema
 from lakehouse.utils.iceberg import load_table
@@ -86,11 +86,11 @@ def upsert_silver(target, reader, table, schema):
     return written
 
 
-def merge_silver(catalog, table, run_id, *, full):
+def merge_silver(catalog, table, *, full):
     """Return the number of rows written to Silver."""
     schema = silver_schema(table)
     target = load_table(catalog, ("silver", table.name))
-    reader = run_rows(catalog, table, run_id)
+    reader = bronze_rows(catalog, table)
     written = replace_silver(target, reader, table, schema) if full else upsert_silver(target, reader, table, schema)
     print(f"SILVER table={table.name} rows={written} full={full}", flush=True)
     return written
