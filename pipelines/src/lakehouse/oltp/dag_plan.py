@@ -8,6 +8,8 @@ from pathlib import Path
 
 REF = re.compile(r"""ref\(\s*['"]([a-z0-9_]+)['"]\s*\)""")
 GOLD_TESTS = "test_type:singular"
+POOL = "lakehouse_oltp"
+POOL_SLOTS = 4  # parallel OLTP tasks; each one loads a table's batches in the Airflow container's memory
 DBT_PROJECT = "/opt/project/pipelines/dbt"
 # Namespace of a layer for the run's prefix, as lakehouse.utils.namespaces.namespace builds it.
 LAYER_SCHEMA = "{{{{ '{layer}' if params.namespace_prefix == 'serving' else params.namespace_prefix ~ '_{layer}' }}}}"
@@ -19,6 +21,23 @@ def gold_dependencies(project: Path) -> dict[str, tuple[str, ...]]:
     for path in sorted((project / "models" / "oltp").glob("*.sql")):
         graph[path.stem] = tuple(dict.fromkeys(REF.findall(path.read_text())))
     return graph
+
+
+def command(module: str, *extra: str) -> str:
+    """Bash call of a per-table CLI; the interval is passed only in incremental runs."""
+    words = [
+        '"$PIPELINE_PYTHON" -m jobs.oltp.' + module,
+        "--namespace-prefix '{{ params.namespace_prefix }}'",
+        "--run-id '{{ run_id }}'",
+        "--mode '{{ params.mode }}'",
+        "--run-started-at '{{ dag_run.start_date.isoformat() }}'",
+        "{% if params.mode == 'incremental' %}"
+        "--interval-start '{{ data_interval_start.isoformat() if data_interval_start else \"\" }}' "
+        "--interval-end '{{ data_interval_end.isoformat() if data_interval_end else \"\" }}'"
+        "{% endif %}",
+        *extra,
+    ]
+    return " ".join(words)
 
 
 def dbt_command(verb: str, select: str) -> str:

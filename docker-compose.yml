@@ -225,6 +225,7 @@ services:
       - -c
       - >-
         airflow db migrate &&
+        airflow pools set lakehouse_oltp 4 "OLTP batch tasks" &&
         (airflow users create
         --username $${AIRFLOW_ADMIN_USER}
         --password $${AIRFLOW_ADMIN_PASSWORD}
