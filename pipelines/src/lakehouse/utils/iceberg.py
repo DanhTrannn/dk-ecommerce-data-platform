@@ -48,6 +48,14 @@ def iceberg_catalog():
     return load_catalog(os.environ.get("POLARIS_CATALOG_NAME", "lakehouse"), **catalog_properties())
 
 
+def load_table(catalog, key):
+    """Load a table the init DAG created; the load jobs never create tables themselves."""
+    try:
+        return catalog.load_table(key)
+    except NoSuchTableError:
+        raise NoSuchTableError(f"{'.'.join(key)} does not exist; run the lakehouse_init DAG first") from None
+
+
 def load_or_create(catalog, key, **settings):
     try:
         return catalog.load_table(key)

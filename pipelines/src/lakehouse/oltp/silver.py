@@ -7,7 +7,7 @@ from pyiceberg.expressions import In
 from lakehouse.oltp.bronze import BRONZE_BATCH_ROWS, run_rows
 from lakehouse.oltp.sources import LINEAGE
 from lakehouse.utils.contracts import align_arrow, ddl_schema
-from lakehouse.utils.iceberg import PROPERTIES, load_or_create
+from lakehouse.utils.iceberg import load_table
 from lakehouse.utils.namespaces import namespace as ns
 
 
@@ -90,8 +90,8 @@ def upsert_silver(target, reader, table, schema):
 def merge_silver(catalog, prefix, table, run_id, *, full):
     """Return the number of rows written to Silver."""
     schema = silver_schema(table)
-    target = load_or_create(catalog, (ns(prefix, "silver"), table.name), schema=schema, properties=PROPERTIES)
-    reader = run_rows(catalog, prefix, table, run_id) or pa.RecordBatchReader.from_batches(schema, [])
+    target = load_table(catalog, (ns(prefix, "silver"), table.name))
+    reader = run_rows(catalog, prefix, table, run_id)
     written = replace_silver(target, reader, table, schema) if full else upsert_silver(target, reader, table, schema)
     print(f"SILVER table={table.name} rows={written} full={full}", flush=True)
     return written

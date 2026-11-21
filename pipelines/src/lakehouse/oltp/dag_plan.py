@@ -45,6 +45,11 @@ def command(module: str, *extra: str) -> str:
     return " ".join(words)
 
 
+def init_command() -> str:
+    """Bash call of the lakehouse_init task, which creates the namespaces and tables the OLTP DAG loads."""
+    return "\"$PIPELINE_PYTHON\" -m jobs.oltp.create_schema --namespace-prefix '{{ params.namespace_prefix }}'"
+
+
 def dbt_command(verb: str, select: str) -> str:
     """The dbt call of a Gold task. The echo prints the run context (no secrets) so the call can be repeated by hand."""
     context = 'echo "DBT_GOLD_SCHEMA=$DBT_GOLD_SCHEMA DBT_SILVER_SCHEMA=$DBT_SILVER_SCHEMA DBT_AS_OF=$DBT_AS_OF"'

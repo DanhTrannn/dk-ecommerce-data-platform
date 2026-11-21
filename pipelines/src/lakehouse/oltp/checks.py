@@ -50,14 +50,12 @@ def source_reconciliation(connection, table, created_before):
 
 
 def read_run(catalog, prefix, table, run_id, columns):
-    reader = run_rows(catalog, prefix, table, run_id, columns)
-    return pl.from_arrow(reader.read_all()) if reader is not None else pl.DataFrame(schema={name: pl.Int64 for name in columns})
+    return pl.from_arrow(run_rows(catalog, prefix, table, run_id, columns).read_all())
 
 
 def row_rule_failures(catalog, prefix, table, run_id):
     counts = Counter()
-    reader = run_rows(catalog, prefix, table, run_id)
-    for batch in reader or ():
+    for batch in run_rows(catalog, prefix, table, run_id):
         counts.update(violation_counts(pl.from_arrow(batch), table))
     return [f"{table.name}: {label} = {count}" for label, count in sorted(counts.items())]
 
