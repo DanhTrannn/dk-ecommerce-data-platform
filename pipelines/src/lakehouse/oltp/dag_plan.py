@@ -14,13 +14,14 @@ DBT_PROJECT = "/opt/project/pipelines/dbt"
 # Fixed for the whole run: Airflow resets dag_run.start_date when a task is cleared, but not run_after,
 # so every table of one run keeps the same full-load cutoff and Gold day after a retry.
 RUN_STARTED_AT = "{{ dag_run.run_after.isoformat() }}"
-# A run triggered by hand has no data interval, and Airflow then leaves these keys out of the template context.
+# The `run` argument of the jobs.oltp.tasks calls, as Airflow renders it for each task of the init DAG.
+FULL_RUN = {"run_id": "{{ run_id }}", "mode": "full", "run_started_at": RUN_STARTED_AT}
+# A run triggered by hand has no data interval, and Airflow then leaves these keys out of the template context;
+# rendering them empty lets the task refuse the run with a clear message.
 INTERVAL = "{{{{ {key}.isoformat() if {key} is defined and {key} else '' }}}}"
-# The `run` argument of the jobs.oltp.tasks calls, as Airflow renders it for each task.
-RUN = {
-    "run_id": "{{ run_id }}",
-    "mode": "{{ params.mode }}",
-    "run_started_at": RUN_STARTED_AT,
+# The same for the incremental DAG, whose scheduled and backfill runs each cover one data interval.
+INCREMENTAL_RUN = FULL_RUN | {
+    "mode": "incremental",
     "interval_start": INTERVAL.format(key="data_interval_start"),
     "interval_end": INTERVAL.format(key="data_interval_end"),
 }

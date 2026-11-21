@@ -36,7 +36,9 @@ class Run:
         if datetime.fromisoformat(self.run_started_at).tzinfo is None:
             raise ValueError("run_started_at must include a timezone")
         if self.mode == "incremental" and not (self.interval_start and self.interval_end):
-            raise ValueError("An incremental run needs a data interval; trigger a full run instead")
+            raise ValueError(
+                "An incremental run needs a data interval: let the schedule run it, or use `airflow backfill create`"
+            )
         validate_run(self.run_id, os.environ["MINIO_LAKEHOUSE_BUCKET"], PAGE_SIZE)
 
     @property
