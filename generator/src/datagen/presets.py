@@ -195,8 +195,15 @@ class LateBucket(Strict):
     share: Annotated[float, Field(ge=0)]
 
 
+DeliveryZone = Literal["intra_city", "intra_region", "special", "inter_region"]
+
+
 class Fulfilment(Strict):
-    on_time_delivery_days: IntRange
+    """R07: the carrier picks a parcel dispatched before the cutoff up the same day, otherwise the next day, and
+    delivers it a number of days later drawn evenly from the range of the receiving city's zone."""
+
+    pickup_cutoff_minutes: Annotated[int, Field(ge=0, lt=24 * 60)]  # local minute of the day
+    delivery_days: dict[DeliveryZone, IntRange]
     late_rate: Rate
     late_buckets: dict[Literal["late_1_3", "late_4_7", "late_8_plus"], LateBucket]
 
@@ -239,6 +246,7 @@ class City(Strict):
     code: str
     name: str
     share: Rate
+    delivery_zone: DeliveryZone  # seen from the central warehouse
 
 
 class Locations(Strict):
@@ -417,6 +425,13 @@ class OltpPreset(Strict):
         for day in self.calendar.tet.dates:
             if not self.history_start.date() <= day < self.anchor_time.date():
                 raise ValueError(f"calendar.tet.dates: {day} is outside the history window")
+        return self
+
+    @model_validator(mode="after")
+    def _every_city_zone_has_delivery_days(self):
+        for city in self.locations.cities:
+            if city.delivery_zone not in self.fulfilment.delivery_days:
+                raise ValueError(f"fulfilment.delivery_days has no range for zone {city.delivery_zone} ({city.code})")
         return self
 
     @cached_property
