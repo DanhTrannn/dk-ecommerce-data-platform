@@ -9,7 +9,7 @@ import boto3
 
 from lakehouse.analytics.dbt import project_directory
 from lakehouse.utils.snapshots import capture, read_snapshot
-from lakehouse.utils.config import SOURCE_TABLES
+from lakehouse.oltp.sources import SOURCE_TABLES
 from lakehouse.utils.namespaces import namespace as ns
 from lakehouse.utils.postgres import namespace_lock
 
@@ -117,6 +117,12 @@ def orphan_files(table, *, cutoff, delete=False):
     }
 
 
+def maintenance_lock_key(prefix, profile):
+    """OLTP tables are only written by the OLTP DAG, which runs its maintenance last; a separate key keeps the
+    hourly log job, which holds the plain key, from failing on it."""
+    return f"{prefix}:oltp" if profile == "oltp" else prefix
+
+
 def maintain_tables(catalog, connection, args):
     if args.retain_snapshots < 1 or args.older_than_days < 1 or args.target_file_size_bytes < 1:
         raise ValueError("Maintenance retention and target size must be positive")
@@ -124,7 +130,7 @@ def maintain_tables(catalog, connection, args):
         raise ValueError("Physical orphan deletion requires --writers-stopped; schedules only report candidates")
     prefix = args.namespace_prefix
     cutoff = datetime.now(UTC) - timedelta(days=args.older_than_days)
-    with namespace_lock(connection, prefix):
+    with namespace_lock(connection, maintenance_lock_key(prefix, args.profile)):
         protected = protected_snapshots(catalog, prefix)
         names = args.tables.split(",") if args.tables else TABLE_PROFILES[args.profile or "all"]
         result = {}

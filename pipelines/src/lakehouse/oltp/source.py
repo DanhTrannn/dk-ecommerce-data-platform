@@ -38,12 +38,12 @@ def arrow_source_schema(description):
     return pa.schema(fields)
 
 
-def source_pages(connection, table, start=None, end=None, *, page_size=10000):
+def source_pages(connection, table, start=None, end=None, *, created_before=None, page_size=10000):
     if (start is None) != (end is None):
         raise ValueError("Both interval bounds are required")
     if type(page_size) is not int or not 1 <= page_size <= 10000:
         raise ValueError("page_size must be between 1 and 10000")
-    query, last = source_query(table, start, end), None
+    query, last = source_query(table, start, end, created_before=created_before), None
     while True:
         with connection.cursor() as cursor:
             cursor.execute(page_query(query, table.pk, last, page_size))

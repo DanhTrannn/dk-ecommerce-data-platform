@@ -14,11 +14,11 @@
 {%- endmacro %}
 
 {% macro clock() -%}
-  (SELECT CAST(from_iso8601_timestamp_nanos('{{ var("as_of", "1970-01-01T00:00:00Z") }}') AS timestamp(6) with time zone) AS observed_at)
+  (SELECT CAST(from_iso8601_timestamp_nanos('{{ var("as_of", env_var("DBT_AS_OF", "1970-01-01T00:00:00Z")) }}') AS timestamp(6) with time zone) AS observed_at)
 {%- endmacro %}
 
 {% macro business_date() -%}
-  CAST(at_timezone(from_iso8601_timestamp_nanos('{{ var("as_of", "1970-01-01T00:00:00Z") }}'), 'Asia/Ho_Chi_Minh') AS date)
+  CAST(at_timezone(from_iso8601_timestamp_nanos('{{ var("as_of", env_var("DBT_AS_OF", "1970-01-01T00:00:00Z")) }}'), 'Asia/Ho_Chi_Minh') AS date)
 {%- endmacro %}
 
 {% macro floor_allocate(amount, running, total) -%}
@@ -29,7 +29,7 @@
 {%- endmacro %}
 
 {% macro as_of() -%}
-  from_iso8601_timestamp('{{ var("as_of", "1970-01-01T00:00:00Z") }}')
+  from_iso8601_timestamp('{{ var("as_of", env_var("DBT_AS_OF", "1970-01-01T00:00:00Z")) }}')
 {%- endmacro %}
 
 {% macro vn_date(column) -%}

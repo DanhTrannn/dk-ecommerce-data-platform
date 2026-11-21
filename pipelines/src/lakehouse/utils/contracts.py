@@ -65,10 +65,6 @@ def ddl_schema(resource):
     return pa.schema(fields)
 
 
-def silver_schema(table):
-    return ddl_schema(f"contracts/silver/{table.name}.sql")
-
-
 def align_arrow(data, schema):
     if not isinstance(schema, pa.Schema):
         schema = schema_to_pyarrow(schema)

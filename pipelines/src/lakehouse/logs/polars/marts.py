@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import polars as pl
 
-from lakehouse.oltp.polars.schema import align_arrow, ddl_schema
+from lakehouse.utils.contracts import align_arrow, ddl_schema
 from .identity import resolve
 
 TABLES = ("mart_hourly_route_metrics", "mart_daily_product_demand", "mart_marketing_funnel_daily")

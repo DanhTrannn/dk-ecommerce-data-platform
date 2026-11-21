@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import polars as pl
 
 from lakehouse.utils.snapshots import capture, read_snapshot
-from lakehouse.oltp.polars.pipeline import validate_run
+from lakehouse.utils.runs import validate_run
 from lakehouse.utils.postgres import namespace_lock
 from .polars.identity import AmbiguousProductIdentity
 from .polars.marts import TABLES, build_all, schema

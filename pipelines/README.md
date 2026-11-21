@@ -13,24 +13,31 @@ Batch and log processing for the Lakehouse. Engines: **Polars 2.1 + PyIceberg 0.
 
 | DAG | Schedule | Tasks |
 |---|---|---|
-| `init_lakehouse_oltp` | manual | `run_batch_pipeline --mode full` |
-| `lakehouse_oltp_pipeline` | `0 3 * * *`, one active run | `run_batch_pipeline --mode incremental` (interval `[start, end)`) |
+| `lakehouse_oltp` | `0 3 * * *`, one active run | groups `bronze` → `checks` → `silver` → `gold` → `maintenance`, one task per table / dbt node |
 | `lakehouse_logs_marts` | hourly | `rollup_logs_gold_marts` |
-| `lakehouse_oltp_maintenance` | `0 4 * * *` | `compact` → `expire` → `orphan` report |
 | `lakehouse_streaming_maintenance` | `0 */2 * * *` | Flink health check → `compact` → `expire` → `orphan` report for log tables |
 
-Schedules use `Asia/Ho_Chi_Minh`, with `catchup=False`. OLTP DAG tasks retry twice; log and maintenance tasks retry once, all after two minutes. A PostgreSQL advisory lock per namespace serializes batch, log and maintenance jobs; a job that finds the lock taken fails instead of waiting, so do not overlap the full and incremental DAGs. Airflow passes its run ID and fixed run start (`--as-of`) to the job and reuses both on retries.
+Schedules use `Asia/Ho_Chi_Minh`, with `catchup=False`. OLTP tasks retry twice; log and maintenance tasks retry once, all after two minutes.
 
 ## OLTP batch
 
-`jobs.oltp.run_batch_pipeline` runs one batch end to end:
+`lakehouse_oltp` takes two params: `mode` (`incremental` by default, or `full`) and `namespace_prefix` (`serving` by default). Scheduled runs are incremental over the run's data interval `[start, end)`; a full load is a manual trigger:
 
-1. **Bronze.** Inside one repeatable-read PostgreSQL transaction, each of the 19 source tables is read in primary-key order (at most 10,000 rows per page, configured columns only) and appended to `bronze.<table>` in batches of 200,000 rows with `_ingested_at` and `_run_id`, partitioned by day of `_ingested_at`. Mutable tables use the `updated_at` cursor, append-only tables `created_at`. `--mode full` reads every row; `--mode incremental` requires `--interval-start` and `--interval-end` and selects `[start, end)` with no lookback. A retry with the same run ID first deletes that run's Bronze rows.
-2. **Checks.** Before Silver changes, the run's Bronze rows are checked: row rules (required fields, allowed statuses, non-negative amounts, order and line arithmetic). Full runs also check duplicate primary keys, foreign keys within the run, source row counts of all 19 tables, money totals of `orders`, `payments` and `refunds`, and ledger stock against `inventory`/`store_inventory`. Incremental runs skip those: an order created inside the interval but updated after it is read by the next run, so its lines can briefly point at a missing parent. Any failure raises `CheckFailed` naming the check and the row count; Silver and Gold stay as they were.
-3. **Silver.** `silver.<table>` keeps the current row per primary key. A full run replaces each table in one commit (rows deleted in the source disappear); an incremental run upserts in batches and never overwrites a row with an older cursor.
-4. **Gold.** dbt (`pipelines/dbt/models/oltp`, tag `oltp`) rebuilds every Gold table from current Silver with `CREATE OR REPLACE`: 7 dimensions, 6 facts, 14 marts and 2 seeds (`delivery_sla`, `calendar_events`). `--as-of` is Gold's current day: it ends the dense daily series (inventory, backlog) and the 28-day windows. dbt data tests (`pipelines/dbt/tests/oltp` and the key tests in `gold.yml`) run with severity `warn`: they log, they do not block.
+```bash
+docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp --conf '{"mode": "full"}'
+```
 
-There is no run state, quarantine, quality-result table or publication for OLTP. Readers (Superset, the API) read the current Gold tables. Source tables, keys, cursors, columns and foreign keys are declared once in `SOURCE_TABLES` and `FOREIGN_KEYS` (`src/lakehouse/utils/config.py`).
+Each group holds one task per source table (19), so a failure shows the table and a retry (or **Clear** in the UI) reruns only that table. Every task is a short CLI call with the same run arguments: `--namespace-prefix`, `--run-id` (Airflow's, reused on retries), `--mode`, `--run-started-at` (the run's `run_after`: trigger time of a manual run, interval end of a scheduled one; unchanged by retries and **Clear**) and, in incremental mode only, `--interval-start`/`--interval-end`. Tasks share the Airflow pool `lakehouse_oltp` (4 slots, created by `airflow-init`); a full run on the 1m dataset peaked at about 4.8 GiB in the scheduler container.
+
+1. **`bronze.<table>`** (`jobs.oltp.bronze --table`). Reads one source table in primary-key order (at most 10,000 rows per page, configured columns only) inside its own repeatable-read transaction and appends to `bronze.<table>` in batches of 200,000 rows with `_ingested_at` and `_run_id`, partitioned by day of `_ingested_at`. Incremental runs select the cursor (`updated_at` for mutable tables, `created_at` for append-only ones) in `[start, end)`, with no lookback. Full runs select every row **created before the run start**, so all 19 tables of one run stop at the same moment although each is read at a different time; rows created while the run is going wait for the next run. A retry with the same run ID first deletes that table's Bronze rows of the run.
+2. **`checks.<table>`** (`jobs.oltp.check --table`). Row rules on the run's Bronze rows: primary key and required fields present, and inbound line total = quantity × unit cost. Statuses, non-negative amounts and order/line arithmetic are PostgreSQL CHECK constraints and are not repeated. Full runs also check duplicate primary keys and compare with the source up to the same cutoff: row count, money totals of `orders`, `payments` and `refunds`, and, for `inventory_transactions`, ledger stock against `on_hand − opening_on_hand` minus the movements recorded after the cutoff (one source query). **`checks.foreign_keys`** (`--foreign-keys`) runs after the 19 table checks and only in full runs: an order created inside an incremental interval but updated after it is read by the next run, so its lines can briefly point at a missing parent. A failure raises `CheckFailed` naming the table, the check and the row count; no Silver task starts.
+3. **`silver.<table>`** (`jobs.oltp.silver --table`). `silver.<table>` keeps the current row per primary key. A full run replaces the table in one commit (rows deleted in the source disappear); an incremental run upserts in batches and never overwrites a row with an older cursor.
+4. **`gold.<node>`**. One task per dbt model in `pipelines/dbt/models/oltp` and per seed (`delivery_sla`, `calendar_events`): 7 dimensions, 6 facts, 14 marts, rebuilt from current Silver with `CREATE OR REPLACE`. Task order follows each model's `ref()` calls, read from the SQL when the DAG is parsed. The task command is plain dbt, e.g. `dbt build --select dim_city --exclude path:tests/oltp` (seeds use `dbt seed`). Its context comes from the task environment: `DBT_GOLD_SCHEMA`, `DBT_SILVER_SCHEMA`, `DBT_AS_OF` (the same `run_after`, Gold's current day: it ends the dense daily series and the 28-day windows), plus project, profile, target and log paths under `/tmp/dbt/<run_id>/<node>`. The first log line prints the three context variables; to repeat a task by hand, export them and run the same command in the scheduler container (the other `DBT_*` paths are visible in the task's **Rendered Template**). Generic key tests run with their model; **`gold.tests`** runs the cross-model tests in `pipelines/dbt/tests/oltp` last. dbt data tests run with severity `warn`: they log, they do not block.
+5. **`maintenance`**. `compact` → `expire` → `orphan` report on the OLTP tables (`jobs.maintenance.iceberg_table_maintenance --profile oltp`), after Gold.
+
+Batch tasks take no lock: the DAG's `max_active_runs=1` and its task order keep writers apart. OLTP maintenance holds the advisory lock `<prefix>:oltp`, so it does not collide with the log and streaming jobs, which hold `<prefix>`.
+
+There is no run state, quarantine, quality-result table or publication for OLTP. Readers (Superset, the API) read the current Gold tables. Source tables, keys, cursors, columns and foreign keys are declared once in `SOURCE_TABLES` and `FOREIGN_KEYS` (`src/lakehouse/oltp/sources.py`).
 
 Gold rules worth knowing:
 
@@ -38,7 +45,7 @@ Gold rules worth knowing:
 - Gross profit = net revenue − cost of goods. Goods a refunded return puts back on the shelf (accepted at inspection) take their sold cost back out on the refund day, so a fully returned order nets to zero profit.
 - A shipment is on time when its local delivery date is at most `sla_days` after the local order date. `sla_days` per city (seed `delivery_sla`) is the upper bound of the GHTK Express range of the city's zone plus one day of shop handling and one day of waiting for pickup: TP.HCM 4, Bình Dương, Cần Thơ and Hà Nội 6, Đà Nẵng and Hải Phòng 8.
 
-The Airflow DAGs use `--namespace-prefix serving`, which resolves to the plain `bronze`, `silver`, `gold` and `system` namespaces. Only `serving` and isolated prefixes matching `polars_batch_[a-z0-9_]{1,40}` are accepted. The CLI takes `--namespace-prefix`, `--run-id`, `--mode`, a timezone-aware `--as-of`, the two interval bounds in incremental mode, and `--page-size` (1–10,000). The result line `BATCH_PIPELINE_RESULT` lists Bronze and Silver row counts and dbt statuses.
+`namespace_prefix=serving` resolves to the plain `bronze`, `silver`, `gold` and `system` namespaces. Only `serving` and isolated prefixes matching `polars_batch_[a-z0-9_]{1,40}` are accepted, e.g. `--conf '{"mode": "full", "namespace_prefix": "polars_batch_try"}'` for a trial run.
 
 ## Access logs
 
@@ -55,10 +62,10 @@ Maintenance uses explicit table whitelists. Snapshot expiry protects references 
 ```text
 src/lakehouse/
 ├── analytics/     # dbt runner
-├── oltp/          # batch run, Polars Bronze, pre-merge checks, Silver merge
+├── oltp/          # sources, Bronze, pre-merge checks, Silver merge, DAG plan
 ├── logs/          # Landing adapter, parser, Polars layers, marts and publication
 ├── streaming/     # Flink access-log runtime and sink setup
-├── utils/         # config, Iceberg/Polaris catalog, PostgreSQL, SQL loader, maintenance
+├── utils/         # contracts, run arguments, Iceberg/Polaris catalog, PostgreSQL, SQL loader, maintenance
 └── sql_templates/ # contracts (Silver/Gold/log schemas), flink
 src/jobs/          # CLIs: oltp, logs, maintenance
 dbt/               # dbt project: models/oltp, models/logs, seeds, data tests
@@ -73,4 +80,4 @@ PYTHONPATH=pipelines/src:pipelines/tests uv run --locked --all-packages -- \
   python -m unittest discover -s pipelines/tests -v
 ```
 
-The local suite covers Bronze batching and retries, the pre-merge checks, the Silver merge and the batch orchestration against a SQLite-backed PyIceberg catalog (`pipelines/tests/iceberg_fixture.py`), plus the log pipeline, DAG templates and PostgreSQL source SQL. It does not run Trino, dbt or Kafka/Flink. A full run against a configured stack prints the dbt statuses in its result line; dbt artifacts are temporary.
+The local suite covers Bronze batching and retries, the pre-merge checks, the Silver merge and the per-table CLIs against a SQLite-backed PyIceberg catalog (`pipelines/tests/iceberg_fixture.py`), plus the log pipeline, the OLTP DAG commands and Gold graph, and PostgreSQL source SQL. It does not run Trino, dbt or Kafka/Flink. dbt artifacts of OLTP Gold tasks stay in `/tmp/dbt/<run_id>/<node>` of the container.

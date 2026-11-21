@@ -152,21 +152,25 @@ docker compose --profile core up -d \
   airflow-api-server airflow-scheduler airflow-dag-processor trino
 ```
 
-Batch reader được SELECT 27 bảng (`customer_credentials` bị loại); job nạp 19 bảng và chỉ đọc `inventory`, `store_inventory` để đối soát sổ kho. Airflow (môi trường batch Polars/PyIceberg/dbt) cần reader password, MinIO batch key và Polaris credential file. Chạy lần đầu bằng DAG thủ công:
+Batch reader được SELECT 27 bảng (`customer_credentials` bị loại); job nạp 19 bảng và chỉ đọc `inventory`, `store_inventory` để đối soát sổ kho. Airflow (môi trường batch Polars/PyIceberg/dbt) cần reader password, MinIO batch key và Polaris credential file. Bật DAG `lakehouse_oltp` rồi chạy full lần đầu:
 
 ```bash
-docker compose exec -T airflow-scheduler airflow dags trigger init_lakehouse_oltp
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp
+docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp --conf '{"mode": "full"}'
 ```
 
-Theo dõi task `run_batch_pipeline` trong Airflow UI tới khi xong; log có các dòng `BRONZE`, `CHECKS passed`, `SILVER` và cuối cùng `BATCH_PIPELINE_RESULT`. Sau đó bật DAG batch:
+DAG chạy 03:00 Asia/Ho_Chi_Minh ở chế độ incremental, đọc interval `[start,end)` của lần chạy. Các DAG mới ở trạng thái paused theo Compose; khi unpause, Airflow xếp ngay lần chạy incremental gần nhất, và `max_active_runs=1` khiến lần full ở trên chạy sau nó (full ghi đè Silver nên không sao).
 
-```bash
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_pipeline
-```
+Trong Airflow UI, DAG có năm nhóm `bronze` → `checks` → `silver` → `gold` → `maintenance`, mỗi bảng nguồn hoặc model dbt là một task. Task đỏ ở nhóm nào thì:
 
-DAG định kỳ chạy 03:00 Asia/Ho_Chi_Minh, đọc interval `[start,end)`. Job batch/log/maintenance có advisory lock dùng chung theo namespace; job gặp lock đang bị giữ thì lỗi chứ không chờ. Tránh chạy init và interval DAG chồng nhau; `max_active_runs=1` chỉ áp dụng trong từng DAG. Các DAG mới được tạo ở trạng thái paused theo Compose.
+| Nhóm | Nghĩa | Xử lý |
+|---|---|---|
+| `bronze.<bảng>` | Không đọc được nguồn hoặc không ghi được Bronze | Sửa kết nối/quyền, **Clear** task đó; Bronze xóa dòng của lần thử trước rồi ghi lại |
+| `checks.<bảng>`, `checks.foreign_keys` | Dữ liệu trượt kiểm tra (log ghi `<bảng>: <kiểm tra> = <số dòng>`); Silver chưa đổi | Sửa dữ liệu nguồn, **Clear** `bronze.<bảng>` kèm downstream |
+| `silver.<bảng>` | Không merge được vào Silver | Xem log, **Clear** task đó |
+| `gold.<model>` | dbt lỗi; log có dòng `DBT_GOLD_SCHEMA=… DBT_SILVER_SCHEMA=… DBT_AS_OF=…` và lệnh `dbt build --select <model> …` | Chạy tay lại theo phần 8, **Clear** task kèm downstream |
 
-Manual run phải có interval hợp lệ khi gọi incremental ingestion. Không suy ra rằng chỉ đặt `logical_date` là đủ để chọn cửa sổ nguồn. Các tham số `--interval-start`/`--interval-end` của CLI ở phần 8 là hợp đồng kiểm tra được trong repo; contract/auth của Airflow API cần đối chiếu instance Airflow đang dùng khi tự động hóa trigger. Full init là job riêng, không được thay bằng một interval tùy ý.
+Trigger tay ở chế độ incremental cần một lần chạy có data interval; chạy full không cần.
 
 ## 5. Access log
 
@@ -251,18 +255,22 @@ make down
 DAG gọi các job dưới đây bằng `PIPELINE_PYTHON` (venv Polars/PyIceberg/dbt trong image Airflow). Chạy tay trong container scheduler, vốn đã có reader, Polaris credential file và MinIO batch key:
 
 ```bash
-# OLTP: Bronze → kiểm tra → Silver → Gold trong một job (19 nguồn)
-docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.oltp.run_batch_pipeline \
-  --namespace-prefix serving --run-id manual_oltp_20261115 --mode full --as-of 2026-11-15T00:00:00Z'
+# OLTP, một bảng mỗi lần gọi: Bronze → kiểm tra → Silver (full đọc mọi dòng tạo trước --run-started-at)
+A="--namespace-prefix polars_batch_try --run-id manual_oltp_20261121 --mode full --run-started-at 2026-11-21T03:00:00+07:00"
+docker compose exec -T airflow-scheduler sh -c "\"\$PIPELINE_PYTHON\" -m jobs.oltp.bronze $A --table orders"
+docker compose exec -T airflow-scheduler sh -c "\"\$PIPELINE_PYTHON\" -m jobs.oltp.check $A --table orders"
+docker compose exec -T airflow-scheduler sh -c "\"\$PIPELINE_PYTHON\" -m jobs.oltp.check $A --foreign-keys"
+docker compose exec -T airflow-scheduler sh -c "\"\$PIPELINE_PYTHON\" -m jobs.oltp.silver $A --table orders"
+# Incremental: --mode incremental kèm --interval-start/--interval-end có múi giờ
 
-# Incremental: thêm cửa sổ [start, end) có múi giờ
-docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.oltp.run_batch_pipeline \
-  --namespace-prefix serving --run-id manual_oltp_20261116 --mode incremental --as-of 2026-11-16T00:00:00Z \
-  --interval-start 2026-11-15T00:00:00Z --interval-end 2026-11-16T00:00:00Z'
+# Gold, một model: đặt ngữ cảnh như dòng đầu log của task rồi gọi dbt
+docker compose exec -T -e DBT_GOLD_SCHEMA=polars_batch_try_gold -e DBT_SILVER_SCHEMA=polars_batch_try_silver \
+  -e DBT_AS_OF=2026-11-21T03:00:00+07:00 -e DBT_PROJECT_DIR=/opt/project/pipelines/dbt -e DBT_PROFILES_DIR=/opt/project/pipelines/dbt \
+  -e DBT_TARGET_PATH=/tmp/dbt/manual -e DBT_LOG_PATH=/tmp/dbt/manual airflow-scheduler dbt build --select dim_city
 
 # Log: Landing → Bronze/Silver/fact → ba mart → publication log
 docker compose exec -T airflow-scheduler sh -c '"$PIPELINE_PYTHON" -m jobs.logs.build_logs_gold \
   --namespace-prefix serving --run-id manual_logs_20261115 --as-of 2026-11-15T00:00:00Z'
 ```
 
-Các run ID và thời gian ở ví dụ cần được chọn lại theo lần chạy/dữ liệu. Prefix khác `serving` phải có dạng `polars_batch_*` để chạy thử trong namespace riêng. Retry dùng lại run ID và `--as-of`: Bronze xóa dòng của lần thử trước rồi đọc lại nguồn. `--as-of` là ngày hiện tại của Gold (cuối các chuỗi ngày tồn kho/backlog). Kiểm tra trượt làm job lỗi với `CheckFailed` trước khi Silver và Gold thay đổi.
+Các run ID và thời gian ở ví dụ cần được chọn lại theo lần chạy/dữ liệu. Prefix khác `serving` phải có dạng `polars_batch_*` để chạy thử trong namespace riêng. Retry dùng lại run ID và `--run-started-at`: Bronze xóa dòng của bảng đó trong lần thử trước rồi đọc lại nguồn. `DBT_AS_OF` là ngày hiện tại của Gold (cuối các chuỗi ngày tồn kho/backlog). Kiểm tra trượt làm lệnh lỗi với `CheckFailed` trước khi Silver thay đổi.

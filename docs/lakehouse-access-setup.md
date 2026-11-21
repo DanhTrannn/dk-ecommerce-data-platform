@@ -192,25 +192,25 @@ make generate PRESET=1m
 
 ### Bước 22 Trigger full batch
 
-Chạy hai lệnh dưới để bật DAG thủ công và tạo một lần chạy. Chờ batch incremental đang chạy kết thúc trước khi trigger vì cả hai DAG ghi vào cùng namespace phục vụ. [DAG full batch](../airflow/dags/init_lakehouse_oltp.py)
+Chạy hai lệnh dưới để bật DAG OLTP và tạo một lần chạy full. Khi bật, Airflow xếp thêm lần chạy incremental gần nhất; mỗi lúc chỉ một lần chạy hoạt động, lần full chạy sau và ghi đè Silver. [DAG OLTP](../airflow/dags/lakehouse_oltp.py)
 
 ```bash
-docker compose exec -T airflow-scheduler airflow dags unpause init_lakehouse_oltp
-docker compose exec -T airflow-scheduler airflow dags trigger init_lakehouse_oltp
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp
+docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp --conf '{"mode": "full"}'
 ```
 
 ### Bước 23 Xác nhận batch đã chạy xong
 
-Trong **Airflow → DAGs**, mở **`init_lakehouse_oltp` → lần chạy mới nhất → `run_batch_pipeline` → Logs**. Dòng `BRONZE` hiện số dòng đọc theo bảng, `CHECKS passed` xác nhận kiểm tra trước merge đã qua, `SILVER` hiện số dòng merge. Dòng cuối `BATCH_PIPELINE_RESULT` liệt kê số dòng Bronze/Silver và trạng thái từng model dbt. Có thể đếm Gold qua Trino. [Kiểm tra bằng SQL Trino](operations.md#3-kiểm-tra-bằng-sql-trino)
+Trong **Airflow → DAGs → `lakehouse_oltp` → lần chạy mới nhất**, mọi task trong năm nhóm `bronze`, `checks`, `silver`, `gold`, `maintenance` phải xanh. Log task `bronze.<bảng>` có dòng `BRONZE table=… rows=…`, `checks.<bảng>` có `CHECKS table=… passed`, `silver.<bảng>` có `SILVER table=…`; task `gold.<model>` in log dbt của model đó. Task đỏ chỉ ra đúng bảng hoặc model lỗi; **Clear** task đó để chạy lại riêng nó. Có thể đếm Gold qua Trino. [Kiểm tra bằng SQL Trino](operations.md#3-kiểm-tra-bằng-sql-trino)
 
 ```sql
 SELECT count(*) FROM lakehouse.gold.fact_order;
 ```
 
-Nếu cần lịch incremental hằng ngày, bật DAG bằng lệnh sau. DAG chạy lúc **03:00 giờ Việt Nam**. [DAG incremental](../airflow/dags/lakehouse_oltp_pipeline.py)
+Sau lần full, DAG tiếp tục chạy incremental hằng ngày lúc **03:00 giờ Việt Nam**. Muốn dừng lịch, pause DAG:
 
 ```bash
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_pipeline
+docker compose exec -T airflow-scheduler airflow dags pause lakehouse_oltp
 ```
 
 ## Bật luồng access log
