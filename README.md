@@ -129,6 +129,7 @@ CI ([workflow](.github/workflows/ci.yml)) validates the Compose profiles, compil
 | [docs/SETUP.md](docs/SETUP.md) | Environment, bootstrap, startup |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Monitoring, troubleshooting, recovery, backups |
 | [docs/LAKEHOUSE_ACCESS_SETUP.md](docs/LAKEHOUSE_ACCESS_SETUP.md) | Step-by-step access setup in Streamlit |
+| [CHANGELOG.md](CHANGELOG.md) | Notable changes by milestone |
 | [docs/FINAL_REPORT.md](docs/FINAL_REPORT.md) | Thesis report; historical, not the current specification |
 
 Components: [platform-app](services/platform-app/README.md), [API](services/platform-app/src/platform_app/api/README.md), [generator](generator/README.md), [database](database/README.md).
