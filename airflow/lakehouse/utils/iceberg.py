@@ -4,7 +4,6 @@ import os
 import shlex
 from pathlib import Path
 
-import pyarrow as pa
 from pyiceberg.catalog import load_catalog
 from pyiceberg.exceptions import NoSuchTableError
 
@@ -38,7 +37,6 @@ def catalog_properties():
         "oauth2-server-uri": uri + "/v1/oauth/tokens",
         "scope": "PRINCIPAL_ROLE:ALL",
         "header.Polaris-Realm": os.environ.get("POLARIS_REALM", "POLARIS"),
-        # No storage keys here: Polaris vends credentials scoped to each loaded table, with its endpoint.
         "header.X-Iceberg-Access-Delegation": "vended-credentials",
         "py-io-impl": "pyiceberg.io.pyarrow.PyArrowFileIO",
     }
@@ -54,18 +52,3 @@ def load_table(catalog, key):
         return catalog.load_table(key)
     except NoSuchTableError:
         raise NoSuchTableError(f"{'.'.join(key)} does not exist; run the lakehouse_oltp_init DAG first") from None
-
-
-def evolve_table_schema(table, schema):
-    added = set(schema.names) - set(table.schema().column_names)
-    current = table.current_snapshot()
-    stale = current is not None and current.schema_id != table.schema().schema_id
-    if not (added or stale):
-        return
-    with table.transaction() as transaction:
-        if added:
-            with transaction.update_schema() as update:
-                update.union_by_name(schema)
-        if current is not None:
-            # Existing files stay referenced while scans of main use the evolved schema.
-            transaction.append(pa.Table.from_pylist([], schema=transaction.table_metadata.schema().as_arrow()))

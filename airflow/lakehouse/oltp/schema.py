@@ -9,7 +9,7 @@ import pyarrow as pa
 from lakehouse.oltp.staging import LINEAGE_FIELDS
 from lakehouse.oltp.source import arrow_source_schema
 from lakehouse.oltp.sources import SOURCE_TABLES
-from lakehouse.utils.iceberg import PROPERTIES, evolve_table_schema
+from lakehouse.utils.iceberg import PROPERTIES
 from lakehouse.utils.postgres import source_query, source_read_transaction
 
 LAYERS = ("staging", "bronze", "silver", "gold")
@@ -26,7 +26,9 @@ def create_or_evolve(catalog, key, schema, properties):
     """Create the table, or add the columns its schema gained since it was created."""
     if catalog.table_exists(key):
         table = catalog.load_table(key)
-        evolve_table_schema(table, schema)
+        if set(schema.names) - set(table.schema().column_names):
+            with table.update_schema() as update:
+                update.union_by_name(schema)
         return table
     return catalog.create_table(key, schema=schema, properties=properties)
 
