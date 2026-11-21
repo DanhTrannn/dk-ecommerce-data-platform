@@ -1,0 +1,116 @@
+version: 2
+models:
+  - name: customers
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: customer_id
+            bronze: source('bronze', 'customers')
+  - name: categories
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: category_id
+            bronze: source('bronze', 'categories')
+  - name: products
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: product_id
+            bronze: source('bronze', 'products')
+  - name: product_variants
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: variant_id
+            bronze: source('bronze', 'product_variants')
+  - name: cities
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: city_id
+            bronze: source('bronze', 'cities')
+  - name: stores
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: store_id
+            bronze: source('bronze', 'stores')
+  - name: delivery_staff
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: staff_id
+            bronze: source('bronze', 'delivery_staff')
+  - name: orders
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: order_id
+            bronze: source('bronze', 'orders')
+  - name: order_items
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: order_item_id
+            bronze: source('bronze', 'order_items')
+  - name: payments
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: payment_id
+            bronze: source('bronze', 'payments')
+  - name: refunds
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: refund_id
+            bronze: source('bronze', 'refunds')
+  - name: order_status_history
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: order_status_history_id
+            bronze: source('bronze', 'order_status_history')
+  - name: coupons
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: coupon_id
+            bronze: source('bronze', 'coupons')
+  - name: shipments
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: shipment_id
+            bronze: source('bronze', 'shipments')
+  - name: return_requests
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: return_id
+            bronze: source('bronze', 'return_requests')
+  - name: return_items
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: return_item_id
+            bronze: source('bronze', 'return_items')
+  - name: product_reviews
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: review_id
+            bronze: source('bronze', 'product_reviews')
+  - name: inventory_transactions
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: transaction_id
+            bronze: source('bronze', 'inventory_transactions')
+  - name: inbound_receipt_items
+    data_tests:
+      - matches_bronze:
+          arguments:
+            key: item_id
+            bronze: source('bronze', 'inbound_receipt_items')
