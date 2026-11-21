@@ -251,7 +251,10 @@ class PolarisAccess:
                             "endpointInternal": self.settings.minio_url,
                             "region": "us-east-1",
                             "pathStyleAccess": True,
-                            "stsUnavailable": True,
+                            # Polaris asks MinIO STS for short-lived credentials scoped to each table it opens,
+                            # so engines hold only their Polaris credential and grants also gate the data files.
+                            "stsEndpoint": self.settings.minio_url,
+                            "stsUnavailable": False,
                             "kmsUnavailable": True,
                         },
                     }

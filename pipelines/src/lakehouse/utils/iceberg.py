@@ -12,15 +12,9 @@ PROPERTIES = {"format-version": "2", "write.parquet.compression-codec": "zstd"}
 
 
 def catalog_properties():
-    required = (
-        "POLARIS_CATALOG_URI",
-        "POLARIS_CATALOG_NAME",
-        "MINIO_ENDPOINT",
-        "MINIO_BATCH_ACCESS_KEY",
-        "MINIO_BATCH_SECRET_KEY",
-    )
+    required = ("POLARIS_CATALOG_URI", "POLARIS_CATALOG_NAME")
     if any(not os.environ.get(key, "").strip() for key in required):
-        raise ValueError("Configure the Polaris catalog and MinIO batch workload credentials")
+        raise ValueError("Configure the Polaris catalog URI and name")
     path = Path(os.environ.get("POLARIS_CREDENTIAL_FILE", "/run/polaris/clients.env"))
     values = {}
     for line in path.read_text().splitlines():
@@ -44,13 +38,9 @@ def catalog_properties():
         "oauth2-server-uri": uri + "/v1/oauth/tokens",
         "scope": "PRINCIPAL_ROLE:ALL",
         "header.Polaris-Realm": os.environ.get("POLARIS_REALM", "POLARIS"),
-        "header.X-Iceberg-Access-Delegation": "",
+        # No storage keys here: Polaris vends credentials scoped to each loaded table, with its endpoint.
+        "header.X-Iceberg-Access-Delegation": "vended-credentials",
         "py-io-impl": "pyiceberg.io.pyarrow.PyArrowFileIO",
-        "s3.endpoint": os.environ["MINIO_ENDPOINT"],
-        "s3.access-key-id": os.environ["MINIO_BATCH_ACCESS_KEY"],
-        "s3.secret-access-key": os.environ["MINIO_BATCH_SECRET_KEY"],
-        "s3.region": os.environ.get("AWS_REGION", "us-east-1"),
-        "s3.force-virtual-addressing": "false",
     }
 
 

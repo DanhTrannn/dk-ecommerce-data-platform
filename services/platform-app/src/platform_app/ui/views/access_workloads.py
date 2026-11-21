@@ -68,7 +68,7 @@ def render(polaris_state):
     row = next(row for row in workloads if row["id"] == selected)
     st.info(row["reload_hint"] + ". Thao tác này cập nhật file; không tự restart dịch vụ hoặc submit lại job.")
     st.caption(
-        "MinIO access key/secret vẫn dùng cấu hình riêng hiện có; cấp principal Polaris không thay đổi quyền MinIO."
+        "Workload không giữ key MinIO: Polaris cấp credential tạm, giới hạn theo từng bảng và theo quyền của principal."
     )
     st.caption(
         "Gán role và quyền ở tab Gán / Gỡ quyền trước khi chạy workload. Credential hợp lệ chưa chứng minh principal có đủ quyền đọc/ghi dữ liệu."
