@@ -4,7 +4,9 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 
-from lakehouse.utils.maintenance import expire
+import pyarrow as pa
+
+from lakehouse.utils.maintenance import MIN_SMALL_FILES, SMALL_FILE_BYTES, compact, expire
 
 
 class ExpiryTests(unittest.TestCase):
@@ -21,6 +23,25 @@ class ExpiryTests(unittest.TestCase):
         # The 20 newest are 99 and 25..7; tag keeps 2; the rest are older than three days.
         self.assertEqual(expire(table), {"expired_snapshots": 5})
         self.assertEqual(commit.call_args.args[0], [6, 5, 4, 3, 1])
+
+
+class CompactionTests(unittest.TestCase):
+    def table(self, sizes, content=0):
+        files = pa.table({"file_size_in_bytes": sizes, "content": [content] * len(sizes)})
+        return SimpleNamespace(inspect=SimpleNamespace(files=lambda: files))
+
+    def test_waits_until_enough_small_files(self):
+        sizes = [SMALL_FILE_BYTES - 1] * (MIN_SMALL_FILES - 1) + [SMALL_FILE_BYTES * 2]
+        self.assertEqual(compact(self.table(sizes)), {"rewritten": False, "small_files": MIN_SMALL_FILES - 1})
+
+    def test_rewrites_when_small_files_pile_up_or_deletes_exist(self):
+        for table in (self.table([1] * MIN_SMALL_FILES), self.table([SMALL_FILE_BYTES * 2], content=1)):
+            data = pa.table({"id": [1]})
+            transaction = Mock()
+            table.transaction = Mock(return_value=Mock(__enter__=Mock(return_value=transaction), __exit__=Mock(return_value=False)))
+            table.scan = lambda: SimpleNamespace(to_arrow=lambda: data)
+            self.assertEqual(compact(table), {"rewritten": True, "rows": 1})
+            transaction.overwrite.assert_called_once_with(data)
 
 
 if __name__ == "__main__":

@@ -1,21 +1,46 @@
-{{ config(properties={"partitioning": "ARRAY['month(order_date)']"}) }}
+{{ config(materialized='incremental', unique_key='order_id', properties={"partitioning": "ARRAY['month(order_date)']"}) }}
 -- Revenue is recognized on the day an order is both completed and paid (the later of the two, design §5).
-WITH cancellations AS (
-  SELECT order_id, max_by(reason, transitioned_at) AS cancel_reason
+WITH
+{% if is_incremental() %}
+changed AS (
+  SELECT order_id AS key FROM {{ ref('orders') }} WHERE _ingested_at > {{ watermark() }}
+  UNION SELECT order_id FROM {{ ref('order_status_history') }} WHERE _ingested_at > {{ watermark() }}
+  UNION SELECT order_id FROM {{ ref('order_items') }} WHERE _ingested_at > {{ watermark() }}
+  UNION
+  SELECT p.order_id
+  FROM {{ ref('refunds') }} r
+  JOIN {{ ref('payments') }} p ON p.payment_id = r.payment_id
+  WHERE r._ingested_at > {{ watermark() }}
+  UNION
+  SELECT o.order_id
+  FROM {{ ref('orders') }} o
+  JOIN {{ ref('stores') }} s ON s.store_id = o.store_id
+  WHERE s._ingested_at > {{ watermark() }}
+),
+{% endif %}
+history AS (
+  SELECT
+    order_id,
+    max_by(reason, transitioned_at) FILTER (WHERE to_status = 'cancelled') AS cancel_reason,
+    max(_ingested_at) AS _ingested_at
   FROM {{ ref('order_status_history') }}
-  WHERE to_status = 'cancelled'
+  WHERE {{ in_changed('order_id') }}
   GROUP BY order_id
 ),
 items AS (
-  SELECT order_id, sum(quantity) AS item_quantity
+  SELECT order_id, sum(quantity) AS item_quantity, max(_ingested_at) AS _ingested_at
   FROM {{ ref('order_items') }}
+  WHERE {{ in_changed('order_id') }}
   GROUP BY order_id
 ),
 refunds AS (
-  SELECT p.order_id, sum(r.amount_vnd) AS refunded_vnd
+  SELECT
+    p.order_id,
+    sum(r.amount_vnd) FILTER (WHERE r.status = 'succeeded') AS refunded_vnd,
+    max(r._ingested_at) AS _ingested_at
   FROM {{ ref('refunds') }} r
   JOIN {{ ref('payments') }} p ON p.payment_id = r.payment_id
-  WHERE r.status = 'succeeded'
+  WHERE {{ in_changed('p.order_id') }}
   GROUP BY p.order_id
 )
 SELECT
@@ -48,15 +73,21 @@ SELECT
   {{ vn_date('o.created_at') }} AS order_date,
   CASE WHEN o.completed_at IS NOT NULL AND o.paid_at IS NOT NULL THEN {{ vn_date('greatest(o.completed_at, o.paid_at)') }} END AS revenue_date,
   {{ vn_date('o.cancelled_at') }} AS cancelled_date,
-  c.cancel_reason,
+  h.cancel_reason,
   coalesce(i.item_quantity, 0) AS item_quantity,
   o.subtotal_vnd,
   o.discount_amount_vnd AS discount_vnd,
   o.shipping_fee_vnd,
   o.total_vnd,
-  coalesce(r.refunded_vnd, 0) AS refunded_vnd
+  coalesce(r.refunded_vnd, 0) AS refunded_vnd,
+  {{ latest('o._ingested_at', 's._ingested_at', 'h._ingested_at', 'i._ingested_at', 'r._ingested_at') }} AS _ingested_at,
+  {{ previous_dates('prev.order_date', 'prev.revenue_date', 'prev.cancelled_date') }} AS _previous_dates
 FROM {{ ref('orders') }} o
 LEFT JOIN {{ ref('stores') }} s ON s.store_id = o.store_id
-LEFT JOIN cancellations c ON c.order_id = o.order_id
+LEFT JOIN history h ON h.order_id = o.order_id
 LEFT JOIN items i ON i.order_id = o.order_id
 LEFT JOIN refunds r ON r.order_id = o.order_id
+{% if is_incremental() %}
+LEFT JOIN {{ this }} prev ON prev.order_id = o.order_id
+{% endif %}
+WHERE {{ in_changed('o.order_id') }}

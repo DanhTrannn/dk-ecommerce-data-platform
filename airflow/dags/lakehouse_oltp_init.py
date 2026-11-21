@@ -58,12 +58,15 @@ with DAG(
                 pool=POOL,
             )
 
-    gold = gold_task_group(POOL)
+    gold = gold_task_group(POOL, full_refresh=True)
 
     with TaskGroup("maintenance") as maintenance:
         compact = PythonOperator(task_id="compact", python_callable=oltp.maintain, op_kwargs={"action": "compact"})
+        optimize = BashOperator(
+            task_id="optimize", bash_command="dbt run-operation optimize", env=dbt_env("optimize"), append_env=True
+        )
         expire = PythonOperator(task_id="expire", python_callable=oltp.maintain, op_kwargs={"action": "expire"})
         orphan = PythonOperator(task_id="orphan", python_callable=oltp.maintain, op_kwargs={"action": "orphan"})
-        compact >> expire >> orphan
+        compact >> optimize >> expire >> orphan
 
     create_schema >> staging >> reconcile >> bronze >> silver >> gold >> maintenance

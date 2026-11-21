@@ -6,14 +6,18 @@ import boto3
 
 RETAIN_SNAPSHOTS = 20
 TARGET_FILE_SIZE_BYTES = 128 * 1024 * 1024
+# PyIceberg can only rewrite a whole table, so compaction waits until enough small files have piled up.
+SMALL_FILE_BYTES = TARGET_FILE_SIZE_BYTES // 2
+MIN_SMALL_FILES = 10
 # Younger snapshots and files stay, since a reader or a write in progress may still use them.
 MIN_AGE = timedelta(days=3)
 
 
 def compact(table):
     files = table.inspect.files()
-    if len(files) < 2 and (not len(files) or not any(files["content"].to_pylist())):
-        return {"rewritten": False}
+    small = sum(size < SMALL_FILE_BYTES for size in files["file_size_in_bytes"].to_pylist())
+    if small < MIN_SMALL_FILES and not any(files["content"].to_pylist()):
+        return {"rewritten": False, "small_files": small}
     # The transaction starts before the read; a concurrent commit changes main and fails its snapshot assertion.
     with table.transaction() as transaction:
         data = table.scan().to_arrow()

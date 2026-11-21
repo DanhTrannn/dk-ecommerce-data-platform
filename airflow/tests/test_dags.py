@@ -48,6 +48,12 @@ class DagTests(unittest.TestCase):
         self.assertIn("staging.orders", self.init.task_dict["reconcile.orders"].upstream_task_ids)
         self.assertIn("bronze.orders", self.incremental.task_dict["silver.orders"].upstream_task_ids)
         self.assertEqual(self.incremental.task_dict["maintenance.compact"].upstream_task_ids, {"gold.tests"})
+        self.assertEqual(self.incremental.task_dict["maintenance.expire"].upstream_task_ids, {"maintenance.optimize"})
+
+    def test_only_init_rebuilds_gold(self):
+        self.assertIn("--full-refresh", self.init.task_dict["gold.fact_order"].bash_command)
+        self.assertNotIn("--full-refresh", self.incremental.task_dict["gold.fact_order"].bash_command)
+        self.assertNotIn("--full-refresh", self.init.task_dict["gold.delivery_sla"].bash_command)
 
 
 class CodeRuleTests(unittest.TestCase):

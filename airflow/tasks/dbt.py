@@ -43,13 +43,14 @@ def dbt_env(node):
     }
 
 
-def gold_task_group(pool):
+def gold_task_group(pool, full_refresh):
+    refresh = " --full-refresh" if full_refresh else ""
     with TaskGroup("gold") as group:
         graph, seeds = gold_dependencies(), gold_seeds()
         models = {
             node: BashOperator(
                 task_id=node,
-                bash_command=dbt_command("seed" if node in seeds else "build", node),
+                bash_command=dbt_command("seed", node) if node in seeds else dbt_command("build", node) + refresh,
                 env=dbt_env(node),
                 append_env=True,
                 pool=pool,

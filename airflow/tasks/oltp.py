@@ -73,13 +73,14 @@ def reconcile(table, dag_run):
 
 
 def maintain(action):
-    # Compaction skips Silver: dbt optimizes it after every merge, and PyIceberg cannot read the position deletes
-    # Trino's MERGE leaves before that.
-    tables = [
-        *(("staging", table.name) for table in SOURCE_TABLES),
-        *(("bronze", table.name) for table in SOURCE_TABLES),
-        *((("silver", table.name) for table in SOURCE_TABLES) if action != "compact" else ()),
-        *(("gold", name) for name in gold_dependencies()),
-    ]
+    # Only Bronze is compacted here: every load rewrites staging, and the optimize task compacts the dbt-written
+    # Silver and Gold, whose merges leave position deletes PyIceberg cannot read.
+    tables = [("bronze", table.name) for table in SOURCE_TABLES]
+    if action != "compact":
+        tables += [
+            *(("staging", table.name) for table in SOURCE_TABLES),
+            *(("silver", table.name) for table in SOURCE_TABLES),
+            *(("gold", name) for name in gold_dependencies()),
+        ]
     result = maintain_tables(iceberg_catalog(), tables, action)
     print(json.dumps(result, default=str), flush=True)
