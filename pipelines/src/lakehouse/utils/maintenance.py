@@ -85,12 +85,15 @@ def orphan_files(table, *, cutoff, delete=False):
     if prefix == "data/" or ".." in prefix.split("/"):
         raise ValueError("Refuse an unscoped orphan scan")
     live = {urlsplit(path).path.lstrip("/") for path in table.inspect.all_files()["file_path"].to_pylist()}
+    # The credentials Polaris vended for this table only reach its own location, so the scan cannot leave it.
+    vended = table.io.properties
     client = boto3.client(
         "s3",
-        endpoint_url=os.environ["MINIO_ENDPOINT"],
-        aws_access_key_id=os.environ["MINIO_BATCH_ACCESS_KEY"],
-        aws_secret_access_key=os.environ["MINIO_BATCH_SECRET_KEY"],
-        region_name=os.environ.get("AWS_REGION", "us-east-1"),
+        endpoint_url=vended["s3.endpoint"],
+        aws_access_key_id=vended["s3.access-key-id"],
+        aws_secret_access_key=vended["s3.secret-access-key"],
+        aws_session_token=vended["s3.session-token"],
+        region_name=vended.get("client.region", "us-east-1"),
     )
     candidates = []
     for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):

@@ -57,9 +57,6 @@ def register_polaris_catalog(
     client_id, client_secret = polaris_flink_credentials()
     realm = os.environ.get("POLARIS_REALM", DEFAULT_REALM)
     polaris_uri = os.environ.get("POLARIS_CATALOG_URI", "http://polaris:8181/api/catalog")
-    minio_endpoint = os.environ.get("MINIO_ENDPOINT", "http://minio:9000")
-    s3_access_key = os.environ["MINIO_FLINK_ACCESS_KEY"]
-    s3_secret_key = os.environ["MINIO_FLINK_SECRET_KEY"]
 
     t_env.execute_sql(
         render_sql(
@@ -69,9 +66,6 @@ def register_polaris_catalog(
             credential=literal(f"{client_id}:{client_secret}"),
             warehouse=literal(warehouse),
             realm=literal(realm),
-            minio_endpoint=literal(minio_endpoint),
-            s3_access_key=literal(s3_access_key),
-            s3_secret_key=literal(s3_secret_key),
         )
     )
     log.info("Registered Iceberg REST catalog '%s' via Polaris at %s", catalog_name, polaris_uri)
