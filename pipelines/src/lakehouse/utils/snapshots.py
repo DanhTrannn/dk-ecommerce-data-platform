@@ -3,6 +3,8 @@
 import polars as pl
 import pyarrow as pa
 
+from lakehouse.utils.trino import read_gold_snapshot
+
 
 def utc_frame(arrow):
     frame = pl.from_arrow(arrow)
@@ -19,9 +21,7 @@ def read_snapshot(table, snapshot_id):
         return utc_frame(pa.Table.from_pylist([], schema=table.schema().as_arrow()))
     # Trino's position-delete Parquet encoding is not dictionary-decodable by Arrow 18.
     # Analytical tables are read through Trino, rather than patching PyIceberg internals.
-    if table.name()[-2] == "gold" or table.name()[-2].endswith("_gold"):
-        from lakehouse.utils.trino import read_gold_snapshot
-
+    if table.name()[-2] == "gold":
         return utc_frame(read_gold_snapshot(table, snapshot_id))
     return utc_frame(table.scan(snapshot_id=snapshot_id).to_arrow())
 

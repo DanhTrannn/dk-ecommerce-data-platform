@@ -6,6 +6,9 @@ from contextlib import contextmanager
 import re
 from datetime import datetime, timezone
 
+import psycopg2
+from psycopg2.extras import register_default_json, register_default_jsonb, register_uuid
+
 
 def identifier(value: str) -> str:
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
@@ -69,9 +72,6 @@ def page_query(query, pk, last_pk, limit):
 
 
 def postgres_reader():
-    import psycopg2
-    from psycopg2.extras import register_default_json, register_default_jsonb, register_uuid
-
     settings = reader_settings()
     connection = psycopg2.connect(
         **settings,

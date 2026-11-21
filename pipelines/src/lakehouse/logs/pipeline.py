@@ -8,6 +8,7 @@ from lakehouse.utils.snapshots import capture, read_snapshot
 from lakehouse.utils.runs import validate_run
 from lakehouse.utils.postgres import LOGS_LOCK, writer_lock
 from .polars.identity import AmbiguousProductIdentity
+from .polars.ingestion import ingest
 from .polars.marts import TABLES, build_all, schema
 from lakehouse.analytics.dbt import ensure_target, run_models
 from .polars.quality import input_checks, output_checks, result
@@ -102,8 +103,6 @@ def run_marts(
 
 def run_logs(catalog, connection, *, bucket, run_id, as_of):
     """One writer boundary for native ingestion, audit and log publication."""
-    from .polars.ingestion import ingest
-
     validate_run(run_id, bucket, 10000)
     observed = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
     if observed.tzinfo is None:

@@ -3,7 +3,7 @@ name = "batch-pipeline"
 version = "0.1.0"
 requires-python = ">=3.11,<3.12"
 dependencies = [
-  "boto3==1.35.99",
+  "boto3==1.43.75",
   "pyarrow==18.1.0",
   "dbt-core==1.11.11",
   "dbt-trino==1.11.0",

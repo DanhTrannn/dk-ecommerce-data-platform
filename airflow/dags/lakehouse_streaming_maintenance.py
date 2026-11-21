@@ -4,15 +4,14 @@ import os
 from datetime import timedelta
 
 import pendulum
-from airflow.providers.standard.operators.python import ExternalPythonOperator, PythonOperator
+import requests
+from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import DAG
 
-PIPELINE_PYTHON = os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/python")
+from jobs.maintenance.iceberg_table_maintenance import maintain
 
 
 def check_flink_streaming_health():
-    import requests
-
     host = os.environ.get("FLINK_JOBMANAGER_HOST", "flink-jobmanager")
     port = os.environ.get("FLINK_JOBMANAGER_PORT", "8081")
     response = requests.get(f"http://{host}:{port}/jobs/overview", timeout=15)
@@ -32,13 +31,6 @@ def check_flink_streaming_health():
     return [running[name] for name in required]
 
 
-# Airflow sends the function's source to PIPELINE_PYTHON and runs it there, so the import stays inside.
-def maintain(action):
-    from jobs.maintenance.iceberg_table_maintenance import maintain
-
-    maintain(profile="streaming", action=action)
-
-
 with DAG(
     dag_id="lakehouse_streaming_maintenance",
     schedule="0 */2 * * *",
@@ -50,13 +42,7 @@ with DAG(
 ) as dag:
     monitor = PythonOperator(task_id="check_flink_streaming_health", python_callable=check_flink_streaming_health)
     steps = [
-        ExternalPythonOperator(
-            task_id=action,
-            python=PIPELINE_PYTHON,
-            python_callable=maintain,
-            op_args=[action],
-            expect_airflow=False,
-        )
+        PythonOperator(task_id=action, python_callable=maintain, op_kwargs={"profile": "streaming", "action": action})
         for action in ("compact", "expire", "orphan")
     ]
     monitor >> steps[0] >> steps[1] >> steps[2]

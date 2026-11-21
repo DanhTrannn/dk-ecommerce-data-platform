@@ -17,11 +17,16 @@ from lakehouse.utils.maintenance import maintain_tables
 from lakehouse.utils.postgres import postgres_reader
 
 
-def maintain(**options):
+def run(**options):
     """Run maintain_tables with the given keyword options and print its per-table result."""
     with closing(postgres_reader()) as connection:
         result = maintain_tables(iceberg_catalog(), connection, **options)
     print(json.dumps(result, default=str), flush=True)
+
+
+def maintain(profile, action):
+    """The DAG task: one action on a profile's tables, with the default retention."""
+    run(profile=profile, action=action)
 
 
 def parse_args(argv=None):
@@ -38,4 +43,4 @@ def parse_args(argv=None):
 
 
 if __name__ == "__main__":
-    maintain(**vars(parse_args()))
+    run(**vars(parse_args()))

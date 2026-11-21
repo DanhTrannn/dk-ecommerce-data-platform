@@ -9,17 +9,19 @@
 
 Both write the same tables: keep the incremental DAG paused while the init DAG runs. A failed task is retried
 alone; Silver changes only after every check passed, and Gold is rebuilt only after every Silver table.
-Python steps run in the pipeline venv (Polars, PyIceberg) through ExternalPythonOperator; only dbt runs in bash.
+Python steps call the pipeline's job functions directly; only dbt runs in bash.
 """
 
-import os
 from datetime import timedelta
 from pathlib import Path
 
 import pendulum
 from airflow.providers.standard.operators.bash import BashOperator
-from airflow.providers.standard.operators.python import ExternalPythonOperator
+from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import DAG, TaskGroup
+
+from jobs.maintenance.iceberg_table_maintenance import maintain
+from jobs.oltp import tasks
 
 from lakehouse.oltp.dag_plan import (
     DBT_PROJECT,
@@ -33,56 +35,7 @@ from lakehouse.oltp.dag_plan import (
 )
 from lakehouse.oltp.sources import SOURCE_TABLES
 
-PIPELINE_PYTHON = os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/python")
 SEEDS = {path.stem for path in (Path(DBT_PROJECT) / "seeds").glob("*.csv")}
-
-
-# Airflow sends each function's source to PIPELINE_PYTHON and runs it there, so the imports stay inside.
-def create_schema():
-    from jobs.oltp import tasks
-
-    tasks.create_schema()
-
-
-def bronze(table, run):
-    from jobs.oltp import tasks
-
-    tasks.bronze(table, run)
-
-
-def check(table, run):
-    from jobs.oltp import tasks
-
-    tasks.check(table, run)
-
-
-def foreign_keys(run):
-    from jobs.oltp import tasks
-
-    tasks.foreign_keys(run)
-
-
-def silver(table, run):
-    from jobs.oltp import tasks
-
-    tasks.silver(table, run)
-
-
-def maintain(action):
-    from jobs.maintenance.iceberg_table_maintenance import maintain
-
-    maintain(profile="oltp", action=action)
-
-
-def pipeline_task(task_id, python_callable, op_args, pool=POOL):
-    return ExternalPythonOperator(
-        task_id=task_id,
-        python=PIPELINE_PYTHON,
-        python_callable=python_callable,
-        op_args=op_args,
-        expect_airflow=False,
-        pool=pool,
-    )
 
 
 def oltp_dag(dag_id, *, run, schedule, start_date, catchup, create_tables):
@@ -98,15 +51,20 @@ def oltp_dag(dag_id, *, run, schedule, start_date, catchup, create_tables):
     ) as dag:
         with TaskGroup("bronze") as bronze_group:
             for table in SOURCE_TABLES:
-                pipeline_task(table.name, bronze, [table.name, run])
+                PythonOperator(task_id=table.name, python_callable=tasks.bronze, op_args=[table.name, run], pool=POOL)
 
         with TaskGroup("checks") as checks_group:
-            table_checks = [pipeline_task(table.name, check, [table.name, run]) for table in SOURCE_TABLES]
-            table_checks >> pipeline_task("foreign_keys", foreign_keys, [run])
+            table_checks = [
+                PythonOperator(task_id=table.name, python_callable=tasks.check, op_args=[table.name, run], pool=POOL)
+                for table in SOURCE_TABLES
+            ]
+            table_checks >> PythonOperator(
+                task_id="foreign_keys", python_callable=tasks.foreign_keys, op_args=[run], pool=POOL
+            )
 
         with TaskGroup("silver") as silver_group:
             for table in SOURCE_TABLES:
-                pipeline_task(table.name, silver, [table.name, run])
+                PythonOperator(task_id=table.name, python_callable=tasks.silver, op_args=[table.name, run], pool=POOL)
 
         with TaskGroup("gold") as gold_group:
             graph = gold_dependencies(Path(DBT_PROJECT))
@@ -128,14 +86,15 @@ def oltp_dag(dag_id, *, run, schedule, start_date, catchup, create_tables):
             )
 
         with TaskGroup("maintenance") as maintenance_group:
-            compact = pipeline_task("compact", maintain, ["compact"], pool=None)
-            expire = pipeline_task("expire", maintain, ["expire"], pool=None)
-            orphan = pipeline_task("orphan", maintain, ["orphan"], pool=None)
-            compact >> expire >> orphan
+            steps = [
+                PythonOperator(task_id=action, python_callable=maintain, op_kwargs={"profile": "oltp", "action": action})
+                for action in ("compact", "expire", "orphan")
+            ]
+            steps[0] >> steps[1] >> steps[2]
 
         bronze_group >> checks_group >> silver_group >> gold_group >> maintenance_group
         if create_tables:
-            pipeline_task("create_schema", create_schema, [], pool=None) >> bronze_group
+            PythonOperator(task_id="create_schema", python_callable=tasks.create_schema) >> bronze_group
     return dag
 
 
