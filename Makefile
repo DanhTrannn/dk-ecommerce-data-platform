@@ -34,7 +34,7 @@ help:
 	@echo "  make generate-verify PRESET=1m Check the generated history"
 	@echo "  make superset-db               Create dedicated Superset metadata storage"
 	@echo "  make superset-init             Initialize BI metadata and its first admin"
-	@echo "  make superset-sync             Create a dashboard pinned to a publication"
+	@echo "  make superset-sync             Create the sales dashboard over current Gold marts"
 	@echo ""
 	@echo "Aliases: make / make up = make start; make down = make stop; make ps = make status"
 

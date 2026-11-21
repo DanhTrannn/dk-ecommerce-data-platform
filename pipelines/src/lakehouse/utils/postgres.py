@@ -33,11 +33,8 @@ def reader_settings():
 
 
 def source_query(table, interval_start=None, interval_end=None):
-    if hasattr(table, "bronze_columns") and table.bronze_columns:
-        columns_sql = ", ".join(identifier(c) for c in table.bronze_columns)
-    else:
-        columns_sql = "*"
-    query = f'SELECT {columns_sql} FROM "public".{identifier(table.name)}'
+    columns = ", ".join(identifier(column) for column in table.columns)
+    query = f'SELECT {columns} FROM "public".{identifier(table.name)}'
     if interval_start is None and interval_end is None:
         return query
     lower = datetime.fromisoformat(interval_start.replace("Z", "+00:00"))

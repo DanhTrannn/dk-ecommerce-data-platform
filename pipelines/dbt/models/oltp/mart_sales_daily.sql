@@ -1,30 +1,58 @@
+-- Recognized orders count on their revenue day; refunds of recognized orders reduce revenue on the day they
+-- succeed (design §5). Refunds of orders that were never recognized (paid, then cancelled) are not revenue.
+-- Goods a refunded return puts back on the shelf (accepted at inspection) take their sold cost back out of
+-- cost of goods on the refund day, so a fully returned order nets to zero profit.
+WITH items AS (
+  SELECT
+    order_id,
+    sum(line_total_vnd) AS gross_revenue_vnd,
+    sum(allocated_discount_vnd) AS discount_vnd,
+    sum(cost_vnd) AS cogs_vnd
+  FROM {{ ref('fact_order_item') }}
+  WHERE revenue_date IS NOT NULL
+  GROUP BY order_id
+),
+events AS (
+  SELECT
+    o.revenue_date, o.channel, o.store_key, o.city_key,
+    1 AS recognized_orders, o.item_quantity AS items_sold,
+    i.gross_revenue_vnd, i.discount_vnd, i.cogs_vnd, 0 AS refund_vnd, 0 AS returned_cogs_vnd
+  FROM {{ ref('fact_order') }} o
+  JOIN items i ON i.order_id = o.order_id
+  UNION ALL
+  SELECT
+    {{ vn_date('r.completed_at') }}, o.channel, o.store_key, o.city_key,
+    0, 0, 0, 0, 0, r.amount_vnd, 0
+  FROM {{ source('silver', 'refunds') }} r
+  JOIN {{ source('silver', 'payments') }} p ON p.payment_id = r.payment_id
+  JOIN {{ ref('fact_order') }} o ON o.order_id = p.order_id
+  WHERE r.status = 'succeeded' AND r.completed_at IS NOT NULL AND o.revenue_date IS NOT NULL
+  UNION ALL
+  SELECT
+    {{ vn_date('r.refunded_at') }}, o.channel, o.store_key, o.city_key,
+    0, 0, 0, 0, 0, 0, r.accepted_quantity * (i.cost_vnd / i.quantity)
+  FROM {{ ref('fact_return') }} r
+  JOIN {{ ref('fact_order_item') }} i ON i.order_item_id = r.order_item_id
+  JOIN {{ ref('fact_order') }} o ON o.order_id = r.order_id
+  WHERE r.refunded_at IS NOT NULL AND r.accepted_quantity > 0 AND o.revenue_date IS NOT NULL
+)
 SELECT
-  CAST(b."order_date" AS date) AS "order_date",
-  CAST(b."channel" AS varchar) AS "channel",
-  CAST(b."store_key" AS bigint) AS "store_key",
-  CAST(b."category_id" AS bigint) AS "category_id",
-  CAST(b."category_name" AS varchar) AS "category_name",
-  CAST(b."total_orders" AS bigint) AS "total_orders",
-  CAST(b."successful_orders" AS bigint) AS "successful_orders",
-  CAST(b."boom_orders" AS bigint) AS "boom_orders",
-  CAST(b."items_sold" AS bigint) AS "items_sold",
-  CAST(b."gross_revenue_vnd" AS bigint) AS "gross_revenue_vnd",
-  CAST(b."cogs_vnd" AS bigint) AS "cogs_vnd",
-  CAST(b."gross_profit_vnd" AS bigint) AS "gross_profit_vnd",
-  CAST(round(CASE WHEN b.net_revenue_vnd>0 THEN b.gross_profit_vnd*100e0/b.net_revenue_vnd ELSE 0.0 END,2) AS double) AS "gross_profit_margin_pct",
-  CAST(b."refunded_amount_vnd" AS bigint) AS "refunded_amount_vnd",
-  CAST(b."net_revenue_vnd" AS bigint) AS "net_revenue_vnd",
-  CAST(CAST(current_timestamp AS timestamp(6) with time zone) AS timestamp(6) with time zone) AS "_gold_ingested_at",
-  CAST('{{ var("run_id", "unconfigured") }}' AS varchar) AS "_source_run_id"
-FROM (
-WITH category_map AS (SELECT DISTINCT category_id,category_code FROM {{ ref('dim_product') }}), base AS (
-        SELECT i.*,o.is_revenue_recognized,o.is_boom,coalesce(c.category_id,0) category_id,
-        coalesce(i.category_name_snapshot,'Unknown') category_name FROM {{ ref('fact_order_item') }} i
-        JOIN {{ ref('fact_order') }} o ON i.order_id=o.order_id LEFT JOIN category_map c ON i.category_code_snapshot=c.category_code)
-        SELECT order_date,channel,store_key,category_id,category_name,count(DISTINCT order_id) total_orders,
-        count(DISTINCT CASE WHEN is_revenue_recognized THEN order_id END) successful_orders,
-        count(DISTINCT CASE WHEN is_boom THEN order_id END) boom_orders,sum(recognized_quantity) items_sold,
-        sum(gross_revenue_vnd) gross_revenue_vnd,sum(refunded_amount_vnd) refunded_amount_vnd,
-        sum(net_revenue_vnd) net_revenue_vnd,sum(item_cost_vnd) cogs_vnd,sum(item_profit_vnd) gross_profit_vnd
-        FROM base GROUP BY order_date,channel,store_key,category_id,category_name
-) b
+  e.revenue_date,
+  e.channel,
+  e.store_key,
+  s.store_name,
+  e.city_key,
+  c.city_name,
+  sum(e.recognized_orders) AS recognized_orders,
+  sum(e.items_sold) AS items_sold,
+  sum(e.gross_revenue_vnd) AS gross_revenue_vnd,
+  sum(e.discount_vnd) AS discount_vnd,
+  sum(e.cogs_vnd) AS cogs_vnd,
+  sum(e.returned_cogs_vnd) AS returned_cogs_vnd,
+  sum(e.refund_vnd) AS refund_vnd,
+  sum(e.gross_revenue_vnd - e.discount_vnd - e.refund_vnd) AS net_revenue_vnd,
+  sum(e.gross_revenue_vnd - e.discount_vnd - e.refund_vnd - e.cogs_vnd + e.returned_cogs_vnd) AS gross_profit_vnd
+FROM events e
+LEFT JOIN {{ ref('dim_store') }} s ON s.store_key = e.store_key
+LEFT JOIN {{ ref('dim_city') }} c ON c.city_key = e.city_key
+GROUP BY 1, 2, 3, 4, 5, 6

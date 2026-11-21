@@ -1,4 +1,4 @@
-"""Native compaction, publication-safe snapshot expiration and orphan reporting."""
+"""Native compaction, snapshot expiration and orphan reporting."""
 
 import os
 from datetime import timedelta
@@ -16,7 +16,7 @@ with DAG(
     tags=["lakehouse", "maintenance", "native"],
 ) as dag:
     tasks = []
-    for action in ["compact", "expire", "orphan", "quarantine"]:
+    for action in ["compact", "expire", "orphan"]:
         tasks.append(
             BashOperator(
                 task_id=action,

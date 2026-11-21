@@ -51,9 +51,6 @@ def source_pages(connection, table, start=None, end=None, *, page_size=10000):
             schema = arrow_source_schema(description)
             if not {table.pk, table.cursor_field}.issubset(schema.names):
                 raise ValueError("Source is missing the configured primary key/cursor")
-            if hasattr(table, "bronze_columns") and table.bronze_columns:
-                if not set(table.bronze_columns).issubset(schema.names):
-                    raise ValueError(f"Source is missing configured bronze columns for {table.name}")
             rows = [dict(zip(schema.names, row)) for row in cursor.fetchall()]
         for row in rows:
             for column in description:

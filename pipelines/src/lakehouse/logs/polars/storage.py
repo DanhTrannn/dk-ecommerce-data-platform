@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pyarrow as pa
 
 from lakehouse.utils.snapshots import capture, read_snapshot
-from lakehouse.oltp.polars.writer import PROPERTIES
+from lakehouse.utils.iceberg import PROPERTIES
 from .marts import TABLES
 from .quality import REQUIRED_CHECKS
 
@@ -63,13 +63,8 @@ def publish(catalog, prefix, run_id, snapshots, sources, checks, *, observed, la
     ):
         raise ValueError("Complete successful log checks and three audited output snapshots are required")
     allowed = [
-        {
-            "lakehouse.gold.fact_web_events",
-            f"lakehouse.{system}.analytics_publications",
-            f"lakehouse.{silver}.silver_products",
-            f"lakehouse.{silver}.silver_product_variants",
-        }
-        for system, silver in ((ns(prefix, "system"), ns(prefix, "silver")), ("system", "silver"))
+        {"lakehouse.gold.fact_web_events", f"lakehouse.{silver}.products", f"lakehouse.{silver}.product_variants"}
+        for silver in (ns(prefix, "silver"), "silver")
     ]
     predecessors = {
         f"lakehouse.{ns(prefix, layer)}.{name}"
@@ -98,28 +93,13 @@ def publish(catalog, prefix, run_id, snapshots, sources, checks, *, observed, la
 
 
 def pinned_catalog(catalog, prefix, run_id=None):
-    namespace, silver = ns(prefix, "system"), ns(prefix, "silver")
-    publication_name = f"lakehouse.{namespace}.analytics_publications"
-    publication = catalog.load_table((namespace, "analytics_publications"))
-    snapshot = capture(publication)
-    rows = read_snapshot(publication, snapshot).to_dicts()
-    rows = [
-        r
-        for r in rows
-        if r["schema_version"] in {3, 4} and r["source_mode"] == "batch" and (run_id is None or r["run_id"] == run_id)
-    ]
-    if not rows:
-        raise ValueError("Publish the requested OLTP catalog before building native log marts")
-    if run_id is not None and len(rows) != 1:
-        raise ValueError("Catalog run identity must identify one publication")
-    selected = max(rows, key=lambda r: (r["published_at"], r["run_id"]))
-    manifest = json.loads(selected["snapshots_json"])
-    sources, frames = {publication_name: snapshot}, []
-    for name in ("silver_products", "silver_product_variants"):
-        physical = f"lakehouse.{silver}.{name}"
-        if physical not in manifest:
-            raise ValueError("Catalog publication is missing a required product snapshot")
-        sources[physical] = manifest[physical]
-        require_readable(catalog, {physical: manifest[physical]})
-        frames.append(read_snapshot(catalog.load_table((silver, name)), manifest[physical]))
-    return frames, sources, selected["run_id"]
+    """Current Silver product catalog snapshots; OLTP batches no longer publish a pinned snapshot set."""
+    if run_id is not None:
+        raise ValueError("Catalog run selection was removed together with OLTP publications")
+    silver, sources, frames = ns(prefix, "silver"), {}, []
+    for name in ("products", "product_variants"):
+        table = catalog.load_table((silver, name))
+        snapshot = capture(table)
+        sources[f"lakehouse.{silver}.{name}"] = snapshot
+        frames.append(read_snapshot(table, snapshot))
+    return frames, sources, None

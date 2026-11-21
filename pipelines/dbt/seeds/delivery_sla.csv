@@ -1,0 +1,7 @@
+city_code,delivery_zone,carrier_days,sla_days
+HCM,intra_city,2,4
+BD,intra_region,4,6
+CT,intra_region,4,6
+HN,special,4,6
+DN,inter_region,6,8
+HP,inter_region,6,8

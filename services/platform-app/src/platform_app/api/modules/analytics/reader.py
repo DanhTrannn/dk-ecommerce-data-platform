@@ -1,4 +1,7 @@
-"""Read a published set of Iceberg snapshots, with a bounded last-good cache."""
+"""Read the log publication's Iceberg snapshots, with a bounded last-good cache.
+
+OLTP Gold has no publication: it is rebuilt only after the batch checks pass and is read directly.
+"""
 
 import json
 import logging
@@ -17,18 +20,13 @@ _lock = Lock()
 
 
 class PublishedReader:
-    def __init__(self, client=None, *, source="oltp"):
+    def __init__(self, client=None):
         self.client = client or default_trino_client
-        if source not in {"oltp", "logs"}:
-            raise ValueError("Unknown analytics publication source")
-        table = "analytics_publications" if source == "oltp" else "logs_analytics_publications"
-        observed = ", observed_at" if source == "logs" else ""
-        rows = self.client.execute_query(f"""SELECT run_id, published_at, source_event_at, snapshots_json, schema_version, source_mode{observed}
-            FROM lakehouse.system.{table} ORDER BY published_at DESC LIMIT 1""")
+        rows = self.client.execute_query("""SELECT run_id, published_at, source_event_at, snapshots_json, schema_version, source_mode, observed_at
+            FROM lakehouse.system.logs_analytics_publications ORDER BY published_at DESC LIMIT 1""")
         if not rows:
             raise AppError(INTERNAL_ERROR, "Lakehouse chưa có lần công bố hoàn tất.", status_code=503)
-        versions = {3, 4} if source == "oltp" else {1}
-        if rows[0].get("schema_version") not in versions or rows[0].get("source_mode") != ("batch" if source == "oltp" else "logs_rollup"):
+        if rows[0].get("schema_version") != 1 or rows[0].get("source_mode") != "logs_rollup":
             raise AppError(INTERNAL_ERROR, "Dữ liệu phân tích cần được xây dựng lại theo schema mới.", status_code=503)
         self.publication = rows[0]
         self.snapshots = json.loads(rows[0]["snapshots_json"])
@@ -56,10 +54,10 @@ class PublishedReader:
         return rows[0] if rows else {}
 
 
-def serve(key, build, client=None, *, source="oltp"):
+def serve(key, build, client=None):
     """Never run business aggregates on PostgreSQL when the analytical reader fails."""
     try:
-        reader = PublishedReader(client, source=source)
+        reader = PublishedReader(client)
         result = build(reader).model_copy(
             update={
                 "data_source": "lakehouse",

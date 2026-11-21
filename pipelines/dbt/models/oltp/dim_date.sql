@@ -1,23 +1,37 @@
+-- Whole calendar years covering every order, stock movement and the run's as-of date.
+WITH bounds AS (
+  SELECT
+    date_trunc('year', least(coalesce(o.first_day, {{ business_date() }}), coalesce(t.first_day, {{ business_date() }}), {{ business_date() }})) AS first_day,
+    date_add('day', -1, date_add('year', 1, date_trunc('year',
+      greatest(coalesce(o.last_day, {{ business_date() }}), coalesce(t.last_day, {{ business_date() }}), {{ business_date() }})))) AS last_day
+  FROM (SELECT min({{ vn_date('created_at') }}) AS first_day, max({{ vn_date('created_at') }}) AS last_day FROM {{ source('silver', 'orders') }}) o
+  CROSS JOIN (SELECT min({{ vn_date('created_at') }}) AS first_day, max({{ vn_date('created_at') }}) AS last_day FROM {{ source('silver', 'inventory_transactions') }}) t
+),
+days AS (
+  SELECT day AS date_day FROM bounds CROSS JOIN UNNEST(sequence(bounds.first_day, bounds.last_day)) AS calendar(day)
+),
+events AS (
+  SELECT
+    event_date,
+    max(CASE WHEN event_type = 'holiday' THEN event_name END) AS holiday_name,
+    max(CASE WHEN event_type = 'sale' THEN event_name END) AS sale_event
+  FROM {{ ref('calendar_events') }}
+  GROUP BY event_date
+)
 SELECT
-  CAST(b."date_key" AS integer) AS "date_key",
-  CAST(b."full_date" AS date) AS "full_date",
-  CAST(b."day_of_week" AS integer) AS "day_of_week",
-  CAST(b."day_name" AS varchar) AS "day_name",
-  CAST(b."day_of_month" AS integer) AS "day_of_month",
-  CAST(b."day_of_year" AS integer) AS "day_of_year",
-  CAST(b."week_of_year" AS integer) AS "week_of_year",
-  CAST(b."month" AS integer) AS "month",
-  CAST(b."month_name" AS varchar) AS "month_name",
-  CAST(b."quarter" AS integer) AS "quarter",
-  CAST(b."year" AS integer) AS "year",
-  CAST(b."is_weekend" AS boolean) AS "is_weekend",
-  CAST(b."is_holiday" AS boolean) AS "is_holiday",
-  CAST(CAST(current_timestamp AS timestamp(6) with time zone) AS timestamp(6) with time zone) AS "_gold_ingested_at"
-FROM (
-SELECT day full_date,CAST(date_format(CAST(day AS timestamp),'%Y%m%d') AS integer) date_key,
-(day_of_week(day)%7)+1 day_of_week,date_format(CAST(day AS timestamp),'%W') day_name,
-day_of_month(day) day_of_month,day_of_year(day) day_of_year,week(day) week_of_year,
-month(day) month,date_format(CAST(day AS timestamp),'%M') month_name,quarter(day) quarter,year(day) year,
-day_of_week(day) IN (6,7) is_weekend,false is_holiday
-FROM UNNEST(sequence(DATE '{{ var("date_start", "1970-01-01") }}',DATE '{{ var("date_end", "1970-01-01") }}',INTERVAL '1' DAY)) AS dates(day)
-) b
+  d.date_day,
+  year(d.date_day) AS year,
+  quarter(d.date_day) AS quarter,
+  month(d.date_day) AS month,
+  date_format(CAST(d.date_day AS timestamp), '%M') AS month_name,
+  week_of_year(d.date_day) AS iso_week,
+  day_of_month(d.date_day) AS day_of_month,
+  day_of_week(d.date_day) AS iso_day_of_week,
+  date_format(CAST(d.date_day AS timestamp), '%W') AS day_name,
+  day_of_week(d.date_day) IN (6, 7) AS is_weekend,
+  e.holiday_name IS NOT NULL AS is_holiday,
+  e.holiday_name,
+  e.sale_event IS NOT NULL AS is_sale_day,
+  e.sale_event
+FROM days d
+LEFT JOIN events e ON e.event_date = d.date_day

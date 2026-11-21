@@ -1,26 +1,37 @@
+-- Stock per position on the as-of day; average sales over the 28 days ending that day.
+WITH recent AS (
+  SELECT location_type, store_key, variant_key, sum(sold_online_qty + sold_pos_qty) AS sold_28d
+  FROM {{ ref('fact_inventory_daily') }}
+  WHERE inventory_date > date_add('day', -28, {{ business_date() }})
+  GROUP BY 1, 2, 3
+),
+last_sale AS (
+  SELECT location_type, store_key, variant_key, max(inventory_date) AS last_sale_date
+  FROM {{ ref('fact_inventory_daily') }}
+  WHERE sold_online_qty + sold_pos_qty > 0
+  GROUP BY 1, 2, 3
+)
 SELECT
-  CAST(b."location_type" AS varchar) AS "location_type",
-  CAST(b."location_id" AS bigint) AS "location_id",
-  CAST(b."variant_id" AS bigint) AS "variant_id",
-  CAST(b."product_key" AS bigint) AS "product_key",
-  CAST(b."sku" AS varchar) AS "sku",
-  CAST(b."product_name" AS varchar) AS "product_name",
-  CAST(b."category_id" AS bigint) AS "category_id",
-  CAST(b."category_name" AS varchar) AS "category_name",
-  CAST(b."snapshot_date" AS date) AS "snapshot_date",
-  CAST(b."on_hand" AS bigint) AS "on_hand",
-  CAST(b."reserved_quantity" AS bigint) AS "reserved_quantity",
-  CAST(b."unit_cost_vnd" AS bigint) AS "unit_cost_vnd",
-  CAST(b."inventory_value_cost_vnd" AS bigint) AS "inventory_value_cost_vnd",
-  CAST(b."is_low_stock" AS boolean) AS "is_low_stock",
-  CAST(b."is_out_of_stock" AS boolean) AS "is_out_of_stock",
-  CAST(b."observed_at" AS timestamp(6) with time zone) AS "observed_at",
-  CAST(CAST(current_timestamp AS timestamp(6) with time zone) AS timestamp(6) with time zone) AS "_gold_ingested_at",
-  CAST('{{ var("run_id", "unconfigured") }}' AS varchar) AS "_source_run_id"
-FROM (
-SELECT i.location_type,i.location_id,i.variant_key variant_id,i.product_key,
-        v.sku,v.product_name,p.category_id,p.category_name,i.snapshot_date,i.on_hand_quantity on_hand,
-        i.reserved_quantity,i.unit_cost_vnd,i.inventory_value_cost_vnd,i.is_low_stock,i.is_out_of_stock,c.observed_at
-        FROM {{ ref('fact_inventory_current') }} i LEFT JOIN {{ ref('dim_variant') }} v ON i.variant_key=v.variant_key
-        LEFT JOIN {{ ref('dim_product') }} p ON i.product_key=p.product_key CROSS JOIN {{ clock() }} c
-) b
+  f.inventory_date,
+  f.location_type,
+  f.store_key,
+  s.store_name,
+  f.variant_key,
+  v.sku,
+  f.product_key,
+  p.product_name,
+  p.category_name,
+  f.closing_qty AS on_hand_qty,
+  f.closing_value_vnd AS stock_value_vnd,
+  coalesce(r.sold_28d, 0) / 28e0 AS avg_daily_sales_28d,
+  CASE WHEN coalesce(r.sold_28d, 0) > 0 THEN f.closing_qty / (r.sold_28d / 28e0) END AS days_of_cover,
+  l.last_sale_date
+FROM {{ ref('fact_inventory_daily') }} f
+LEFT JOIN recent r
+  ON r.location_type = f.location_type AND r.store_key IS NOT DISTINCT FROM f.store_key AND r.variant_key = f.variant_key
+LEFT JOIN last_sale l
+  ON l.location_type = f.location_type AND l.store_key IS NOT DISTINCT FROM f.store_key AND l.variant_key = f.variant_key
+LEFT JOIN {{ ref('dim_store') }} s ON s.store_key = f.store_key
+LEFT JOIN {{ ref('dim_variant') }} v ON v.variant_key = f.variant_key
+LEFT JOIN {{ ref('dim_product') }} p ON p.product_key = f.product_key
+WHERE f.inventory_date = {{ business_date() }}

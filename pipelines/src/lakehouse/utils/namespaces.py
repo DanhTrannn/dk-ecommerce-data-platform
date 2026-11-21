@@ -4,7 +4,7 @@ import re
 
 
 def namespace(prefix, layer):
-    if layer not in {"landing", "bronze", "silver", "quarantine", "gold", "system"}:
+    if layer not in {"landing", "bronze", "silver", "gold", "system"}:
         raise ValueError("Unknown data layer")
     if prefix == "serving":
         return layer

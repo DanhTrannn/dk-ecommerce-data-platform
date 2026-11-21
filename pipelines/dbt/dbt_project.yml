@@ -4,6 +4,7 @@ config-version: 2
 profile: retail_lakehouse
 model-paths: [models]
 macro-paths: [macros]
+seed-paths: [seeds]
 test-paths: [tests]
 clean-targets: [target, dbt_packages]
 models:
@@ -12,7 +13,21 @@ models:
     +schema: gold
     oltp:
       +tags: [oltp]
+      # Every run rebuilds OLTP Gold from Silver; CREATE OR REPLACE is one Iceberg commit per table.
+      +materialized: table
+      +on_table_exists: replace
     logs:
       +tags: [logs]
+seeds:
+  retail_lakehouse:
+    +schema: gold
+    +tags: [oltp]
+    # Polaris refuses DROP TABLE (purge); replace keeps the same table.
+    +on_table_exists: replace
+data_tests:
+  retail_lakehouse:
+    oltp:
+      # Post-Gold checks only log; the blocking checks run before Silver changes.
+      +severity: warn
 flags:
   require_certificate_validation: true

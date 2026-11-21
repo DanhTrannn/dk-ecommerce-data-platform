@@ -8,6 +8,8 @@ import pyarrow as pa
 from pyiceberg.catalog import load_catalog
 from pyiceberg.exceptions import NoSuchTableError
 
+PROPERTIES = {"format-version": "2", "write.parquet.compression-codec": "zstd"}
+
 
 def catalog_properties():
     required = (
@@ -63,18 +65,16 @@ def load_or_create(catalog, key, **settings):
         return catalog.create_table_if_not_exists(key, **settings)
 
 
-def evolve_table_schema(table, schema, *, drop=()):
+def evolve_table_schema(table, schema):
     added = set(schema.names) - set(table.schema().column_names)
     current = table.current_snapshot()
     stale = current is not None and current.schema_id != table.schema().schema_id
-    if not (added or drop or stale):
+    if not (added or stale):
         return
     with table.transaction() as transaction:
-        if added or drop:
+        if added:
             with transaction.update_schema() as update:
                 update.union_by_name(schema)
-                for name in sorted(drop):
-                    update.delete_column(name)
         if current is not None:
             # Existing files stay referenced while scans of main use the evolved schema.
             transaction.append(pa.Table.from_pylist([], schema=transaction.table_metadata.schema().as_arrow()))

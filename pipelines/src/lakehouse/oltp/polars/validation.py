@@ -1,4 +1,4 @@
-"""Polars implementation of the current Silver row-level business rules."""
+"""Row-level business rules checked on a run's Bronze rows before they are merged into Silver."""
 
 import polars as pl
 
@@ -11,12 +11,9 @@ REQUIRED = {
     "order_items": ("order_id", "variant_id", "quantity", "unit_price_vnd", "line_total_vnd"),
     "payments": ("order_id", "status", "amount_vnd"),
     "refunds": ("payment_id", "status", "amount_vnd"),
-    "inventory": ("variant_id", "on_hand"),
-    "store_inventory": ("store_id", "variant_id", "on_hand"),
     "shipments": ("order_id", "status"),
     "return_requests": ("order_id", "customer_id", "action_type", "status"),
     "return_items": ("return_id", "order_item_id", "variant_id", "quantity"),
-    "inbound_receipts": ("status", "total_items_count", "total_cost_vnd"),
     "inbound_receipt_items": ("receipt_id", "variant_id", "quantity", "unit_cost_vnd", "total_cost_vnd"),
 }
 STATUS_RULES = {
@@ -63,72 +60,48 @@ STATUS_RULES = {
 }
 
 
-def validate_rows(frame, table):
-    issues = []
-
-    def add(condition, label):
-        issues.append(pl.when(condition.fill_null(False)).then(pl.lit(label)).otherwise(pl.lit(None, dtype=pl.String)))
-
-    add(pl.col(table.pk).is_null(), "missing_primary_key")
-    for name in REQUIRED.get(table.name, ()):
-        if name in frame.columns:
-            add(pl.col(name).is_null(), "missing_required_" + name)
+def rules(table):
+    """(label, condition) pairs; a row violates a rule when its condition is true."""
     col = pl.col
+    found = [("missing_primary_key", col(table.pk).is_null())]
+    found += [("missing_required_" + name, col(name).is_null()) for name in REQUIRED.get(table.name, ())]
+    if table.name in STATUS_RULES:
+        field, label, values = STATUS_RULES[table.name]
+        found.append((label, ~col(field).is_in(values)))
     if table.name == "product_variants":
-        add(col("price_vnd") < 0, "negative_price")
+        found.append(("negative_price", col("price_vnd") < 0))
     if table.name == "orders":
-        field, label, values = STATUS_RULES[table.name]
-        add(~col(field).is_in(values), label)
-        for name in ("subtotal_vnd", "discount_amount_vnd", "shipping_fee_vnd", "total_vnd"):
-            if name in frame.columns:
-                add(col(name) < 0, "negative_" + name)
-        if {"subtotal_vnd", "discount_amount_vnd", "shipping_fee_vnd", "total_vnd"}.issubset(frame.columns):
-            add(
-                col("subtotal_vnd") - col("discount_amount_vnd") + col("shipping_fee_vnd") != col("total_vnd"),
-                "order_total_mismatch",
-            )
-    if table.name in ("cart_items", "order_items"):
-        add(col("quantity") <= 0, "invalid_quantity")
+        found += [("negative_" + name, col(name) < 0) for name in ("subtotal_vnd", "discount_amount_vnd", "shipping_fee_vnd", "total_vnd")]
+        found.append((
+            "order_total_mismatch",
+            col("subtotal_vnd") - col("discount_amount_vnd") + col("shipping_fee_vnd") != col("total_vnd"),
+        ))
     if table.name == "order_items":
-        for name in ("unit_price_vnd", "cost_price_vnd", "line_total_vnd"):
-            if name in frame.columns:
-                add(col(name) < 0, "negative_" + name)
-        if {"quantity", "unit_price_vnd", "line_total_vnd"}.issubset(frame.columns):
-            add(col("quantity") * col("unit_price_vnd") != col("line_total_vnd"), "order_item_total_mismatch")
+        found.append(("invalid_quantity", col("quantity") <= 0))
+        found += [("negative_" + name, col(name) < 0) for name in ("unit_price_vnd", "cost_price_vnd", "line_total_vnd")]
+        found.append(("order_item_total_mismatch", col("quantity") * col("unit_price_vnd") != col("line_total_vnd")))
     if table.name == "payments":
-        field, label, values = STATUS_RULES[table.name]
-        add(~col(field).is_in(values), label)
-        if "amount_vnd" in frame.columns:
-            add(col("amount_vnd") < 0, "negative_payment")
+        found.append(("negative_payment", col("amount_vnd") < 0))
     if table.name == "refunds":
-        add(col("amount_vnd") < 0, "negative_refund")
-        if "status" in frame.columns:
-            add(~col("status").is_in(STATUS_RULES["refunds"][2]), "invalid_refund_status")
+        found.append(("negative_refund", col("amount_vnd") < 0))
     if table.name == "coupons":
-        add(
-            (col("discount_type") == "percentage") & ((col("discount_value") < 1) | (col("discount_value") > 100)),
+        found.append((
             "invalid_discount_percentage",
-        )
+            (col("discount_type") == "percentage") & ((col("discount_value") < 1) | (col("discount_value") > 100)),
+        ))
     if table.name == "product_reviews":
-        add((col("rating") < 1) | (col("rating") > 5), "invalid_rating")
-    if table.name in ("inventory", "store_inventory"):
-        add(col("on_hand") < 0, "negative_inventory")
-    if table.name in ("shipments", "return_requests", "inventory_transactions"):
-        field, label, values = STATUS_RULES[table.name]
-        add(~col(field).is_in(values), label)
-    if table.name == "inbound_receipts":
-        add(col("total_cost_vnd") < 0, "negative_total_cost")
-        add(col("total_items_count") < 0, "negative_items_count")
+        found.append(("invalid_rating", (col("rating") < 1) | (col("rating") > 5)))
     if table.name == "inbound_receipt_items":
-        add(col("quantity") <= 0, "invalid_quantity")
-        add(col("unit_cost_vnd") < 0, "negative_unit_cost")
-        add(col("total_cost_vnd") < 0, "negative_total_cost")
-        if {"quantity", "unit_cost_vnd", "total_cost_vnd"}.issubset(frame.columns):
-            add(col("quantity") * col("unit_cost_vnd") != col("total_cost_vnd"), "inbound_item_total_mismatch")
-    tagged = frame.with_columns(pl.concat_list(issues).list.drop_nulls().alias("_violation_types")).with_columns(
-        pl.col("_violation_types").list.join("|").alias("_violation_type")
-    )
-    return (
-        tagged.filter(pl.col("_violation_types").list.len() == 0).drop("_violation_type", "_violation_types"),
-        tagged.filter(pl.col("_violation_types").list.len() > 0),
-    )
+        found.append(("invalid_quantity", col("quantity") <= 0))
+        found.append(("negative_unit_cost", col("unit_cost_vnd") < 0))
+        found.append(("negative_total_cost", col("total_cost_vnd") < 0))
+        found.append(("inbound_item_total_mismatch", col("quantity") * col("unit_cost_vnd") != col("total_cost_vnd")))
+    return found
+
+
+def violation_counts(frame, table):
+    """Rule label -> number of violating rows, only for rules with violations."""
+    counts = frame.select(
+        [condition.fill_null(False).cast(pl.Int64).sum().alias(label) for label, condition in rules(table)]
+    ).row(0, named=True)
+    return {label: count for label, count in counts.items() if count}
