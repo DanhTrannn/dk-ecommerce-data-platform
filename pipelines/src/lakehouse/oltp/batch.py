@@ -7,7 +7,7 @@ Bronze drops that run's earlier rows, Silver merges by primary key and dbt rebui
 from datetime import UTC, datetime
 
 from lakehouse.analytics.dbt import run_models
-from lakehouse.oltp.bronze import ingest
+from lakehouse.oltp.bronze import ingest_table
 from lakehouse.oltp.checks import check_run, source_reconciliation
 from lakehouse.utils.runs import validate_run
 from lakehouse.oltp.silver import merge_silver
@@ -23,6 +23,13 @@ def run_clock(as_of):
     return observed.astimezone(UTC)
 
 
+def ingest(catalog, connection, prefix, specs, run_id, ingested_at, start, end, page_size):
+    return {
+        table.name: ingest_table(catalog, connection, prefix, table, run_id, ingested_at, start=start, end=end, page_size=page_size)
+        for table in specs
+    }
+
+
 def run_pipeline(catalog, connection, prefix, *, run_id, mode, as_of, interval_start=None, interval_end=None, bucket, page_size=10000):
     validate_run(prefix, run_id, bucket, page_size)
     if mode not in {"full", "incremental"}:
@@ -36,8 +43,8 @@ def run_pipeline(catalog, connection, prefix, *, run_id, mode, as_of, interval_s
     ingested_at = datetime.now(UTC)
 
     with namespace_lock(connection, prefix):
+        bronze = ingest(catalog, connection, prefix, SOURCE_TABLES, run_id, ingested_at, interval_start, interval_end, page_size)
         with source_read_transaction(connection):
-            bronze = ingest(catalog, connection, prefix, SOURCE_TABLES, run_id, ingested_at, interval_start, interval_end, page_size)
             source = source_reconciliation(connection, SOURCE_TABLES) if full else None
         check_run(catalog, prefix, SOURCE_TABLES, run_id, source)
         catalog.create_namespace_if_not_exists(ns(prefix, "silver"))

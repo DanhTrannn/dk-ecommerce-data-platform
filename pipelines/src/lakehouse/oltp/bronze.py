@@ -8,6 +8,7 @@ from lakehouse.utils.contracts import align_arrow
 from lakehouse.oltp.source import source_pages
 from lakehouse.utils.iceberg import PROPERTIES, evolve_table_schema, load_or_create
 from lakehouse.utils.namespaces import namespace as ns
+from lakehouse.utils.postgres import source_read_transaction
 
 BRONZE_BATCH_ROWS = 200_000
 # Exact `_run_id` bounds let scans and deletes of one run skip other runs' files without reading them.
@@ -59,12 +60,11 @@ def run_rows(catalog, prefix, table, run_id, columns=("*",)):
     return scan.to_arrow_batch_reader()
 
 
-def ingest(catalog, connection, prefix, specs, run_id, ingested_at, start, end, page_size):
-    """Copy the selected source rows to Bronze; the caller holds the source read transaction."""
+def ingest_table(catalog, connection, prefix, table, run_id, ingested_at, *, start=None, end=None, created_before=None, page_size=10000):
+    """Copy one source table's selected rows to Bronze inside its own repeatable-read source transaction."""
     catalog.create_namespace_if_not_exists(ns(prefix, "bronze"))
-    counts = {}
-    for table in specs:
-        pages = source_pages(connection, table, start, end, page_size=page_size)
-        counts[table.name] = write_bronze(catalog, prefix, table, pages, run_id, ingested_at)
-        print(f"BRONZE table={table.name} rows={counts[table.name]}", flush=True)
-    return counts
+    with source_read_transaction(connection):
+        pages = source_pages(connection, table, start, end, created_before=created_before, page_size=page_size)
+        written = write_bronze(catalog, prefix, table, pages, run_id, ingested_at)
+    print(f"BRONZE table={table.name} rows={written}", flush=True)
+    return written
