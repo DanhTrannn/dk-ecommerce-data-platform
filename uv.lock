@@ -183,7 +183,6 @@ dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pyarrow" },
     { name = "pyiceberg", extra = ["pyarrow", "pyiceberg-core"] },
-    { name = "trino" },
 ]
 
 [package.metadata]
@@ -195,7 +194,6 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.5" },
     { name = "pyarrow", specifier = "==18.1.0" },
     { name = "pyiceberg", extras = ["pyarrow", "pyiceberg-core"], specifier = "==0.12.0" },
-    { name = "trino", specifier = "==0.340.0" },
 ]
 
 [[package]]
