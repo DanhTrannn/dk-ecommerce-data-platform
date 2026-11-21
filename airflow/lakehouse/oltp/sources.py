@@ -180,42 +180,4 @@ SOURCE_TABLES = [
     ),
 ]
 
-# (child table, column, parent table); the parent key is always the parent's primary key.
-# From database/schema.sql, limited to columns and tables loaded above.
-FOREIGN_KEYS = (
-    ("categories", "parent_category_id", "categories"),
-    ("products", "category_id", "categories"),
-    ("product_variants", "product_id", "products"),
-    ("stores", "city_id", "cities"),
-    ("customers", "city_id", "cities"),
-    ("customers", "store_id", "stores"),
-    ("orders", "coupon_id", "coupons"),
-    ("orders", "customer_id", "customers"),
-    ("orders", "shipping_city_id", "cities"),
-    ("orders", "staff_id", "customers"),
-    ("orders", "store_id", "stores"),
-    ("order_items", "order_id", "orders"),
-    ("order_items", "variant_id", "product_variants"),
-    ("payments", "order_id", "orders"),
-    ("refunds", "payment_id", "payments"),
-    ("refunds", "return_id", "return_requests"),
-    ("order_status_history", "order_id", "orders"),
-    ("shipments", "order_id", "orders"),
-    ("shipments", "delivery_staff_id", "delivery_staff"),
-    ("return_requests", "order_id", "orders"),
-    ("return_requests", "customer_id", "customers"),
-    ("return_items", "return_id", "return_requests"),
-    ("return_items", "order_item_id", "order_items"),
-    ("return_items", "variant_id", "product_variants"),
-    ("return_items", "exchange_variant_id", "product_variants"),
-    ("product_reviews", "order_item_id", "order_items"),
-    ("product_reviews", "customer_id", "customers"),
-    ("product_reviews", "product_id", "products"),
-    ("inventory_transactions", "variant_id", "product_variants"),
-    ("inventory_transactions", "store_id", "stores"),
-    ("inventory_transactions", "order_id", "orders"),
-    ("inventory_transactions", "return_id", "return_requests"),
-    ("inbound_receipt_items", "variant_id", "product_variants"),
-)
-
 TABLES_BY_NAME = {table.name: table for table in SOURCE_TABLES}

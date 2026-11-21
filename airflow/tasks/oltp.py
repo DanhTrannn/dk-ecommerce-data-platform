@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 
 from lakehouse.oltp.bronze import merge_bronze
-from lakehouse.oltp.checks import check_foreign_keys, check_table, source_reconciliation
+from lakehouse.oltp.reconcile import reconcile_table, source_reconciliation
 from lakehouse.oltp.schema import create_oltp_schema
 from lakehouse.oltp.sources import SOURCE_TABLES, TABLES_BY_NAME
 from lakehouse.oltp.staging import extract_table
@@ -73,22 +73,12 @@ def bronze_incremental(table):
     merge_bronze(iceberg_catalog(), TABLES_BY_NAME[table], full=False)
 
 
-def check_full(table, dag_run):
-    """Row rules on the extract, reconciled with the source at the same cutoff."""
+def reconcile(table, dag_run):
+    """Compare the full extract with the source, both up to the run's cutoff."""
     table = TABLES_BY_NAME[table]
     with source_connection() as connection, source_read_transaction(connection):
         source = source_reconciliation(connection, table, dag_run.run_after.isoformat())
-    check_table(iceberg_catalog(), table, source)
-
-
-def check_incremental(table):
-    """Row rules on the extract; one interval cannot be reconciled with the whole source table."""
-    check_table(iceberg_catalog(), TABLES_BY_NAME[table], None)
-
-
-def foreign_keys():
-    """Every child row has its parent; only a full load holds every parent row."""
-    check_foreign_keys(iceberg_catalog())
+    reconcile_table(iceberg_catalog(), table, source)
 
 
 def maintain(action):

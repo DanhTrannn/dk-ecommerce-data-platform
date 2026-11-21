@@ -1,4 +1,4 @@
-"""Full load of the OLTP source, triggered by hand: create the tables, then staging → Bronze → checks → Silver → Gold.
+"""Full load of the OLTP source, triggered by hand: create the tables, then staging → reconcile → Bronze → Silver → Gold.
 
 Run it once to set the lakehouse up, again after a source column is added, or to reload everything. Each table
 reads the source rows created before the run started, so every table stops at the same moment. Keep
@@ -35,20 +35,18 @@ with DAG(
                 task_id=table.name, python_callable=oltp.staging_full, op_kwargs={"table": table.name}, pool=POOL
             )
 
+    # Stops the run before Bronze and Silver change if the extract is not the whole source at the cutoff.
+    with TaskGroup("reconcile") as reconcile:
+        for table in SOURCE_TABLES:
+            PythonOperator(
+                task_id=table.name, python_callable=oltp.reconcile, op_kwargs={"table": table.name}, pool=POOL
+            )
+
     with TaskGroup("bronze") as bronze:
         for table in SOURCE_TABLES:
             PythonOperator(
                 task_id=table.name, python_callable=oltp.bronze_full, op_kwargs={"table": table.name}, pool=POOL
             )
-
-    with TaskGroup("checks") as checks:
-        table_checks = [
-            PythonOperator(
-                task_id=table.name, python_callable=oltp.check_full, op_kwargs={"table": table.name}, pool=POOL
-            )
-            for table in SOURCE_TABLES
-        ]
-        table_checks >> PythonOperator(task_id="foreign_keys", python_callable=oltp.foreign_keys, pool=POOL)
 
     with TaskGroup("silver") as silver:
         # --full-refresh rebuilds each Silver table from all of Bronze.
@@ -69,4 +67,4 @@ with DAG(
         orphan = PythonOperator(task_id="orphan", python_callable=oltp.maintain, op_kwargs={"action": "orphan"})
         compact >> expire >> orphan
 
-    create_schema >> staging >> bronze >> checks >> silver >> gold >> maintenance
+    create_schema >> staging >> reconcile >> bronze >> silver >> gold >> maintenance

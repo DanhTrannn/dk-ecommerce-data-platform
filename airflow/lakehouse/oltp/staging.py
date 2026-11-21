@@ -1,7 +1,7 @@
 """staging.<table> holds the latest extract: each load truncates it, then appends the source chunks.
 
 Reloading therefore always gives the same result, so a failed task is simply run again. Bronze merges the extract
-from here, and the checks run on it before Silver changes.
+from here; a full load is first reconciled with the source.
 """
 
 import pyarrow as pa
