@@ -8,7 +8,7 @@ Tài liệu này mô tả kiểm tra/phục hồi sau [setup.md](setup.md). Đ�
 |---|---|---|
 | Container | `make ps`, Compose health | Schema, quyền bucket/catalog, pipeline nghiệp vụ hoặc dữ liệu mới |
 | API | `/health/live`, `/health/ready` | Ready chỉ kiểm tra DB; không xác nhận Kafka/Trino/Gold |
-| Airflow | DAG/task state, run/interval, dòng `BATCH_PIPELINE_RESULT` (số dòng Bronze/Silver, trạng thái dbt) | Task green chứng nhận kiểm tra trước merge đã qua; test dbt chỉ cảnh báo, cần đọc log |
+| Airflow | DAG/task state theo nhóm `bronze`/`checks`/`silver`/`gold`/`maintenance`, run/interval, dòng `BRONZE`/`CHECKS`/`SILVER` và log dbt từng model | Task green chứng nhận kiểm tra trước merge đã qua; test dbt chỉ cảnh báo, cần đọc log |
 | Flink | Job access-log RUNNING, checkpoint, Landing có event mới | Có job không chứng minh đã bắt đủ request |
 | Lakehouse | Row count theo grain/run/snapshot, DQ/parity, manifest | Bronze count khác current source count; không cộng lịch sử làm tổng đơn |
 | BI | Publication/run/time đúng, KPI đối chiếu SQL, trạng thái cache | Refresh trang không tự làm snapshot mới hoặc đổi thời điểm quan sát |

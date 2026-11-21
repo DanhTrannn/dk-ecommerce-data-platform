@@ -1,6 +1,6 @@
 # Dữ liệu, pipeline và chỉ số
 
-Cập nhật theo codebase ngày **15/11/2026**. Nguồn định nghĩa chính là [schema PostgreSQL](../database/schema.sql), [catalog trích xuất](../pipelines/src/lakehouse/utils/config.py), [Gold schema](../pipelines/src/lakehouse/oltp/gold/schema.py), [log transforms](../pipelines/src/lakehouse/logs/) và [presets generator](../generator/README.md). Các con số mô phỏng/nghiệm thu không phải số liệu kinh doanh thực tế.
+Cập nhật theo codebase ngày **15/11/2026**. Nguồn định nghĩa chính là [schema PostgreSQL](../database/schema.sql), [catalog trích xuất](../pipelines/src/lakehouse/oltp/sources.py), [Gold schema](../pipelines/src/lakehouse/oltp/gold/schema.py), [log transforms](../pipelines/src/lakehouse/logs/) và [presets generator](../generator/README.md). Các con số mô phỏng/nghiệm thu không phải số liệu kinh doanh thực tế.
 
 ## 1. Nguồn và lineage
 
@@ -76,10 +76,10 @@ Catalog mặc định `lakehouse`, bucket theo `MINIO_LAKEHOUSE_BUCKET` (mặc �
 
 ### Batch Polars/PyIceberg
 
-Một job `jobs.oltp.run_batch_pipeline` làm cả lần chạy, giữ PostgreSQL advisory lock theo namespace suốt job.
+DAG `lakehouse_oltp` chạy mỗi bảng nguồn một task ở từng tầng (`jobs.oltp.bronze`, `jobs.oltp.check`, `jobs.oltp.silver`) và mỗi model dbt một task ở Gold.
 
-1. **Bronze.** Trong một giao dịch đọc REPEATABLE READ, mỗi bảng được đọc theo khóa chính, mỗi trang tối đa 10.000 dòng, gom lô 200.000 dòng rồi append. `--mode full` đọc toàn bộ; `--mode incremental` đọc cursor trong `[start, end)` có múi giờ, không lookback. Interval rỗng không xóa lịch sử. Bronze giữ trạng thái tại mỗi lần chạy, không phải CDC của mọi thay đổi nguồn. Retry cùng run ID xóa dòng Bronze của lần thử trước rồi ghi lại.
-2. **Kiểm tra trước merge,** trên các dòng Bronze của lần chạy. Luật theo dòng luôn chạy: trường bắt buộc, trạng thái hợp lệ, tiền không âm, tổng đơn = tạm tính − giảm giá + phí giao, tổng dòng = số lượng × đơn giá, tổng phiếu nhập. Chạy full thêm: khóa chính trùng, khóa ngoại tìm thấy trong cùng lần chạy, số dòng 19 bảng so với nguồn, tổng tiền `orders`/`payments`/`refunds`, và sổ kho cộng dồn so với `on_hand − opening_on_hand` ở `inventory`/`store_inventory`. Incremental bỏ các kiểm tra này vì đơn tạo trong cửa sổ nhưng cập nhật sau đó sẽ vào lần chạy kế tiếp, nên dòng con có thể tạm trỏ tới cha chưa nạp. Trượt bất kỳ kiểm tra nào thì job lỗi với `CheckFailed` (tên kiểm tra và số dòng), Silver và Gold giữ nguyên.
+1. **Bronze.** Mỗi bảng được đọc trong giao dịch REPEATABLE READ riêng, theo khóa chính, mỗi trang tối đa 10.000 dòng, gom lô 200.000 dòng rồi append. `--mode full` đọc mọi dòng tạo trước `--run-started-at` (mốc chung của lần chạy); `--mode incremental` đọc cursor trong `[start, end)` có múi giờ, không lookback. Interval rỗng không xóa lịch sử. Bronze giữ trạng thái tại mỗi lần chạy, không phải CDC của mọi thay đổi nguồn. Retry cùng run ID xóa dòng Bronze của lần thử trước rồi ghi lại.
+2. **Kiểm tra trước merge,** trên các dòng Bronze của lần chạy. Luật theo dòng luôn chạy: trường bắt buộc, trạng thái hợp lệ, tiền không âm, tổng đơn = tạm tính − giảm giá + phí giao, tổng dòng = số lượng × đơn giá, tổng phiếu nhập. Chạy full thêm, so với nguồn tại cùng mốc: khóa chính trùng, số dòng, tổng tiền `orders`/`payments`/`refunds`, và sổ kho cộng dồn so với `on_hand − opening_on_hand` ở `inventory`/`store_inventory` trừ các biến động ghi sau mốc; task `checks.foreign_keys` kiểm tra khóa ngoại tìm thấy trong cùng lần chạy. Incremental bỏ các kiểm tra này vì đơn tạo trong cửa sổ nhưng cập nhật sau đó sẽ vào lần chạy kế tiếp, nên dòng con có thể tạm trỏ tới cha chưa nạp. Trượt bất kỳ kiểm tra nào thì task của bảng đó lỗi với `CheckFailed` (bảng, tên kiểm tra và số dòng); không task Silver nào chạy nên Silver và Gold giữ nguyên.
 3. **Silver.** Full ghi đè cả bảng trong một commit, nên dòng đã xóa ở nguồn cũng biến mất. Incremental upsert theo lô và không để dòng có cursor cũ hơn ghi đè bản hiện có. UUID đọc từ PostgreSQL dạng chuỗi được chuẩn hóa thành 16 bytes.
 4. **Gold.** dbt dựng lại toàn bộ Gold từ Silver hiện tại (mục 9).
 

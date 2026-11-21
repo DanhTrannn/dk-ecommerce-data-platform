@@ -44,13 +44,13 @@ Python workspace gồm `data-generator`, `platform-app`, `batch-pipeline`, dùng
 ### Batch OLTP
 
 1. API (hoặc seed catalog) tạo/thay đổi dữ liệu PostgreSQL; `datagen generate` nạp một lần dữ liệu lịch sử tổng hợp.
-2. Một job `jobs.oltp.run_batch_pipeline` làm cả lần chạy. Trong một giao dịch đọc REPEATABLE READ, reader PostgreSQL SELECT-only (psycopg2) đọc 19 bảng theo khóa, mỗi trang tối đa 10.000 dòng, rồi append vào `bronze.<bảng>` theo lô 200.000 dòng kèm `_ingested_at`, `_run_id`.
-3. Init (`--mode full`) đọc toàn bộ; DAG định kỳ (`--mode incremental`) dùng cửa sổ `[start, end)` do Airflow truyền.
-4. Kiểm tra chạy trên các dòng Bronze của lần chạy, trước khi Silver thay đổi: luật theo dòng luôn chạy; ở full thêm khóa chính trùng, khóa ngoại, số dòng 19 bảng, tổng tiền đơn/thanh toán/hoàn tiền và sổ kho so với tồn ở nguồn. Trượt thì job lỗi, Silver và Gold giữ nguyên.
+2. DAG `lakehouse_oltp` chạy năm nhóm task `bronze` → `checks` → `silver` → `gold` → `maintenance`, mỗi bảng nguồn hoặc model dbt một task. Task `bronze.<bảng>` dùng reader PostgreSQL SELECT-only (psycopg2) đọc một bảng theo khóa trong giao dịch REPEATABLE READ riêng, mỗi trang tối đa 10.000 dòng, rồi append vào `bronze.<bảng>` theo lô 200.000 dòng kèm `_ingested_at`, `_run_id`.
+3. Lịch hằng ngày chạy incremental với cửa sổ `[start, end)` do Airflow truyền; trigger với `mode=full` đọc mọi dòng tạo trước lúc lần chạy bắt đầu, nên 19 bảng cùng dừng ở một mốc dù được đọc lúc khác nhau.
+4. Kiểm tra chạy theo từng bảng trên các dòng Bronze của lần chạy, trước khi Silver thay đổi: luật theo dòng luôn chạy; ở full thêm khóa chính trùng, số dòng, tổng tiền đơn/thanh toán/hoàn tiền và sổ kho so với nguồn tại cùng mốc, cùng một task khóa ngoại. Trượt thì task của bảng đó đỏ, không task Silver nào chạy.
 5. Silver giữ dòng hiện tại theo khóa chính: full ghi đè cả bảng trong một commit, incremental upsert và không để phiên bản cũ ghi đè bản mới.
-6. dbt trên Trino dựng lại toàn bộ Gold (7 dimension, 6 fact, 14 mart) từ Silver hiện tại. Trino, API và Superset đọc thẳng bảng Gold.
+6. dbt trên Trino dựng lại toàn bộ Gold (7 dimension, 6 fact, 14 mart) từ Silver hiện tại, mỗi model một task theo thứ tự `ref()`. Trino, API và Superset đọc thẳng bảng Gold.
 
-Batch là writer nghiệp vụ duy nhất cho Bronze/Silver/Gold. Chạy full đồng bộ cả dòng đã xóa ở nguồn; chạy incremental thì không. `init_lakehouse_oltp` và `lakehouse_oltp_pipeline` là hai DAG riêng, mỗi DAG một task. Job batch/log/maintenance dùng chung advisory lock theo namespace, từ chối writer đồng thời; vẫn cần điều phối để hai DAG không chạy chồng nhau. Airflow retry chạy lại cả job với cùng run ID: Bronze xóa dòng của lần thử trước rồi ghi lại.
+Batch là writer nghiệp vụ duy nhất cho Bronze/Silver/Gold. Chạy full đồng bộ cả dòng đã xóa ở nguồn; chạy incremental thì không. Một DAG `lakehouse_oltp` với `max_active_runs=1` thay cho lock giữa các task batch; maintenance OLTP giữ advisory lock `<prefix>:oltp`, tách khỏi lock `<prefix>` của job log và streaming. Airflow retry chạy lại riêng task lỗi với cùng run ID: Bronze xóa dòng của bảng đó trong lần thử trước rồi ghi lại.
 
 ### Access log
 

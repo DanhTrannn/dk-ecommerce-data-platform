@@ -93,14 +93,12 @@ make up-all
 ### Run data pipelines
 
 ```bash
-# First full OLTP batch; monitor completion in Airflow:
-docker compose exec -T airflow-scheduler airflow dags trigger init_lakehouse_oltp
-
-# Enable daily incremental runs after initialization succeeds:
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_pipeline
+# Enable the OLTP DAG (daily incremental at 03:00) and run a first full load; monitor it in Airflow:
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp
+docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp --conf '{"mode": "full"}'
 ```
 
-DAGs start paused. Do not overlap full initialization and incremental runs. For streaming, enable the additional profile and submit the Flink access-log job explicitly. Real HTTP capture also requires `KAFKA_ENABLED=true`; access-log processing has its own DAG. The exact startup/recovery steps are in [setup.md](docs/setup.md) and [operations.md](docs/operations.md).
+DAGs start paused. Unpausing `lakehouse_oltp` also queues the latest scheduled incremental run; one run is active at a time, and the full run that follows replaces Silver. For streaming, enable the additional profile and submit the Flink access-log job explicitly. Real HTTP capture also requires `KAFKA_ENABLED=true`; access-log processing has its own DAG. The exact startup/recovery steps are in [setup.md](docs/setup.md) and [operations.md](docs/operations.md).
 
 ### Optional Superset
 
