@@ -83,12 +83,12 @@ Nhóm `maintenance` chạy cuối mỗi lần chạy DAG:
 ```bash
 uv lock --check
 uvx ruff check .
-make test                                                    # test pipeline trong container Airflow
+make test                                                    # mọi bộ test; test pipeline chạy trong container Airflow
 docker compose --env-file .env.example --profile '*' config --quiet
 uv run --locked --package platform-app -- \
   python -m platform_app.api.db.schema --output database/schema.sql --check
 ```
 
-Test pipeline (`airflow/tests`) và dbt data test (`dbt/tests`) nằm trong git. Test của `platform-app`, generator và Superset chỉ giữ ở máy.
+Mọi bộ test đều nằm trong git và chạy không cần stack thật: `airflow/tests`, `services/platform-app/tests`, `generator/tests`, `infrastructure/superset/tests`, cùng dbt data test trong `dbt/tests`.
 
 CI ([workflow](../.github/workflows/ci.yml)) kiểm tra bốn tổ hợp profile Compose, compile DAG và chạy Ruff; CI không chạy test.

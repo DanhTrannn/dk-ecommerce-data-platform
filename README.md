@@ -112,12 +112,12 @@ make build && make up           # API, Streamlit, PostgreSQL, MinIO, Polaris
 ```bash
 uv lock --check
 uvx ruff check .
-make test                       # pipeline tests (airflow/tests) in the Airflow container
+make test                       # every test suite; pipeline tests run in the Airflow container
 make ps && make logs
 make down                       # remove containers, keep volumes
 ```
 
-CI ([workflow](.github/workflows/ci.yml)) validates the Compose profiles, compiles the DAGs and runs Ruff; it does not run tests. Pipeline tests and dbt data tests are in git; the other Python test suites are kept local.
+CI ([workflow](.github/workflows/ci.yml)) validates the Compose profiles, compiles the DAGs and runs Ruff; it does not run tests. Every test suite is in git and runs offline, without a live stack.
 
 ## Documentation
 

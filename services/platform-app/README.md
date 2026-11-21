@@ -60,11 +60,8 @@ Có thể build riêng image ứng dụng bằng `docker compose --profile core 
 
 ## Kiểm tra
 
-Test của platform-app chỉ giữ local (`tests/` bị gitignore; chỉ `airflow/tests` và `dbt/tests` nằm trong git). Các lệnh dưới đây cần bộ test local đã có, không được cung cấp bởi checkout mới:
-
 ```bash
-uv run --locked --package platform-app -- \
-  python -m unittest discover -s services/platform-app/tests -v
+make test        # gồm test của platform-app; không cần stack thật
 uvx ruff check .
 ```
 
@@ -157,5 +154,3 @@ Các path dưới đây có prefix `/api/v1/access` trên FastAPI cổng 8000:
 | GET | `/audit` | Đọc tối đa 50 audit record gần nhất |
 
 Payload được kiểm tra theo từng loại tài nguyên; dữ liệu thừa bị từ chối. Thao tác thay đổi tài nguyên/liên kết/workload cần revision hiện tại và CSRF. API không nhận credential quản trị upstream, command tùy ý hoặc policy JSON tự do từ form.
-
-Kết quả local được ghi nhận ngày 15/11/2026 cho đợt gộp API (không phải kiểm tra tự động ở mỗi lần checkout): suite local 86 test (5 test opt-in bỏ qua), bốn test tích hợp riêng đạt trên stack PostgreSQL/MinIO/Polaris/API/exporter cô lập. Các test kiểm tra CRUD, quyền MinIO thực, cấp/gỡ credential và thao tác Streamlit qua API chung. Build image, Ruff và cấu hình Compose đạt. Stack/image/volume kiểm thử đã được dọn; kiểm chứng này không bao gồm toàn pipeline hoặc triển khai public.

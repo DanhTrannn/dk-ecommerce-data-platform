@@ -75,7 +75,7 @@ uv run --locked --package platform-app -- \
   python -m unittest discover -s services/platform-app/tests -v
 ```
 
-ORM hiện có **28 bảng, 318 cột và 56 FK**. Lệnh `--check` xác minh bản DDL được render khớp code; nó không chứng minh database đang chạy đã được migrate. Unit/integration Python bị gitignore và không có sẵn trong checkout mới. Bộ local hiện có kiểm tra bootstrap PostgreSQL opt-in qua `RUN_ADMIN_BOOTSTRAP_TESTS=1`; phải đọc test source và chuẩn bị môi trường Docker trước khi bật. Không còn chỉ dẫn chạy fixture schema/API cũ như một suite được repo cung cấp.
+ORM hiện có **28 bảng, 318 cột và 56 FK**. Lệnh `--check` xác minh bản DDL được render khớp code; nó không chứng minh database đang chạy đã được migrate.
 
 Các kiểm tra nền tảng/DDL và test quản trị không thay thế nghiệm thu toàn bộ giao dịch, pipeline và tập dữ liệu lớn. Chi tiết phạm vi kiểm chứng ở [operations](../docs/OPERATIONS.md#7-kiểm-tra-chất-lượng-và-ci).
 
