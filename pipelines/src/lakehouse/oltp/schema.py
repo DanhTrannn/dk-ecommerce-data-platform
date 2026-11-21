@@ -12,7 +12,6 @@ from lakehouse.oltp.silver import silver_schema
 from lakehouse.oltp.source import arrow_source_schema
 from lakehouse.oltp.sources import SOURCE_TABLES
 from lakehouse.utils.iceberg import PROPERTIES, evolve_table_schema
-from lakehouse.utils.namespaces import namespace as ns
 from lakehouse.utils.postgres import source_query, source_read_transaction
 
 LAYERS = ("bronze", "silver", "gold")
@@ -34,23 +33,23 @@ def create_or_evolve(catalog, key, schema, properties):
     return catalog.create_table(key, schema=schema, properties=properties)
 
 
-def create_bronze(catalog, prefix, table, schema):
-    target = create_or_evolve(catalog, (ns(prefix, "bronze"), table.name), schema, BRONZE_PROPERTIES)
+def create_bronze(catalog, table, schema):
+    target = create_or_evolve(catalog, ("bronze", table.name), schema, BRONZE_PROPERTIES)
     if not target.spec().fields:
         with target.update_spec() as update:
             update.add_field("_ingested_at", DayTransform(), "_ingested_at_day")
 
 
-def create_silver(catalog, prefix, table):
-    create_or_evolve(catalog, (ns(prefix, "silver"), table.name), silver_schema(table), PROPERTIES)
+def create_silver(catalog, table):
+    create_or_evolve(catalog, ("silver", table.name), silver_schema(table), PROPERTIES)
 
 
-def create_oltp_schema(catalog, connection, prefix):
+def create_oltp_schema(catalog, connection):
     for layer in LAYERS:
-        catalog.create_namespace_if_not_exists(ns(prefix, layer))
+        catalog.create_namespace_if_not_exists(layer)
     with source_read_transaction(connection):
         schemas = {table.name: bronze_schema(connection, table) for table in SOURCE_TABLES}
     for table in SOURCE_TABLES:
-        create_bronze(catalog, prefix, table, schemas[table.name])
-        create_silver(catalog, prefix, table)
+        create_bronze(catalog, table, schemas[table.name])
+        create_silver(catalog, table)
         print(f"INIT table={table.name}", flush=True)

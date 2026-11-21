@@ -1,11 +1,9 @@
-"""Shared guards for batch writers: target namespace prefix, run ID, bucket and page size."""
+"""Shared guards for batch writers: run ID, bucket and page size."""
 
 import re
 
 
-def validate_run(prefix, run_id, bucket, page_size):
-    if prefix != "serving" and not re.fullmatch(r"polars_batch_[a-z0-9_]{1,40}", prefix):
-        raise ValueError("Use serving or a dedicated polars_batch_* namespace prefix")
+def validate_run(run_id, bucket, page_size):
     if run_id in {".", ".."} or not re.fullmatch(r"[A-Za-z0-9_.~:+@=-]{1,250}", run_id):
         raise ValueError("Run ID must be a path-safe identifier")
     if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):

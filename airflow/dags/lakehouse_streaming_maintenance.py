@@ -36,7 +36,7 @@ def check_flink_streaming_health():
 def maintain(action):
     from jobs.maintenance.iceberg_table_maintenance import maintain
 
-    maintain(namespace_prefix="serving", profile="streaming", action=action)
+    maintain(profile="streaming", action=action)
 
 
 with DAG(

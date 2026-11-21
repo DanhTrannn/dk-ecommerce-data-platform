@@ -9,7 +9,7 @@ retail_lakehouse:
       user: dbt_writer
       password: "{{ env_var('DBT_TRINO_PASSWORD') }}"
       database: lakehouse_etl
-      schema: "{{ env_var('DBT_GOLD_SCHEMA', 'gold') }}"
+      schema: gold
       cert: "{{ env_var('TRINO_CA_FILE', '/run/trino-ca/ca.pem') }}"
       threads: 1
       timezone: UTC

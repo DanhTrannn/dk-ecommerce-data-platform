@@ -2,7 +2,7 @@
 
 Daily runs are incremental over the data interval; trigger with {"mode": "full"} for a full load. A failed task
 is retried alone; Silver changes only after every check passed, and Gold is rebuilt only after every Silver table.
-Run lakehouse_init once per namespace prefix first: these tasks only write to the tables it creates.
+Run lakehouse_init once first: these tasks only write to the tables it creates.
 
 Python steps run in the pipeline venv (Polars, PyIceberg) through ExternalPythonOperator; only dbt runs in bash.
 """
@@ -19,7 +19,6 @@ from airflow.sdk import DAG, Param, TaskGroup
 from lakehouse.oltp.dag_plan import (
     DBT_PROJECT,
     GOLD_TESTS,
-    NAMESPACE_PATTERN,
     POOL,
     RUN,
     dbt_command,
@@ -57,10 +56,10 @@ def silver(table, run):
     tasks.silver(table, run)
 
 
-def maintain(namespace_prefix, action):
+def maintain(action):
     from jobs.maintenance.iceberg_table_maintenance import maintain
 
-    maintain(namespace_prefix=namespace_prefix, profile="oltp", action=action)
+    maintain(profile="oltp", action=action)
 
 
 def pipeline_task(task_id, python_callable, op_args, pool=POOL):
@@ -80,10 +79,7 @@ with DAG(
     start_date=pendulum.datetime(2026, 8, 15, tz="Asia/Ho_Chi_Minh"),
     catchup=False,
     max_active_runs=1,
-    params={
-        "mode": Param("incremental", enum=["incremental", "full"]),
-        "namespace_prefix": Param("serving", type="string", pattern=NAMESPACE_PATTERN),
-    },
+    params={"mode": Param("incremental", enum=["incremental", "full"])},
     default_args={"owner": "lakehouse", "retries": 2, "retry_delay": timedelta(minutes=2)},
     tags=["lakehouse", "oltp", "native"],
 ) as dag:
@@ -119,10 +115,9 @@ with DAG(
         )
 
     with TaskGroup("maintenance") as maintenance_group:
-        prefix = "{{ params.namespace_prefix }}"
-        compact = pipeline_task("compact", maintain, [prefix, "compact"], pool=None)
-        expire = pipeline_task("expire", maintain, [prefix, "expire"], pool=None)
-        orphan = pipeline_task("orphan", maintain, [prefix, "orphan"], pool=None)
+        compact = pipeline_task("compact", maintain, ["compact"], pool=None)
+        expire = pipeline_task("expire", maintain, ["expire"], pool=None)
+        orphan = pipeline_task("orphan", maintain, ["orphan"], pool=None)
         compact >> expire >> orphan
 
     bronze_group >> checks_group >> silver_group >> gold_group >> maintenance_group

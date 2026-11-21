@@ -26,7 +26,6 @@ def maintain(**options):
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Iceberg table maintenance")
-    parser.add_argument("--namespace-prefix", default="serving")
     parser.add_argument("--profile", choices=["streaming", "oltp", "all"], default=None, help="Predefined table profile")
     parser.add_argument("--tables", default=None, help="Comma-separated tables, e.g. gold.fact_order; overrides the profile")
     parser.add_argument("--action", choices=["all", "compact", "expire", "orphan"], default="all")

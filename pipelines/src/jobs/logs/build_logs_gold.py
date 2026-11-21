@@ -11,13 +11,12 @@ from lakehouse.utils.iceberg import iceberg_catalog
 from lakehouse.utils.postgres import postgres_reader
 
 
-def run(*, namespace_prefix, run_id, as_of):
+def run(*, run_id, as_of):
     """The log DAG's task; as_of is an ISO timestamp with timezone."""
     with closing(postgres_reader()) as connection:
         result = run_logs(
             iceberg_catalog(),
             connection,
-            namespace_prefix,
             bucket=os.environ["MINIO_LAKEHOUSE_BUCKET"],
             run_id=run_id,
             as_of=as_of,
@@ -27,11 +26,10 @@ def run(*, namespace_prefix, run_id, as_of):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--namespace-prefix", default="serving")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--as-of", default=None)
     args = parser.parse_args()
-    run(namespace_prefix=args.namespace_prefix, run_id=args.run_id, as_of=args.as_of or datetime.now(UTC).isoformat())
+    run(run_id=args.run_id, as_of=args.as_of or datetime.now(UTC).isoformat())
 
 
 if __name__ == "__main__":

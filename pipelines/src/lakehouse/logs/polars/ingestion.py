@@ -11,7 +11,6 @@ from lakehouse.logs.parser import InvalidAccessEvent, parse_access_event
 from lakehouse.utils.snapshots import capture, read_snapshot
 from lakehouse.utils.contracts import align_arrow, ddl_schema
 from lakehouse.utils.iceberg import PROPERTIES
-from lakehouse.utils.namespaces import namespace as ns
 
 FLAT_FIELDS = {
     "schema_name": "schema.name",
@@ -170,10 +169,10 @@ def fact_delta(silver, facts, run_id, *, observed):
     )
 
 
-def ensure_table(catalog, prefix, layer, name, resource):
-    catalog.create_namespace_if_not_exists(ns(prefix, layer))
+def ensure_table(catalog, layer, name, resource):
+    catalog.create_namespace_if_not_exists(layer)
     schema = ddl_schema(resource)
-    table = catalog.create_table_if_not_exists((ns(prefix, layer), name), schema=schema, properties=PROPERTIES)
+    table = catalog.create_table_if_not_exists((layer, name), schema=schema, properties=PROPERTIES)
     if set(schema.names) - set(table.schema().column_names):
         with table.update_schema() as update:
             update.union_by_name(schema)
@@ -189,14 +188,14 @@ def insert_missing(table, frame, key):
     return capture(table)
 
 
-def ingest(catalog, prefix, run_id, *, observed):
-    landing = catalog.load_table((ns(prefix, "landing"), "access_logs"))
+def ingest(catalog, run_id, *, observed):
+    landing = catalog.load_table(("landing", "access_logs"))
     source = capture(landing)
-    bronze = ensure_table(catalog, prefix, "bronze", "web_events", "contracts/logs/bronze_web_events.sql")
-    silver = ensure_table(catalog, prefix, "silver", "silver_logs", "contracts/logs/silver_logs.sql")
-    fact = ensure_table(catalog, prefix, "gold", "fact_web_events", "contracts/logs/fact_web_events.sql")
+    bronze = ensure_table(catalog, "bronze", "web_events", "contracts/logs/bronze_web_events.sql")
+    silver = ensure_table(catalog, "silver", "silver_logs", "contracts/logs/silver_logs.sql")
+    fact = ensure_table(catalog, "gold", "fact_web_events", "contracts/logs/fact_web_events.sql")
     old = read_snapshot(bronze, capture(bronze))
-    source_ref = f"lakehouse.{ns(prefix, 'landing')}.access_logs@{source}"
+    source_ref = f"lakehouse.landing.access_logs@{source}"
     delta = bronze_delta(read_snapshot(landing, source), old, run_id, observed=observed, source_ref=source_ref)
     bronze_id = insert_missing(bronze, delta, "_raw_hash")
     persisted = read_snapshot(bronze, bronze_id)
@@ -213,7 +212,7 @@ def ingest(catalog, prefix, run_id, *, observed):
     delta = fact_delta(read_snapshot(silver, silver_id), read_snapshot(fact, capture(fact)), run_id, observed=observed)
     fact_id = insert_missing(fact, delta, "event_id")
     return {
-        f"lakehouse.{ns(prefix, layer)}.{name}": snapshot
+        f"lakehouse.{layer}.{name}": snapshot
         for layer, name, snapshot in (
             ("landing", "access_logs", source),
             ("bronze", "web_events", bronze_id),

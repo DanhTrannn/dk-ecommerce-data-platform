@@ -5,11 +5,11 @@
     {"user": "(analytics_reader|dbt_writer)", "catalog": "system", "allow": "read-only"}
   ],
   "schemas": [
-    {"user": "dbt_writer", "catalog": "lakehouse_etl", "schema": "(gold|polars_batch_[a-z0-9_]+_gold)", "owner": true},
+    {"user": "dbt_writer", "catalog": "lakehouse_etl", "schema": "gold", "owner": true},
     {"user": ".*", "owner": false}
   ],
   "tables": [
-    {"user": "dbt_writer", "catalog": "lakehouse_etl", "schema": "(gold|polars_batch_[a-z0-9_]+_gold)", "privileges": ["SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP"]},
+    {"user": "dbt_writer", "catalog": "lakehouse_etl", "schema": "gold", "privileges": ["SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP"]},
     {"user": "dbt_writer", "catalog": "lakehouse_etl", "privileges": ["SELECT"]},
     {"user": "(analytics_reader|dbt_writer)", "catalog": "(lakehouse|system)", "privileges": ["SELECT"]}
   ],

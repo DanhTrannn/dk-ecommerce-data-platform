@@ -10,8 +10,7 @@ import boto3
 from lakehouse.analytics.dbt import project_directory
 from lakehouse.utils.snapshots import capture, read_snapshot
 from lakehouse.oltp.sources import SOURCE_TABLES
-from lakehouse.utils.namespaces import namespace as ns
-from lakehouse.utils.postgres import namespace_lock
+from lakehouse.utils.postgres import LOGS_LOCK, writer_lock
 
 TABLE_PROFILES = {
     "streaming": [
@@ -34,9 +33,9 @@ TABLE_PROFILES = {
 TABLE_PROFILES["all"] = list(dict.fromkeys(TABLE_PROFILES["streaming"] + TABLE_PROFILES["oltp"]))
 
 
-def protected_snapshots(catalog, prefix):
+def protected_snapshots(catalog):
     protected = {}
-    key = (ns(prefix, "system"), "logs_analytics_publications")
+    key = ("system", "logs_analytics_publications")
     if not catalog.table_exists(key):
         return protected
     table = catalog.load_table(key)
@@ -120,17 +119,16 @@ def orphan_files(table, *, cutoff, delete=False):
     }
 
 
-def maintenance_lock_key(prefix, profile):
+def maintenance_lock_key(profile):
     """OLTP tables are only written by the OLTP DAG, which runs its maintenance last; a separate key keeps the
-    hourly log job, which holds the plain key, from failing on it."""
-    return f"{prefix}:oltp" if profile == "oltp" else prefix
+    hourly log job, which holds the logs key, from failing on it."""
+    return "lakehouse:oltp" if profile == "oltp" else LOGS_LOCK
 
 
 def maintain_tables(
     catalog,
     connection,
     *,
-    namespace_prefix,
     profile=None,
     tables=None,
     action="all",
@@ -144,10 +142,9 @@ def maintain_tables(
         raise ValueError("Maintenance retention and target size must be positive")
     if delete_orphans and not writers_stopped:
         raise ValueError("Physical orphan deletion requires --writers-stopped; schedules only report candidates")
-    prefix = namespace_prefix
     cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
-    with namespace_lock(connection, maintenance_lock_key(prefix, profile)):
-        protected = protected_snapshots(catalog, prefix)
+    with writer_lock(connection, maintenance_lock_key(profile)):
+        protected = protected_snapshots(catalog)
         names = tables.split(",") if tables else TABLE_PROFILES[profile or "all"]
         result = {}
         for name in names:
@@ -156,7 +153,7 @@ def maintain_tables(
                 parts = parts[1:]
             if len(parts) != 2 or ".".join(parts) not in TABLE_PROFILES["all"]:
                 raise ValueError("Maintenance table must belong to the configured whitelist")
-            key = (ns(prefix, parts[0]), parts[1])
+            key = (parts[0], parts[1])
             physical = "lakehouse." + ".".join(key)
             if not catalog.table_exists(key):
                 result[physical] = {"status": "not-created"}

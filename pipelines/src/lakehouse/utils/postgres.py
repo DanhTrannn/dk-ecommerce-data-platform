@@ -95,16 +95,20 @@ def source_read_transaction(connection):
         connection.rollback()
 
 
+# Held by the hourly log job and the streaming table maintenance, which write the same log tables.
+LOGS_LOCK = "lakehouse:logs"
+
+
 @contextmanager
-def namespace_lock(connection, namespace):
-    """Serialize native source and Gold jobs using one session-scoped namespace key."""
-    lock = int.from_bytes(hashlib.sha256(namespace.encode()).digest()[:8], "big", signed=True)
+def writer_lock(connection, key):
+    """Serialize lakehouse writers that share one session-scoped advisory lock key."""
+    lock = int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big", signed=True)
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_try_advisory_lock(%s)", (lock,))
         acquired = cursor.fetchone()[0]
     if not acquired:
         connection.rollback()
-        raise RuntimeError("Another writer owns this batch namespace")
+        raise RuntimeError(f"Another writer holds the {key} lock")
     try:
         # End the implicit SQL transaction while retaining the session-level lock.
         connection.rollback()

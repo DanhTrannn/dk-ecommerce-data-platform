@@ -49,21 +49,21 @@ def source_reconciliation(connection, table, created_before):
     return {"rows": rows, "total": None if table.name not in MONEY_TOTALS else int(amount or 0), "ledger": ledger}
 
 
-def read_run(catalog, prefix, table, run_id, columns):
-    return pl.from_arrow(run_rows(catalog, prefix, table, run_id, columns).read_all())
+def read_run(catalog, table, run_id, columns):
+    return pl.from_arrow(run_rows(catalog, table, run_id, columns).read_all())
 
 
-def row_rule_failures(catalog, prefix, table, run_id):
+def row_rule_failures(catalog, table, run_id):
     counts = Counter()
-    for batch in run_rows(catalog, prefix, table, run_id):
+    for batch in run_rows(catalog, table, run_id):
         counts.update(violation_counts(pl.from_arrow(batch), table))
     return [f"{table.name}: {label} = {count}" for label, count in sorted(counts.items())]
 
 
-def full_load_failures(catalog, prefix, table, run_id, source):
+def full_load_failures(catalog, table, run_id, source):
     """Whole-table checks; valid only when the run holds every source row created before the cutoff."""
     columns = [table.pk, *([MONEY_TOTALS[table.name]] if table.name in MONEY_TOTALS else [])]
-    frame = read_run(catalog, prefix, table, run_id, columns)
+    frame = read_run(catalog, table, run_id, columns)
     failures = []
     duplicates = frame.height - frame[table.pk].n_unique()
     if duplicates:
@@ -76,22 +76,22 @@ def full_load_failures(catalog, prefix, table, run_id, source):
         if total != source["total"]:
             failures.append(f"{table.name}: source_{column} {source['total']} != {total}")
     if source["ledger"] is not None:
-        failures += ledger_failures(catalog, prefix, table, run_id, source["ledger"])
+        failures += ledger_failures(catalog, table, run_id, source["ledger"])
     return failures
 
 
-def foreign_key_failures(catalog, prefix, run_id):
+def foreign_key_failures(catalog, run_id):
     """A full load holds every row created before the cutoff, and a child is never created before its parent,
     so a miss means rows were lost on the way to the lakehouse. Incremental runs skip this check: an order
     created in the interval but updated after it is read by the next run."""
     keys = {}
     for name in {parent for _, _, parent in FOREIGN_KEYS}:
         table = TABLES_BY_NAME[name]
-        keys[name] = read_run(catalog, prefix, table, run_id, [table.pk])[table.pk]
+        keys[name] = read_run(catalog, table, run_id, [table.pk])[table.pk]
     failures = []
     for child in dict.fromkeys(child for child, _, _ in FOREIGN_KEYS):
         references = [(column, parent) for name, column, parent in FOREIGN_KEYS if name == child]
-        frame = read_run(catalog, prefix, TABLES_BY_NAME[child], run_id, [column for column, _ in references])
+        frame = read_run(catalog, TABLES_BY_NAME[child], run_id, [column for column, _ in references])
         for column, parent in references:
             missing = frame[column].drop_nulls().is_in(keys[parent].implode()).not_().sum()
             if missing:
@@ -99,8 +99,8 @@ def foreign_key_failures(catalog, prefix, run_id):
     return failures
 
 
-def ledger_failures(catalog, prefix, ledger, run_id, source_stock):
-    movements = read_run(catalog, prefix, ledger, run_id, ["store_id", "variant_id", "quantity_delta"])
+def ledger_failures(catalog, ledger, run_id, source_stock):
+    movements = read_run(catalog, ledger, run_id, ["store_id", "variant_id", "quantity_delta"])
     balances = {
         (row["store_id"], row["variant_id"]): row["quantity_delta"]
         for row in movements.group_by("store_id", "variant_id").agg(pl.col("quantity_delta").sum()).iter_rows(named=True)
@@ -109,18 +109,18 @@ def ledger_failures(catalog, prefix, ledger, run_id, source_stock):
     return [f"inventory_transactions: ledger_balance_mismatch = {mismatched}"] if mismatched else []
 
 
-def check_table(catalog, prefix, table, run_id, source):
+def check_table(catalog, table, run_id, source):
     """Raise CheckFailed listing every failed check of one table; `source` is given only for full loads."""
-    failures = row_rule_failures(catalog, prefix, table, run_id)
+    failures = row_rule_failures(catalog, table, run_id)
     if source is not None:
-        failures += full_load_failures(catalog, prefix, table, run_id, source)
+        failures += full_load_failures(catalog, table, run_id, source)
     if failures:
         raise CheckFailed("Pre-merge checks failed:\n" + "\n".join(failures))
     print(f"CHECKS table={table.name} passed full={source is not None}", flush=True)
 
 
-def check_foreign_keys(catalog, prefix, run_id):
-    failures = foreign_key_failures(catalog, prefix, run_id)
+def check_foreign_keys(catalog, run_id):
+    failures = foreign_key_failures(catalog, run_id)
     if failures:
         raise CheckFailed("Foreign key checks failed:\n" + "\n".join(failures))
     print("CHECKS foreign_keys passed", flush=True)

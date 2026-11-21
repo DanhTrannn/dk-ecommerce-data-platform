@@ -1,6 +1,6 @@
 """The OLTP DAGs' Python tasks; Airflow calls them in the pipeline venv with the run context it renders.
 
-`run` holds that context: namespace_prefix, run_id, mode, run_started_at, interval_start and interval_end.
+`run` holds that context: run_id, mode, run_started_at, interval_start and interval_end.
 A full run reads every row created before run_started_at and ignores the interval. An incremental run reads the
 rows whose cursor falls in [interval_start, interval_end).
 """
@@ -24,7 +24,6 @@ PAGE_SIZE = 10000
 
 @dataclass(frozen=True)
 class Run:
-    namespace_prefix: str
     run_id: str
     mode: str
     run_started_at: str
@@ -38,16 +37,16 @@ class Run:
             raise ValueError("run_started_at must include a timezone")
         if self.mode == "incremental" and not (self.interval_start and self.interval_end):
             raise ValueError("An incremental run needs a data interval; trigger a full run instead")
-        validate_run(self.namespace_prefix, self.run_id, os.environ["MINIO_LAKEHOUSE_BUCKET"], PAGE_SIZE)
+        validate_run(self.run_id, os.environ["MINIO_LAKEHOUSE_BUCKET"], PAGE_SIZE)
 
     @property
     def full(self):
         return self.mode == "full"
 
 
-def create_schema(namespace_prefix):
+def create_schema():
     with closing(postgres_reader()) as connection:
-        create_oltp_schema(iceberg_catalog(), connection, namespace_prefix)
+        create_oltp_schema(iceberg_catalog(), connection)
 
 
 def bronze(table, run):
@@ -56,7 +55,6 @@ def bronze(table, run):
         ingest_table(
             iceberg_catalog(),
             connection,
-            run.namespace_prefix,
             table,
             run.run_id,
             datetime.now(UTC),
@@ -74,7 +72,7 @@ def check(table, run):
     if run.full:
         with closing(postgres_reader()) as connection, source_read_transaction(connection):
             source = source_reconciliation(connection, table, run.run_started_at)
-    check_table(iceberg_catalog(), run.namespace_prefix, table, run.run_id, source)
+    check_table(iceberg_catalog(), table, run.run_id, source)
 
 
 def foreign_keys(run):
@@ -83,9 +81,9 @@ def foreign_keys(run):
     if not run.full:
         print("CHECKS foreign_keys skipped (incremental run)", flush=True)
         return
-    check_foreign_keys(iceberg_catalog(), run.namespace_prefix, run.run_id)
+    check_foreign_keys(iceberg_catalog(), run.run_id)
 
 
 def silver(table, run):
     table, run = TABLES_BY_NAME[table], Run(**run)
-    merge_silver(iceberg_catalog(), run.namespace_prefix, table, run.run_id, full=run.full)
+    merge_silver(iceberg_catalog(), table, run.run_id, full=run.full)

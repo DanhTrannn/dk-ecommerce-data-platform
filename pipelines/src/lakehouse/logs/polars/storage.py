@@ -1,6 +1,5 @@
 """Iceberg writes, append-only log audits and independently pinned publication."""
 
-from lakehouse.utils.namespaces import namespace as ns
 import json
 from datetime import UTC, datetime
 
@@ -34,9 +33,9 @@ PUBLICATION_SCHEMA = pa.schema(
 )
 
 
-def audit(catalog, prefix, run_id, checks):
+def audit(catalog, run_id, checks):
     target = catalog.create_table_if_not_exists(
-        (ns(prefix, "system"), "logs_quality_results"), schema=AUDIT_SCHEMA, properties=PROPERTIES
+        ("system", "logs_quality_results"), schema=AUDIT_SCHEMA, properties=PROPERTIES
     )
     now = datetime.now(UTC)
     rows = [dict(run_id=run_id, checked_at=now, **check) for check in checks]
@@ -53,8 +52,8 @@ def require_readable(catalog, snapshots):
             raise ValueError("A pinned log input/output snapshot is no longer readable")
 
 
-def publish(catalog, prefix, run_id, snapshots, sources, checks, *, observed, latest):
-    expected = {f"lakehouse.{ns(prefix, 'gold')}.{name}" for name in TABLES}
+def publish(catalog, run_id, snapshots, sources, checks, *, observed, latest):
+    expected = {f"lakehouse.gold.{name}" for name in TABLES}
     if (
         set(snapshots) != expected
         or len(checks) != len(REQUIRED_CHECKS)
@@ -62,21 +61,14 @@ def publish(catalog, prefix, run_id, snapshots, sources, checks, *, observed, la
         or any(c["status"] != "PASSED" for c in checks)
     ):
         raise ValueError("Complete successful log checks and three audited output snapshots are required")
-    allowed = [
-        {"lakehouse.gold.fact_web_events", f"lakehouse.{silver}.products", f"lakehouse.{silver}.product_variants"}
-        for silver in (ns(prefix, "silver"), "silver")
-    ]
-    predecessors = {
-        f"lakehouse.{ns(prefix, layer)}.{name}"
-        for layer, name in (("landing", "access_logs"), ("bronze", "web_events"), ("silver", "silver_logs"))
-    }
-    native_fact = f"lakehouse.{ns(prefix, 'gold')}.fact_web_events"
-    allowed += [(keys - {"lakehouse.gold.fact_web_events"}) | {native_fact} | predecessors for keys in allowed]
-    if set(sources) not in allowed:
+    # The marts read the fact and the Silver product catalog; a run that also ingested names its earlier layers.
+    marts_inputs = {"lakehouse.gold.fact_web_events", "lakehouse.silver.products", "lakehouse.silver.product_variants"}
+    ingested = {"lakehouse.landing.access_logs", "lakehouse.bronze.web_events", "lakehouse.silver.silver_logs"}
+    if set(sources) not in (marts_inputs, marts_inputs | ingested):
         raise ValueError("Publication requires the fact and all three published catalog references")
     require_readable(catalog, {**sources, **snapshots})
     target = catalog.create_table_if_not_exists(
-        (ns(prefix, "system"), "logs_analytics_publications"), schema=PUBLICATION_SCHEMA, properties=PROPERTIES
+        ("system", "logs_analytics_publications"), schema=PUBLICATION_SCHEMA, properties=PROPERTIES
     )
     row = dict(
         run_id=run_id,
@@ -92,11 +84,11 @@ def publish(catalog, prefix, run_id, snapshots, sources, checks, *, observed, la
     return row
 
 
-def pinned_catalog(catalog, prefix, run_id=None):
+def pinned_catalog(catalog, run_id=None):
     """Current Silver product catalog snapshots; OLTP batches no longer publish a pinned snapshot set."""
     if run_id is not None:
         raise ValueError("Catalog run selection was removed together with OLTP publications")
-    silver, sources, frames = ns(prefix, "silver"), {}, []
+    silver, sources, frames = "silver", {}, []
     for name in ("products", "product_variants"):
         table = catalog.load_table((silver, name))
         snapshot = capture(table)

@@ -1,5 +1,5 @@
 {% macro generate_schema_name(custom_schema_name, node) -%}
-  {{ env_var('DBT_GOLD_SCHEMA', 'gold') }}
+  gold
 {%- endmacro %}
 
 {% macro pinned(name) -%}

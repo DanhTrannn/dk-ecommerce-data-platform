@@ -11,7 +11,6 @@ from pathlib import Path
 from pyiceberg.transforms import IdentityTransform
 
 from lakehouse.utils.iceberg import PROPERTIES, load_or_create
-from lakehouse.utils.namespaces import namespace as ns
 
 
 def project_directory():
@@ -25,10 +24,10 @@ def project_directory():
     raise ValueError("Set DBT_PROJECT_DIR to the checked-in analytical project")
 
 
-def ensure_target(catalog, prefix, name, schema):
+def ensure_target(catalog, name, schema):
     """Pre-create a log Gold table with its reviewed schema; log marts are partitioned by metric_date."""
-    catalog.create_namespace_if_not_exists(ns(prefix, "gold"))
-    table = load_or_create(catalog, (ns(prefix, "gold"), name), schema=schema, properties=PROPERTIES)
+    catalog.create_namespace_if_not_exists("gold")
+    table = load_or_create(catalog, ("gold", name), schema=schema, properties=PROPERTIES)
     if set(schema.names) - set(table.schema().column_names):
         with table.update_schema() as update:
             update.union_by_name(schema)
@@ -40,22 +39,14 @@ def ensure_target(catalog, prefix, name, schema):
             with table.update_spec() as update:
                 update.add_field(field, transform, field)
         elif len(fields) != 1 or fields[0].source_id != table.schema().find_field(field).field_id or fields[0].transform != transform:
-            raise ValueError(f"Partition migration is required for {ns(prefix, 'gold')}.{name}")
+            raise ValueError(f"Partition migration is required for gold.{name}")
     return table
 
 
-def run_models(prefix, run_id, observed, inputs=None, *, group, silver_schema=None, events_schema=None):
-    variables = dict(
-        run_id=run_id,
-        as_of=observed.isoformat(),
-        inputs=inputs or {},
-        silver_schema=silver_schema or ns(prefix, "silver"),
-        events_schema=events_schema or ns(prefix, "gold"),
-        gold_schema=ns(prefix, "gold"),
-    )
+def run_models(run_id, observed, inputs=None, *, group):
+    variables = dict(run_id=run_id, as_of=observed.isoformat(), inputs=inputs or {})
     environment = {
         **os.environ,
-        "DBT_GOLD_SCHEMA": ns(prefix, "gold"),
         "DBT_SEND_ANONYMOUS_USAGE_STATS": "false",
         "DBT_PARTIAL_PARSE": "false",
     }

@@ -14,7 +14,7 @@ PIPELINE_PYTHON = os.environ.get("PIPELINE_PYTHON", "/opt/pipeline-venv/bin/pyth
 def rollup_logs_gold_marts(run_id, as_of):
     from jobs.logs.build_logs_gold import run
 
-    run(namespace_prefix="serving", run_id=run_id, as_of=as_of)
+    run(run_id=run_id, as_of=as_of)
 
 
 with DAG(

@@ -2,7 +2,7 @@ version: 2
 sources:
 - name: silver
   database: lakehouse_etl
-  schema: '{{ var(''silver_schema'', env_var(''DBT_SILVER_SCHEMA'', ''silver'')) }}'
+  schema: silver
   tables:
   - name: customers
   - name: categories
@@ -25,6 +25,6 @@ sources:
   - name: inbound_receipt_items
 - name: events
   database: lakehouse_etl
-  schema: '{{ var(''gold_schema'', ''gold'') }}'
+  schema: gold
   tables:
   - name: fact_web_events

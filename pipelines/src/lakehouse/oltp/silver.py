@@ -8,7 +8,6 @@ from lakehouse.oltp.bronze import BRONZE_BATCH_ROWS, run_rows
 from lakehouse.oltp.sources import LINEAGE
 from lakehouse.utils.contracts import align_arrow, ddl_schema
 from lakehouse.utils.iceberg import load_table
-from lakehouse.utils.namespaces import namespace as ns
 
 
 def silver_schema(table):
@@ -87,11 +86,11 @@ def upsert_silver(target, reader, table, schema):
     return written
 
 
-def merge_silver(catalog, prefix, table, run_id, *, full):
+def merge_silver(catalog, table, run_id, *, full):
     """Return the number of rows written to Silver."""
     schema = silver_schema(table)
-    target = load_table(catalog, (ns(prefix, "silver"), table.name))
-    reader = run_rows(catalog, prefix, table, run_id)
+    target = load_table(catalog, ("silver", table.name))
+    reader = run_rows(catalog, table, run_id)
     written = replace_silver(target, reader, table, schema) if full else upsert_silver(target, reader, table, schema)
     print(f"SILVER table={table.name} rows={written} full={full}", flush=True)
     return written

@@ -6,7 +6,6 @@ from pyiceberg.expressions import EqualTo
 from lakehouse.utils.contracts import align_arrow
 from lakehouse.oltp.source import source_pages
 from lakehouse.utils.iceberg import PROPERTIES, load_table
-from lakehouse.utils.namespaces import namespace as ns
 from lakehouse.utils.postgres import source_read_transaction
 
 BRONZE_BATCH_ROWS = 200_000
@@ -22,9 +21,9 @@ def with_lineage(page, run_id, ingested_at):
     )
 
 
-def write_bronze(catalog, prefix, table, pages, run_id, ingested_at):
+def write_bronze(catalog, table, pages, run_id, ingested_at):
     """Replace this run's rows from an earlier attempt, then append the pages in batches; return rows written."""
-    target = load_table(catalog, (ns(prefix, "bronze"), table.name))
+    target = load_table(catalog, ("bronze", table.name))
     columns = set(target.schema().column_names)
     earlier_attempt = EqualTo("_run_id", run_id)
     if any(target.scan(row_filter=earlier_attempt).plan_files()):
@@ -47,16 +46,16 @@ def write_bronze(catalog, prefix, table, pages, run_id, ingested_at):
     return written
 
 
-def run_rows(catalog, prefix, table, run_id, columns=("*",)):
+def run_rows(catalog, table, run_id, columns=("*",)):
     """Stream this run's Bronze rows."""
-    target = load_table(catalog, (ns(prefix, "bronze"), table.name))
+    target = load_table(catalog, ("bronze", table.name))
     return target.scan(row_filter=EqualTo("_run_id", run_id), selected_fields=tuple(columns)).to_arrow_batch_reader()
 
 
-def ingest_table(catalog, connection, prefix, table, run_id, ingested_at, *, start=None, end=None, created_before=None, page_size=10000):
+def ingest_table(catalog, connection, table, run_id, ingested_at, *, start=None, end=None, created_before=None, page_size=10000):
     """Copy one source table's selected rows to Bronze inside its own repeatable-read source transaction."""
     with source_read_transaction(connection):
         pages = source_pages(connection, table, start, end, created_before=created_before, page_size=page_size)
-        written = write_bronze(catalog, prefix, table, pages, run_id, ingested_at)
+        written = write_bronze(catalog, table, pages, run_id, ingested_at)
     print(f"BRONZE table={table.name} rows={written}", flush=True)
     return written
