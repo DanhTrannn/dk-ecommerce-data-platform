@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 REF = re.compile(r"""ref\(\s*['"]([a-z0-9_]+)['"]\s*\)""")
-GOLD_TESTS = "test_type:singular"
+GOLD_TESTS = "path:tests/oltp"  # OLTP singular tests; tests/ also holds the log pipeline's
 POOL = "lakehouse_oltp"
 POOL_SLOTS = 4  # parallel OLTP tasks; each one loads a table's batches in the Airflow container's memory
 DBT_PROJECT = "/opt/project/pipelines/dbt"
