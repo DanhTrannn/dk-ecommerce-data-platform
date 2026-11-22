@@ -62,7 +62,7 @@ Gold rules:
 
 ## Deleted rows
 
-Incremental loads read changed rows only, so they never see a row deleted at the source. The sync DAG does:
+Incremental loads read changed rows only, so they never see a row deleted at the source. Design decisions for this and for column changes are in [docs/SYNC_DESIGN.md](../docs/SYNC_DESIGN.md). The sync DAG does:
 
 1. `detect.<table>` compares every source primary key with Bronze's live keys. Rows gone from the source are flagged in Bronze (`_is_deleted = true`, `_deleted_at` = the sync run's `run_after`, kept on later runs). Keys back at the source, or missing from Bronze, are staged again.
 2. `bronze.<table>` upserts the staged rows as live, then Silver and Gold pick the changes up through `_ingested_at` like any other change.

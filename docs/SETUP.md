@@ -160,7 +160,7 @@ docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_syn
 
 ## 5. Access log
 
-Luồng access log đang được thiết kế lại. Đặt `KAFKA_ENABLED=true` thì API vẫn gửi log request vào topic `KAFKA_ACCESS_LOG_TOPIC` (profile `streaming`), nhưng chưa có job Flink hay DAG nào đưa log vào lakehouse. `KAFKA_ENABLED=false` tắt gửi Kafka; API vẫn ghi structured log.
+Luồng access log chưa được xây lại ([thiết kế](ACCESS_LOG_DESIGN.md)). Đặt `KAFKA_ENABLED=true` thì API vẫn gửi log request vào topic `KAFKA_ACCESS_LOG_TOPIC` (profile `streaming`), nhưng chưa có job Flink hay DAG nào đưa log vào lakehouse. `KAFKA_ENABLED=false` tắt gửi Kafka; API vẫn ghi structured log.
 
 `datagen logs` xuất log tổng hợp ra Parquet theo ngày và không nạp vào lakehouse:
 

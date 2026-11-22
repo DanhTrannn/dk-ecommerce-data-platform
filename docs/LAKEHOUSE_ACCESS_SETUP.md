@@ -152,7 +152,7 @@ docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_syn
 
 ## Luồng access log
 
-Luồng access log đang được thiết kế lại; chưa có job Flink hay DAG nào nạp log vào lakehouse. [Access log](SETUP.md#5-access-log)
+Luồng access log chưa được xây lại ([thiết kế](ACCESS_LOG_DESIGN.md)); chưa có job Flink hay DAG nào nạp log vào lakehouse. [Access log](SETUP.md#5-access-log)
 
 ## Bật Superset
 

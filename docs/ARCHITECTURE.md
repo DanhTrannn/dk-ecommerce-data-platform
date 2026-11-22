@@ -12,7 +12,7 @@ Cấu trúc dữ liệu và KPI ở [DATA.md](DATA.md), cài đặt ở [SETUP.m
 | Generator | `datagen generate/verify/logs/reset`; preset OLTP `100k`/`1m`/`10m`/`50m` |
 | Console | Streamlit: kịch bản mua online qua API, quản trị quyền Polaris |
 | Pipeline OLTP | Airflow: staging → Bronze → Silver → Gold, 19 bảng nguồn, 27 model Gold; đồng bộ dòng bị xoá bằng xoá mềm và thay đổi cột đã duyệt |
-| Access log | Đang thiết kế lại: API vẫn có thể gửi Kafka, đã gỡ job Flink và DAG log; thiết kế giữ ở `streaming/sql` và `dbt/models/logs` |
+| Access log | Đang thiết kế lại: API vẫn có thể gửi Kafka, đã gỡ job Flink và DAG log; thiết kế đã duyệt ở [ACCESS_LOG_DESIGN.md](ACCESS_LOG_DESIGN.md) |
 | BI | Superset tùy chọn, ba mart doanh thu; sẽ làm lại sau khi các pipeline ổn định |
 
 Không dùng Spark, Debezium hay CDC.

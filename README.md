@@ -34,7 +34,7 @@
 | Access governance | Polaris principals and roles per workload, per-table storage credentials vended by Polaris (one MinIO account, Polaris's), Trino SQL access rules |
 | BI | Optional Superset dashboard over three Gold sales marts |
 
-The access-log path (API → Kafka → Flink → lakehouse) is being redesigned: the API can still publish to Kafka, but the Flink job and log DAGs are removed. The table designs are kept in [`streaming/sql`](streaming/sql) and [`dbt/models/logs`](dbt/models/logs).
+The access-log path (API → Kafka → Flink → lakehouse) is being redesigned: the API can still publish to Kafka, but the Flink job and log DAGs are removed. The approved design is in [docs/ACCESS_LOG_DESIGN.md](docs/ACCESS_LOG_DESIGN.md).
 
 ## Tech Stack
 
