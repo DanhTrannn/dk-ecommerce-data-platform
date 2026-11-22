@@ -8,7 +8,7 @@ Cài đặt ở [SETUP.md](SETUP.md); chi tiết pipeline ở [airflow/README.md
 |---|---|
 | Container | `make ps`; trạng thái health trong Compose |
 | API | `curl -fsS http://127.0.0.1:8000/health/ready` (chỉ kiểm tra kết nối DB) |
-| Airflow | Lần chạy mới nhất của `lakehouse_oltp_init`/`lakehouse_oltp_incremental` xanh; log task có dòng `STAGING`, `RECONCILED`, `BRONZE` |
+| Airflow | Lần chạy mới nhất của `lakehouse_oltp_init`/`_incremental`/`_sync` xanh; log task có dòng `STAGING`, `RECONCILED`, `BRONZE`, `SYNC`, `PURGE` |
 | Lakehouse | Truy vấn Trino ở mục 3 |
 
 ```bash
@@ -45,6 +45,8 @@ SELECT sum(net_revenue_vnd), sum(gross_profit_vnd) FROM lakehouse.gold.mart_sale
 | `create_schema`, `staging.<bảng>` lỗi kết nối nguồn | Connection `oltp_postgres` sai, chưa chạy `make source-reader`, mật khẩu reader trống | Sửa connection trong Airflow UI, **Clear** task |
 | `staging.<bảng>` báo thiếu cột nguồn | Nguồn có cột mới | Chạy `lakehouse_oltp_init` |
 | `staging.<bảng>` báo thiếu data interval | Trigger tay DAG incremental | Để lịch chạy, hoặc dùng `airflow backfill create` |
+| Cần nạp lại các ngày đã qua | | Tạm dừng `lakehouse_oltp_sync`, backfill incremental, rồi bật lại và trigger tay sync một lần ([airflow/README.md](../airflow/README.md#run)) |
+| Dòng đã xoá ở nguồn vẫn sống ở Gold sau purge | Purge chạy khi lần sync trước chưa xong | Chạy `lakehouse_oltp_init` |
 | `reconcile.<bảng>` lỗi `ReconciliationFailed` | Bản trích xuất lệch nguồn tại mốc chạy (số dòng, tổng tiền, sổ kho); Bronze chưa đổi | Xem log, **Clear** `staging.<bảng>` kèm downstream |
 | `silver.<bảng>` lỗi test `matches_bronze` | Silver và Bronze lệch khoá | Chạy `lakehouse_oltp_init` để dựng lại Silver |
 | `gold.<model>` lỗi | Lỗi SQL dbt hoặc Trino | Chạy tay theo [airflow/README.md](../airflow/README.md#run), **Clear** task kèm downstream |
@@ -53,7 +55,7 @@ SELECT sum(net_revenue_vnd), sum(gross_profit_vnd) FROM lakehouse.gold.mart_sale
 | Compose báo thiếu biến | `.env` thiếu biến mới | So với `.env.example` |
 | API thiếu bảng | `platform-admin-init` không áp được schema | Xem log init; bootstrap không migrate schema dở dang |
 
-Mọi task đều chạy lại được: staging xoá trắng rồi ghi lại, Bronze upsert theo khoá, Silver merge theo khoá, Gold dựng lại toàn bộ. Nếu một lần chạy dừng giữa chừng, Gold có thể lệch Silver tới khi lần chạy sau hoàn tất.
+Mọi task đều chạy lại được và cho cùng kết quả: staging xoá trắng rồi ghi lại, Bronze upsert theo khoá, Silver và Gold merge theo khoá từ mốc của chúng, mốc của mart chỉ tiến khi mart đã ghi xong. Nếu một lần chạy dừng giữa chừng, lần chạy sau (hoặc **Clear**) bắt kịp mọi thay đổi.
 
 ## 5. Bảo trì Iceberg
 
@@ -61,7 +63,8 @@ Nhóm `maintenance` chạy cuối mỗi lần chạy DAG:
 
 | Task | Việc |
 |---|---|
-| `compact` | Gộp file nhỏ của staging, Bronze và Gold; Silver được dbt `optimize` sau mỗi lần merge |
+| `compact` | Gộp file nhỏ của Bronze khi có từ 10 file nhỏ hoặc có file xoá |
+| `optimize` | dbt `ALTER TABLE … EXECUTE optimize` cho Silver, Gold và `gold._mart_state` |
 | `expire` | Xoá snapshot ngoài 20 snapshot mới nhất, ref và các snapshot dưới 3 ngày |
 | `orphan` | Chỉ đếm file không còn snapshot nào tham chiếu; không xoá |
 

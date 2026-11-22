@@ -9,9 +9,9 @@ Cấu trúc dữ liệu và KPI ở [DATA.md](DATA.md), cài đặt ở [SETUP.m
 | Phần | Hiện trạng |
 |---|---|
 | Nguồn nghiệp vụ | FastAPI + PostgreSQL 28 bảng |
-| Generator | `datagen generate/verify/logs/reset`; preset OLTP `1m`/`10m`/`50m` |
+| Generator | `datagen generate/verify/logs/reset`; preset OLTP `100k`/`1m`/`10m`/`50m` |
 | Console | Streamlit: kịch bản mua online qua API, quản trị quyền MinIO/Polaris |
-| Pipeline OLTP | Airflow: staging → Bronze → Silver → Gold, 19 bảng nguồn, 27 model Gold |
+| Pipeline OLTP | Airflow: staging → Bronze → Silver → Gold, 19 bảng nguồn, 27 model Gold; đồng bộ dòng bị xoá bằng xoá mềm |
 | Access log | Đang thiết kế lại: API vẫn có thể gửi Kafka, đã gỡ job Flink và DAG log; thiết kế giữ ở `streaming/sql` và `dbt/models/logs` |
 | BI | Superset tùy chọn, ba mart doanh thu; sẽ làm lại sau khi các pipeline ổn định |
 
@@ -27,7 +27,7 @@ Không dùng Spark, Debezium hay CDC.
 | PostgreSQL 16.8 | Nguồn `ecommerce`; metadata `airflow`, `polaris`, `superset` | [database](../database/), [scripts](../infrastructure/postgres/) |
 | MinIO | Object storage cho dữ liệu và metadata Iceberg | [policy mẫu](../infrastructure/minio/policies/) |
 | Polaris 1.8.0 | Iceberg REST catalog, quyền theo principal/role, cấp credential lưu trữ theo bảng | |
-| Airflow 3.3.2 | Hai DAG OLTP; LocalExecutor; thư viện pipeline cài vào Python của image | [airflow](../airflow/), [image](../infrastructure/airflow/Dockerfile) |
+| Airflow 3.3.2 | Bốn DAG OLTP (init, incremental, sync, purge); LocalExecutor; thư viện pipeline cài vào Python của image | [airflow](../airflow/), [image](../infrastructure/airflow/Dockerfile) |
 | dbt 1.11 (dbt-trino) | Dựng Silver và Gold trên Trino | [dbt](../dbt/) |
 | Trino 483 | Catalog `lakehouse` chỉ đọc cho phân tích, `lakehouse_etl` cho dbt ghi `silver`/`gold`; HTTPS, mật khẩu và SQL access rules | [trino](../infrastructure/trino/) |
 | Kafka 3.8, Flink 1.19 | Hạ tầng cho luồng access log (profile `streaming`) | [flink](../infrastructure/flink/) |
@@ -47,9 +47,9 @@ API / datagen ──► PostgreSQL ──► staging ──► [reconcile] ─�
 | `staging` | Bản trích xuất mới nhất; mỗi lần nạp xoá trắng rồi ghi lại, nên chạy lại cho cùng kết quả |
 | `bronze` | Dòng nguồn giữ nguyên kiểu dữ liệu, phiên bản hiện tại theo khoá chính |
 | `silver` | Kiểu dữ liệu chuẩn hoá (UUID, timestamp), merge theo khoá chính; dbt test `matches_bronze` bảo đảm cùng tập khoá với Bronze |
-| `gold` | 7 dimension, 6 fact, 14 mart và 2 seed, dựng lại mỗi lần chạy |
+| `gold` | 7 dimension, 6 fact, 14 mart và 2 seed; dimension và fact merge dòng đổi, mart tính lại các ngày bị ảnh hưởng |
 
-`lakehouse_oltp_init` nạp toàn bộ nguồn tại một mốc chung và đối soát với nguồn trước khi Bronze đổi. `lakehouse_oltp_incremental` chạy 03:00 hằng ngày theo cursor `updated_at`/`created_at`. Ràng buộc khoá, trường bắt buộc và khoá ngoại đã được PostgreSQL bảo đảm nên pipeline không kiểm tra lại. Chạy incremental không đồng bộ dòng bị xoá ở nguồn; chạy init thì có.
+`lakehouse_oltp_init` nạp toàn bộ nguồn tại một mốc chung và đối soát với nguồn trước khi Bronze đổi. `lakehouse_oltp_incremental` chạy 03:00 hằng ngày theo cursor `updated_at`/`created_at`. Sau mỗi lần incremental, `lakehouse_oltp_sync` so khoá nguồn với Bronze và đánh dấu xoá mềm (`_is_deleted`) dòng đã mất ở nguồn qua mọi tầng; `lakehouse_oltp_purge` chạy tay để xoá cứng. Ràng buộc khoá, trường bắt buộc và khoá ngoại đã được PostgreSQL bảo đảm nên pipeline không kiểm tra lại. Chi tiết ở [airflow/README.md](../airflow/README.md).
 
 ## 4. Định danh và quyền
 
@@ -72,6 +72,6 @@ API / datagen ──► PostgreSQL ──► staging ──► [reconcile] ─�
 ## 6. Chưa hoàn tất
 
 - Luồng access log (Flink, Bronze/Silver log, mart log) và loader cho log sinh tổng hợp.
-- Đồng bộ dòng bị xoá ở nguồn khi chạy incremental.
+- Tự đồng bộ thay đổi cột ở nguồn (thêm, bỏ, đổi kiểu); hiện thêm cột cần chạy lại init.
 - Dashboard Superset cho các mart còn lại và quyền theo cửa hàng.
 - Runner cho nghiệp vụ ngoài mua online; HA, backup/restore và hardening khi triển khai public.

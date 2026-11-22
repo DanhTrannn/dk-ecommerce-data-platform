@@ -4,6 +4,24 @@ Notable changes to this project. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### 2026-11-22: Incremental Gold and delete sync
+
+#### Added
+
+- `lakehouse_oltp_sync`, run after each incremental load through the Asset `lakehouse_oltp_loaded`. It compares every source primary key with Bronze, soft-deletes rows gone from the source (`_is_deleted`, `_deleted_at`) and reloads rows that came back.
+- Delete flags in Bronze, Silver and the Gold dimensions and facts. Marts read only live rows through the `live()` macro.
+- `lakehouse_oltp_purge`, a manual DAG that hard-deletes the flagged rows from Gold, Silver and Bronze.
+- `gold._mart_state`, each mart's watermark and last built day, created by the init DAG.
+- The `100k` OLTP preset for quick pipeline runs.
+
+#### Changed
+
+- Gold dimensions and facts merge the rows whose inputs changed, instead of being rebuilt on every run. Facts keep `_previous_dates` so marts also rebuild the days a row moved away from.
+- Marts delete and rebuild only the days, or customers, touched since their watermark. The watermark advances only after the mart is written, so a failed run is picked up by the next one. `mart_customer_cohort_monthly` and `mart_inventory_current` are still rebuilt.
+- An init load keeps the rows already flagged as deleted and flags rows the source no longer has, so delete history survives a full reload.
+- Maintenance compacts Bronze only. A new `optimize` task runs `ALTER TABLE … EXECUTE optimize` on Silver, Gold and `_mart_state`, replacing the Silver post-hook.
+- Backfilling the incremental DAG requires pausing the sync DAG and triggering it once afterwards.
+
 ### 2026-11-21: OLTP pipeline redesign
 
 #### Added

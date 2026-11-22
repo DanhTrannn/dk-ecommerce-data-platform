@@ -28,7 +28,7 @@
 | Part | What it does |
 |---|---|
 | Source | FastAPI + PostgreSQL (28 tables): catalog, accounts, cart/checkout, POS, stock, delivery, returns, reviews |
-| Generator | `datagen` loads 12 months of synthetic history from YAML presets (`1m`/`10m`/`50m` online orders per year) |
+| Generator | `datagen` loads 12 months of synthetic history from YAML presets (`100k`/`1m`/`10m`/`50m` online orders per year) |
 | Console | Streamlit: purchase scenarios against the API, and MinIO/Polaris access administration |
 | OLTP pipeline | Airflow: PostgreSQL → staging → Bronze (PyIceberg) → Silver → Gold (dbt on Trino); see [airflow/README.md](airflow/README.md) |
 | Access governance | Per-workload MinIO users, Polaris principals and roles, vended storage credentials, Trino SQL access rules |
@@ -74,6 +74,7 @@ make build && make up           # API, Streamlit, PostgreSQL, MinIO, Polaris
    docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_init
    # After it succeeds:
    docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
+   docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_sync
    ```
 
 | Profile | Services |

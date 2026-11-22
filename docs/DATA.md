@@ -69,13 +69,14 @@ Catalog Polaris `lakehouse`, bucket `MINIO_LAKEHOUSE_BUCKET`, namespace `staging
 | Tầng | Nội dung | Ghi bởi |
 |---|---|---|
 | `staging.<bảng>` | Bản trích xuất của lần chạy gần nhất, kèm `_ingested_at`; xoá trắng mỗi lần nạp | PyIceberg |
-| `bronze.<bảng>` | Dòng nguồn giữ kiểu dữ liệu của PostgreSQL, phiên bản hiện tại theo khoá chính | PyIceberg |
+| `bronze.<bảng>` | Dòng nguồn giữ kiểu dữ liệu của PostgreSQL, phiên bản hiện tại theo khoá chính, kèm `_is_deleted`, `_deleted_at` | PyIceberg |
 | `silver.<bảng>` | Cùng dòng với Bronze; UUID thành 16 byte, timestamp `timestamp(6) with time zone` | dbt (merge) |
-| `gold` | 7 dimension, 6 fact, 14 mart, 2 seed | dbt (dựng lại) |
+| `gold` | 7 dimension, 6 fact, 14 mart, 2 seed; `gold._mart_state` giữ mốc của mart | dbt (merge; mart tính lại theo ngày) |
 
-- **Init** đọc mọi dòng tạo trước mốc bắt đầu lần chạy, đối soát với nguồn tại cùng mốc (số dòng; tổng tiền `orders`/`payments`/`refunds`; số dư sổ kho so với `on_hand − opening_on_hand` của `inventory`/`store_inventory` trừ biến động sau mốc), rồi ghi đè Bronze trong một commit. Dòng đã xoá ở nguồn vì vậy cũng biến mất.
+- **Init** đọc mọi dòng tạo trước mốc bắt đầu lần chạy, đối soát với nguồn tại cùng mốc (số dòng; tổng tiền `orders`/`payments`/`refunds`; số dư sổ kho so với `on_hand − opening_on_hand` của `inventory`/`store_inventory` trừ biến động sau mốc), rồi ghi đè Bronze trong một commit, giữ lại dòng đã đánh dấu xoá và đánh dấu xoá dòng nguồn không còn.
 - **Incremental** đọc các dòng có cursor trong data interval `[start, end)`, không lookback. Bronze upsert và không để dòng có cursor cũ hơn ghi đè bản hiện có. Bronze là trạng thái hiện tại, không phải lịch sử mọi thay đổi.
 - **Silver** chỉ merge các dòng Bronze mới hơn `_ingested_at` lớn nhất của Silver; test `matches_bronze` chặn khi Silver và Bronze lệch khoá.
+- **Xoá ở nguồn** được `lakehouse_oltp_sync` phát hiện bằng cách so khoá, rồi giữ làm lịch sử (xoá mềm) ở Bronze, Silver và dimension, fact của Gold; mart chỉ tính dòng còn sống. Cách hoạt động ở [airflow/README.md](../airflow/README.md#deleted-rows).
 - Khoá chính, trường bắt buộc, khoá ngoại và CHECK đã được PostgreSQL bảo đảm nên không kiểm tra lại. Dữ liệu cá nhân không bị băm; chỉ các cột khai báo trong `sources.py` được nạp.
 
 ## 4. Access-log contract và xử lý
@@ -157,7 +158,7 @@ Lệnh `datagen` trong [generator](../generator/README.md) nạp 12 tháng lịc
 
 ### Preset OLTP
 
-[`generator/oltp/configs/`](../generator/oltp/configs/) có `1m.yml`, `10m.yml`, `50m.yml`, mục tiêu khoảng 1, 10 và 50 triệu đơn online trong 12 tháng (260.000 / 2.600.000 / 13.000.000 khách có mua; 500 / 1.000 / 2.000 sản phẩm). Tổng đơn là **kết quả** của quy luật tần suất mua, không phải đầu vào: đơn online kỳ vọng = khách có mua × 3,846 với 12 tháng lịch sử; POS cộng thêm đơn theo tỷ lệ riêng. Ba preset chỉ khác `scenario_id` và `scale`; seed `20260724`, anchor `2026-07-01T00:00:00+00:00`, múi giờ `Asia/Ho_Chi_Minh`.
+[`generator/oltp/configs/`](../generator/oltp/configs/) có `100k.yml`, `1m.yml`, `10m.yml`, `50m.yml`, mục tiêu khoảng 0,1, 1, 10 và 50 triệu đơn online trong 12 tháng (26.000 / 260.000 / 2.600.000 / 13.000.000 khách có mua; 200 / 500 / 1.000 / 2.000 sản phẩm). `100k` dùng để chạy thử pipeline nhanh. Tổng đơn là **kết quả** của quy luật tần suất mua, không phải đầu vào: đơn online kỳ vọng = khách có mua × 3,846 với 12 tháng lịch sử; POS cộng thêm đơn theo tỷ lệ riêng. Các preset chỉ khác `scenario_id` và `scale`; seed `20260724`, anchor `2026-07-01T00:00:00+00:00`, múi giờ `Asia/Ho_Chi_Minh`.
 
 Quy luật đo trong [purchase_behavior_eda.ipynb](../generator/oltp/notebooks/purchase_behavior_eda.ipynb) (H&M online 2019, Olist 2017):
 
@@ -289,7 +290,7 @@ Phần này giữ hồ sơ nguồn S01–S11 của nghiên cứu ngày **08/11/2
 
 ## 9. Hợp đồng Gold dbt/Trino
 
-Gold OLTP có 27 bảng: 7 dimension, 6 fact, 14 mart và 2 seed (`delivery_sla`, `calendar_events`). Mỗi model là bảng `CREATE OR REPLACE` (một commit Iceberg), dựng lại từ Silver hiện tại mỗi lần chạy, một task Airflow mỗi model theo thứ tự `ref()`. Giảm giá đơn được phân bổ cho các dòng theo tỷ lệ tiền dòng, làm tròn xuống tích luỹ, nên tổng phân bổ bằng đúng giảm giá đơn. Giá vốn lấy snapshot dòng đơn.
+Gold OLTP có 27 bảng: 7 dimension, 6 fact, 14 mart và 2 seed (`delivery_sla`, `calendar_events`), một task Airflow mỗi model theo thứ tự `ref()`/`live()`. Dimension và fact là model incremental merge theo khoá; mỗi fact giữ `_previous_dates` (các ngày trước lần merge) để mart tính lại cả ngày dòng vừa rời đi. Mart (trừ `mart_customer_cohort_monthly`, `mart_inventory_current` dựng lại toàn bộ) xoá rồi dựng lại các ngày bị ảnh hưởng kể từ mốc trong `gold._mart_state`. Dimension và fact có `_is_deleted`; mart chỉ đọc dòng còn sống. Giảm giá đơn được phân bổ cho các dòng theo tỷ lệ tiền dòng, làm tròn xuống tích luỹ, nên tổng phân bổ bằng đúng giảm giá đơn. Giá vốn lấy snapshot dòng đơn.
 
 `DBT_AS_OF` (mốc bắt đầu lần chạy) là ngày hiện tại của Gold: kết thúc chuỗi ngày tồn kho và backlog, và cửa sổ 28 ngày của `mart_inventory_current`. `dim_date` phủ trọn các năm có dữ liệu. Data test trong `dbt/tests/oltp` và test khoá trong `gold.yml` chạy với severity `warn`.
 
