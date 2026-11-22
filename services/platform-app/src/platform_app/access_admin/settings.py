@@ -17,11 +17,8 @@ class AccessSettings(BaseSettings):
     polaris_client_id: str = Field(default="root", validation_alias="POLARIS_ROOT_CLIENT_ID")
     polaris_secret: SecretStr = Field(default="", validation_alias="POLARIS_ROOT_CLIENT_SECRET")
     minio_url: str = "http://minio:9000"
-    minio_user: str = Field(default="", validation_alias="MINIO_ROOT_USER")
-    minio_secret: SecretStr = Field(default="", validation_alias="MINIO_ROOT_PASSWORD")
     export_url: str = "http://credential-exporter:8011"
     export_key_file: Path = Path("/run/access-secrets/exporter.key")
-    mc_binary: str = "mc"
     credentials_dir: Path = Path("/run/access-secrets")
     audit_path: Path = Path("data/access-admin/audit.jsonl")
 

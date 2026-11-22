@@ -1,28 +1,20 @@
-"""Serialize checked bindings, audit before writes and verify remote outcomes."""
+"""Run administrative Polaris writes under one audit lock, recording each before and after."""
 
-import hashlib
-import json
 import uuid
 from contextlib import contextmanager
 
 from pydantic import ValidationError
 
-from platform_app.api.core.errors import AppError
 from platform_app.access_admin.audit import Audit
-from platform_app.access_admin.minio import MinioAccess
 from platform_app.access_admin.polaris import PolarisAccess
 from platform_app.access_admin.settings import AccessSettings
-
-
-def revision(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+from platform_app.api.core.errors import AppError
 
 
 @contextmanager
-def adapter(provider):
+def polaris():
     try:
-        settings = AccessSettings()
-        backend = PolarisAccess(settings) if provider == "polaris" else MinioAccess(settings)
+        backend = PolarisAccess(AccessSettings())
     except Exception:
         raise AppError(
             "ACCESS_UNAVAILABLE", "Không kết nối được quản trị hạ tầng; kiểm tra cấu hình phía server.", 503
@@ -35,59 +27,11 @@ def adapter(provider):
 
 def snapshot(backend):
     try:
-        state = backend.snapshot()
-        return {**state, "revision": revision(state)}
+        return backend.snapshot()
     except AppError:
         raise
     except Exception:
-        raise AppError(
-            "ACCESS_UNAVAILABLE", "Không đọc được quyền hiện tại; không hiển thị dữ liệu cũ như dữ liệu mới.", 503
-        ) from None
-
-
-def change_binding(backend, change, actor, audit):
-    operation_id = uuid.uuid4().hex
-    record = {
-        "operation_id": operation_id,
-        "actor": str(actor.public_id),
-        "actor_role": actor.role,
-        "provider": "polaris" if change.kind != "policy" else "minio",
-        "change": change.model_dump(exclude={"revision"}),
-    }
-    try:
-        with audit.lock():
-            before = snapshot(backend)
-            if before["revision"] != change.revision:
-                raise AppError("ACCESS_STALE", "Quyền đã thay đổi; tải lại trước khi áp dụng.", 409)
-            assigned = backend.assigned(change, before)
-            audit.append({**record, "status": "started", "revision": before["revision"]})
-            if assigned == change.granted:
-                audit.append({**record, "status": "noop"})
-                return {"operation_id": operation_id, "status": "noop"}
-            try:
-                backend.apply(change)
-                after = snapshot(backend)
-                if backend.assigned(change, after) != change.granted:
-                    raise RuntimeError("Outcome mismatch")
-            except Exception:
-                audit.append({**record, "status": "unknown"})
-                raise AppError(
-                    "ACCESS_OUTCOME_UNKNOWN",
-                    "Chưa xác minh được kết quả. Tải lại quyền; không tự gửi lại thao tác.",
-                    502,
-                    {"operation_id": operation_id},
-                ) from None
-            audit.append({**record, "status": "verified", "revision": after["revision"]})
-            return {"operation_id": operation_id, "status": "verified"}
-    except AppError:
-        raise
-    except OSError:
-        raise AppError(
-            "ACCESS_AUDIT_UNAVAILABLE",
-            "Không lưu được audit. Kiểm tra trạng thái thực tế trước khi thao tác tiếp.",
-            503,
-            {"operation_id": operation_id},
-        ) from None
+        raise AppError("ACCESS_UNAVAILABLE", "Không đọc được quyền hiện tại.", 503) from None
 
 
 def configured_audit():
@@ -97,86 +41,72 @@ def configured_audit():
         raise AppError("ACCESS_AUDIT_UNAVAILABLE", "Chưa cấu hình nơi lưu audit quản trị.", 503) from None
 
 
-def create_resource(backend, change, actor, audit):
+def audited(change, action, actor, audit, write):
+    """Run `write` under the audit lock, recording it as started, then done, rejected or failed.
+
+    The lock serializes the single admin's writes; a write that fails is not retried, since its outcome at Polaris
+    is not known.
+    """
     operation_id = uuid.uuid4().hex
     record = {
         "operation_id": operation_id,
         "actor": str(actor.public_id),
         "actor_role": actor.role,
-        "provider": backend.provider,
-        "action": "create",
-        "change": change.model_dump(exclude={"revision", "secret"}),
+        "provider": "polaris",
+        "action": action,
+        "change": change.model_dump(),
     }
     try:
         with audit.lock():
-            before = snapshot(backend)
-            if before["revision"] != change.revision:
-                raise AppError("ACCESS_STALE", "Trạng thái đã thay đổi; tải lại trước khi tạo.", 409)
-            backend.validate_create(change, before)
-            if backend.exists(change, before):
-                raise AppError("ACCESS_EXISTS", "Đối tượng đã tồn tại; không ghi đè hoặc đổi secret.", 409)
             audit.append({**record, "status": "started"})
             try:
-                created = backend.create(change) or {}
-                if not backend.exists(change, snapshot(backend)):
-                    raise RuntimeError("Creation not visible")
-                audit.append({**record, "status": "verified"})
+                result = write() or {}
+            except AppError:
+                audit.append({**record, "status": "rejected"})
+                raise
             except Exception:
-                audit.append({**record, "status": "unknown"})
+                audit.append({**record, "status": "failed"})
                 raise AppError(
-                    "ACCESS_OUTCOME_UNKNOWN",
-                    "Chưa xác minh được kết quả. Tải lại để kiểm tra; không tự tạo lại hoặc đổi secret.",
+                    "ACCESS_FAILED",
+                    "Thao tác thất bại. Tải lại quyền để xem trạng thái hiện tại; không tự gửi lại.",
                     502,
                     {"operation_id": operation_id},
                 ) from None
-            return {"operation_id": operation_id, "status": "verified", **created}
-    except AppError:
-        raise
+            audit.append({**record, "status": "done"})
+            return {"operation_id": operation_id, "status": "done", **result}
     except OSError:
         raise AppError(
-            "ACCESS_AUDIT_UNAVAILABLE", "Không lưu được audit; kiểm tra trạng thái trước khi thao tác tiếp.", 503
+            "ACCESS_AUDIT_UNAVAILABLE",
+            "Không ghi được audit. Kiểm tra trạng thái thực tế trước khi thao tác tiếp.",
+            503,
+            {"operation_id": operation_id},
         ) from None
+
+
+def change_binding(backend, change, actor, audit):
+    def write():
+        if backend.assigned(change, snapshot(backend)) != change.granted:
+            backend.apply(change)
+
+    return audited(change, "grant" if change.granted else "revoke", actor, audit, write)
+
+
+def create_resource(backend, change, actor, audit):
+    def write():
+        state = snapshot(backend)
+        backend.validate_create(change, state)
+        if backend.exists(change, state):
+            raise AppError("ACCESS_EXISTS", "Đối tượng đã tồn tại; không ghi đè hoặc đổi secret.", 409)
+        return backend.create(change)
+
+    return audited(change, "create", actor, audit, write)
 
 
 def mutate_resource(backend, change, actor, audit, *, preflight=None):
-    operation_id = uuid.uuid4().hex
-    record = {
-        "operation_id": operation_id,
-        "actor": str(actor.public_id),
-        "actor_role": actor.role,
-        "provider": backend.provider,
-        "action": change.operation,
-        "change": change.model_dump(exclude={"revision"}),
-    }
-    try:
-        with audit.lock():
-            before = snapshot(backend)
-            if before["revision"] != change.revision:
-                raise AppError("ACCESS_STALE", "Trạng thái đã thay đổi; tải lại trước khi lưu.", 409)
-            backend.validate_mutation(change, before)
-            if preflight is not None:
-                preflight()
-            audit.append({**record, "status": "started"})
-            try:
-                backend.mutate(change)
-                after = snapshot(backend)
-                if not backend.mutation_matches(change, after):
-                    raise RuntimeError("Mutation readback mismatch")
-                if hasattr(backend, "finalize_mutation"):
-                    backend.finalize_mutation(change, after)
-                audit.append({**record, "status": "verified"})
-            except Exception:
-                audit.append({**record, "status": "unknown"})
-                raise AppError(
-                    "ACCESS_OUTCOME_UNKNOWN",
-                    "Chưa xác minh được kết quả; tải lại trạng thái trước khi thao tác tiếp. Không tự thử lại.",
-                    502,
-                    {"operation_id": operation_id},
-                ) from None
-            return {"operation_id": operation_id, "status": "verified"}
-    except AppError:
-        raise
-    except OSError:
-        raise AppError(
-            "ACCESS_AUDIT_UNAVAILABLE", "Không ghi được audit; kiểm tra trạng thái trước khi thao tác tiếp.", 503
-        ) from None
+    def write():
+        payload = backend.validate_mutation(change, snapshot(backend))
+        if preflight is not None:
+            preflight()
+        backend.mutate(change, payload)
+
+    return audited(change, change.operation, actor, audit, write)

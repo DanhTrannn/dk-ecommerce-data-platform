@@ -1,0 +1,44 @@
+name: retail_lakehouse
+version: '1.0.0'
+config-version: 2
+profile: retail_lakehouse
+model-paths: [models]
+macro-paths: [macros]
+seed-paths: [seeds]
+test-paths: [tests]
+clean-targets: [target, dbt_packages]
+models:
+  retail_lakehouse:
+    +schema: gold
+    oltp:
+      +tags: [oltp]
+      # Dimensions and facts merge the keys whose inputs changed; marts are still rebuilt each run. A full refresh
+      # rebuilds with CREATE OR REPLACE, since Polaris refuses DROP TABLE (purge).
+      +materialized: table
+      +incremental_strategy: merge
+      +on_table_exists: replace
+    silver:
+      +schema: silver
+      +on_schema_change: append_new_columns
+      +tags: [silver]
+      # An incremental run merges the Bronze rows written since the last merge, by primary key. A full refresh
+      # rebuilds with CREATE OR REPLACE, since Polaris refuses DROP TABLE (purge).
+      +materialized: incremental
+      +incremental_strategy: merge
+      +on_table_exists: replace
+    logs:
+      +tags: [logs]
+      +materialized: iceberg_merge
+seeds:
+  retail_lakehouse:
+    +schema: gold
+    +tags: [oltp]
+    # Polaris refuses DROP TABLE (purge); replace keeps the same table.
+    +on_table_exists: replace
+data_tests:
+  retail_lakehouse:
+    oltp:
+      # Post-Gold checks only log; the blocking ones are the source reconciliation and the Silver matches_bronze tests.
+      +severity: warn
+flags:
+  require_certificate_validation: true

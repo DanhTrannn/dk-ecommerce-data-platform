@@ -23,199 +23,114 @@
 
 ## Overview
 
-**D&K E-Commerce Data Platform** is a local Data Engineering project for a Vietnamese retailer with online and in-store sales. It combines configurable synthetic transaction data, a FastAPI source application, batch extraction from PostgreSQL, and real API access logs. Analytical tables use Apache Iceberg on MinIO, an Apache Polaris catalog, and Trino for SQL access.
+**D&K E-Commerce Data Platform** is a local data engineering project for a Vietnamese retailer with online and in-store sales. A FastAPI application and a synthetic data generator fill a PostgreSQL source; Airflow loads it into an Apache Iceberg lakehouse (MinIO storage, Apache Polaris catalog) and dbt on Trino builds the analytical Gold layer.
 
-The current interface is a **Streamlit Platform Console** for running online purchase scenarios against the API and managing MinIO/Polaris accounts, roles, policies and workload credentials. An optional **Apache Superset sales PoC** reads two published sales marts.
+| Part | What it does |
+|---|---|
+| Source | FastAPI + PostgreSQL (28 tables): catalog, accounts, cart/checkout, POS, stock, delivery, returns, reviews |
+| Generator | `datagen` loads 12 months of synthetic history from YAML presets (`100k`/`1m`/`10m`/`50m` online orders per year) |
+| Console | Streamlit: purchase scenarios against the API, and Polaris access administration |
+| OLTP pipeline | Airflow: PostgreSQL → staging → Bronze (PyIceberg) → Silver → Gold (dbt on Trino); see [airflow/README.md](airflow/README.md) |
+| Access governance | Polaris principals and roles per workload, per-table storage credentials vended by Polaris (one MinIO account, Polaris's), Trino SQL access rules |
+| BI | Optional Superset dashboard over three Gold sales marts |
 
-> **Two separate data paths:** Airflow-scheduled batch (Polars/PyIceberg ingestion, dbt on Trino for Gold) is the only writer of the serving OLTP Bronze/Silver/Gold namespaces. API access logs flow through Kafka/Flink to Landing, then through a separate native pipeline and publication.
-
-## Features
-
-- **Synthetic data rules:** EDA notebooks derive purchase rules (H&M, Olist) and browsing rules (eCommerce Behavior) into YAML presets for OLTP (`1m`/`10m`/`50m` approximate online orders per year) and access logs. `datagen generate` loads OLTP history into PostgreSQL, `verify` checks it, and `logs` writes synthetic access-log Parquet files; see [generator/README.md](generator/README.md).
-- **Source workflows:** Retained APIs cover authentication, products, cart/checkout, POS, stock, inbound receipts, payments, delivery, returns and reviews. Streamlit currently automates online purchase attempts; it does not automate every retained API workflow.
-- **Incremental batch:** Fixed Airflow intervals, paginated PostgreSQL reads, append-only Bronze per run, checks that block bad data before Silver changes, Silver merge by primary key, then a dbt rebuild of Gold.
-- **Open Lakehouse:** Iceberg snapshots, Polaris access control, MinIO workload accounts, a read-only Trino catalog for analytics, a separate dbt writer catalog, and Iceberg maintenance.
-- **Data quality:** Row rules, foreign keys and reconciliation with PostgreSQL run on each batch's Bronze rows before Silver merges; a failure stops the run and leaves Silver and Gold unchanged. Gold has 7 dimensions, 6 facts and 14 OLTP marts, plus three access-log marts.
-- **HTTP observability:** Real request capture, local delivery DLQ, Landing retention, deduplication and three HTTP/product/funnel marts. Published and provisional HTTP analytics retain separate contracts.
-- **Sales BI:** Superset provides four KPI cards and four charts over three current Gold sales marts. Viewer/store permissions and the remaining BI areas are pending.
+The access-log path (API → Kafka → Flink → lakehouse) is being redesigned: the API can still publish to Kafka, but the Flink job and log DAGs are removed. The approved design is in [docs/ACCESS_LOG_DESIGN.md](docs/ACCESS_LOG_DESIGN.md).
 
 ## Tech Stack
 
 | Area | Technologies |
 |---|---|
 | Source and console | Python 3.11, FastAPI, SQLAlchemy, Streamlit, PostgreSQL 16.8 |
-| Batch and orchestration | Polars 2.1.0, PyIceberg 0.12.0, dbt 1.11 (dbt-trino), Apache Airflow 3.3.2 |
-| Event capture | Apache Kafka 3.8, Apache Flink 1.19 |
+| Pipeline | Apache Airflow 3.3.2, PyIceberg 0.12, PyArrow, Polars 2.1, dbt 1.11 (dbt-trino) |
 | Storage and catalog | MinIO, Apache Iceberg 1.10.1, Apache Polaris 1.8.0 |
-| Analytics and BI | Trino 483, Apache Superset 6.1.0 |
-| Tooling | Docker Compose, uv workspace/lockfile, Ruff, unittest, GitHub Actions |
+| Query and BI | Trino 483, Apache Superset 6.1.0 |
+| Events | Apache Kafka 3.8, Apache Flink 1.19 |
+| Tooling | Docker Compose, uv workspace, Ruff, unittest, GitHub Actions |
 
 ## Quick Start
 
-### Prerequisites and configuration
-
-Use Docker Engine with Compose v2, Python 3.11 and uv.
+Requires Docker Engine with Compose v2, Python 3.11 and uv. Full steps and variables: [docs/SETUP.md](docs/SETUP.md).
 
 ```bash
-# Only when .env does not exist:
-cp .env.example .env
+cp .env.example .env            # only if .env does not exist; then fill in the secrets
 uv sync --locked
+make build && make up           # API, Streamlit, PostgreSQL, MinIO, Polaris
 ```
 
-Configure `.env` before starting services. It includes source/metadata database credentials, API auth settings, MinIO workload accounts, Polaris bootstrap credentials, and Airflow keys. Superset additionally requires its metadata password, secret key and admin password. Example credentials are local placeholders; never commit real credentials. Host settings and Compose container settings differ; use [setup.md](docs/setup.md) for the complete variable groups and bootstrap sequence.
+1. Open Streamlit at <http://127.0.0.1:8501> → **Quản trị quyền**, sign in as the bootstrap admin (`API_BOOTSTRAP_ADMIN_*`). `minio-init` already created the bucket and the storage account Polaris uses. Create the Polaris catalog, principals and roles, then assign principal credentials to workloads in **Cấp cho workload**.
+2. Load source data and the batch reader:
 
-```bash
-# Validate without printing resolved credentials:
-docker compose --env-file .env.example --profile '*' config --quiet
-make build
+   ```bash
+   make seed
+   make generate PRESET=1m
+   make source-reader
+   ```
 
-# Start the console/API, storage/catalog and credential exporter:
-make up
-```
+3. Start Airflow and Trino, then run the first load:
 
-### Initialize access and source data
+   ```bash
+   make core
+   docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_init
+   docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_init
+   # After it succeeds:
+   docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
+   docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_sync
+   ```
 
-On a fresh source database, `platform-admin-init` applies the business schema and creates only the bootstrap admin configured by `API_BOOTSTRAP_ADMIN_*`. Existing source data and passwords are preserved; incomplete existing schemas require explicit migration. Startup does not seed the product catalog or create sample MinIO/Polaris workload accounts.
-
-Open Streamlit at <http://127.0.0.1:8501>, select **Quản trị quyền**, and sign in as the bootstrap admin. Create MinIO users, buckets and policies, then Polaris catalogs, principals and roles. MinIO workload names/secrets must match the consumer configuration in `.env`. In **Cấp cho workload**, assign a saved Polaris principal credential to each required consumer volume. Creating a principal alone does not configure a workload. See [setup.md](docs/setup.md#2-build-và-chọn-profile) for the sequence.
-
-For sample application data and batch access, run these explicitly after schema bootstrap:
-
-```bash
-make seed
-make source-reader
-# After workload permissions/credentials and Airflow settings are ready:
-make up-all
-```
-
-`make seed` adds missing application catalog/admin records; it does not create cities or stores. Historical data is loaded separately with `make generate PRESET=1m`; see [generator/README.md](generator/README.md). Existing databases are not migrated automatically.
-
-### Run data pipelines
-
-```bash
-# Enable the OLTP DAG (daily incremental at 03:00) and run a first full load; monitor it in Airflow:
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp
-docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp --conf '{"mode": "full"}'
-```
-
-DAGs start paused. Unpausing `lakehouse_oltp` also queues the latest scheduled incremental run; one run is active at a time, and the full run that follows replaces Silver. For streaming, enable the additional profile and submit the Flink access-log job explicitly. Real HTTP capture also requires `KAFKA_ENABLED=true`; access-log processing has its own DAG. The exact startup/recovery steps are in [setup.md](docs/setup.md) and [operations.md](docs/operations.md).
-
-### Optional Superset
-
-After a successful full OLTP batch and Superset environment configuration:
-
-```bash
-# Apply PostgreSQL BI environment/mount changes while jobs are idle:
-docker compose --profile core up -d postgres
-make superset-db
-make superset-init
-docker compose --profile core --profile bi up -d superset
-make superset-sync
-```
-
-Open the dashboard URL returned by sync. Datasets read the current Gold tables, so new batches appear without another sync; run sync again only after changing the dataset or chart definitions. The current PoC is admin-only and does not inherit source API roles or store permissions.
-
-### Profiles and service endpoints
-
-| Profile | Responsibility |
+| Profile | Services |
 |---|---|
-| `core` | PostgreSQL, MinIO, Polaris, Airflow (with the Polars/PyIceberg/dbt runtime), Trino, platform-app (FastAPI/Streamlit), admin bootstrap and credential exporter |
-| `streaming` | Kafka and Flink; the job submission service runs manually |
-| `bi` | Superset web and explicit initialization/dashboard-sync jobs |
+| `core` | PostgreSQL, MinIO, Polaris, Airflow, Trino, platform-app, admin bootstrap, credential exporter |
+| `streaming` | Kafka, Flink |
+| `bi` | Superset |
 
-| Interface | Default local address |
+| Interface | Address |
 |---|---|
-| Streamlit Platform Console | <http://127.0.0.1:8501> |
-| FastAPI / OpenAPI UI | <http://127.0.0.1:8000/docs> |
+| Streamlit / FastAPI docs | <http://127.0.0.1:8501> / <http://127.0.0.1:8000/docs> |
 | Airflow | <http://localhost:8080> |
-| Trino HTTPS | <https://127.0.0.1:8084> (generated CA required) |
-| Superset, when enabled | <http://127.0.0.1:8088> |
+| Trino (HTTPS, generated CA) | <https://127.0.0.1:8084> |
 | MinIO API / console | <http://127.0.0.1:9000> / <http://127.0.0.1:9001> |
-| Polaris catalog / health | <http://127.0.0.1:8181/api/catalog> / <http://127.0.0.1:8182/q/health> |
-| Flink | <http://localhost:8085> |
+| Polaris catalog | <http://127.0.0.1:8181/api/catalog> |
+| Superset | <http://127.0.0.1:8088> |
 
-Kafka host clients use `localhost:9094`; containers use `kafka:9092`. PostgreSQL defaults to host port 5432. Access administration shares the FastAPI origin on port 8000 under `/api/v1/access`; only `credential-exporter:8011` remains internal. Bind addresses/ports are configurable; see setup before using this local stack on an externally reachable machine.
-
-## Architecture
-
-| Path | Processing | Result |
-|---|---|---|
-| OLTP batch | PostgreSQL → Polars/PyIceberg Bronze → pre-merge checks → Silver → dbt/Trino Gold | 7 dimensions, 6 facts and 14 business marts; Trino/Superset read the current Gold tables |
-| API access logs | FastAPI → Kafka → Flink Landing → native Bronze/Silver/fact → dbt marts | HTTP fact and three marts, with an independent publication |
-
-The source has 28 tables; the batch loads 19 of them (`customer_credentials`, carts, wishlists, coupon redemptions, shipment attempts, inbound receipt headers and the two stock balance tables are not loaded; the balances are read only to reconcile the ledger). Mutable and append-only sources use different cursors. Currency is VND; business time uses Asia/Ho_Chi_Minh, with UTC handling defined per pipeline. Generated transactions, API-created transactions and observed request logs have distinct provenance.
-
-Publication gates prevent a failed refresh from replacing the last accepted manifest. Superset SQL pins snapshot IDs; expired snapshots require operational coordination. The code implements these paths; source code and past component checks do not establish a fresh end-to-end run or production SLA. Details: [architecture](docs/architecture.md), [data model and KPI contracts](docs/data.md), [operational evidence and limits](docs/operations.md).
-
-### Repository structure
+## Repository Structure
 
 ```text
 .
-├── services/
-│   └── platform-app/       # FastAPI, Streamlit, workers, access administration, provisioning
-├── generator/              # datagen CLI, OLTP/log generators, EDA notebooks and YAML presets
-├── database/               # PostgreSQL schema and explicit seeds
-├── pipelines/              # Polars/PyIceberg batch, dbt project, Flink streaming and source contracts
-├── airflow/                # DAGs and Airflow runtime
-├── infrastructure/         # Storage, catalog, streaming, Trino and Superset configuration
-├── docs/                   # Four technical references and the retained final report
-├── assets/report/          # Local report figures and diagram sources (gitignored)
+├── airflow/                # OLTP pipeline: DAGs, tasks, lakehouse library, tests
+├── dbt/                    # dbt project: Silver, Gold, seeds, data tests
+├── streaming/sql/          # access-log and Flink SQL designs (not running)
+├── services/platform-app/  # FastAPI, Streamlit, access administration, credential exporter
+├── generator/              # datagen CLI, EDA notebooks, YAML presets
+├── database/               # PostgreSQL schema and seeds
+├── infrastructure/         # Airflow, Flink, Trino, MinIO, PostgreSQL, Superset configuration
+├── docs/                   # architecture, data, setup, operations, final report
 ├── docker-compose.yml
-├── Makefile
-├── pyproject.toml
-└── uv.lock
+└── Makefile
 ```
 
-## Data Generation and Source APIs
-
-OLTP presets live in `generator/oltp/configs/`: `1m.yml`, `10m.yml` and `50m.yml` target about 1, 10 and 50 million online orders over 12 months (260,000 / 2,600,000 / 13,000,000 buying customers). Online orders are an outcome of the purchase-frequency rule, not an input; POS contributes additional orders. `make generate PRESET=1m` loads that history into PostgreSQL (customers, orders, POS sales, inventory ledger) and `make generate-verify PRESET=1m` compares the result with the preset rules. Browsing rules for synthetic access logs live in `generator/logs/configs/` (`1m.yml`, `10m.yml`, `50m.yml`); `datagen logs --preset 1m --out data/generator/logs/1m` writes the matching access-log history (sale season 11–12/2025) as daily Parquet files. A loader from these files into the Lakehouse is not implemented; the current log pipeline consumes Flink Landing. The generated `session.id` and `ecommerce.order_number` fields are not projected into the current typed log layers, and the funnel remains request-event based. See [generator/README.md](generator/README.md) and the [synthetic data notes](docs/data.md#7-dữ-liệu-sinh-và-căn-cứ).
-
-Streamlit supports online purchase scenarios, MinIO/Polaris CRUD, access bindings and Polaris workload credential assignment. Scenario runs are persisted under `data/scenarios/`. Purchase attempts create real source API records; uncertain writes are recorded for inspection instead of being blindly replayed. Runtime logs are observed HTTP requests, not historical synthetic sessions.
-
-FastAPI retains source write operations and the lookups needed to supply their IDs. Six former business BI aggregation endpoints and ten administrative list/duplicate GET endpoints are retired. Inspect the current route contract at `/docs` or in the [API guide](services/platform-app/src/platform_app/api/README.md). The two retained administrative HTTP analytics endpoints are:
-
-- `/api/v1/admin/analytics/http-metrics`: published HTTP mart, bounded cached fallback, 1–30 UTC dates.
-- `/api/v1/admin/analytics/http-realtime`: provisional Landing analysis, 5–60-minute event-time window.
-
-Both require `admin`/`system_admin`. Infrastructure administration is stricter: only the configured bootstrap admin can use `/api/v1/access`. Streamlit supports MinIO user/bucket/policy CRUD, Polaris principal/role/catalog CRUD, grant management and assignment/removal of saved Polaris credentials for workloads. MinIO policy editing uses scoped forms; arbitrary policy JSON, group administration and secret rotation are not provided.
-
-Scheduled serving runs natively: Polars/PyIceberg append the 19 sources to Bronze, check the run's rows and merge them into Silver; dbt on Trino then rebuilds Gold from Silver. The three log marts are built by a separate pipeline from the Flink Landing table and published as snapshot manifests. See the [pipeline guide](pipelines/README.md).
-
-## Development Commands
+## Development
 
 ```bash
 uv lock --check
-python3 -m compileall -q airflow/dags/
 uvx ruff check .
-
-# Tests are kept local only (every tests/ directory is gitignored, except pipelines/dbt/tests data tests).
-uv run --locked --package platform-app -- \
-  python -m unittest discover -s services/platform-app/tests -v
-
-make ps
-make logs
-# Stop containers, retain them and their volumes:
-docker compose --profile '*' stop
-# Remove containers/networks, retain named volumes:
-make down
+make test                       # every test suite; pipeline tests run in the Airflow container
+make ps && make logs
+make down                       # remove containers, keep volumes
 ```
 
-`make stop` is an alias for `make down`. It is not the container-retaining stop command above. Pipeline integration checks use opt-in flags and isolated resources; see [operations.md](docs/operations.md). Do not assume ordinary unit tests run Docker acceptance checks.
+CI ([workflow](.github/workflows/ci.yml)) validates the Compose profiles, compiles the DAGs and runs Ruff; it does not run tests. Every test suite is in git and runs offline, without a live stack.
 
-**Current gaps:** synthetic-log ingestion and session/order mapping, synchronization of source hard deletes, broader BI and viewer/store permissions, and a fresh end-to-end acceptance using the current generator and pipeline. Spark, Debezium and PostgreSQL CDC are not part of the current Compose runtime.
+## Documentation
 
-The [CI workflow](.github/workflows/ci.yml) validates four Compose profile combinations, compiles DAG Python and runs Ruff. Documentation-only changes are skipped. Unit and opt-in integration suites are separate local checks.
-
-## Documentation Index
-
-| Document | Responsibility |
+| Document | Content |
 |---|---|
-| [architecture.md](docs/architecture.md) | System components, deployment boundaries and data flows |
-| [data.md](docs/data.md) | Sources, schema, Bronze/Silver/Gold, ETL/ELT, marts, KPIs and generator assumptions |
-| [setup.md](docs/setup.md) | Installation, environment configuration, explicit bootstrap and startup |
-| [operations.md](docs/operations.md) | Monitoring, logging, troubleshooting, recovery, maintenance and acceptance evidence |
-| [FINAL_REPORT.md](docs/FINAL_REPORT.md) | Retained academic report; historical content is not the current runtime specification |
+| [airflow/README.md](airflow/README.md) | OLTP pipeline: DAGs, layers, connections, running and testing |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, data flow, access control, deployment |
+| [docs/DATA.md](docs/DATA.md) | Source, lakehouse layers, Gold models and KPIs, generator assumptions |
+| [docs/SETUP.md](docs/SETUP.md) | Environment, bootstrap, startup |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Monitoring, troubleshooting, recovery, backups |
+| [docs/LAKEHOUSE_ACCESS_SETUP.md](docs/LAKEHOUSE_ACCESS_SETUP.md) | Step-by-step access setup in Streamlit |
+| [CHANGELOG.md](CHANGELOG.md) | Notable changes by milestone |
+| [docs/FINAL_REPORT.md](docs/FINAL_REPORT.md) | Thesis report; historical, not the current specification |
 
-Component usage remains beside its source: [platform-app](services/platform-app/README.md), [generator](generator/README.md), [database](database/README.md) and [pipelines](pipelines/README.md).
-
-Report figures and diagram sources are kept locally in `assets/report/`, which is excluded by `.gitignore`. Copy that directory separately when sharing or rendering `docs/FINAL_REPORT.md`; a fresh clone does not include it.
+Components: [platform-app](services/platform-app/README.md), [API](services/platform-app/src/platform_app/api/README.md), [generator](generator/README.md), [database](database/README.md).

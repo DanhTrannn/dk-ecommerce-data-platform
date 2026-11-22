@@ -1,12 +1,10 @@
 import streamlit as st
 
 from platform_app.access_admin.schemas import WorkloadAssignment
-from platform_app.ui.access_client import AccessUIError
+from platform_app.ui.access_client import SESSION, AccessUIError, clear_session
 
 
 def submit(payload, state):
-    from platform_app.ui.views.access import SESSION, _clear
-
     try:
         change = WorkloadAssignment(**payload, revision=state["revision"])
         result = st.session_state[SESSION].request(
@@ -22,14 +20,12 @@ def submit(payload, state):
     except AccessUIError as error:
         st.session_state["access_error"] = str(error)
         if error.status in {401, 403}:
-            _clear()
+            clear_session()
     st.session_state.pop("access_workload_state", None)
     st.rerun()
 
 
 def render(polaris_state):
-    from platform_app.ui.views.access import SESSION
-
     st.write("**Cấp credential Polaris cho workload**")
     st.caption("Chọn principal đã tạo, cấp file vào volume consumer. Không cần sao chép secret hoặc sửa file bằng tay.")
     try:

@@ -1,0 +1,30 @@
+version: 2
+sources:
+- name: bronze
+  database: lakehouse_etl
+  schema: bronze
+  tables:
+  - name: customers
+  - name: categories
+  - name: products
+  - name: product_variants
+  - name: cities
+  - name: stores
+  - name: delivery_staff
+  - name: orders
+  - name: order_items
+  - name: payments
+  - name: refunds
+  - name: order_status_history
+  - name: coupons
+  - name: shipments
+  - name: return_requests
+  - name: return_items
+  - name: product_reviews
+  - name: inventory_transactions
+  - name: inbound_receipt_items
+- name: events
+  database: lakehouse_etl
+  schema: gold
+  tables:
+  - name: fact_web_events

@@ -1,12 +1,12 @@
 # PostgreSQL source schema
 
-`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Khi chạy `make up`, `platform-admin-init` áp dụng schema nguồn trống và chỉ tạo admin bootstrap; seed catalog chạy thủ công. Quyền MinIO/Polaris và credential workload được quản trị trên Streamlit. Xem [phạm vi API nguồn](../docs/architecture.md#1-phạm-vi-và-hiện-trạng).
+`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Khi chạy `make up`, `platform-admin-init` áp dụng schema nguồn trống và chỉ tạo admin bootstrap; seed catalog chạy thủ công. Quyền MinIO/Polaris và credential workload được quản trị trên Streamlit. Xem [phạm vi API nguồn](../docs/ARCHITECTURE.md#1-phạm-vi-và-hiện-trạng).
 
 ## Định nghĩa và tái lập
 
 - [ORM](../services/platform-app/src/platform_app/api/models/) định nghĩa cột, default, CHECK, FK và index.
 - [schema.sql](schema.sql) là bản SQL bootstrap được render từ ORM, bổ sung trigger `updated_at`. `Base.metadata.create_all()` riêng lẻ không cài các trigger này.
-- [OLTP_SCHEMA](../docs/data.md#2-schema-oltp) mô tả hợp đồng dữ liệu, cursor và giới hạn chuyển đổi.
+- [OLTP_SCHEMA](../docs/DATA.md#2-schema-oltp) mô tả hợp đồng dữ liệu, cursor và giới hạn chuyển đổi.
 - [seeds/](seeds/) chạy thủ công, bổ sung từng bản ghi tham chiếu còn thiếu và giữ dữ liệu đã có; không tự chạy khi API khởi động.
 
 Render hoặc kiểm tra file SQL từ thư mục gốc:
@@ -75,16 +75,16 @@ uv run --locked --package platform-app -- \
   python -m unittest discover -s services/platform-app/tests -v
 ```
 
-ORM hiện có **28 bảng, 318 cột và 56 FK**. Lệnh `--check` xác minh bản DDL được render khớp code; nó không chứng minh database đang chạy đã được migrate. Unit/integration Python bị gitignore và không có sẵn trong checkout mới. Bộ local hiện có kiểm tra bootstrap PostgreSQL opt-in qua `RUN_ADMIN_BOOTSTRAP_TESTS=1`; phải đọc test source và chuẩn bị môi trường Docker trước khi bật. Không còn chỉ dẫn chạy fixture schema/API cũ như một suite được repo cung cấp.
+ORM hiện có **28 bảng, 318 cột và 56 FK**. Lệnh `--check` xác minh bản DDL được render khớp code; nó không chứng minh database đang chạy đã được migrate.
 
-Các kiểm tra nền tảng/DDL và test quản trị không thay thế nghiệm thu toàn bộ giao dịch, pipeline và tập dữ liệu lớn. Chi tiết phạm vi kiểm chứng ở [operations](../docs/operations.md#7-kiểm-tra-chất-lượng-và-ci).
+Các kiểm tra nền tảng/DDL và test quản trị không thay thế nghiệm thu toàn bộ giao dịch, pipeline và tập dữ liệu lớn. Chi tiết phạm vi kiểm chứng ở [operations](../docs/OPERATIONS.md#7-kiểm-tra-chất-lượng-và-ci).
 
 ## Tài khoản đọc cho batch PostgreSQL
 
 Sau bootstrap đủ bảng, đặt `POSTGRES_ECOMMERCE_READER_USER=ecommerce_reader` và password riêng trong `.env`; Compose truyền chúng vào PostgreSQL/Airflow/batch client. Cập nhật container PostgreSQL để nhận biến/mount mới rồi chạy `make source-reader`. Lệnh gọi `infrastructure/postgres/configure-source-reader.sh` bằng tài khoản quản trị PostgreSQL trong container, tạo/cấu hình role chuyên dụng trong một transaction; không tự chạy khi startup và không thay schema hay dữ liệu nghiệp vụ.
 
-Role chỉ SELECT 27 bảng nguồn phân tích (batch nạp 19 bảng, hai bảng tồn kho dùng để đối soát), không có quyền đọc `customer_credentials` hoặc quyền ghi bảng/sequence. Không dùng role ứng dụng/admin; script từ chối role có đặc quyền, membership hoặc sở hữu database/schema/relation. Mặc định phiên là UTC/read-only. Không grant mặc định cho bảng mới; khi whitelist thay đổi phải review và chạy lại. Script có thể áp lại password cấu hình khi chạy lại; đây không phải công cụ migrate database cũ. Cách batch dùng role này xem [pipeline guide](../pipelines/README.md#setup).
+Role chỉ SELECT 27 bảng nguồn phân tích (batch nạp 19 bảng, hai bảng tồn kho dùng để đối soát), không có quyền đọc `customer_credentials` hoặc quyền ghi bảng/sequence. Không dùng role ứng dụng/admin; script từ chối role có đặc quyền, membership hoặc sở hữu database/schema/relation. Mặc định phiên là UTC/read-only. Không grant mặc định cho bảng mới; khi whitelist thay đổi phải review và chạy lại. Script có thể áp lại password cấu hình khi chạy lại; đây không phải công cụ migrate database cũ. Cách batch dùng role này xem [pipeline OLTP](../airflow/README.md#connections-and-credentials).
 
 ## Metadata Superset tùy chọn
 
-`make superset-db` chạy script PostgreSQL riêng sau khi áp dụng env/mount mới, tạo database/user `superset` với password được cấu hình. Script hỗ trợ volume đang có, không sửa schema/dữ liệu nguồn và giữ password của role đã tồn tại. `make superset-init` mới thực hiện migration metadata Superset và tạo admin ban đầu. Xem [hướng dẫn BI](../docs/setup.md#6-superset-tùy-chọn); không dùng account OLTP/Polaris/Airflow làm owner metadata này.
+`make superset-db` chạy script PostgreSQL riêng sau khi áp dụng env/mount mới, tạo database/user `superset` với password được cấu hình. Script hỗ trợ volume đang có, không sửa schema/dữ liệu nguồn và giữ password của role đã tồn tại. `make superset-init` mới thực hiện migration metadata Superset và tạo admin ban đầu. Xem [hướng dẫn BI](../docs/SETUP.md#6-superset-tùy-chọn); không dùng account OLTP/Polaris/Airflow làm owner metadata này.

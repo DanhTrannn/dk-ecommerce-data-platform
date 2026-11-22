@@ -38,12 +38,9 @@ skills/
 
 
 # Python package build output
-pipelines/build/
+airflow/build/
 
-# Tests & test cache
-# Test chỉ giữ local, không đưa lên git (trừ kiểm tra dữ liệu dbt bên dưới, pipeline chạy chúng).
-tests/
-**/tests/
+# Test cache
 .pytest_cache/
 .coverage
 .coverage.*
@@ -51,10 +48,10 @@ htmlcov/
 test-reports/
 
 AGENTS.md
+CLAUDE.md
 
 # dbt generated artifacts
 **/dbt/target/
 **/dbt/logs/
 **/dbt/dbt_packages/
-!pipelines/dbt/tests/
-!pipelines/dbt/tests/*.sql
+**/dbt/.user.yml

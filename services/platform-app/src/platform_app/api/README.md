@@ -1,6 +1,6 @@
 # Ecommerce API and Access Administration
 
-FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. Its active surface comprises source transactions, the ID lookups needed by scenarios, two HTTP observability reads, and MinIO/Polaris administration under `/api/v1/access`. The Streamlit console uses this API; business sales BI uses the separate Superset PoC.
+FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. Its active surface comprises source transactions, the ID lookups needed by scenarios, two HTTP observability reads, and Polaris administration under `/api/v1/access`. The Streamlit console uses this API; business sales BI uses the separate Superset PoC.
 
 [Models](models) map 28 OLTP tables; the [physical schema](../../../../../database/schema.sql) is PostgreSQL. [Router registration](routes/router.py) and [handlers](modules) define supported endpoints. There is no separate access-admin web service: access routes share the API process, cookie session and port 8000. The credential exporter is a separate internal service on port 8011.
 
@@ -21,7 +21,7 @@ Shared-container components are siblings: [access administration](../access_admi
 
 ## Run with Docker
 
-From the repository root, configure `.env` using `.env.example` and the [setup guide](../../../../../docs/setup.md), then:
+From the repository root, configure `.env` using `.env.example` and the [setup guide](../../../../../docs/SETUP.md), then:
 
 ```bash
 make build
@@ -51,7 +51,7 @@ For the two analytics reads, the [Trino client](modules/analytics/trino_client.p
 
 ## HTTP observability
 
-The six former business BI reads are retired: GET `/api/v1/admin/overview`, `/api/v1/admin/store/dashboard` and `/api/v1/admin/analytics/{overview,role-metrics,sales-trend,stores}`. The retained analytics router has only the two endpoints below. Historical role dashboards and their types are not a current backend contract. Business sales serving uses the separately configured Superset PoC; see [architecture](../../../../../docs/architecture.md).
+The six former business BI reads are retired: GET `/api/v1/admin/overview`, `/api/v1/admin/store/dashboard` and `/api/v1/admin/analytics/{overview,role-metrics,sales-trend,stores}`. The retained analytics router has only the two endpoints below. Historical role dashboards and their types are not a current backend contract. Business sales serving uses the separately configured Superset PoC; see [architecture](../../../../../docs/ARCHITECTURE.md).
 
 ### HTTP metrics contract
 
@@ -179,9 +179,9 @@ In addition to the six retired BI routes above, these ten former administrative 
 
 - Order, delivery-staff and admin return operations require `admin`. Operations-manager roles do not grant these API write permissions.
 - Category CRUD, self-service customer profile editing, a separate shipper login and size/color exchange workflows are absent.
-- Access administration supports MinIO user/bucket/policy and Polaris principal/role/catalog resources, bindings and explicit workload credential assignment. MinIO group administration and arbitrary policy JSON editing are not exposed. Sensitive credential responses use `Cache-Control: no-store`; access audit data and saved credentials use private persistent paths.
+- Access administration supports Polaris principal/role/catalog resources, bindings and explicit workload credential assignment. MinIO is not administered through the API; `minio-init` creates the one storage account Polaris uses. Sensitive credential responses use `Cache-Control: no-store`; access audit data and saved credentials use private persistent paths.
 - This guide verifies registrations and source behavior. Successful runtime transactions still require initialized source data, provider permissions and reachable dependencies.
 
 ## References
 
-[Setup](../../../../../docs/setup.md) · [Architecture and serving](../../../../../docs/architecture.md) · [Schema, access logs and marts](../../../../../docs/data.md) · [Operations and recovery](../../../../../docs/operations.md)
+[Setup](../../../../../docs/SETUP.md) · [Architecture and serving](../../../../../docs/ARCHITECTURE.md) · [Schema, access logs and marts](../../../../../docs/DATA.md) · [Operations and recovery](../../../../../docs/OPERATIONS.md)

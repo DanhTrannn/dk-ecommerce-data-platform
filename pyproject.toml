@@ -10,7 +10,7 @@ package = false
 [tool.uv.workspace]
 members = [
   "generator",
-  "pipelines",
+  "airflow",
   "services/platform-app",
 ]
 
