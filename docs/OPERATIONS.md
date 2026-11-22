@@ -8,7 +8,7 @@ Cài đặt ở [SETUP.md](SETUP.md); chi tiết pipeline ở [airflow/README.md
 |---|---|
 | Container | `make ps`; trạng thái health trong Compose |
 | API | `curl -fsS http://127.0.0.1:8000/health/ready` (chỉ kiểm tra kết nối DB) |
-| Airflow | Lần chạy mới nhất của `lakehouse_oltp_init`/`_incremental`/`_sync` xanh; log task có dòng `STAGING`, `RECONCILED`, `BRONZE`, `SYNC`, `PURGE` |
+| Airflow | Lần chạy mới nhất của `lakehouse_oltp_init`/`_incremental`/`_sync` xanh; log task có dòng `STAGING`, `RECONCILED`, `BRONZE`, `SCHEMA`, `SYNC`, `PURGE` |
 | Lakehouse | Truy vấn Trino ở mục 3 |
 
 ```bash
@@ -43,7 +43,11 @@ SELECT sum(net_revenue_vnd), sum(gross_profit_vnd) FROM lakehouse.gold.mart_sale
 | Task đỏ hoặc triệu chứng | Nguyên nhân thường gặp | Xử lý |
 |---|---|---|
 | `create_schema`, `staging.<bảng>` lỗi kết nối nguồn | Connection `oltp_postgres` sai, chưa chạy `make source-reader`, mật khẩu reader trống | Sửa connection trong Airflow UI, **Clear** task |
-| `staging.<bảng>` báo thiếu cột nguồn | Nguồn có cột mới | Chạy `lakehouse_oltp_init` |
+| `schema.<bảng>` lỗi `SchemaChanged ... unlisted` | Nguồn có cột mới chưa duyệt | Nạp: thêm vào `columns` trong `sources.py` **và** model Silver, cùng một commit. Không nạp: thêm vào `excluded`. Rồi **Clear** task; sync tự thêm cột và nạp lại bảng |
+| Log `schema.<bảng>` có `silver_missing=[...]` | Bronze có cột mà Silver chưa có | Thêm cột vào model Silver, rồi chạy `lakehouse_oltp_init` để các dòng cũ có giá trị |
+| `staging.<bảng>` hoặc `schema.<bảng>` lỗi `SchemaChanged ... dropped` | Cột đang nạp đã bị bỏ ở nguồn | Bỏ cột khỏi `sources.py`, model Silver và các model Gold dùng nó, rồi **Clear** task. Bronze giữ cột cũ làm lịch sử |
+| `SchemaChanged ... incompatible` | Cột đổi loại (số ↔ chữ…) | Sửa model Silver theo kiểu mới. Iceberg không đổi được loại cột, nên phải xoá bảng Bronze đó rồi chạy init (cần duyệt; mất lịch sử xoá mềm của bảng) |
+| `staging.<bảng>` lỗi giá trị vượt kiểu, nhắc `lakehouse_oltp_sync` | Nguồn đã nới kiểu, sync chưa chạy | Trigger tay `lakehouse_oltp_sync`, rồi **Clear** task incremental |
 | `staging.<bảng>` báo thiếu data interval | Trigger tay DAG incremental | Để lịch chạy, hoặc dùng `airflow backfill create` |
 | Cần nạp lại các ngày đã qua | | Tạm dừng `lakehouse_oltp_sync`, backfill incremental, rồi bật lại và trigger tay sync một lần ([airflow/README.md](../airflow/README.md#run)) |
 | Dòng đã xoá ở nguồn vẫn sống ở Gold sau purge | Purge chạy khi lần sync trước chưa xong | Chạy `lakehouse_oltp_init` |

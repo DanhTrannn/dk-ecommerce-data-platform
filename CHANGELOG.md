@@ -4,7 +4,7 @@ Notable changes to this project. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
-### 2026-11-22: Incremental Gold and delete sync
+### 2026-11-22: Incremental Gold, delete sync and schema sync
 
 #### Added
 
@@ -13,6 +13,7 @@ Notable changes to this project. The format follows [Keep a Changelog](https://k
 - `lakehouse_oltp_purge`, a manual DAG that hard-deletes the flagged rows from Gold, Silver and Bronze.
 - `gold._mart_state`, each mart's watermark and last built day, created by the init DAG.
 - The `100k` OLTP preset for quick pipeline runs.
+- Source column changes. `sources.py` lists the loaded `columns` and the `excluded` ones. A `schema` group in `lakehouse_oltp_sync` adds approved columns to staging and Bronze, reloads the table to fill them, widens types, and fails on unreviewed new columns. Dropped columns and incompatible types stop every DAG with a clear error.
 
 #### Changed
 
@@ -21,6 +22,7 @@ Notable changes to this project. The format follows [Keep a Changelog](https://k
 - An init load keeps the rows already flagged as deleted and flags rows the source no longer has, so delete history survives a full reload.
 - Maintenance compacts Bronze only. A new `optimize` task runs `ALTER TABLE … EXECUTE optimize` on Silver, Gold and `_mart_state`, replacing the Silver post-hook.
 - Backfilling the incremental DAG requires pausing the sync DAG and triggering it once afterwards.
+- Incremental loads read only the configured columns Bronze already has. Init no longer loads new source columns that are not approved.
 
 ### 2026-11-21: OLTP pipeline redesign
 

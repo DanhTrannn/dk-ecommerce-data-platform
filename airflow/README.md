@@ -1,11 +1,11 @@
 # OLTP Pipeline
 
-Airflow loads the 19 analytical tables of the PostgreSQL source into Iceberg (Polaris catalog, MinIO storage) and builds Silver and Gold with dbt on Trino. A sync DAG carries rows deleted at the source through every layer as soft deletes.
+Airflow loads the 19 analytical tables of the PostgreSQL source into Iceberg (Polaris catalog, MinIO storage) and builds Silver and Gold with dbt on Trino. A sync DAG applies reviewed source column changes and carries rows deleted at the source through every layer as soft deletes.
 
 ```text
 PostgreSQL ──► staging ──► [reconcile] ──► bronze ──► silver (dbt) ──► gold (dbt) ──► maintenance
                PyIceberg    init only      PyIceberg   merge + test     27 models
-           └─► detect (sync: deleted and restored keys) ─┘
+           └─► schema, detect (sync: columns, deleted and restored keys) ─┘
 ```
 
 ## Layout
@@ -15,7 +15,7 @@ airflow/
 ├── dags/            # lakehouse_oltp_init, _incremental, _sync, _purge
 ├── tasks/           # oltp.py: PythonOperator callables; dbt.py: dbt commands and the Gold task group
 ├── lakehouse/
-│   ├── oltp/        # source tables, extract, staging, Bronze, delete sync, reconcile, table creation
+│   ├── oltp/        # source tables, extract, staging, Bronze, column drift, sync, reconcile, table creation
 │   └── utils/       # Iceberg catalog, PostgreSQL SQL, maintenance
 ├── tests/           # unittest suite (make test)
 └── pyproject.toml   # pipeline dependencies, installed into the Airflow image
@@ -29,7 +29,7 @@ The dbt project is at the repo root in [`dbt/`](../dbt): `models/silver` (19 mod
 |---|---|---|
 | `lakehouse_oltp_init` | manual | `create_schema` → `staging` → `reconcile` → `bronze` → `silver` → `gold` → `maintenance` |
 | `lakehouse_oltp_incremental` | `0 3 * * *` Asia/Ho_Chi_Minh, catchup | `staging` → `bronze` → `silver` → `gold` → `maintenance`; the last task emits the Asset `lakehouse_oltp_loaded` |
-| `lakehouse_oltp_sync` | after each `lakehouse_oltp_loaded` event | `detect` → `bronze` → `silver` → `gold` → `maintenance` |
+| `lakehouse_oltp_sync` | after each `lakehouse_oltp_loaded` event | `schema` → `detect` → `bronze` → `silver` → `gold` → `maintenance` |
 | `lakehouse_oltp_purge` | manual | `silver_gold` → `bronze` |
 
 Each group has one task per table or dbt node, so a failure names the table and **Clear** reruns only that task. Tasks share the pool `lakehouse_oltp` (4 slots), retry twice after two minutes, and only one run of each DAG is active. `max_active_runs` does not span DAGs, and all four write the same tables, so:
@@ -42,8 +42,8 @@ Each group has one task per table or dbt node, so a failure names the table and 
 
 | Layer | Task | What it does |
 |---|---|---|
-| Tables | `create_schema` (init) | Creates the `staging`, `bronze`, `silver`, `gold` namespaces, the staging and Bronze tables typed from PostgreSQL, and `gold._mart_state`. A rerun adds new source columns and keeps the data. |
-| Staging | `staging.<table>` | Truncates `staging.<table>`, then extracts in one repeatable-read transaction: a server-side cursor reads 10,000 rows per fetch, and 200,000 rows are written per Iceberg commit, with `_ingested_at`. Init reads every row created before `dag_run.run_after`, so all tables stop at the same moment. Incremental reads rows whose cursor (`updated_at`, or `created_at` for append-only tables) is in the data interval. |
+| Tables | `create_schema` (init) | Creates the `staging`, `bronze`, `silver`, `gold` namespaces, the staging and Bronze tables typed from PostgreSQL, and `gold._mart_state`. A rerun keeps the data and applies [column changes](#column-changes) like the sync. |
+| Staging | `staging.<table>` | Truncates `staging.<table>`, then extracts in one repeatable-read transaction: a server-side cursor reads 10,000 rows per fetch, and 200,000 rows are written per Iceberg commit, with `_ingested_at`. Init reads every row created before `dag_run.run_after`, so all tables stop at the same moment. Incremental reads rows whose cursor (`updated_at`, or `created_at` for append-only tables) is in the data interval, only the configured columns Bronze already has, and fails on a dropped or incompatible column before writing. |
 | Reconcile | `reconcile.<table>` (init) | Compares staging with the source at the same cutoff: row count, money totals (`orders`, `payments`, `refunds`) and stock ledger balances. A mismatch fails the task before Bronze changes. |
 | Bronze | `bronze.<table>` | Source rows with source types, current version per key, plus `_is_deleted` and `_deleted_at`. Init replaces the table in one commit but keeps the rows already flagged, and flags the rows the source no longer has. Incremental upserts by primary key and never replaces a row with an older cursor. |
 | Silver | `silver.<table>` | dbt incremental merge of the Bronze rows newer than Silver's latest `_ingested_at`; init uses `--full-refresh`. The `matches_bronze` test fails the task if Silver and Bronze keys differ. |
@@ -71,6 +71,20 @@ Deleted rows stay as history in Bronze, Silver and the Gold dimensions and facts
 
 `lakehouse_oltp_purge` deletes the flagged rows for good: Gold dimensions and facts, then Silver (`dbt run-operation purge_deleted`), then Bronze. It has no preconditions.
 
+## Column changes
+
+[`sources.py`](lakehouse/oltp/sources.py) is the allowlist: each table lists the `columns` it loads and the `excluded` ones it leaves out on purpose. Each source table is compared with that list and with Bronze:
+
+| Change | What happens |
+|---|---|
+| New column in neither list | Incremental ignores it. `schema.<table>` fails until it is added to `columns` (and the Silver model) or to `excluded` |
+| Column in `columns`, missing from Bronze | `schema.<table>` adds it to staging and Bronze and sets the Bronze property `lakehouse.reload-pending` in the same commit. `detect` then stages every source row, and `bronze` replaces the table in one commit, keeping deleted rows. Any full Bronze load clears the property |
+| Wider type (`int` → `long`, `float` → `double`, larger decimal precision) | `schema.<table>` widens staging and Bronze |
+| Narrower type | Nothing |
+| Column in `columns`, gone from the source, or an incompatible type | Incremental, init and sync fail before writing |
+
+`schema.<table>` also logs `silver_missing=[...]` when Bronze has a configured column the Silver table lacks. Bronze keeps dropped columns as history. What to do on each error is in [OPERATIONS.md](../docs/OPERATIONS.md#4-xử-lý-sự-cố).
+
 ## Connections and credentials
 
 | Resource | How the pipeline reaches it |
@@ -85,7 +99,7 @@ Deleted rows stay as history in Bronze, Silver and the Gold dimensions and facts
 # First load:
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_init
 docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_init
-# After it succeeds, enable the daily load and the delete sync:
+# After it succeeds, enable the daily load and the sync:
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_sync
 ```
@@ -102,7 +116,7 @@ docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_syn
 docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_sync
 ```
 
-A manual trigger of the incremental DAG fails at staging, since it has no data interval. Run the init DAG again after a source column is added, or to reload everything. To repeat a dbt task by hand, copy `DBT_AS_OF` from the first line of its log:
+A manual trigger of the incremental DAG fails at staging, since it has no data interval. Run the init DAG again to reload everything. To repeat a dbt task by hand, copy `DBT_AS_OF` from the first line of its log:
 
 ```bash
 docker compose exec -T -e DBT_AS_OF=2026-11-21T03:00:00+07:00 \

@@ -11,7 +11,7 @@ Cấu trúc dữ liệu và KPI ở [DATA.md](DATA.md), cài đặt ở [SETUP.m
 | Nguồn nghiệp vụ | FastAPI + PostgreSQL 28 bảng |
 | Generator | `datagen generate/verify/logs/reset`; preset OLTP `100k`/`1m`/`10m`/`50m` |
 | Console | Streamlit: kịch bản mua online qua API, quản trị quyền MinIO/Polaris |
-| Pipeline OLTP | Airflow: staging → Bronze → Silver → Gold, 19 bảng nguồn, 27 model Gold; đồng bộ dòng bị xoá bằng xoá mềm |
+| Pipeline OLTP | Airflow: staging → Bronze → Silver → Gold, 19 bảng nguồn, 27 model Gold; đồng bộ dòng bị xoá bằng xoá mềm và thay đổi cột đã duyệt |
 | Access log | Đang thiết kế lại: API vẫn có thể gửi Kafka, đã gỡ job Flink và DAG log; thiết kế giữ ở `streaming/sql` và `dbt/models/logs` |
 | BI | Superset tùy chọn, ba mart doanh thu; sẽ làm lại sau khi các pipeline ổn định |
 
@@ -49,7 +49,7 @@ API / datagen ──► PostgreSQL ──► staging ──► [reconcile] ─�
 | `silver` | Kiểu dữ liệu chuẩn hoá (UUID, timestamp), merge theo khoá chính; dbt test `matches_bronze` bảo đảm cùng tập khoá với Bronze |
 | `gold` | 7 dimension, 6 fact, 14 mart và 2 seed; dimension và fact merge dòng đổi, mart tính lại các ngày bị ảnh hưởng |
 
-`lakehouse_oltp_init` nạp toàn bộ nguồn tại một mốc chung và đối soát với nguồn trước khi Bronze đổi. `lakehouse_oltp_incremental` chạy 03:00 hằng ngày theo cursor `updated_at`/`created_at`. Sau mỗi lần incremental, `lakehouse_oltp_sync` so khoá nguồn với Bronze và đánh dấu xoá mềm (`_is_deleted`) dòng đã mất ở nguồn qua mọi tầng; `lakehouse_oltp_purge` chạy tay để xoá cứng. Ràng buộc khoá, trường bắt buộc và khoá ngoại đã được PostgreSQL bảo đảm nên pipeline không kiểm tra lại. Chi tiết ở [airflow/README.md](../airflow/README.md).
+`lakehouse_oltp_init` nạp toàn bộ nguồn tại một mốc chung và đối soát với nguồn trước khi Bronze đổi. `lakehouse_oltp_incremental` chạy 03:00 hằng ngày theo cursor `updated_at`/`created_at`. Sau mỗi lần incremental, `lakehouse_oltp_sync` thêm cột đã duyệt và nới kiểu ở staging và Bronze (dừng với cột mới chưa duyệt, cột bị bỏ hay đổi loại), rồi so khoá nguồn với Bronze và đánh dấu xoá mềm (`_is_deleted`) dòng đã mất ở nguồn qua mọi tầng; `lakehouse_oltp_purge` chạy tay để xoá cứng. Ràng buộc khoá, trường bắt buộc và khoá ngoại đã được PostgreSQL bảo đảm nên pipeline không kiểm tra lại. Chi tiết ở [airflow/README.md](../airflow/README.md).
 
 ## 4. Định danh và quyền
 
@@ -72,6 +72,5 @@ API / datagen ──► PostgreSQL ──► staging ──► [reconcile] ─�
 ## 6. Chưa hoàn tất
 
 - Luồng access log (Flink, Bronze/Silver log, mart log) và loader cho log sinh tổng hợp.
-- Tự đồng bộ thay đổi cột ở nguồn (thêm, bỏ, đổi kiểu); hiện thêm cột cần chạy lại init.
 - Dashboard Superset cho các mart còn lại và quyền theo cửa hàng.
 - Runner cho nghiệp vụ ngoài mua online; HA, backup/restore và hardening khi triển khai public.

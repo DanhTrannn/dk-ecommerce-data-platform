@@ -38,7 +38,7 @@ Checkout ghi đơn/item/payment/history, trừ tồn và xử lý coupon trong t
 
 ### Catalog trích xuất
 
-Batch nạp 19 bảng được cấu hình tường minh trong `SOURCE_TABLES`, không tự đưa bảng mới vào. Mỗi bảng có danh sách cột được nạp. `customer_credentials` không được cấp SELECT cho batch reader. Reader còn được SELECT `inventory` và `store_inventory`, nhưng chỉ để đối soát sổ kho khi chạy full; carts, cart_items, wishlist_items, coupon_redemptions, shipment_attempts và inbound_receipts không được nạp vì không bảng Gold nào dùng.
+Batch nạp 19 bảng được cấu hình tường minh trong `SOURCE_TABLES`, không tự đưa bảng mới vào. Mỗi bảng có danh sách cột được nạp (`columns`) và danh sách cột cố ý bỏ (`excluded`, gồm dữ liệu cá nhân như `receiver_phone`). Cột mới ở nguồn chưa thuộc danh sách nào không được nạp và làm DAG sync báo lỗi cho tới khi được duyệt ([airflow/README.md](../airflow/README.md#column-changes)). `customer_credentials` không được cấp SELECT cho batch reader. Reader còn được SELECT `inventory` và `store_inventory`, nhưng chỉ để đối soát sổ kho khi chạy full; carts, cart_items, wishlist_items, coupon_redemptions, shipment_attempts và inbound_receipts không được nạp vì không bảng Gold nào dùng.
 
 | Bảng | Khóa | Cursor |
 |---|---|---|
