@@ -5,6 +5,9 @@ from pathlib import Path
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.utils.operator_helpers import KeywordParameters
 
+from lakehouse.oltp.sources import SOURCE_TABLES
+from tasks.oltp import OLTP_LOADED
+
 AIRFLOW_DIR = Path(__file__).resolve().parents[1]
 CONTEXT_KEYS = ("run_id", "dag_run", "ti", "params", "ds", "logical_date", "data_interval_start", "data_interval_end")
 
@@ -19,6 +22,7 @@ class DagTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.init, cls.incremental = load_dag("lakehouse_oltp_init"), load_dag("lakehouse_oltp_incremental")
+        cls.sync = load_dag("lakehouse_oltp_sync")
 
     def test_only_init_creates_tables_and_reconciles(self):
         self.assertEqual([task.task_id for task in self.init.roots], ["create_schema"])
@@ -31,8 +35,22 @@ class DagTests(unittest.TestCase):
         self.assertEqual(self.incremental.schedule, "0 3 * * *")
         self.assertTrue(self.incremental.catchup)
 
+    def test_sync_runs_after_each_incremental_load(self):
+        self.assertEqual(self.incremental.task_dict["maintenance.orphan"].outlets, [OLTP_LOADED])
+        self.assertEqual(self.sync.timetable.asset_condition.objects, (OLTP_LOADED,))
+        self.assertFalse(self.sync.catchup)
+        self.assertEqual(self.sync.max_active_runs, 1)
+
+    def test_sync_detects_then_loads_each_table(self):
+        for table in SOURCE_TABLES:
+            detect = self.sync.task_dict[f"detect.{table.name}"]
+            self.assertIn(f"bronze.{table.name}", detect.downstream_task_ids)
+            self.assertIn(f"silver.{table.name}", self.sync.task_dict[f"bronze.{table.name}"].downstream_task_ids)
+        self.assertIn("gold.fact_order", self.sync.task_dict)
+        self.assertIn("maintenance.orphan", self.sync.task_dict)
+
     def test_every_python_task_gets_its_arguments_from_airflow(self):
-        for dag in (self.init, self.incremental):
+        for dag in (self.init, self.incremental, self.sync):
             for task in dag.tasks:
                 if isinstance(task, PythonOperator):
                     context = {key: object() for key in CONTEXT_KEYS} | task.op_kwargs

@@ -9,18 +9,22 @@ from contextlib import closing
 from datetime import UTC, datetime
 
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from airflow.sdk import Asset
 
 from lakehouse.oltp.bronze import merge_bronze
 from lakehouse.oltp.reconcile import reconcile_table, source_reconciliation
 from lakehouse.oltp.schema import MART_STATE, create_oltp_schema
 from lakehouse.oltp.sources import SOURCE_TABLES, TABLES_BY_NAME
 from lakehouse.oltp.staging import extract_table
+from lakehouse.oltp.sync import detect_deletes
 from lakehouse.utils.iceberg import iceberg_catalog
 from lakehouse.utils.maintenance import maintain_tables
 from lakehouse.utils.postgres import source_read_transaction
 from tasks.dbt import gold_dependencies
 
 SOURCE_CONN_ID = "oltp_postgres"
+# Emitted by each successful incremental run; the sync DAG runs on it, so the two never run at once.
+OLTP_LOADED = Asset("lakehouse_oltp_loaded")
 
 
 def source_connection():
@@ -55,6 +59,11 @@ def staging_incremental(table, data_interval_start=None, data_interval_end=None)
             start=data_interval_start.isoformat(),
             end=data_interval_end.isoformat(),
         )
+
+
+def detect(table, dag_run):
+    with source_connection() as connection:
+        detect_deletes(iceberg_catalog(), connection, TABLES_BY_NAME[table], dag_run.run_after)
 
 
 def bronze_full(table):

@@ -39,6 +39,10 @@ class TaskTests(unittest.TestCase):
         )
         self.assertEqual(ingest.call_args.kwargs, {"start": START.isoformat(), "end": END.isoformat()})
 
+    def test_detect_flags_deletions_at_the_run_start(self):
+        detect, _ = self.call("detect_deletes", oltp.detect, table="orders", dag_run=DAG_RUN)
+        self.assertEqual(detect.call_args.args[-1], RUN_AFTER)
+
     def test_incremental_run_without_interval_is_refused(self):
         with self.assertRaisesRegex(ValueError, "backfill"):
             self.call("extract_table", oltp.staging_incremental, table="orders")

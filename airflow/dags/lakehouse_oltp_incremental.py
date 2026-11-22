@@ -57,7 +57,9 @@ with DAG(
             task_id="optimize", bash_command="dbt run-operation optimize", env=dbt_env("optimize"), append_env=True
         )
         expire = PythonOperator(task_id="expire", python_callable=oltp.maintain, op_kwargs={"action": "expire"})
-        orphan = PythonOperator(task_id="orphan", python_callable=oltp.maintain, op_kwargs={"action": "orphan"})
+        orphan = PythonOperator(
+            task_id="orphan", python_callable=oltp.maintain, op_kwargs={"action": "orphan"}, outlets=[oltp.OLTP_LOADED]
+        )
         compact >> optimize >> expire >> orphan
 
     staging >> bronze >> silver >> gold >> maintenance
