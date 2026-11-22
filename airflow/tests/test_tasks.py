@@ -68,7 +68,8 @@ class TaskTests(unittest.TestCase):
             expired = maintained.call_args.args[1]
             oltp.maintain("compact")
             compacted = maintained.call_args.args[1]
-        self.assertEqual(len(expired), 3 * len(oltp.SOURCE_TABLES) + 2)
+        self.assertEqual(len(expired), 3 * len(oltp.SOURCE_TABLES) + 3)
+        self.assertIn(("gold", "_mart_state"), expired)
         self.assertIn(("gold", "delivery_sla"), expired)
         self.assertEqual(compacted, [("bronze", table.name) for table in oltp.SOURCE_TABLES])
         self.assertEqual(maintained.call_args.args[2], "compact")

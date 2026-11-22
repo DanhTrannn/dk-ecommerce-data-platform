@@ -1,4 +1,4 @@
-{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('inventory_date', inventory_days()) }}") }}
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('inventory_date', inventory_days()) }}", post_hook="{{ advance_mart(['fact_inventory_daily', 'dim_product', 'dim_store'], inventory_last_day()) }}") }}
 -- Inbound value comes from receipt lines; receipts always stock the central warehouse.
 WITH stock AS (
   SELECT

@@ -1,4 +1,4 @@
-{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('request_date', return_days()) }}") }}
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('request_date', return_days()) }}", post_hook="{{ advance_mart(['fact_return', 'dim_variant', 'dim_product']) }}") }}
 -- Return requests by request day; a request's processing time counts once per variant it covers.
 WITH requests AS (
   SELECT

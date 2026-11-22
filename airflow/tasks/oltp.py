@@ -12,7 +12,7 @@ from airflow.providers.postgres.hooks.postgres import PostgresHook
 
 from lakehouse.oltp.bronze import merge_bronze
 from lakehouse.oltp.reconcile import reconcile_table, source_reconciliation
-from lakehouse.oltp.schema import create_oltp_schema
+from lakehouse.oltp.schema import MART_STATE, create_oltp_schema
 from lakehouse.oltp.sources import SOURCE_TABLES, TABLES_BY_NAME
 from lakehouse.oltp.staging import extract_table
 from lakehouse.utils.iceberg import iceberg_catalog
@@ -81,6 +81,7 @@ def maintain(action):
             *(("staging", table.name) for table in SOURCE_TABLES),
             *(("silver", table.name) for table in SOURCE_TABLES),
             *(("gold", name) for name in gold_dependencies()),
+            MART_STATE,
         ]
     result = maintain_tables(iceberg_catalog(), tables, action)
     print(json.dumps(result, default=str), flush=True)

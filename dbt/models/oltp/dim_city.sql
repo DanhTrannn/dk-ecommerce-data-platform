@@ -7,8 +7,7 @@ SELECT
   sla.delivery_zone,
   sla.carrier_days,
   sla.sla_days,
-  c._ingested_at,
-  {{ gold_run() }} AS _gold_run
+  c._ingested_at
 FROM {{ ref('cities') }} c
 LEFT JOIN {{ ref('delivery_sla') }} sla ON sla.city_code = c.code
 {% if is_incremental() %}

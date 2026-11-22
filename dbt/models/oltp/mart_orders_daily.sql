@@ -1,4 +1,4 @@
-{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('order_date', order_days()) }}") }}
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('order_date', order_days()) }}", post_hook="{{ advance_mart(['fact_order', 'dim_store', 'dim_city', 'dim_staff']) }}") }}
 -- Orders by the day they were placed; status_group splits them into completed, cancelled, failed and processing.
 SELECT
   o.order_date,

@@ -16,8 +16,7 @@ SELECT
   full_name AS staff_name,
   CAST(NULL AS bigint) AS store_key,
   is_active,
-  _ingested_at,
-  {{ gold_run() }} AS _gold_run
+  _ingested_at
 FROM {{ ref('delivery_staff') }}
 {% if is_incremental() %}
 WHERE _ingested_at > {{ watermark() }}
@@ -30,8 +29,7 @@ SELECT
   display_name,
   store_id,
   status = 'active',
-  _ingested_at,
-  {{ gold_run() }}
+  _ingested_at
 FROM {{ ref('customers') }}
 WHERE role <> 'customer'
   AND (

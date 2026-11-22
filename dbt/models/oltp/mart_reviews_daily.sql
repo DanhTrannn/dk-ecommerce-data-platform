@@ -1,4 +1,4 @@
-{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('review_date', review_days()) }}") }}
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('review_date', review_days()) }}", post_hook="{{ advance_mart(['fact_review', 'dim_product']) }}") }}
 SELECT
   r.review_date,
   r.product_key,

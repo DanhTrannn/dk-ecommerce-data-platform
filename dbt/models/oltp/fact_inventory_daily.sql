@@ -23,7 +23,7 @@ changed AS (
   UNION ALL
   SELECT location_type, store_key, variant_key, min(inventory_date)
   FROM {{ this }}
-  WHERE variant_key IN (SELECT variant_key FROM {{ ref('dim_variant') }} WHERE _gold_run = {{ gold_run() }})
+  WHERE variant_key IN (SELECT variant_key FROM {{ ref('dim_variant') }} WHERE _ingested_at > {{ watermark() }})
   GROUP BY 1, 2, 3
   UNION ALL
   SELECT location_type, store_key, variant_key, date_add('day', 1, (SELECT last_day FROM built))
@@ -140,8 +140,7 @@ SELECT
   CASE WHEN day = b.movement_date THEN b.adjustment_qty ELSE 0 END AS adjustment_qty,
   b.closing_qty,
   b.closing_qty * v.cost_price_vnd AS closing_value_vnd,
-  {{ latest('b.position_ingested_at', 'v._ingested_at') }} AS _ingested_at,
-  {{ gold_run() }} AS _gold_run
+  {{ latest('b.position_ingested_at', 'v._ingested_at') }} AS _ingested_at
 FROM balances b
 CROSS JOIN UNNEST(sequence(b.movement_date, date_add('day', -1, b.next_movement_date))) AS calendar(day)
 LEFT JOIN {{ ref('product_variants') }} v ON v.variant_id = b.variant_key

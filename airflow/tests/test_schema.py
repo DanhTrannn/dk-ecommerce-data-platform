@@ -5,7 +5,7 @@ import pyarrow as pa
 
 from iceberg_fixture import AT, TABLES, category, page, sql_catalog
 from lakehouse.oltp.staging import write_staging
-from lakehouse.oltp.schema import create_oltp_schema
+from lakehouse.oltp.schema import MART_STATE, create_oltp_schema
 from lakehouse.oltp.sources import SOURCE_TABLES
 
 BOOLEAN, BIGINT, TEXT, TIMESTAMPTZ = 16, 20, 25, 1184
@@ -71,6 +71,15 @@ class CreateSchemaTests(unittest.TestCase):
             for layer in ("staging", "bronze"):
                 copy = self.catalog.load_table((layer, table.name))
                 self.assertEqual(copy.schema().column_names, [*table.columns, "_ingested_at"])
+        self.assertEqual(self.catalog.load_table(MART_STATE).schema().column_names, ["mart", "watermark", "last_day"])
+
+    def test_rerun_keeps_the_mart_state(self):
+        create_oltp_schema(self.catalog, Source())
+        state = self.catalog.load_table(MART_STATE)
+        state.append(pa.table({"mart": ["mart_sales_daily"], "watermark": pa.array([AT], pa.timestamp("us", tz="UTC")),
+                               "last_day": pa.array([AT.date()], pa.date32())}))
+        create_oltp_schema(self.catalog, Source())
+        self.assertEqual(self.catalog.load_table(MART_STATE).scan().to_arrow()["mart"].to_pylist(), ["mart_sales_daily"])
 
     def test_rerun_keeps_the_data_and_adds_new_source_columns(self):
         create_oltp_schema(self.catalog, Source())

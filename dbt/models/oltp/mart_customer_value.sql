@@ -1,4 +1,4 @@
-{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('customer_key', customer_keys()) }}") }}
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('customer_key', customer_keys()) }}", post_hook="{{ advance_mart(['fact_order', 'dim_customer']) }}") }}
 -- Registered customers' recognized orders (same basis as mart_sales_daily); walk-in POS sales have no customer.
 -- Net revenue per order: merchandise after discount minus the order's succeeded refunds.
 SELECT

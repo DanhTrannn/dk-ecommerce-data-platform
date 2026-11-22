@@ -1,4 +1,4 @@
-{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('end_date', delivery_days()) }}") }}
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('end_date', delivery_days()) }}", post_hook="{{ advance_mart(['fact_shipment', 'dim_city', 'dim_staff']) }}") }}
 -- Shipments that ended (delivered or failed) per day; durations are sums with their counts so averages stay
 -- correct at any roll-up.
 SELECT

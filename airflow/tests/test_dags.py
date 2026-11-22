@@ -55,12 +55,6 @@ class DagTests(unittest.TestCase):
         self.assertNotIn("--full-refresh", self.incremental.task_dict["gold.fact_order"].bash_command)
         self.assertNotIn("--full-refresh", self.init.task_dict["gold.delivery_sla"].bash_command)
 
-    def test_every_dbt_task_knows_its_airflow_run(self):
-        # Marts recompute the rows the facts merged in the same run, so every dbt task must share the run ID.
-        for dag in (self.init, self.incremental):
-            for task_id in ("silver.orders", "gold.fact_order", "gold.mart_sales_daily", "maintenance.optimize"):
-                self.assertEqual(dag.task_dict[task_id].env["DBT_RUN_ID"], "{{ run_id }}")
-
 
 class CodeRuleTests(unittest.TestCase):
     def test_imports_are_at_the_top_of_every_file(self):

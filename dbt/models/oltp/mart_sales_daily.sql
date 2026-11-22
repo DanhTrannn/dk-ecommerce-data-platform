@@ -1,4 +1,4 @@
-{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('revenue_date', sales_days()) }}") }}
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('revenue_date', sales_days()) }}", post_hook="{{ advance_mart(['fact_order', 'fact_order_item', 'fact_return', 'dim_store', 'dim_city', 'dim_product']) }}") }}
 -- Recognized orders count on their revenue day; refunds of recognized orders reduce revenue on the day they
 -- succeed (design §5). Refunds of orders that were never recognized (paid, then cancelled) are not revenue.
 -- Goods a refunded return puts back on the shelf (accepted at inspection) take their sold cost back out of

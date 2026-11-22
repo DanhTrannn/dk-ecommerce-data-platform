@@ -7,6 +7,14 @@ from lakehouse.utils.iceberg import PROPERTIES
 from lakehouse.utils.postgres import source_query, source_read_transaction
 
 LAYERS = ("staging", "bronze", "silver", "gold")
+# Each Gold mart's progress: the latest Gold `_ingested_at` and the last day it has built. A mart's dbt post-hook
+# advances its row only after the mart was written, so a failed run is picked up by the next one.
+MART_STATE = ("gold", "_mart_state")
+MART_STATE_SCHEMA = pa.schema([
+    pa.field("mart", pa.string()),
+    pa.field("watermark", pa.timestamp("us", tz="UTC")),
+    pa.field("last_day", pa.date32()),
+])
 
 
 def source_schema(connection, table):
@@ -39,3 +47,4 @@ def create_oltp_schema(catalog, connection):
     for table in SOURCE_TABLES:
         create_staging_and_bronze(catalog, table, schemas[table.name])
         print(f"INIT table={table.name}", flush=True)
+    create_or_evolve(catalog, MART_STATE, MART_STATE_SCHEMA, PROPERTIES)

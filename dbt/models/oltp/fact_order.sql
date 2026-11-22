@@ -81,8 +81,7 @@ SELECT
   o.total_vnd,
   coalesce(r.refunded_vnd, 0) AS refunded_vnd,
   {{ latest('o._ingested_at', 's._ingested_at', 'h._ingested_at', 'i._ingested_at', 'r._ingested_at') }} AS _ingested_at,
-  {{ previous_dates('prev.order_date', 'prev.revenue_date', 'prev.cancelled_date') }} AS _previous_dates,
-  {{ gold_run() }} AS _gold_run
+  {{ previous_dates('prev.order_date', 'prev.revenue_date', 'prev.cancelled_date') }} AS _previous_dates
 FROM {{ ref('orders') }} o
 LEFT JOIN {{ ref('stores') }} s ON s.store_id = o.store_id
 LEFT JOIN history h ON h.order_id = o.order_id

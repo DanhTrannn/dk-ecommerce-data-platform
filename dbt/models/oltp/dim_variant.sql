@@ -9,8 +9,7 @@ SELECT
   price_vnd,
   cost_price_vnd,
   is_active,
-  _ingested_at,
-  {{ gold_run() }} AS _gold_run
+  _ingested_at
 FROM {{ ref('product_variants') }}
 {% if is_incremental() %}
 WHERE _ingested_at > {{ watermark() }}

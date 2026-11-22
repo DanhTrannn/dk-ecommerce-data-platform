@@ -1,4 +1,4 @@
-{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('backlog_date', backlog_days()) }}") }}
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('backlog_date', backlog_days()) }}", post_hook="{{ advance_mart(['fact_order', 'fact_shipment'], backlog_last_day()) }}") }}
 -- Online orders still open at the end of each day: confirmed but not dispatched, or dispatched but not yet
 -- delivered or failed. Age buckets follow the delivery SLAs (seed delivery_sla): within the shortest (4 days),
 -- within the longest (8 days), past every SLA.

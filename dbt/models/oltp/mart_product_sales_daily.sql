@@ -1,4 +1,4 @@
-{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('revenue_date', sales_days()) }}") }}
+{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('revenue_date', sales_days()) }}", post_hook="{{ advance_mart(['fact_order', 'fact_order_item', 'fact_return', 'dim_store', 'dim_city', 'dim_product']) }}") }}
 -- Product sales on the revenue day; returned quantity (accepted at inspection) on the day the return resolved.
 -- A refunded return reduces the product's revenue and, for goods back on the shelf, its cost of goods on the
 -- refund day (same rule as mart_sales_daily).
