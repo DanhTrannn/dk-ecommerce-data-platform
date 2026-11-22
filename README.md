@@ -29,7 +29,7 @@
 |---|---|
 | Source | FastAPI + PostgreSQL (28 tables): catalog, accounts, cart/checkout, POS, stock, delivery, returns, reviews |
 | Generator | `datagen` loads 12 months of synthetic history from YAML presets (`100k`/`1m`/`10m`/`50m` online orders per year) |
-| Console | Streamlit: purchase scenarios against the API, and MinIO/Polaris access administration |
+| Console | Streamlit: purchase scenarios against the API, and Polaris access administration |
 | OLTP pipeline | Airflow: PostgreSQL → staging → Bronze (PyIceberg) → Silver → Gold (dbt on Trino); see [airflow/README.md](airflow/README.md) |
 | Access governance | Per-workload MinIO users, Polaris principals and roles, vended storage credentials, Trino SQL access rules |
 | BI | Optional Superset dashboard over three Gold sales marts |
@@ -57,7 +57,7 @@ uv sync --locked
 make build && make up           # API, Streamlit, PostgreSQL, MinIO, Polaris
 ```
 
-1. Open Streamlit at <http://127.0.0.1:8501> → **Quản trị quyền**, sign in as the bootstrap admin (`API_BOOTSTRAP_ADMIN_*`). Create the MinIO users, bucket and policies, the Polaris catalog, principals and roles, then assign principal credentials to workloads in **Cấp cho workload**.
+1. Open Streamlit at <http://127.0.0.1:8501> → **Quản trị quyền**, sign in as the bootstrap admin (`API_BOOTSTRAP_ADMIN_*`). `minio-init` already created the bucket and the storage account Polaris uses. Create the Polaris catalog, principals and roles, then assign principal credentials to workloads in **Cấp cho workload**.
 2. Load source data and the batch reader:
 
    ```bash

@@ -1,6 +1,6 @@
-# Tạo bucket và cấp quyền để chạy toàn bộ Lakehouse
+# Cấp quyền để chạy toàn bộ Lakehouse
 
-Làm theo thứ tự từ **Bước 1 đến Bước 23** để chạy pipeline OLTP. Sau đó **Bước 24 đến Bước 25** bật dashboard Superset, và **Bước 26** mở lại toàn bộ stack.
+Làm theo thứ tự từ **Bước 1 đến Bước 14** để chạy pipeline OLTP. Sau đó **Bước 15 đến Bước 16** bật dashboard Superset, và **Bước 17** mở lại toàn bộ stack.
 
 Các lệnh chạy từ thư mục gốc repo. Các bước dùng tên mặc định `lakehouse` cho cả bucket MinIO và catalog Polaris. Trino đang được cấu hình chọn warehouse Polaris `lakehouse`. Nếu đã tạo một tài nguyên, đối chiếu tên, cấu hình và quyền rồi tiếp tục bước kế tiếp. [Cấu hình catalog Trino](../infrastructure/trino/catalog)
 
@@ -14,7 +14,7 @@ Cần Docker Engine và Docker Compose v2. Nếu nạp dữ liệu mẫu, chuẩ
 if [ ! -f .env ]; then cp .env.example .env; fi
 ```
 
-Trong `.env`, kiểm tra `MINIO_LAKEHOUSE_BUCKET=lakehouse` và `POLARIS_CATALOG_NAME=lakehouse`. Kiểm tra các biến tài khoản quản trị MinIO và Polaris, các cặp `MINIO_*_ACCESS_KEY` và `MINIO_*_SECRET_KEY`, cùng `POSTGRES_ECOMMERCE_READER_USER`, `POSTGRES_ECOMMERCE_READER_PASSWORD`, `TRINO_READER_PASSWORD` và `DBT_TRINO_PASSWORD`. Nếu dùng Superset, cấu hình ba biến ở Bước 24 trước khi khởi động PostgreSQL lần đầu. [Mẫu cấu hình](../.env.example) · [Nhóm biến môi trường](SETUP.md#1-chuẩn-bị-môi-trường)
+Trong `.env`, kiểm tra `MINIO_LAKEHOUSE_BUCKET=lakehouse` và `POLARIS_CATALOG_NAME=lakehouse`. Kiểm tra các biến tài khoản quản trị MinIO và Polaris, cặp `MINIO_POLARIS_ACCESS_KEY`/`MINIO_POLARIS_SECRET_KEY`, cùng `POSTGRES_ECOMMERCE_READER_USER`, `POSTGRES_ECOMMERCE_READER_PASSWORD`, `TRINO_READER_PASSWORD` và `DBT_TRINO_PASSWORD`. Nếu dùng Superset, cấu hình ba biến ở Bước 15 trước khi khởi động PostgreSQL lần đầu. [Mẫu cấu hình](../.env.example) · [Nhóm biến môi trường](SETUP.md#1-chuẩn-bị-môi-trường)
 
 ### Bước 2 Bật Console và đăng nhập
 
@@ -23,97 +23,31 @@ docker compose --env-file .env --profile '*' config --quiet
 make up
 ```
 
-Mở [Streamlit](http://127.0.0.1:8501), chọn **Quản trị quyền**. Nhập email và mật khẩu từ `API_BOOTSTRAP_ADMIN_EMAIL` và `API_BOOTSTRAP_ADMIN_PASSWORD`. Sau khi đăng nhập, màn hình sẽ có bộ chọn **Hệ thống** với hai mục **MinIO** và **Polaris**.
+Mở [Streamlit](http://127.0.0.1:8501), chọn **Quản trị quyền**. Nhập email và mật khẩu từ `API_BOOTSTRAP_ADMIN_EMAIL` và `API_BOOTSTRAP_ADMIN_PASSWORD`. Sau khi đăng nhập, màn hình quản trị Polaris hiện ra.
 
-## Tạo tài nguyên MinIO
-
-### Bước 3 Tạo bucket lakehouse
-
-1. Chọn **Hệ thống → MinIO → Tạo mới**.
-2. Mở **Tạo bucket, account hoặc policy MinIO**.
-3. Ở **Đối tượng mới**, chọn **Bucket**.
-4. Trong **Tên đối tượng / access key**, nhập `lakehouse`.
-5. Bấm **Tạo trên MinIO**. Mở **Danh sách** và kiểm tra bucket `lakehouse` xuất hiện. Nếu danh sách còn cũ, bấm **Tải lại quyền**. [Form tạo bucket](../services/platform-app/src/platform_app/ui/views/access_create.py)
-
-### Bước 4 Tạo account lưu trữ cho Polaris
-
-Trong **MinIO → Tạo mới**, chọn **Đối tượng mới → Account**. Ở **Tên đối tượng / access key**, nhập giá trị `MINIO_POLARIS_ACCESS_KEY`, mặc định là `lakehouse-polaris`. Ở **Secret key**, nhập giá trị `MINIO_POLARIS_SECRET_KEY`. Bấm **Tạo trên MinIO**.
-
-Nhập giá trị thực trong `.env` vào các ô. Form chấp nhận secret từ 8 đến 128 ký tự ASCII in được, không có khoảng trắng.
-
-### Bước 5 Tạo account lưu trữ cho Airflow và Trino writer
-
-Giữ **Đối tượng mới → Account**. Nhập giá trị `MINIO_BATCH_ACCESS_KEY`, mặc định là `lakehouse-batch`, vào ô tên. Nhập giá trị `MINIO_BATCH_SECRET_KEY` vào **Secret key** rồi bấm **Tạo trên MinIO**. Airflow batch và catalog ghi của Trino cùng dùng account này.
-
-### Bước 6 Tạo account lưu trữ cho Flink
-
-Giữ **Đối tượng mới → Account**. Nhập giá trị `MINIO_FLINK_ACCESS_KEY`, mặc định là `lakehouse-flink`, vào ô tên. Nhập giá trị `MINIO_FLINK_SECRET_KEY` vào **Secret key** rồi bấm **Tạo trên MinIO**.
-
-### Bước 7 Tạo account lưu trữ cho Trino reader
-
-Giữ **Đối tượng mới → Account**. Nhập giá trị `MINIO_TRINO_ACCESS_KEY`, mặc định là `lakehouse-trino`, vào ô tên. Nhập giá trị `MINIO_TRINO_SECRET_KEY` vào **Secret key** rồi bấm **Tạo trên MinIO**. Qua **Danh sách** và kiểm tra bốn account đều ở trạng thái **enabled**. [Cấu hình account lưu trữ](SETUP.md#tạo-quyền-và-credential-trên-streamlit)
-
-### Bước 8 Tạo policy đọc ghi cho Polaris và Flink
-
-1. Ở **MinIO → Tạo mới**, đổi **Đối tượng mới** sang **Policy dữ liệu**.
-2. Nhập tên `lakehouse-storage-rw`. Chọn **Bucket** `lakehouse`.
-3. Nhập `warehouse/` vào **Prefix được truy cập**.
-4. Trong **Quyền object**, chọn **Đọc**, **Ghi (kèm multipart upload)** và **Xóa**.
-5. Bấm **Tạo trên MinIO**.
-
-### Bước 9 Tạo policy đọc ghi cho batch
-
-Tạo thêm một **Policy dữ liệu** tên `lakehouse-batch-rw` trên bucket `lakehouse`. Dán ba dòng sau vào **Prefix được truy cập**. Chọn **Đọc**, **Ghi (kèm multipart upload)** và **Xóa**, rồi bấm **Tạo trên MinIO**.
-
-```text
-warehouse/
-landing/
-state/
-```
-
-Prefix kết thúc bằng `/`. Form tự thêm wildcard và quyền liệt kê các prefix. [Mẫu policy MinIO](../infrastructure/minio/policies)
-
-### Bước 10 Tạo policy chỉ đọc cho Trino reader
-
-Tạo **Policy dữ liệu** tên `lakehouse-storage-ro` trên bucket `lakehouse`. Nhập prefix `warehouse/`, chọn **Đọc**, rồi bấm **Tạo trên MinIO**.
-
-### Bước 11 Gán policy cho bốn account MinIO
-
-1. Mở tab **Gán / Gỡ quyền**.
-2. Chọn **Account MinIO** `lakehouse-polaris` và **Policy** `lakehouse-storage-rw`.
-3. Chọn **Gán** rồi bấm **Áp dụng MinIO**.
-4. Lặp lại cho ba cặp còn lại trong bảng. Kiểm tra cột **Policy trực tiếp** ở **Danh sách** khi hoàn tất.
-
-| Account mặc định | Policy nhận |
-|---|---|
-| `lakehouse-polaris` | `lakehouse-storage-rw` |
-| `lakehouse-flink` | `lakehouse-storage-rw` |
-| `lakehouse-batch` | `lakehouse-batch-rw` |
-| `lakehouse-trino` | `lakehouse-storage-ro` |
-
-Nếu đã đổi access key trong `.env`, chọn tên account thực tế đã tạo từ Bước 4 đến Bước 7. [Form gán policy MinIO](../services/platform-app/src/platform_app/ui/views/access.py)
+MinIO không cần cấu hình tay: service `minio-init` chạy khi khởi động, tạo bucket `MINIO_LAKEHOUSE_BUCKET`, policy `lakehouse-polaris` và account `MINIO_POLARIS_ACCESS_KEY` mà Polaris dùng để cấp credential lưu trữ tạm cho từng bảng. Các workload không có account MinIO riêng. [Script minio-init](../infrastructure/minio/init.sh)
 
 ## Tạo catalog và cấp quyền Polaris
 
-### Bước 12 Tạo catalog lakehouse
+### Bước 3 Tạo catalog lakehouse
 
-1. Chuyển **Hệ thống → Polaris → Tạo mới**.
+1. Mở tab **Tạo mới**.
 2. Mở **Tạo catalog, principal hoặc role Polaris**.
 3. Ở **Đối tượng Polaris mới**, chọn **Catalog**.
 4. Điền **Tên đối tượng Polaris** là `lakehouse` và **Bucket MinIO** là `lakehouse`.
 5. Bấm **Tạo trên Polaris**. Trong **Danh sách**, kiểm tra catalog `lakehouse` đã có. Catalog dùng đường dẫn `s3://lakehouse/warehouse`. [Form tạo catalog](../services/platform-app/src/platform_app/ui/views/access_create.py)
 
-### Bước 13 Tạo bốn principal Polaris
+### Bước 4 Tạo bốn principal Polaris
 
-Trong **Polaris → Tạo mới**, chọn **Principal (client account)**. Nhập từng tên `batch_airflow`, `trino_writer`, `flink_landing`, `trino_reader`. Bấm **Tạo trên Polaris** sau mỗi tên. Polaris sinh client ID và secret, Console lưu chúng cho bước cấp credential.
+Trong **Tạo mới**, chọn **Principal (client account)**. Nhập từng tên `batch_airflow`, `trino_writer`, `flink_landing`, `trino_reader`. Bấm **Tạo trên Polaris** sau mỗi tên. Polaris sinh client ID và secret, Console lưu chúng cho bước cấp credential.
 
-### Bước 14 Tạo principal role và catalog role
+### Bước 5 Tạo principal role và catalog role
 
 1. Chọn **Principal role**, tạo `pipeline_writer` và `pipeline_reader`.
 2. Chọn **Catalog role**, tạo `lakehouse_writer` và `lakehouse_reader`.
 3. Với mỗi đối tượng, nhập tên rồi bấm **Tạo trên Polaris**.
 
-### Bước 15 Gán principal vào principal role
+### Bước 6 Gán principal vào principal role
 
 Mở **Gán / Gỡ quyền**. Ở **Loại liên kết**, chọn **Principal → Principal role**. Chọn principal trong **Đối tượng** và principal role trong **Role / quyền**, rồi chọn **Gán** → **Áp dụng Polaris**. Lặp cho đủ các dòng.
 
@@ -124,11 +58,11 @@ Mở **Gán / Gỡ quyền**. Ở **Loại liên kết**, chọn **Principal →
 | `flink_landing` | `pipeline_writer` |
 | `trino_reader` | `pipeline_reader` |
 
-### Bước 16 Gán principal role vào catalog role
+### Bước 7 Gán principal role vào catalog role
 
 Đổi **Loại liên kết** sang **Principal role → Catalog role**. Gán `pipeline_writer` → `lakehouse_writer`, sau đó gán `pipeline_reader` → `lakehouse_reader`. Bấm **Áp dụng Polaris** cho từng liên kết.
 
-### Bước 17 Gán quyền vào từng catalog role
+### Bước 8 Gán quyền vào từng catalog role
 
 1. Chọn **Loại liên kết → Catalog role → Quyền catalog** và đặt **Phạm vi quyền** là `catalog`.
 2. Chọn **Đối tượng** `lakehouse_writer` và **Role / quyền** `CATALOG_MANAGE_CONTENT`. Chọn **Gán** → **Áp dụng Polaris**. Quyền này cho phép các job tạo namespace, tạo bảng và quản lý nội dung trong catalog local.
@@ -147,9 +81,9 @@ VIEW_READ_PROPERTIES
 
 Kiểm tra bảng liên kết trong tab **Gán / Gỡ quyền** để thấy đủ chuỗi **principal → principal role → catalog role → quyền**. [Form gán quyền Polaris](../services/platform-app/src/platform_app/ui/views/access.py) · [RBAC Polaris 1.8](https://polaris.apache.org/releases/1.8.0/managing-security/access-control/)
 
-### Bước 18 Cấp credential Polaris cho Docker
+### Bước 9 Cấp credential Polaris cho Docker
 
-1. Mở **Polaris → Cấp cho workload**.
+1. Mở tab **Cấp cho workload**.
 2. Chọn `trino-reader` ở **Workload nhận credential** và `trino_reader` ở **Principal cấp cho workload**.
 3. Bấm **Cấp credential cho workload**. Lặp lại với ba cặp còn lại.
 
@@ -164,7 +98,7 @@ Kiểm tra cả bốn dòng có **Credential** là **Đã có** và **Quyền fi
 
 ## Chạy pipeline OLTP
 
-### Bước 19 Cấp quyền đọc PostgreSQL cho Airflow
+### Bước 10 Cấp quyền đọc PostgreSQL cho Airflow
 
 Khi PostgreSQL đã có schema nghiệp vụ, chạy lệnh dưới để tạo role reader và cấp `SELECT` trên 27 bảng nguồn (batch nạp 19 bảng, hai bảng tồn kho chỉ dùng để đối soát). Nếu vừa đổi biến reader trong `.env`, áp dụng cấu hình bằng `docker compose --profile core up -d --wait postgres` trước. [Script cấp quyền reader](../infrastructure/postgres/configure-source-reader.sh)
 
@@ -172,7 +106,7 @@ Khi PostgreSQL đã có schema nghiệp vụ, chạy lệnh dưới để tạo 
 make source-reader
 ```
 
-### Bước 20 Bật Trino và Airflow
+### Bước 11 Bật Trino và Airflow
 
 ```bash
 make core
@@ -181,16 +115,16 @@ docker compose --profile core ps trino airflow-scheduler
 
 Kiểm tra cả `trino` và `airflow-scheduler` đã lên `healthy`. Mở [Airflow](http://localhost:8080). Tài khoản đăng nhập lấy từ `AIRFLOW_ADMIN_USER` và `AIRFLOW_ADMIN_PASSWORD`.
 
-### Bước 21 Nạp dữ liệu mẫu nếu cần
+### Bước 12 Nạp dữ liệu mẫu nếu cần
 
-Nếu PostgreSQL đang trống và cần lịch sử cho dashboard, chạy hai lệnh dưới. Preset `1m` sinh khoảng một triệu đơn online, cộng thêm đơn POS. Nếu đã có dữ liệu cần phân tích, tiếp tục Bước 22. [Generator và điều kiện nạp dữ liệu](../generator/README.md)
+Nếu PostgreSQL đang trống và cần lịch sử cho dashboard, chạy hai lệnh dưới. Preset `1m` sinh khoảng một triệu đơn online, cộng thêm đơn POS. Nếu đã có dữ liệu cần phân tích, tiếp tục Bước 13. [Generator và điều kiện nạp dữ liệu](../generator/README.md)
 
 ```bash
 make seed
 make generate PRESET=1m
 ```
 
-### Bước 22 Chạy lần nạp đầu
+### Bước 13 Chạy lần nạp đầu
 
 Bật và chạy DAG init. DAG này tạo bảng, nạp toàn bộ nguồn rồi dựng Silver và Gold. [Pipeline OLTP](../airflow/README.md)
 
@@ -199,7 +133,7 @@ docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_ini
 docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_init
 ```
 
-### Bước 23 Xác nhận và bật lịch hằng ngày
+### Bước 14 Xác nhận và bật lịch hằng ngày
 
 Trong **Airflow → DAGs → `lakehouse_oltp_init` → lần chạy mới nhất**, mọi task trong các nhóm `staging`, `reconcile`, `bronze`, `silver`, `gold`, `maintenance` phải xanh. Kiểm tra Gold có dữ liệu:
 
@@ -211,7 +145,10 @@ Sau đó bật DAG chạy incremental lúc **03:00 giờ Việt Nam** mỗi ngà
 
 ```bash
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_sync
 ```
+
+`lakehouse_oltp_sync` chạy sau mỗi lần incremental để đồng bộ thay đổi cột và dòng bị xoá ở nguồn.
 
 ## Luồng access log
 
@@ -219,7 +156,7 @@ Luồng access log đang được thiết kế lại; chưa có job Flink hay DA
 
 ## Bật Superset
 
-### Bước 24 Chuẩn bị database và admin Superset
+### Bước 15 Chuẩn bị database và admin Superset
 
 Kiểm tra `SUPERSET_DB_PASSWORD`, `SUPERSET_SECRET_KEY` và `SUPERSET_ADMIN_PASSWORD` trong `.env`. Nếu vừa đổi biến PostgreSQL cho Superset, chạy `docker compose --profile core up -d --wait postgres` khi các job đang rảnh để container nhận cấu hình mới. Sau đó chạy:
 
@@ -229,7 +166,7 @@ make superset-db
 make superset-init
 ```
 
-### Bước 25 Bật Superset và sync dashboard
+### Bước 16 Bật Superset và sync dashboard
 
 Sau khi batch full đã chạy xong, chạy:
 
@@ -242,9 +179,9 @@ make superset-sync
 
 ## Khởi động lại và xử lý lỗi
 
-### Bước 26 Mở lại toàn bộ stack
+### Bước 17 Mở lại toàn bộ stack
 
-Dùng lệnh dưới khi tài nguyên MinIO, credential Polaris và metadata Superset đã sẵn sàng.
+Dùng lệnh dưới khi credential Polaris và metadata Superset đã sẵn sàng.
 
 ```bash
 make up-all PROFILES=core,bi
@@ -255,15 +192,15 @@ make status
 
 | Triệu chứng | Về bước nào |
 |---|---|
-| Trino báo `Polaris credential file is not ready: /run/polaris/clients.env` | Về Bước 18, kiểm tra cả `trino-reader` và `trino-writer`. Sau khi cấp đủ, chạy `docker compose --profile core up -d --wait trino`. |
-| Workload báo S3 `403` | Về Bước 4 đến Bước 11. Kiểm tra access key và secret khớp `.env`, policy gán đúng bucket, prefix và quyền object. |
-| Iceberg REST báo thiếu quyền đọc hoặc ghi bảng | Về Bước 15 đến Bước 18. Kiểm tra principal được cấp và lần theo liên kết đến catalog role. |
-| Batch không đăng nhập được PostgreSQL | Về Bước 19 và kiểm tra biến reader cùng kết quả `make source-reader`. |
-| Superset sync báo thiếu bảng Gold | Về Bước 23, kiểm tra `lakehouse_oltp_init` đã chạy xong rồi chạy lại Bước 25. |
+| Trino báo `Polaris credential file is not ready: /run/polaris/clients.env` | Về Bước 9, kiểm tra cả `trino-reader` và `trino-writer`. Sau khi cấp đủ, chạy `docker compose --profile core up -d --wait trino`. |
+| Workload báo S3 `403` | Xem log `docker compose logs minio-init`; secret trong `.env` phải khớp account Polaris dùng. Chạy lại `docker compose --profile core up minio-init`, rồi khởi động lại Polaris. |
+| Iceberg REST báo thiếu quyền đọc hoặc ghi bảng | Về Bước 6 đến Bước 9. Kiểm tra principal được cấp và lần theo liên kết đến catalog role. |
+| Batch không đăng nhập được PostgreSQL | Về Bước 10 và kiểm tra biến reader cùng kết quả `make source-reader`. |
+| Superset sync báo thiếu bảng Gold | Về Bước 14, kiểm tra `lakehouse_oltp_init` đã chạy xong rồi chạy lại Bước 16. |
 
 Xem log startup và trạng thái container bằng các lệnh dưới. [Hướng dẫn xử lý sự cố](OPERATIONS.md#4-troubleshooting)
 
 ```bash
-docker compose --profile core logs --tail=100 trino credential-exporter
+docker compose --profile core logs --tail=100 minio-init trino credential-exporter
 docker compose --profile core ps -a
 ```

@@ -22,7 +22,12 @@ Notable changes to this project. The format follows [Keep a Changelog](https://k
 - An init load keeps the rows already flagged as deleted and flags rows the source no longer has, so delete history survives a full reload.
 - Maintenance compacts Bronze only. A new `optimize` task runs `ALTER TABLE … EXECUTE optimize` on Silver, Gold and `_mart_state`, replacing the Silver post-hook.
 - Backfilling the incremental DAG requires pausing the sync DAG and triggering it once afterwards.
+- Access administration covers Polaris only. A one-shot `minio-init` service creates the bucket and the storage account Polaris uses. Writes no longer carry a revision or read back their outcome; each one is audited before and after.
 - Incremental loads read only the configured columns Bronze already has. Init no longer loads new source columns that are not approved.
+
+#### Removed
+
+- MinIO administration in the API and Streamlit, and the unused `MINIO_BATCH_*`, `MINIO_FLINK_*`, `MINIO_TRINO_*` variables.
 
 ### 2026-11-21: OLTP pipeline redesign
 

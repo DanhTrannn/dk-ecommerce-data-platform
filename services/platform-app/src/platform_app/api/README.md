@@ -1,6 +1,6 @@
 # Ecommerce API and Access Administration
 
-FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. Its active surface comprises source transactions, the ID lookups needed by scenarios, two HTTP observability reads, and MinIO/Polaris administration under `/api/v1/access`. The Streamlit console uses this API; business sales BI uses the separate Superset PoC.
+FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. Its active surface comprises source transactions, the ID lookups needed by scenarios, two HTTP observability reads, and Polaris administration under `/api/v1/access`. The Streamlit console uses this API; business sales BI uses the separate Superset PoC.
 
 [Models](models) map 28 OLTP tables; the [physical schema](../../../../../database/schema.sql) is PostgreSQL. [Router registration](routes/router.py) and [handlers](modules) define supported endpoints. There is no separate access-admin web service: access routes share the API process, cookie session and port 8000. The credential exporter is a separate internal service on port 8011.
 
@@ -179,7 +179,7 @@ In addition to the six retired BI routes above, these ten former administrative 
 
 - Order, delivery-staff and admin return operations require `admin`. Operations-manager roles do not grant these API write permissions.
 - Category CRUD, self-service customer profile editing, a separate shipper login and size/color exchange workflows are absent.
-- Access administration supports MinIO user/bucket/policy and Polaris principal/role/catalog resources, bindings and explicit workload credential assignment. MinIO group administration and arbitrary policy JSON editing are not exposed. Sensitive credential responses use `Cache-Control: no-store`; access audit data and saved credentials use private persistent paths.
+- Access administration supports Polaris principal/role/catalog resources, bindings and explicit workload credential assignment. MinIO is not administered through the API; `minio-init` creates the one storage account Polaris uses. Sensitive credential responses use `Cache-Control: no-store`; access audit data and saved credentials use private persistent paths.
 - This guide verifies registrations and source behavior. Successful runtime transactions still require initialized source data, provider permissions and reachable dependencies.
 
 ## References

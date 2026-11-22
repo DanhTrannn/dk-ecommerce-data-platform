@@ -6,7 +6,7 @@ Container Python slim chạy chung FastAPI (`API_PORT`, mặc định 8000) và 
 
 `API_DATABASE_URL` bắt buộc khi chạy API, dùng `postgresql+psycopg2`. Session dùng UTC và schema public; `/health/ready` hiện chỉ kiểm tra kết nối, chưa kiểm tra schema nghiệp vụ.
 
-Streamlit **Platform Console** có hai màn hình: **Mô phỏng API** (mua online qua API thật) và **Quản trị quyền** (CRUD, binding Polaris/MinIO và cấp credential workload). Console không còn chức năng sinh/nạp SQL của giao diện cũ. Package workspace `data-generator` hiện cung cấp CLI OLTP/log riêng, không chạy qua Streamlit.
+Streamlit **Platform Console** có hai màn hình: **Mô phỏng API** (mua online qua API thật) và **Quản trị quyền** (CRUD, binding Polaris và cấp credential workload). Console không còn chức năng sinh/nạp SQL của giao diện cũ. Package workspace `data-generator` hiện cung cấp CLI OLTP/log riêng, không chạy qua Streamlit.
 
 Thiết kế và quyết định kỹ thuật: [docs/SETUP.md](../../docs/SETUP.md).
 
@@ -104,15 +104,15 @@ Mở **Quản trị quyền** và đăng nhập bằng admin bootstrap cấu hì
 
 Streamlit gọi FastAPI tại `http://127.0.0.1:8000/api/v1/access` trong cùng container `platform-app`. Router nằm trong `access_admin/router.py`, dùng chung cơ chế auth và xử lý lỗi với API nghiệp vụ; validation quản trị được rút gọn để không phản hồi dữ liệu bí mật. Request ghi cần CSRF. Không có API quản trị riêng ở cổng 8010.
 
-`platform-app` chạy bằng `PLATFORM_APP_UID`/`PLATFORM_APP_GID`, giữ credential admin MinIO/Polaris và mount `access-admin-secrets`. FastAPI và Streamlit dùng chung môi trường container; việc gộp giảm một container/Uvicorn nhưng cũng đưa credential quản trị vào container ứng dụng. Không mount Docker socket hoặc bốn volume credential consumer vào `platform-app`.
+`platform-app` chạy bằng `PLATFORM_APP_UID`/`PLATFORM_APP_GID`, giữ credential admin Polaris và mount `access-admin-secrets`; không giữ credential root của MinIO. FastAPI và Streamlit dùng chung môi trường container; việc gộp giảm một container/Uvicorn nhưng cũng đưa credential quản trị vào container ứng dụng. Không mount Docker socket hoặc bốn volume credential consumer vào `platform-app`.
 
 Phạm vi CRUD:
 
-- **MinIO:** tạo/xem user, bucket và policy; bật/tắt user; sửa policy bằng form bucket/prefix/action; sửa tag bucket; xóa tài nguyên khi các điều kiện phụ thuộc/dữ liệu cho phép. JSON policy hiển thị trên UI và được lưu trong MinIO; các file `infrastructure/minio/policies/*.json` chỉ là ví dụ, không tự cập nhật khi sửa trên UI. Có gán/gỡ policy trực tiếp; không quản trị group hoặc đổi password/secret user đã có.
+- **MinIO:** không quản trị trên Console. Service `minio-init` tạo bucket, policy `lakehouse-polaris` ([file](../../infrastructure/minio/policies/lakehouse-polaris.json)) và account lưu trữ của Polaris; workload nhận credential lưu trữ tạm do Polaris cấp.
 - **Polaris:** tạo/xem/sửa thuộc tính/xóa principal, principal role, catalog role và catalog; gán/gỡ liên kết và các privilege được hỗ trợ ở cấp catalog/namespace/table. Danh tính/role hệ thống được bảo vệ. Credential của principal do UI tạo được lưu trong `access-admin-secrets` và có thể xem lại bằng thao tác được audit; không tự lấy lại secret của principal bên ngoài hoặc xoay secret.
-- UI hiển thị **liên kết trực tiếp**, không tính đầy đủ quyền hiệu lực từ mọi role/group/policy. Gỡ một grant/policy chưa chứng minh toàn bộ quyền đã mất nếu còn đường kế thừa khác.
+- UI hiển thị **liên kết trực tiếp**, không tính đầy đủ quyền hiệu lực từ mọi role. Gỡ một grant chưa chứng minh toàn bộ quyền đã mất nếu còn đường kế thừa khác.
 
-Quyền hiển thị là snapshot của lần tải. Dùng **Tải lại quyền** sau thao tác từ công cụ khác. Backend đọc lại trạng thái và so revision trước khi ghi; revision lệch trả 409. Sửa policy cần xác nhận tác động; xóa yêu cầu nhập đúng tên, có kiểm tra tài nguyên còn được tham chiếu hoặc đang cấp cho workload. Backend đọc lại sau thay đổi để xác minh, không tự retry thao tác có kết quả chưa rõ. Khóa file chỉ serialize các thao tác dùng cùng audit path, không khóa công cụ quản trị bên ngoài.
+Quyền hiển thị là snapshot của lần tải. Dùng **Tải lại quyền** sau thao tác từ công cụ khác. Mỗi thao tác ghi đọc trạng thái hiện tại để kiểm tra, rồi ghi, dưới khóa audit; xóa yêu cầu nhập đúng tên và bị chặn khi tài nguyên còn được tham chiếu hoặc đang cấp cho workload. Thao tác lỗi không tự gửi lại. Khóa file chỉ serialize các thao tác dùng cùng audit path, không khóa công cụ quản trị bên ngoài.
 
 ### Cấp credential Polaris cho workload
 
@@ -120,11 +120,11 @@ Tạo principal chưa tự cấu hình consumer. Trong tab **Cấp cho workload*
 
 UI cho xem trạng thái file/ownership và principal đã cấp. Thay file đã có cần xác nhận; gỡ cần nhập đúng workload. Principal còn được phân công bị chặn xóa. Consumer giữ credential trong bộ nhớ cần khởi động lại hoặc submit lại job để áp dụng. Gỡ file không tự thu hồi quyền/secret trên Polaris.
 
-Cấp file chỉ xử lý **credential Polaris**. MinIO user/secret phải khớp các biến `MINIO_*` consumer nhận từ `.env`; thao tác trên Streamlit không tự sửa `.env` hay cấu hình môi trường của container đã chạy. Xem [setup](../../docs/SETUP.md#2-build-và-chọn-profile) cho volume và thứ tự khởi động.
+Cấp file chỉ xử lý **credential Polaris**; thao tác trên Streamlit không tự sửa `.env` hay cấu hình môi trường của container đã chạy. Xem [setup](../../docs/SETUP.md#2-build-và-chọn-profile) cho volume và thứ tự khởi động.
 
 ### Audit và chạy ứng dụng
 
-Audit append-only cục bộ tại `data/access-admin/audit.jsonl` (0600) ghi actor, thao tác, đối tượng, operation ID và kết quả; không ghi password/token/admin secret. Không ghi được audit trước thao tác thì không gọi upstream. Nếu kết quả chưa xác minh, kiểm tra trạng thái thật và operation ID trước khi thao tác tiếp. Audit không phải kho chống sửa/xóa hoặc giao dịch phân tán với MinIO/Polaris.
+Audit append-only cục bộ tại `data/access-admin/audit.jsonl` (0600) ghi actor, thao tác, đối tượng, operation ID và kết quả (`started`, rồi `done`, `rejected` hoặc `failed`); không ghi password/token/admin secret. Không ghi được audit trước thao tác thì không gọi upstream. Khi thao tác `failed`, tải lại quyền để xem trạng thái thật trước khi làm tiếp. Audit không phải kho chống sửa/xóa hoặc giao dịch phân tán với Polaris.
 
 ```bash
 make up
@@ -132,9 +132,9 @@ make up
 docker compose --profile core up -d --build --wait --remove-orphans platform-app
 ```
 
-`make up` chạy console/API và các dependency quản trị; chỉ dùng `make up-all` sau khi cấu hình quyền/credential cho workload. Image mang sẵn binary `mc`; adapter gọi các subcommand cố định, không nhận command tùy ý. Credential MinIO được truyền qua môi trường tiến trình ngắn hạn thay vì argv.
+`make up` chạy console/API và các dependency quản trị; chỉ dùng `make up-all` sau khi cấu hình quyền/credential cho workload.
 
-Khi chạy API trên host, dùng `uv run --locked --env-file .env --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --no-access-log`, rồi chạy Streamlit riêng. `CONSOLE_ACCESS_ADMIN_URL` mặc định là `http://127.0.0.1:8000`; nếu `.env` cũ còn đặt cổng 8010 thì đổi sang cổng API chung. Host cần binary `mc` (`ACCESS_ADMIN_MC_BINARY`), URL host MinIO/Polaris, root credential, PostgreSQL/JWT và thư mục secret/audit có quyền phù hợp. Cấp credential cho volume consumer qua exporter là luồng Compose; không tự hoạt động chỉ bằng cách chạy API trên host.
+Khi chạy API trên host, dùng `uv run --locked --env-file .env --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --no-access-log`, rồi chạy Streamlit riêng. `CONSOLE_ACCESS_ADMIN_URL` mặc định là `http://127.0.0.1:8000`; nếu `.env` cũ còn đặt cổng 8010 thì đổi sang cổng API chung. Host cần URL Polaris (và MinIO cho cấu hình catalog), root credential Polaris, PostgreSQL/JWT và thư mục secret/audit có quyền phù hợp. Cấp credential cho volume consumer qua exporter là luồng Compose; không tự hoạt động chỉ bằng cách chạy API trên host.
 
 ### API quản trị
 
@@ -144,13 +144,13 @@ Các path dưới đây có prefix `/api/v1/access` trên FastAPI cổng 8000:
 |---|---|---|
 | POST | `/login`, `/logout` | Đăng nhập/đăng xuất quản trị |
 | GET | `/me` | Kiểm tra danh tính và role hiện tại |
-| GET | `/polaris`, `/minio` | Đọc snapshot quyền và revision |
-| POST | `/{provider}/resources` | Tạo tài nguyên |
-| PATCH | `/{provider}/resources` | Sửa hoặc xóa qua trường `operation` |
-| POST | `/{provider}/bindings` | Gán/gỡ một liên kết |
+| GET | `/polaris` | Đọc snapshot quyền Polaris |
+| POST | `/polaris/resources` | Tạo tài nguyên |
+| PATCH | `/polaris/resources` | Sửa hoặc xóa qua trường `operation` |
+| POST | `/polaris/bindings` | Gán/gỡ một liên kết |
 | POST | `/polaris/credentials/{name}` | Xem lại credential principal đã lưu; cần CSRF, được audit |
 | GET | `/polaris/workload-credentials` | Xem trạng thái các consumer |
 | POST | `/polaris/workload-credentials` | Cấp/thay/gỡ file credential workload |
 | GET | `/audit` | Đọc tối đa 50 audit record gần nhất |
 
-Payload được kiểm tra theo từng loại tài nguyên; dữ liệu thừa bị từ chối. Thao tác thay đổi tài nguyên/liên kết/workload cần revision hiện tại và CSRF. API không nhận credential quản trị upstream, command tùy ý hoặc policy JSON tự do từ form.
+Payload được kiểm tra theo từng loại tài nguyên; dữ liệu thừa bị từ chối. Thao tác ghi cần CSRF; cấp credential workload còn cần revision trạng thái của exporter. API không nhận credential quản trị upstream hay command tùy ý từ form.

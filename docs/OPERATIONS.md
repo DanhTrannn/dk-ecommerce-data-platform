@@ -54,7 +54,8 @@ SELECT sum(net_revenue_vnd), sum(gross_profit_vnd) FROM lakehouse.gold.mart_sale
 | `reconcile.<bảng>` lỗi `ReconciliationFailed` | Bản trích xuất lệch nguồn tại mốc chạy (số dòng, tổng tiền, sổ kho); Bronze chưa đổi | Xem log, **Clear** `staging.<bảng>` kèm downstream |
 | `silver.<bảng>` lỗi test `matches_bronze` | Silver và Bronze lệch khoá | Chạy `lakehouse_oltp_init` để dựng lại Silver |
 | `gold.<model>` lỗi | Lỗi SQL dbt hoặc Trino | Chạy tay theo [airflow/README.md](../airflow/README.md#run), **Clear** task kèm downstream |
-| Lỗi credential Polaris/MinIO | Workload chưa được cấp credential, hoặc consumer chưa restart sau khi đổi | Kiểm tra tab **Cấp cho workload** và exporter; restart consumer |
+| Lỗi credential Polaris | Workload chưa được cấp credential, hoặc consumer chưa restart sau khi đổi | Kiểm tra tab **Cấp cho workload** và exporter; restart consumer |
+| S3 `403` khi đọc/ghi bảng | Account MinIO của Polaris thiếu hoặc lệch secret với `.env` | Xem `docker compose logs minio-init`, chạy lại `docker compose --profile core up minio-init`, rồi restart Polaris |
 | Trino từ chối quyền ghi | Đúng thiết kế với catalog `lakehouse`; dbt ghi qua `lakehouse_etl` | Không cấp quyền ghi cho reader |
 | Compose báo thiếu biến | `.env` thiếu biến mới | So với `.env.example` |
 | API thiếu bảng | `platform-admin-init` không áp được schema | Xem log init; bootstrap không migrate schema dở dang |

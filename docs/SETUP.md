@@ -39,12 +39,12 @@ make build  # chỉ build image platform-app dùng chung
 make up     # khởi động platform-app và các dependency quản trị
 ```
 
-`platform-app` chạy FastAPI cổng 8000 và Streamlit cổng 8501. API quản trị MinIO/Polaris dùng chung FastAPI tại `/api/v1/access`; không có container quản trị riêng. Dependency gồm PostgreSQL, MinIO, Polaris/bootstrap, `platform-admin-init` và `credential-exporter`. `make up` không khởi động toàn bộ Airflow/Trino hoặc streaming/BI chỉ vì profile đã được bật.
+`platform-app` chạy FastAPI cổng 8000 và Streamlit cổng 8501. API quản trị Polaris dùng chung FastAPI tại `/api/v1/access`; không có container quản trị riêng. Dependency gồm PostgreSQL, MinIO, `minio-init`, Polaris/bootstrap, `platform-admin-init` và `credential-exporter`. `make up` không khởi động toàn bộ Airflow/Trino hoặc streaming/BI chỉ vì profile đã được bật.
 
 ### Tạo quyền và credential trên Streamlit
 
 1. Mở `http://127.0.0.1:8501` → **Quản trị quyền**. Đăng nhập bằng admin cấu hình qua `API_BOOTSTRAP_ADMIN_EMAIL`/`API_BOOTSTRAP_ADMIN_PASSWORD`; admin khác và `system_admin` không được quản trị hạ tầng.
-2. Trong MinIO, tạo bucket, user và policy cần cho Polaris/batch/Flink/Trino; gán policy cho user. Dùng đúng access key/secret của các biến `MINIO_*` mà consumer đang nhận từ `.env`. Thay đổi trên Streamlit không tự sửa các biến này.
+2. MinIO không cần cấu hình tay: `minio-init` tạo bucket `MINIO_LAKEHOUSE_BUCKET` và account `MINIO_POLARIS_ACCESS_KEY` mà Polaris dùng để cấp credential lưu trữ tạm. Workload không có account MinIO riêng.
 3. Trong Polaris, tạo catalog với bucket tương ứng, principal, principal role và catalog role. Gán principal → principal role → catalog role và các privilege cần thiết. Tên catalog phải khớp cấu hình consumer. Hai file Trino `infrastructure/trino/catalog/lakehouse*.properties` hiện đặt warehouse là `lakehouse`; đổi `POLARIS_CATALOG_NAME` trong `.env` không tự sửa các file này.
 4. Mở **Cấp cho workload**, chọn principal có credential đã lưu và cấp cho consumer cần dùng:
 

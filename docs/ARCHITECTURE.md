@@ -10,7 +10,7 @@ Cấu trúc dữ liệu và KPI ở [DATA.md](DATA.md), cài đặt ở [SETUP.m
 |---|---|
 | Nguồn nghiệp vụ | FastAPI + PostgreSQL 28 bảng |
 | Generator | `datagen generate/verify/logs/reset`; preset OLTP `100k`/`1m`/`10m`/`50m` |
-| Console | Streamlit: kịch bản mua online qua API, quản trị quyền MinIO/Polaris |
+| Console | Streamlit: kịch bản mua online qua API, quản trị quyền Polaris |
 | Pipeline OLTP | Airflow: staging → Bronze → Silver → Gold, 19 bảng nguồn, 27 model Gold; đồng bộ dòng bị xoá bằng xoá mềm và thay đổi cột đã duyệt |
 | Access log | Đang thiết kế lại: API vẫn có thể gửi Kafka, đã gỡ job Flink và DAG log; thiết kế giữ ở `streaming/sql` và `dbt/models/logs` |
 | BI | Superset tùy chọn, ba mart doanh thu; sẽ làm lại sau khi các pipeline ổn định |
@@ -25,7 +25,7 @@ Không dùng Spark, Debezium hay CDC.
 | `platform-admin-init` | Chạy một lần: áp schema nguồn trống, tạo admin bootstrap | [provisioning](../services/platform-app/src/platform_app/provisioning/) |
 | `credential-exporter` | Nhận yêu cầu đã ký, ghi credential Polaris vào volume của từng workload | [credential_export](../services/platform-app/src/platform_app/credential_export/) |
 | PostgreSQL 16.8 | Nguồn `ecommerce`; metadata `airflow`, `polaris`, `superset` | [database](../database/), [scripts](../infrastructure/postgres/) |
-| MinIO | Object storage cho dữ liệu và metadata Iceberg | [policy mẫu](../infrastructure/minio/policies/) |
+| MinIO | Object storage cho dữ liệu và metadata Iceberg; `minio-init` tạo bucket và account lưu trữ duy nhất, của Polaris | [minio](../infrastructure/minio/) |
 | Polaris 1.8.0 | Iceberg REST catalog, quyền theo principal/role, cấp credential lưu trữ theo bảng | |
 | Airflow 3.3.2 | Bốn DAG OLTP (init, incremental, sync, purge); LocalExecutor; thư viện pipeline cài vào Python của image | [airflow](../airflow/), [image](../infrastructure/airflow/Dockerfile) |
 | dbt 1.11 (dbt-trino) | Dựng Silver và Gold trên Trino | [dbt](../dbt/) |
@@ -56,7 +56,7 @@ API / datagen ──► PostgreSQL ──► staging ──► [reconcile] ─�
 - Mỗi workload có danh tính riêng: Airflow (`batch-airflow`), Flink, Trino reader và Trino writer đều nhận credential principal Polaris qua `credential-exporter`. Không workload nào giữ key MinIO: Polaris cấp credential lưu trữ tạm thời, chỉ trong phạm vi bảng được đọc/ghi.
 - Pipeline đọc PostgreSQL bằng role chỉ SELECT (`make source-reader`) qua connection Airflow `oltp_postgres`, phiên read-only.
 - Trino xác thực `analytics_reader` và `dbt_writer` bằng mật khẩu qua HTTPS; SQL access rules giới hạn `dbt_writer` vào schema `silver` và `gold`.
-- Quản trị MinIO/Polaris trên Streamlit chỉ dành cho admin bootstrap; thao tác ghi có CSRF, revision, journal và readback.
+- MinIO chỉ có một account lưu trữ cho Polaris, do `minio-init` tạo. Quản trị Polaris trên Streamlit chỉ dành cho admin bootstrap; thao tác ghi cần CSRF và được ghi audit trước và sau.
 - API giao dịch dùng JWT cookie, CSRF và kiểm tra role/cửa hàng theo route. Superset có login riêng, chưa kế thừa quyền API.
 
 ## 5. Triển khai
