@@ -54,29 +54,31 @@
 {#- Revenue, refund and return-cost days of every touched order: an order recognized later also moves its earlier
     refunds into the revenue marts. -#}
 {% macro sales_days() -%}
-  WITH orders AS (
-    SELECT order_id FROM {{ ref('fact_order') }} WHERE _ingested_at > {{ mart_watermark() }}
-    UNION SELECT order_id FROM {{ ref('fact_order_item') }} WHERE _ingested_at > {{ mart_watermark() }}
-    UNION SELECT order_id FROM {{ ref('fact_return') }} WHERE _ingested_at > {{ mart_watermark() }}
-    UNION
-    SELECT order_id FROM {{ ref('fact_order') }}
-    WHERE store_key IN (SELECT store_key FROM {{ ref('dim_store') }} WHERE _ingested_at > {{ mart_watermark() }})
-      OR city_key IN (SELECT city_key FROM {{ ref('dim_city') }} WHERE _ingested_at > {{ mart_watermark() }})
-    UNION
-    SELECT order_id FROM {{ ref('fact_order_item') }}
-    WHERE product_key IN (SELECT product_key FROM {{ ref('dim_product') }} WHERE _ingested_at > {{ mart_watermark() }})
-  )
-  SELECT revenue_date FROM {{ ref('fact_order') }} WHERE order_id IN (SELECT order_id FROM orders) AND revenue_date IS NOT NULL
-  UNION
-  SELECT {{ vn_date('r.completed_at') }}
-  FROM {{ ref('refunds') }} r
-  JOIN {{ ref('payments') }} p ON p.payment_id = r.payment_id
-  WHERE p.order_id IN (SELECT order_id FROM orders) AND r.completed_at IS NOT NULL
-  UNION
   SELECT day
-  FROM {{ ref('fact_return') }}
-  CROSS JOIN UNNEST(ARRAY[{{ vn_date('refunded_at') }}, resolved_date]) AS t(day)
-  WHERE order_id IN (SELECT order_id FROM orders) AND day IS NOT NULL
+  FROM (
+    SELECT order_id, revenue_date AS day FROM {{ ref('fact_order') }}
+    UNION ALL
+    SELECT p.order_id, {{ vn_date('r.completed_at') }}
+    FROM {{ ref('refunds') }} r
+    JOIN {{ ref('payments') }} p ON p.payment_id = r.payment_id
+    UNION ALL
+    SELECT order_id, day
+    FROM {{ ref('fact_return') }}
+    CROSS JOIN UNNEST(ARRAY[{{ vn_date('refunded_at') }}, resolved_date]) AS t(day)
+  )
+  WHERE day IS NOT NULL
+    AND order_id IN (
+      SELECT order_id FROM {{ ref('fact_order') }} WHERE _ingested_at > {{ mart_watermark() }}
+      UNION SELECT order_id FROM {{ ref('fact_order_item') }} WHERE _ingested_at > {{ mart_watermark() }}
+      UNION SELECT order_id FROM {{ ref('fact_return') }} WHERE _ingested_at > {{ mart_watermark() }}
+      UNION
+      SELECT order_id FROM {{ ref('fact_order') }}
+      WHERE store_key IN (SELECT store_key FROM {{ ref('dim_store') }} WHERE _ingested_at > {{ mart_watermark() }})
+        OR city_key IN (SELECT city_key FROM {{ ref('dim_city') }} WHERE _ingested_at > {{ mart_watermark() }})
+      UNION
+      SELECT order_id FROM {{ ref('fact_order_item') }}
+      WHERE product_key IN (SELECT product_key FROM {{ ref('dim_product') }} WHERE _ingested_at > {{ mart_watermark() }})
+    )
   UNION {{ changed_days('fact_order', ['revenue_date']) }}
   UNION {{ changed_days('fact_order_item', ['revenue_date']) }}
   UNION {{ changed_days('fact_return', [vn_date('refunded_at'), 'resolved_date']) }}

@@ -3,6 +3,7 @@
     unique_key=['position_key', 'inventory_date'],
     properties={"partitioning": "ARRAY['month(inventory_date)']"}
 ) }}
+-- depends_on: {{ ref('dim_variant') }}
 -- One row per day for each stock position (central warehouse or store x variant), from its first movement up
 -- to the last built day. Built from the stock ledger only: a position's balance is the running sum of its
 -- movements. An incremental run extends every position to the new last day and rebuilds a position from its

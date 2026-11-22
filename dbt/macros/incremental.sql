@@ -13,34 +13,41 @@
   greatest({% for column in varargs %}coalesce({{ column }}, TIMESTAMP '1970-01-01 00:00:00 UTC'){{ ", " if not loop.last }}{% endfor %})
 {%- endmacro %}
 
-{#- Created by the lakehouse_oltp_init DAG; one row per mart. -#}
+{#- Created by the lakehouse_oltp_init DAG. Marts only append to it, since marts running in parallel that update
+    shared rows conflict on commit; a mart's progress is its latest row. -#}
 {% macro mart_state() -%}
   {{ api.Relation.create(database=target.database, schema='gold', identifier='_mart_state') }}
 {%- endmacro %}
 
-{#- The latest Gold `_ingested_at` this mart has built from; Gold rows ingested later are new to it. -#}
+{#- Run `sql`, which returns one varchar, and inline the result as a literal, or NULL when it returns NULL and there
+    is no default. Trino repeats a subquery wherever a CTE uses it, and a literal also lets Iceberg skip files by
+    their column statistics. -#}
+{% macro literal(sql, type, default=none) -%}
+  {%- set value = run_query(sql).columns[0].values()[0] if execute else none -%}
+  {%- set value = value if value is not none else default -%}
+  {%- if value is none -%}CAST(NULL AS {{ type }}){%- else -%}{{ type }} '{{ value }}'{%- endif -%}
+{%- endmacro %}
+
+{#- The latest Gold `_ingested_at` this mart has built from; Gold rows ingested later are new to it. The pre-hook
+    and the model read it before the post-hook appends a new row, so both see the same value. -#}
 {% macro mart_watermark() -%}
-  (SELECT coalesce(max(watermark), TIMESTAMP '1970-01-01 00:00:00 UTC') FROM {{ mart_state() }} WHERE mart = '{{ this.name }}')
+  {{ literal("SELECT CAST(max(watermark) AS varchar) FROM " ~ mart_state() ~ " WHERE mart = '" ~ this.name ~ "'",
+             'TIMESTAMP', '1970-01-01 00:00:00 UTC') }}
 {%- endmacro %}
 
 {#- The last day this mart has built, or NULL before its first build. -#}
 {% macro mart_last_day() -%}
-  (SELECT max(last_day) FROM {{ mart_state() }} WHERE mart = '{{ this.name }}')
+  {{ literal("SELECT CAST(max(last_day) AS varchar) FROM " ~ mart_state() ~ " WHERE mart = '" ~ this.name ~ "'", 'DATE') }}
 {%- endmacro %}
 
 {#- Post-hook: record that the mart now covers every row of `inputs`, and `last_day` when it builds a day series.
     It runs only after the mart was written, so a failed run leaves the old watermark for the next attempt. -#}
 {% macro advance_mart(inputs, last_day='CAST(NULL AS date)') -%}
-  MERGE INTO {{ mart_state() }} s
-  USING (
-    SELECT
-      '{{ this.name }}' AS mart,
-      greatest({% for input in inputs %}(SELECT max(_ingested_at) FROM {{ ref(input) }}){{ ", " if not loop.last }}{% endfor %}) AS watermark,
-      {{ last_day }} AS last_day
-  ) n
-  ON s.mart = n.mart
-  WHEN MATCHED THEN UPDATE SET watermark = n.watermark, last_day = n.last_day
-  WHEN NOT MATCHED THEN INSERT (mart, watermark, last_day) VALUES (n.mart, n.watermark, n.last_day)
+  INSERT INTO {{ mart_state() }} (mart, watermark, last_day)
+  SELECT
+    '{{ this.name }}',
+    greatest({% for input in inputs %}(SELECT max(_ingested_at) FROM {{ ref(input) }}){{ ", " if not loop.last }}{% endfor %}),
+    {{ last_day }}
 {%- endmacro %}
 
 {#- The dates the row had before this merge, read from the `prev` join on this model. Older dates are kept until
@@ -51,7 +58,8 @@
     concat(
       ARRAY[{{ varargs | join(', ') }}],
       CASE
-        WHEN prev._ingested_at > (SELECT coalesce(min(watermark), TIMESTAMP '1970-01-01 00:00:00 UTC') FROM {{ mart_state() }})
+        WHEN prev._ingested_at > {{ literal("SELECT CAST(min(watermark) AS varchar) FROM (SELECT max(watermark) AS watermark FROM "
+                                            ~ mart_state() ~ " GROUP BY mart)", 'TIMESTAMP', '1970-01-01 00:00:00 UTC') }}
         THEN prev._previous_dates
         ELSE CAST(ARRAY[] AS array(date))
       END
