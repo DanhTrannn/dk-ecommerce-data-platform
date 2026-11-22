@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import polars as pl
 
-from lakehouse.oltp.bronze import RELOAD_PENDING, live_keys, mark_deleted, merge_bronze, reload_pending
+from lakehouse.oltp.bronze import live_keys, mark_deleted, merge_bronze, reload_pending
 from lakehouse.oltp.drift import refuse, source_columns
 from lakehouse.oltp.schema import evolve_schema
 from lakehouse.oltp.source import CHUNK_ROWS, source_chunks, source_keys
@@ -30,14 +30,10 @@ def sync_schema(catalog, connection, table):
 def load_bronze(catalog, table):
     """Load the staged rows into Bronze: replace the table when a reload is pending, otherwise upsert.
 
-    A reload replaces Bronze in one commit, keeping its deleted rows, so a failure leaves nothing half filled. The
-    pending flag is cleared only afterwards; a failure in between just reloads again on the next sync.
+    A reload replaces Bronze in one commit, keeping its deleted rows, so a failure leaves nothing half filled; the
+    full load clears the pending flag afterwards.
     """
-    pending = reload_pending(load_table(catalog, ("bronze", table.name)))
-    merge_bronze(catalog, table, full=bool(pending))
-    if pending:
-        with load_table(catalog, ("bronze", table.name)).transaction() as transaction:
-            transaction.remove_properties(RELOAD_PENDING)
+    merge_bronze(catalog, table, full=bool(reload_pending(load_table(catalog, ("bronze", table.name)))))
 
 
 def detect_deletes(catalog, connection, table, detected_at):

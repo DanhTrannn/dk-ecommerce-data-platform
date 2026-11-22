@@ -84,7 +84,7 @@ Luồng: `schema` → `detect` → `bronze` → `silver` → `gold` → `mainten
 
 **`detect.<bảng>`:** khi cờ bật, đưa **mọi dòng** của bảng vào staging; khi không, chỉ đưa dòng khôi phục, như phần 1. Không cần truy vấn thêm vào nguồn.
 
-**`bronze.<bảng>`** (của sync): khi cờ bật, **thay cả bảng Bronze trong một commit**, dùng chung đường full load nên vẫn giữ dấu xoá, rồi mới xoá cờ. Không còn trạng thái điền dở. Nếu hỏng trước khi xoá cờ, lần sync sau nạp lại từ đầu.
+**`bronze.<bảng>`** (của sync): khi cờ bật, **thay cả bảng Bronze trong một commit**, dùng chung đường full load nên vẫn giữ dấu xoá, rồi mới xoá cờ. Mọi full load đều xoá cờ, kể cả của init, vì nó đã điền đủ mọi cột. Không còn trạng thái điền dở. Nếu hỏng trước khi xoá cờ, lần sync sau nạp lại từ đầu.
 
 Đánh đổi: một sync hỏng ở bảng nào cũng dừng cả lần chạy (các nhóm nối nhau theo cả nhóm), nên một cột chưa duyệt ở một bảng làm hoãn việc đồng bộ xoá của mọi bảng cho tới khi được duyệt.
 

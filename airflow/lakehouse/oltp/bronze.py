@@ -134,6 +134,10 @@ def merge_bronze(catalog, table, *, full):
     if full:
         tombstones = full_load_tombstones(catalog, target, table, schema)
         written = replace_table(target, reader, transform, schema, tombstones)
+        # A full load fills every column, so a pending reload is done. The flag goes only after the load committed.
+        if reload_pending(target):
+            with load_table(catalog, ("bronze", table.name)).transaction() as transaction:
+                transaction.remove_properties(RELOAD_PENDING)
     else:
         written = upsert_table(target, reader, transform, schema, table)
     print(f"BRONZE table={table.name} rows={written} full={full}", flush=True)

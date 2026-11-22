@@ -139,6 +139,12 @@ class DetectTests(unittest.TestCase):
         self.assertEqual(detect_deletes(self.catalog, source, APPROVED, self.detected_at)["reload"], ["loyalty_tier"])
         self.assertEqual(self.staged(), [2, 3, 4])
 
+    def test_an_init_full_load_clears_the_pending_reload(self):
+        source = self.approve("gold")
+        detect_deletes(self.catalog, source, APPROVED, self.detected_at)
+        merge_bronze(self.catalog, APPROVED, full=True)
+        self.assertEqual(detect_deletes(self.catalog, source, APPROVED, self.detected_at)["reload"], [])
+
     def test_reload_needs_no_source_query(self):
         source = self.approve(None)
         detect_deletes(self.catalog, source, APPROVED, self.detected_at)
