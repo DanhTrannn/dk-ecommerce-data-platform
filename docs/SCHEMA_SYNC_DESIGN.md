@@ -80,12 +80,13 @@ Luồng: `schema` → `detect` → `bronze` → `silver` → `gold` → `mainten
 4. `unlisted`: báo lỗi `SCHEMA table=<bảng> unlisted=[...]` sau khi đã sửa xong các thay đổi an toàn, nêu cách duyệt (mục 5.5). Sync dừng; incremental vẫn nạp các cột đã duyệt.
 5. Cột của Bronze mà Silver chưa có (đọc metadata bảng Silver, không đọc dữ liệu): ghi cảnh báo `silver_missing=[...]`.
 
-**`detect.<bảng>`** quyết định có nạp lại cả bảng hay không, dựa trên chính dữ liệu thay vì truyền cờ giữa các task:
+**Cờ nạp lại.** Khi thêm cột `approved`, `schema` ghi thuộc tính bảng `lakehouse.reload-pending` (tên các cột) **trong cùng commit** với việc thêm cột. Sau đó, nếu còn file dữ liệu thiếu cột (đọc từ metadata), Bronze được ghi lại một lần. Quyết định ghi lại dựa trên file, nên một lần retry vẫn làm tiếp được.
 
-- **Nạp lại** khi có một cột của `sources.py` mà ở Bronze **toàn NULL** (đọc từ thống kê `null_value_counts` trong metadata Iceberg, không quét dữ liệu), trong khi nguồn có ít nhất một giá trị khác NULL (`SELECT 1 … WHERE <cột> IS NOT NULL LIMIT 1`). Khi đó mọi dòng của bảng vào staging. Bronze upsert chỉ ghi lại những dòng có giá trị ở cột mới; dòng NULL không đổi, đúng với nguồn.
-- **Không nạp lại:** chỉ đưa dòng khôi phục vào staging, như phần 1.
+**`detect.<bảng>`:** khi cờ bật, đưa **mọi dòng** của bảng vào staging; khi không, chỉ đưa dòng khôi phục, như phần 1. Không cần truy vấn thêm vào nguồn.
 
-Vì tín hiệu nằm trong dữ liệu, một lần chạy hỏng giữa chừng, hay một lần clear cả run, vẫn nạp lại đúng ở lần sau. Một cột thật sự toàn NULL ở cả nguồn lẫn Bronze không bao giờ gây nạp lại.
+**`bronze.<bảng>`** (của sync): khi cờ bật, **thay cả bảng Bronze trong một commit**, dùng chung đường full load nên vẫn giữ dấu xoá, rồi mới xoá cờ. Không còn trạng thái điền dở. Nếu hỏng trước khi xoá cờ, lần sync sau nạp lại từ đầu.
+
+Đánh đổi: một sync hỏng ở bảng nào cũng dừng cả lần chạy (các nhóm nối nhau theo cả nhóm), nên một cột chưa duyệt ở một bảng làm hoãn việc đồng bộ xoá của mọi bảng cho tới khi được duyệt.
 
 ### 5.4 Init
 
@@ -106,7 +107,8 @@ Vì tín hiệu nằm trong dữ liệu, một lần chạy hỏng giữa chừn
 | Tình huống | Vì sao giữ được |
 |---|---|
 | Chạy lại `schema` | Lần sau không còn khác biệt nên không sửa gì |
-| `schema` xong, `detect` hoặc `bronze` hỏng, rồi chạy lại hay clear cả run | Cột mới ở Bronze vẫn toàn NULL nên `detect` vẫn nạp lại cả bảng; khi đã nạp xong thì không còn toàn NULL |
+| `schema` hỏng giữa thêm cột và ghi lại | Cột và cờ được commit cùng nhau; retry thấy file thiếu cột nên ghi lại tiếp |
+| `detect` hoặc `bronze` hỏng, rồi chạy lại hay clear cả run | Cờ vẫn còn nên lần sau nạp lại từ đầu; `bronze` thay cả bảng trong một commit nên không có trạng thái điền dở |
 | Incremental trong khoảng chờ sync | Chỉ đọc các cột đã có ở Bronze nên kết quả không phụ thuộc vào việc sync đã chạy hay chưa |
 
 ## 7. Kiểm chứng

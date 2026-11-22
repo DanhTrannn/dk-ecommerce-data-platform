@@ -6,6 +6,7 @@ from airflow.providers.standard.operators.python import PythonOperator
 from airflow.utils.operator_helpers import KeywordParameters
 
 from lakehouse.oltp.sources import SOURCE_TABLES
+from tasks import oltp as oltp_tasks
 from tasks.oltp import OLTP_LOADED
 
 AIRFLOW_DIR = Path(__file__).resolve().parents[1]
@@ -53,6 +54,7 @@ class DagTests(unittest.TestCase):
         for table in SOURCE_TABLES:
             self.assertIn(f"detect.{table.name}", self.sync.task_dict[f"schema.{table.name}"].downstream_task_ids)
         self.assertFalse([task for task in self.incremental.task_dict if task.startswith("schema.")])
+        self.assertIs(self.sync.task_dict["bronze.orders"].python_callable, oltp_tasks.bronze_sync)
 
     def test_purge_runs_by_hand_from_gold_down_to_bronze(self):
         self.assertIsNone(self.purge.schedule)

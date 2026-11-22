@@ -43,7 +43,7 @@ with DAG(
     with TaskGroup("bronze") as bronze:
         for table in SOURCE_TABLES:
             PythonOperator(
-                task_id=table.name, python_callable=oltp.bronze_incremental, op_kwargs={"table": table.name}, pool=POOL
+                task_id=table.name, python_callable=oltp.bronze_sync, op_kwargs={"table": table.name}, pool=POOL
             )
 
     with TaskGroup("silver") as silver:

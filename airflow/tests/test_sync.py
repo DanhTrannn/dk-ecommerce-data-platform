@@ -5,13 +5,15 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pyarrow as pa
+from unittest.mock import patch
 
 from iceberg_fixture import AT, TABLES, category, create_tables, page, sql_catalog
 from lakehouse.oltp.bronze import mark_deleted, merge_bronze
+from lakehouse.oltp import sync
 from lakehouse.oltp.drift import SchemaChanged
 from lakehouse.oltp.schema import evolve_schema
 from lakehouse.oltp.staging import staging_rows, write_staging
-from lakehouse.oltp.sync import detect_deletes, sync_schema
+from lakehouse.oltp.sync import detect_deletes, load_bronze, sync_schema
 
 CATEGORIES = TABLES["categories"]
 TYPES = {"category_id": 20, "parent_category_id": 20, "is_active": 16, "created_at": 1184, "updated_at": 1184}
@@ -117,16 +119,30 @@ class DetectTests(unittest.TestCase):
         self.assertEqual(result["reload"], ["loyalty_tier"])
         self.assertEqual(self.staged(), [2, 3, 4])
 
-    def test_detect_does_not_reload_a_column_null_at_both_ends(self):
-        source = self.approve(None)
-        self.assertEqual(detect_deletes(self.catalog, source, APPROVED, self.detected_at)["reload"], [])
-        self.assertEqual(self.staged(), [3, 4])
+    def bronze_tiers(self):
+        rows = self.catalog.load_table(("bronze", "categories")).scan().to_arrow().to_pylist()
+        return {row["category_id"]: (row["loyalty_tier"], row["_is_deleted"]) for row in rows}
 
-    def test_reload_is_retried_until_bronze_has_the_values(self):
+    def test_reload_replaces_bronze_in_one_commit_then_stops(self):
         source = self.approve("gold")
         detect_deletes(self.catalog, source, APPROVED, self.detected_at)
+        load_bronze(self.catalog, APPROVED)
+        self.assertEqual(self.bronze_tiers(), {1: (None, True), 2: ("gold", False), 3: (None, False), 4: (None, False)})
+        self.assertEqual(detect_deletes(self.catalog, source, APPROVED, self.detected_at)["reload"], [])
+
+    def test_reload_is_retried_until_the_bronze_load_succeeds(self):
+        source = self.approve("gold")
+        detect_deletes(self.catalog, source, APPROVED, self.detected_at)
+        with patch.object(sync, "merge_bronze", side_effect=RuntimeError("load failed")):
+            with self.assertRaises(RuntimeError):
+                load_bronze(self.catalog, APPROVED)
         self.assertEqual(detect_deletes(self.catalog, source, APPROVED, self.detected_at)["reload"], ["loyalty_tier"])
-        merge_bronze(self.catalog, APPROVED, full=False)
+        self.assertEqual(self.staged(), [2, 3, 4])
+
+    def test_reload_needs_no_source_query(self):
+        source = self.approve(None)
+        detect_deletes(self.catalog, source, APPROVED, self.detected_at)
+        load_bronze(self.catalog, APPROVED)
         self.assertEqual(detect_deletes(self.catalog, source, APPROVED, self.detected_at)["reload"], [])
 
 

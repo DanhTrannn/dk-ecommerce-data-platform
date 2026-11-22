@@ -16,7 +16,7 @@ from lakehouse.oltp.reconcile import reconcile_table, source_reconciliation
 from lakehouse.oltp.schema import MART_STATE, create_oltp_schema
 from lakehouse.oltp.sources import SOURCE_TABLES, TABLES_BY_NAME
 from lakehouse.oltp.staging import extract_table
-from lakehouse.oltp.sync import detect_deletes, sync_schema
+from lakehouse.oltp.sync import detect_deletes, load_bronze, sync_schema
 from lakehouse.utils.iceberg import iceberg_catalog
 from lakehouse.utils.maintenance import maintain_tables
 from lakehouse.utils.postgres import source_read_transaction
@@ -69,6 +69,10 @@ def schema(table):
 def detect(table, dag_run):
     with source_connection() as connection:
         detect_deletes(iceberg_catalog(), connection, TABLES_BY_NAME[table], dag_run.run_after)
+
+
+def bronze_sync(table):
+    load_bronze(iceberg_catalog(), TABLES_BY_NAME[table])
 
 
 def bronze_full(table):

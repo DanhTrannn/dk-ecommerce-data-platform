@@ -10,6 +10,8 @@ from lakehouse.utils.iceberg import load_table
 # A row that vanished from the source stays in Bronze with these set, so its deletion is kept as history.
 DELETE_FIELDS = (pa.field("_is_deleted", pa.bool_()), pa.field("_deleted_at", pa.timestamp("us", tz="UTC")))
 LIVE = Or(IsNull("_is_deleted"), EqualTo("_is_deleted", False))
+# Bronze table property naming the columns the sync added and still has to fill by reloading the table.
+RELOAD_PENDING = "lakehouse.reload-pending"
 
 
 def filter_current(delta, current, table):
@@ -147,3 +149,9 @@ def purge_bronze(catalog, table):
         target.delete(flagged)
     print(f"PURGE table=bronze.{table.name} rows={count}", flush=True)
     return count
+
+
+def reload_pending(target):
+    """Return the columns of a Bronze table that the sync added and has not filled yet."""
+    value = target.properties.get(RELOAD_PENDING, "")
+    return value.split(",") if value else []

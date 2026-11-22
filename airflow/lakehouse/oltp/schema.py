@@ -1,6 +1,6 @@
 import pyarrow as pa
 
-from lakehouse.oltp.bronze import DELETE_FIELDS
+from lakehouse.oltp.bronze import DELETE_FIELDS, RELOAD_PENDING, reload_pending
 from lakehouse.oltp.drift import classify, refuse, source_columns
 from lakehouse.oltp.staging import LINEAGE_FIELDS
 from lakehouse.oltp.sources import SOURCE_TABLES
@@ -40,16 +40,30 @@ def evolve_schema(catalog, table, source):
     refuse(table, drift, ("dropped", "incompatible"))
     if drift.evolve:
         changes = pa.schema([pa.field(name, source[name]) for name in drift.evolve])
-        for layer in ("staging", "bronze"):
-            with catalog.load_table((layer, table.name)).update_schema() as update:
-                update.union_by_name(changes)
-    if drift.approved:
-        # PyIceberg cannot upsert into a table whose older files lack a column, so Bronze is rewritten once, in one
-        # commit, with the new columns as NULL. The sync then reloads the table to fill them.
+        with catalog.load_table(("staging", table.name)).update_schema() as update:
+            update.union_by_name(changes)
         bronze = catalog.load_table(("bronze", table.name))
-        if bronze.current_snapshot() is not None:
-            bronze.overwrite(bronze.scan().to_arrow_batch_reader())
+        # The new columns and the reload they need are committed together, so a failure cannot leave one alone.
+        with bronze.transaction() as transaction:
+            with transaction.update_schema() as update:
+                update.union_by_name(changes)
+            if drift.approved:
+                pending = sorted({*reload_pending(bronze), *drift.approved})
+                transaction.set_properties({RELOAD_PENDING: ",".join(pending)})
+    rewrite_files_lacking_columns(catalog.load_table(("bronze", table.name)))
     return drift
+
+
+def rewrite_files_lacking_columns(target):
+    """Rewrite the table in one commit when a data file predates one of its columns.
+
+    PyIceberg cannot upsert into a table whose older files lack a column. Deciding from the files, not from the
+    change, lets a retry finish a rewrite that failed.
+    """
+    field_ids = {field.field_id for field in target.schema().fields}
+    files = [file for file in target.inspect.files().to_pylist() if file["content"] == 0]
+    if any(field_ids - set(dict(file["value_counts"] or [])) for file in files):
+        target.overwrite(target.scan().to_arrow_batch_reader())
 
 
 def create_oltp_schema(catalog, connection):

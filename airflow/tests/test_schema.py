@@ -121,6 +121,18 @@ class CreateSchemaTests(unittest.TestCase):
         evolve_schema(self.catalog, approved, {f.name: f.type for f in page("categories", []).schema} | {"loyalty_tier": pa.string()})
         self.assertEqual(mark_deleted(self.catalog, approved, pa.array([1]), AT, AT), 1)
 
+    def test_a_failed_rewrite_after_adding_a_column_is_finished_by_a_retry(self):
+        create_oltp_schema(self.catalog, Source())
+        write_staging(self.catalog, TABLES["categories"], [page("categories", [category(1)])], AT)
+        merge_bronze(self.catalog, TABLES["categories"], full=True)
+        approved = replace(TABLES["categories"], columns=(*TABLES["categories"].columns, "loyalty_tier"))
+        columns = {f.name: f.type for f in page("categories", []).schema} | {"loyalty_tier": pa.string()}
+        with patch("pyiceberg.table.Transaction.overwrite", side_effect=OSError("storage down")):
+            with self.assertRaises(OSError):
+                evolve_schema(self.catalog, approved, columns)
+        evolve_schema(self.catalog, approved, columns)
+        self.assertEqual(mark_deleted(self.catalog, approved, pa.array([1]), AT, AT), 1)
+
     def test_evolve_widens_a_column(self):
         create_oltp_schema(self.catalog, Source(types={"boom_count": 23}))
         self.assertEqual(str(self.bronze("customers").schema().find_field("boom_count").field_type), "int")
