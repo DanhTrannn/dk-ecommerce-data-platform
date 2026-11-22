@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1220" height="470" viewBox="0 0 1220 470">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3A3A3A"/></marker><marker id="arrow-start" viewBox="0 0 10 10" refX="0.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M 10 0 L 0 5 L 10 10 z" fill="#3A3A3A"/></marker></defs>
+<rect width="100%" height="100%" fill="#FFFFFF"/>
+<text x="610.0" y="30.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="17" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Luồng nạp theo lô OLTP</text>
+<text x="30.0" y="80.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13.5" font-weight="bold" text-anchor="start" fill="#1F1F1F">lakehouse_oltp_incremental · 03:00 hằng ngày, theo data interval, catchup và backfill</text>
+<rect x="30" y="100" width="165" height="56" rx="8" fill="#E3EEFB" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="112.5" y="124.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">PostgreSQL</text>
+<text x="112.5" y="140.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">cursor trong khoảng</text>
+<rect x="229" y="100" width="165" height="56" rx="8" fill="#EFEFEF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="311.5" y="124.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">staging.&lt;bảng&gt;</text>
+<text x="311.5" y="140.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">xoá trắng rồi ghi</text>
+<line x1="195.0" y1="128.0" x2="229.0" y2="128.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="428" y="100" width="165" height="56" rx="8" fill="#F5E1CC" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="510.5" y="124.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">bronze.&lt;bảng&gt;</text>
+<text x="510.5" y="140.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">upsert theo khóa</text>
+<line x1="394.0" y1="128.0" x2="428.0" y2="128.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="627" y="100" width="165" height="56" rx="8" fill="#E3E7EE" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="709.5" y="124.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">silver.&lt;bảng&gt;</text>
+<text x="709.5" y="140.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">dbt merge</text>
+<line x1="593.0" y1="128.0" x2="627.0" y2="128.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="826" y="100" width="165" height="56" rx="8" fill="#FAEDBF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="908.5" y="124.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">gold.&lt;model&gt;</text>
+<text x="908.5" y="140.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">merge / tính lại ngày</text>
+<line x1="792.0" y1="128.0" x2="826.0" y2="128.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="1025" y="100" width="165" height="56" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="1107.5" y="124.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">maintenance</text>
+<text x="1107.5" y="140.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">compact … orphan</text>
+<line x1="991.0" y1="128.0" x2="1025.0" y2="128.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="1050" y="180" width="150" height="50" rx="8" fill="#FFF8DC" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="1125.0" y="201.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Asset</text>
+<text x="1125.0" y="217.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">lakehouse_oltp_loaded</text>
+<line x1="1007.0" y1="156.0" x2="1080.0" y2="180.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<text x="30.0" y="280.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13.5" font-weight="bold" text-anchor="start" fill="#1F1F1F">lakehouse_oltp_init · chạy tay, đọc mọi dòng tạo trước mốc chạy</text>
+<rect x="30" y="300" width="140" height="56" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="100.0" y="324.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">create_schema</text>
+<text x="100.0" y="340.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">namespace, bảng</text>
+<rect x="200" y="300" width="140" height="56" rx="8" fill="#EFEFEF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="270.0" y="324.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">staging.&lt;bảng&gt;</text>
+<text x="270.0" y="340.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">toàn bộ trước mốc</text>
+<line x1="170.0" y1="328.0" x2="200.0" y2="328.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="370" y="300" width="140" height="56" rx="8" fill="#FCE1E1" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="440.0" y="324.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">reconcile.&lt;bảng&gt;</text>
+<text x="440.0" y="340.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">số dòng, tiền, sổ kho</text>
+<line x1="340.0" y1="328.0" x2="370.0" y2="328.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="540" y="300" width="140" height="56" rx="8" fill="#F5E1CC" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="610.0" y="324.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">bronze.&lt;bảng&gt;</text>
+<text x="610.0" y="340.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">thay cả bảng</text>
+<line x1="510.0" y1="328.0" x2="540.0" y2="328.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="710" y="300" width="140" height="56" rx="8" fill="#E3E7EE" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="780.0" y="324.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">silver</text>
+<text x="780.0" y="340.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">full refresh</text>
+<line x1="680.0" y1="328.0" x2="710.0" y2="328.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="880" y="300" width="140" height="56" rx="8" fill="#FAEDBF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="950.0" y="324.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">gold</text>
+<text x="950.0" y="340.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">full refresh</text>
+<line x1="850.0" y1="328.0" x2="880.0" y2="328.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="1050" y="300" width="140" height="56" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="1120.0" y="332.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">maintenance</text>
+<line x1="1020.0" y1="328.0" x2="1050.0" y2="328.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<text x="30.0" y="440.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="start" fill="#444444">Mỗi bảng hoặc model dbt là một task; pool lakehouse_oltp 4 slot; retry hai lần; lỗi ở bảng nào Clear đúng task đó.</text>
+</svg>

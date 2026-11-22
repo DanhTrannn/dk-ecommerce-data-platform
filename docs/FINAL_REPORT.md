@@ -2,87 +2,78 @@
 
 ---
 
-> **Bản thiết kế lịch sử — đối chiếu codebase 15/11/2026:** nội dung các chương dưới đây được giữ làm hồ sơ tại thời điểm viết, không phải hướng dẫn chạy hoặc bằng chứng nghiệm thu cho code hiện tại. Không dùng các mô tả Spark/CDC, generator SQL/UI hoặc dashboard cũ bên dưới để suy ra chức năng đang được triển khai.
->
-> Hiện trạng: batch dùng Polars/PyIceberg và dbt trên Trino; không còn Spark, Debezium hay PostgreSQL CDC. CLI `datagen` đã sinh/verify lịch sử OLTP và xuất log tổng hợp ra Parquet, nhưng loader các file log vào Lakehouse chưa có. Streamlit chạy scenario và CRUD/quản trị quyền qua API chung của `platform-app`; exporter riêng cấp file credential Polaris. Superset mới là PoC doanh thu hai mart; Source Next.js và job CI tương ứng đã được gỡ; các mô tả giao diện đó trong các chương dưới chỉ thuộc thiết kế lịch sử.
->
-> Tài liệu hiện hành: [kiến trúc](ARCHITECTURE.md), [hợp đồng dữ liệu](DATA.md), [cài đặt](SETUP.md), [vận hành và phạm vi kiểm chứng](OPERATIONS.md). Số đo nghiên cứu/nghiệm thu lịch sử trong báo cáo không phải số đo vừa tái lập trên phiên bản hiện tại.
-
 # **CHƯƠNG 1. TỔNG QUAN ĐỀ TÀI**
 
 ## **1.1. Tính cấp thiết của đề tài**
 
-Trong bối cảnh chuyển đổi số và sự bùng nổ của thương mại điện tử (TMĐT), các doanh nghiệp bán lẻ thời trang phải đối mặt với bài toán quản lý và khai thác khối lượng dữ liệu khổng lồ phát sinh từng giây. Nguồn dữ liệu này có tính chất đa dạng cao, bao gồm dữ liệu giao dịch có cấu trúc chặt chẽ (đơn hàng, thanh toán, tồn kho theo biến thể màu sắc và kích cỡ) cùng với khối lượng lớn dữ liệu nhật ký hành vi người dùng bán cấu trúc (clickstream, tìm kiếm, xem sản phẩm, thêm vào giỏ hàng và danh sách yêu thích).
+Trong bối cảnh chuyển đổi số và sự phát triển của thương mại điện tử (TMĐT), các doanh nghiệp bán lẻ thời trang phải quản lý và khai thác một khối dữ liệu lớn, phát sinh liên tục. Dữ liệu này đa dạng về cấu trúc: dữ liệu giao dịch có cấu trúc chặt chẽ (đơn hàng, thanh toán, tồn kho theo biến thể màu sắc và kích cỡ) và dữ liệu nhật ký hành vi người dùng bán cấu trúc (xem sản phẩm, tìm kiếm, thêm vào giỏ, đặt hàng).
 
-Việc khai thác hiệu quả nguồn dữ liệu hỗn hợp này đặt ra thách thức lớn đối với các kiến trúc dữ liệu truyền thống. Mô hình Kho dữ liệu (Data Warehouse) truyền thống tuy bảo đảm tính nhất quán giao dịch (ACID) và tối ưu cho truy vấn phân tích (OLAP), nhưng chi phí lưu trữ rất tốn kém khi mở rộng với dữ liệu bán cấu trúc và thiếu tính linh hoạt trong việc tiếp nhận dữ liệu streaming. Ngược lại, Hồ dữ liệu (Data Lake) cho phép lưu trữ dữ liệu thô với chi phí rẻ trên nền tảng lưu trữ đối tượng (Object Storage), song lại thiếu cơ chế kiểm soát giao dịch, dễ dẫn đến hiện tượng "vũng lầy dữ liệu" (Data Swamp), suy giảm chất lượng dữ liệu và hiệu năng truy vấn phân tích chậm chạp.
+Khai thác hiệu quả nguồn dữ liệu hỗn hợp này là thách thức với các kiến trúc truyền thống. Kho dữ liệu (Data Warehouse) bảo đảm tính nhất quán giao dịch (ACID) và tối ưu cho truy vấn phân tích (OLAP), nhưng chi phí lưu trữ cao khi mở rộng với dữ liệu bán cấu trúc và kém linh hoạt khi tiếp nhận dữ liệu streaming. Ngược lại, Hồ dữ liệu (Data Lake) lưu dữ liệu thô với chi phí thấp trên lưu trữ đối tượng (Object Storage), nhưng thiếu cơ chế kiểm soát giao dịch, dễ trở thành "vũng lầy dữ liệu" (Data Swamp), làm giảm chất lượng dữ liệu và hiệu năng truy vấn.
 
-Kiến trúc **Data Lakehouse** ra đời như một bước tiến đột phá, kết hợp ưu điểm về chi phí thấp và khả năng mở rộng của Data Lake với năng lực quản trị, độ tin cậy và tính toàn vẹn giao dịch ACID của Data Warehouse. Việc nghiên cứu, thiết kế và triển khai một nền tảng Data Lakehouse hoàn chỉnh phục vụ bài toán bán lẻ thời trang đa kênh (kết hợp bán hàng trực tuyến Storefront và bán hàng tại quầy POS) có ý nghĩa thực tiễn sâu sắc. Hệ thống giúp doanh nghiệp hợp nhất dữ liệu, tối ưu hóa công tác quản lý kho hàng, phân tích sâu hành vi mua sắm của khách hàng và hỗ trợ các cấp quản trị đưa ra quyết định kinh doanh kịp thời dựa trên dữ liệu chuẩn xác.
+Kiến trúc **Data Lakehouse** kết hợp chi phí thấp và khả năng mở rộng của Data Lake với năng lực quản trị, độ tin cậy và giao dịch ACID của Data Warehouse. Nghiên cứu, thiết kế và triển khai một Data Lakehouse cho bài toán bán lẻ thời trang đa kênh (bán trực tuyến và bán tại cửa hàng POS) có ý nghĩa thực tiễn: hợp nhất dữ liệu, quản lý tồn kho chính xác hơn, phân tích hành vi mua sắm và hỗ trợ các cấp quản lý ra quyết định dựa trên số liệu đối soát được với nguồn.
 
 ## **1.2. Mục tiêu nghiên cứu**
 
-Đề tài hướng tới hai nhóm mục tiêu cốt lõi sau:
+Đề tài hướng tới hai nhóm mục tiêu:
 
 1. **Mục tiêu tổng quát**:
-   * Nghiên cứu, thiết kế và xây dựng hoàn chỉnh một hệ thống Data Lakehouse đầu cuối (End-to-End) ứng dụng cho lĩnh vực thương mại điện tử thời trang, hỗ trợ thu thập, lưu trữ phân tầng, xử lý dữ liệu quy mô lớn và trực quan hóa các chỉ số phân tích kinh doanh đa chiều.
+   * Nghiên cứu, thiết kế và xây dựng một hệ thống Data Lakehouse đầu cuối (End-to-End) cho lĩnh vực TMĐT thời trang, gồm thu thập, lưu trữ phân tầng, xử lý, quản trị quyền truy cập và trực quan hóa các chỉ số kinh doanh.
 
 2. **Mục tiêu cụ thể**:
-   * Xây dựng hệ thống thương mại điện tử nguồn bao gồm ứng dụng bán hàng trực tuyến (Storefront) và giao diện quản trị, bán hàng tại quầy (POS/Admin) tích hợp chung một cơ sở dữ liệu giao dịch MySQL 8.4 chuẩn hóa 28 bảng.
-   * Thiết kế và triển khai kiến trúc lưu trữ Data Lakehouse theo mô hình phân tầng Medallion (Landing – Bronze – Silver – Gold) sử dụng định dạng bảng mở Apache Iceberg trên nền tảng MinIO S3 và quản lý metadata tập trung với Apache Polaris REST Catalog.
-   * Triển khai các đường ống (data pipeline) thu thập dữ liệu tự động: nạp dữ liệu theo lô (Batch Ingestion) trích xuất gia tăng bằng Apache Spark, thu thập dữ liệu biến đổi thời gian thực (CDC) bằng Debezium qua Apache Kafka, và thu thập xử lý nhật ký truy cập (Access Log) streaming bằng Apache Flink.
-   * Xây dựng mô hình dữ liệu phân tích Dimensional Model (Star Schema) gồm 6 bảng Dimension, 6 bảng Fact cốt lõi và 17 Data Marts chuyên biệt, bảo đảm quy tắc hạch toán tài chính và kiểm soát chất lượng dữ liệu nghiêm ngặt.
-   * Triển khai dịch vụ phân tích phục vụ truy vấn tốc độ cao sử dụng Apache Trino và xây dựng bảng điều khiển trực quan hóa Business Intelligence (BI Hub) phân quyền theo 7 vai trò quản trị.
+   * Xây dựng hệ thống giao dịch nguồn: API nghiệp vụ FastAPI cho bán hàng trực tuyến, bán hàng tại quầy (POS), kho, giao vận và đổi trả, dùng chung một cơ sở dữ liệu PostgreSQL 16 gồm 28 bảng.
+   * Thiết kế và triển khai Data Lakehouse phân tầng Medallion (Staging – Bronze – Silver – Gold) trên định dạng bảng mở Apache Iceberg, lưu trữ MinIO S3 và catalog Apache Polaris (Iceberg REST Catalog).
+   * Xây dựng các đường ống dữ liệu tự động bằng Apache Airflow: nạp toàn bộ (init), nạp gia tăng hằng ngày (incremental), đồng bộ thay đổi nguồn mà nạp gia tăng không thấy (dòng bị xoá, thay đổi cột) và xoá cứng chủ động; mọi bước chạy lại an toàn (idempotent).
+   * Xây dựng mô hình dữ liệu phân tích Star Schema bằng dbt trên Trino, gồm 7 bảng Dimension, 6 bảng Fact và 14 Data Mart, kèm đối soát với nguồn và kiểm tra chất lượng dữ liệu.
+   * Tự quản trị quyền truy cập Lakehouse: mỗi workload một danh tính Polaris, credential lưu trữ tạm cấp theo từng bảng, Trino tách quyền đọc/ghi; trực quan hóa bằng Apache Superset.
 
 ## **1.3. Nhiệm vụ nghiên cứu**
 
-Để đạt được các mục tiêu nêu trên, đề tài thực hiện các nhiệm vụ cụ thể:
-
-* **Nhiệm vụ 1: Khảo sát nghiệp vụ và cơ sở lý thuyết**: Tìm hiểu quy trình nghiệp vụ bán hàng thời trang đa kênh, vòng đời đơn hàng, hạch toán doanh thu - giá vốn, kiểm soát tồn kho đa điểm và hệ thống chỉ số KPI then chốt. Nghiên cứu các công nghệ nền tảng: Apache Iceberg, MinIO, Polaris, Apache Spark, Debezium, Apache Kafka, Apache Flink, Apache Airflow, Apache Trino và Next.js.
-* **Nhiệm vụ 2: Thiết kế và xây dựng hệ thống giao dịch nguồn**: Phân tích thiết kế hệ thống phần mềm, xây dựng cơ sở dữ liệu quan hệ MySQL chuẩn 3NF với 28 bảng, phát triển ứng dụng Web Client–Server với FastAPI Backend và Next.js Frontend, tích hợp cơ chế ghi nhận nhật ký truy cập mạng có kiểm soát PII.
-* **Nhiệm vụ 3: Thiết kế và triển khai kiến trúc Data Lakehouse**: Thiết lập hạ tầng lưu trữ đối tượng, định nghĩa lược đồ phân tầng Medallion, cài đặt catalog trung tâm Polaris và phân quyền truy cập hạ tầng.
-* **Nhiệm vụ 4: Xây dựng các đường ống dữ liệu và kiểm soát chất lượng**: Viết các kịch bản Spark trích xuất và chuyển đổi dữ liệu batch theo chu kỳ thời gian; triển khai Flink streaming đồng bộ CDC và ghi log đồng thời; thiết kế cơ chế làm sạch, khử trùng lặp, băm định danh PII (pseudonymization) và phân lập lỗi vào bảng cách ly (Quarantine); cấu hình Airflow điều phối tự động và triển khai Quality Gate kiểm soát tính toàn vẹn dữ liệu trước khi công bố snapshot.
-* **Nhiệm vụ 5: Phát triển hệ thống BI và kiểm thử thực nghiệm**: Tích hợp engine truy vấn Trino, phát triển API phục vụ phân tích với cơ chế dự phòng an toàn (Bounded Fallback), xây dựng Dashboard BI đa vai trò với Apache ECharts và kiểm thử hệ thống với dữ liệu mô phỏng thị trường bán lẻ Việt Nam.
+* **Nhiệm vụ 1: Khảo sát nghiệp vụ và cơ sở lý thuyết**: Tìm hiểu quy trình bán hàng thời trang đa kênh, vòng đời đơn hàng, hạch toán doanh thu – giá vốn, quản lý tồn kho đa điểm và hệ thống KPI. Nghiên cứu các công nghệ: Apache Iceberg, MinIO, Apache Polaris, PyIceberg, dbt, Apache Airflow, Trino, Apache Kafka, Apache Flink và Apache Superset.
+* **Nhiệm vụ 2: Xây dựng hệ thống giao dịch nguồn**: Thiết kế cơ sở dữ liệu PostgreSQL 28 bảng sinh từ ORM SQLAlchemy, phát triển API FastAPI với xác thực, phân quyền và middleware ghi nhật ký truy cập có che dữ liệu cá nhân; xây dựng Console Streamlit mô phỏng mua hàng qua API.
+* **Nhiệm vụ 3: Thiết kế và triển khai Data Lakehouse**: Thiết lập lưu trữ đối tượng, catalog Polaris, các namespace phân tầng và mô hình phân quyền theo workload.
+* **Nhiệm vụ 4: Xây dựng đường ống dữ liệu và kiểm soát chất lượng**: Trích xuất theo bảng bằng PyIceberg trong Airflow; dựng Silver và Gold bằng dbt; đối soát với nguồn; đồng bộ dòng bị xoá và thay đổi cột; bảo đảm mọi tầng chạy lại an toàn.
+* **Nhiệm vụ 5: Sinh dữ liệu mô phỏng, trực quan hóa và kiểm thử**: Xây dựng bộ sinh dữ liệu `datagen` có căn cứ thống kê từ dữ liệu công khai, dashboard Superset và kiểm thử pipeline trên dữ liệu mô phỏng.
 
 ## **1.4. Đối tượng và phạm vi nghiên cứu**
 
 * **Đối tượng nghiên cứu**:
-  * Mô hình kiến trúc Data Lakehouse, công nghệ định dạng bảng mở (Apache Iceberg) và giải pháp Catalog chuẩn mở (Polaris REST Catalog).
-  * Quy trình thu thập, xử lý và tích hợp luồng dữ liệu kép: Dữ liệu giao dịch có cấu trúc (OLTP RDBMS) và dữ liệu sự kiện nhật ký hành vi bán cấu trúc (Access Log).
-  * Kỹ thuật mô hình hóa dữ liệu đa chiều Kimball Star Schema và xây dựng Data Mart phục vụ khai thác kinh doanh.
-  * Các chỉ số đo lường hiệu quả hoạt động kinh doanh (KPIs), quản lý kho vận và phễu tương tác khách hàng trong TMĐT.
+  * Kiến trúc Data Lakehouse, định dạng bảng mở Apache Iceberg và catalog chuẩn mở Apache Polaris.
+  * Quy trình thu thập, xử lý và tích hợp hai loại dữ liệu: dữ liệu giao dịch có cấu trúc (OLTP) và dữ liệu sự kiện nhật ký bán cấu trúc (Access Log).
+  * Mô hình hóa đa chiều Kimball Star Schema và Data Mart phục vụ khai thác kinh doanh.
+  * Các KPI kinh doanh, kho vận, giao vận và phễu tương tác trong TMĐT.
 
 * **Phạm vi nghiên cứu**:
-  * *Phạm vi nghiệp vụ*: Tập trung vào chu trình bán lẻ thời trang cốt lõi gồm: duyệt sản phẩm theo biến thể (màu, size), quản lý giỏ hàng, đặt hàng trực tuyến, bán hàng tại quầy POS, quản lý tồn kho đa kho/cửa hàng, giao hàng COD, đổi trả - hoàn tiền và theo dõi tương tác người dùng.
-  * *Phạm vi kỹ thuật*: Đề tài giới hạn triển khai trên môi trường máy chủ cục bộ hoặc máy ảo thông qua hệ thống đóng gói container Docker Compose với các profile dịch vụ rõ ràng (`core`, `batch`, `streaming`, `tools`). Các tính năng như phân cụm chịu lỗi cao (High Availability), tự động co giãn (Autoscaling) hay ứng dụng học máy dự báo nâng cao được xác định là hướng mở rộng trong tương lai.
+  * *Phạm vi nghiệp vụ*: chu trình bán lẻ thời trang gồm danh mục sản phẩm theo biến thể (màu, size), giỏ hàng, đặt hàng trực tuyến, bán tại quầy POS, tồn kho đa vị trí, giao hàng COD, đổi trả – hoàn tiền và theo dõi tương tác người dùng.
+  * *Phạm vi kỹ thuật*: triển khai trên một máy chủ bằng Docker Compose với các profile `core`, `streaming`, `bi`. Pipeline OLTP và quản trị quyền đã hoàn thiện; luồng access log vào Lakehouse đã có thiết kế, chưa xây. Phân cụm chịu lỗi cao (High Availability), tự động co giãn và học máy là hướng mở rộng.
 
 ## **1.5. Tổng quan các công trình liên quan**
 
-Trong lịch sử phát triển kiến trúc dữ liệu, các nghiên cứu và triển khai ban đầu dựa trên mô hình Data Warehouse tập trung (Inmon hay Kimball). Ưu điểm của mô hình này là tính toàn vẹn dữ liệu cao, hỗ trợ giao dịch ACID mạnh mẽ và hiệu năng truy vấn phân tích được tối ưu hóa. Tuy nhiên, chi phí lưu trữ trên các hệ thống cơ sở dữ liệu chuyên dụng rất đắt đỏ, không thể đáp ứng được tốc độ sinh dữ liệu và khối lượng khổng lồ của dữ liệu nhật ký clickstream [1], [7].
+Các triển khai ban đầu dựa trên Data Warehouse tập trung (Inmon hay Kimball): toàn vẹn dữ liệu cao, hỗ trợ ACID và truy vấn phân tích được tối ưu, nhưng chi phí lưu trữ trên hệ thống chuyên dụng đắt đỏ, khó theo kịp khối lượng dữ liệu nhật ký clickstream [1], [7].
 
-Sự xuất hiện của Hadoop và phong trào Data Lake trên nền tảng lưu trữ đối tượng (S3, HDFS) đã giải quyết bài toán chi phí lưu trữ quy mô lớn. Dù vậy, Data Lake thiếu vắng cơ chế quản lý giao dịch, dẫn đến rủi ro đọc dữ liệu bẩn khi ghi đồng thời, khó khăn trong việc cập nhật/xóa dữ liệu (đặc biệt là yêu cầu tuân thủ quyền riêng tư dữ liệu như GDPR) và hiệu năng truy vấn báo cáo trực tiếp rất thấp.
+Hadoop và phong trào Data Lake trên lưu trữ đối tượng (S3, HDFS) giải quyết bài toán chi phí lưu trữ quy mô lớn. Tuy nhiên Data Lake thiếu quản lý giao dịch, dẫn đến rủi ro đọc dữ liệu dở dang khi ghi đồng thời, khó cập nhật/xoá dữ liệu (đặc biệt với yêu cầu quyền riêng tư như GDPR) và hiệu năng truy vấn báo cáo thấp.
 
-Để khắc phục khoảng trống đó, kiến trúc Data Lakehouse ra đời với sự thúc đẩy của các định dạng bảng mở tiên tiến như Apache Iceberg, Delta Lake và Apache Hudi. Trong đó, Apache Iceberg nổi bật nhờ khả năng trừu tượng hóa tầng lưu trữ ở cấp độ snapshot, hỗ trợ tính năng time-travel, tiến hóa lược đồ (schema evolution) an toàn và phân tách hoàn toàn giữa tầng lưu trữ dữ liệu với công cụ tính toán [9]. Các nghiên cứu gần đây thường ứng dụng kiến trúc phân tầng Medallion (Bronze – Silver – Gold) để quản lý vòng đời dữ liệu một cách chặt chẽ [7], [11].
+Data Lakehouse ra đời cùng các định dạng bảng mở Apache Iceberg, Delta Lake và Apache Hudi. Apache Iceberg nổi bật với quản lý bảng theo snapshot, time-travel, tiến hóa lược đồ (schema evolution) an toàn và tách biệt lưu trữ với công cụ tính toán [9]. Các triển khai gần đây thường tổ chức dữ liệu theo kiến trúc Medallion (Bronze – Silver – Gold) [7], [11].
 
-Tuy nhiên, phần lớn các công trình hiện nay thường chỉ dừng lại ở mức độ nghiên cứu lý thuyết, sử dụng các tập dữ liệu tĩnh có sẵn (benchmarks như TPC-DS, TPC-H) hoặc triển khai phân mảnh từng thành phần riêng lẻ mà thiếu đi một hệ thống hoàn chỉnh từ khâu phát sinh dữ liệu nghiệp vụ đến khâu khai thác phân tích. Đề tài này giải quyết khoảng trống đó bằng cách hiện thực hóa trọn vẹn một giải pháp Data Lakehouse thực tế, tự chủ từ ứng dụng nguồn phát sinh giao dịch, hệ thống điều phối pipeline tự động, cơ chế kiểm soát chất lượng dữ liệu nghiêm ngặt đến hệ thống trực quan hóa phân quyền cho doanh nghiệp.
+Phần lớn công trình dừng ở lý thuyết, dùng tập dữ liệu tĩnh (TPC-DS, TPC-H) hoặc triển khai rời rạc từng thành phần. Đề tài hiện thực một giải pháp liền mạch: từ ứng dụng nguồn phát sinh giao dịch, bộ sinh dữ liệu có căn cứ, pipeline tự động chạy lại an toàn, đồng bộ thay đổi nguồn, đến quản trị quyền tự vận hành và trực quan hóa.
 
 ## **1.6. Kết quả dự kiến đạt được**
 
-Đề tài cam kết mang lại các sản phẩm cụ thể, có thể kiểm chứng được bao gồm:
-
 1. **Sản phẩm phần mềm ứng dụng**:
-   * Ứng dụng web bán hàng trực tuyến (Storefront) giao diện hiện đại, tối ưu trải nghiệm người dùng với đầy đủ chức năng tìm kiếm, chọn biến thể, giỏ hàng và thanh toán VietQR / COD.
-   * Hệ thống quản trị (Admin) và bán hàng tại quầy (POS) hỗ trợ quản lý sản phẩm, đơn hàng, nhập kho tính giá vốn bình quân và xử lý hoàn trả.
-   * Module middleware ghi nhận nhật ký truy cập mạng (Access Log) chuẩn hóa theo hợp đồng dữ liệu `ecommerce.access` v1.0.0 và kiểm soát an toàn thông tin nhạy cảm.
+   * API nghiệp vụ FastAPI cho mua hàng trực tuyến (giỏ hàng, checkout VietQR/COD), POS, kho, nhập hàng, giao vận, đổi trả và đánh giá.
+   * Console Streamlit (Platform Console) gồm màn hình mô phỏng mua hàng qua API thật và màn hình quản trị quyền Lakehouse.
+   * Middleware ghi nhật ký truy cập theo hợp đồng `ecommerce.access` v1.0.0, che dữ liệu nhạy cảm, có thể gửi vào Kafka.
 
 2. **Sản phẩm hạ tầng và nền tảng dữ liệu**:
-   * Hệ thống Data Lakehouse đa tầng (Landing, Bronze, Silver, Gold, Quarantine, System) vận hành hoàn chỉnh trên MinIO S3 và Apache Iceberg, quản lý bởi Polaris REST Catalog.
-   * Bộ các đường ống dữ liệu tự động hóa: Pipeline batch trích xuất 27 bảng MySQL bằng Spark JDBC phân trang keyset; Pipeline streaming thu thập CDC Debezium và Flink ghi đồng thời access log vào 4 sink Iceberg; DAG điều phối Airflow tích hợp Quality Gate tự động.
+   * Data Lakehouse bốn namespace (`staging`, `bronze`, `silver`, `gold`) trên MinIO S3 và Apache Iceberg, quản lý bởi Polaris.
+   * Bốn DAG Airflow: `lakehouse_oltp_init`, `lakehouse_oltp_incremental`, `lakehouse_oltp_sync`, `lakehouse_oltp_purge`; mỗi bảng và mỗi model dbt là một task riêng.
+   * Quản trị quyền tự vận hành: principal Polaris riêng cho Airflow, Flink, Trino đọc và Trino ghi; credential lưu trữ tạm cấp theo bảng.
 
 3. **Sản phẩm phân tích và báo cáo (BI)**:
-   * Mô hình dữ liệu đa chiều Star Schema gồm 6 dimensions, 6 facts và 17 data marts phục vụ toàn diện các lĩnh vực kinh doanh, vận hành, kho vận và marketing.
-   * Ứng dụng BI Hub trực quan hóa bằng Apache ECharts hỗ trợ 7 bảng điều khiển theo vai trò người dùng với cơ chế ghim snapshot truy vấn phân tán Trino an toàn.
+   * Mô hình Star Schema gồm 7 dimension, 6 fact và 14 mart, cùng 2 seed (`delivery_sla`, `calendar_events`).
+   * Dashboard doanh thu trên Apache Superset đọc trực tiếp các bảng Gold.
 
 4. **Sản phẩm tài liệu kỹ thuật**:
-   * Bản báo cáo đồ án tốt nghiệp hoàn chỉnh, mô tả chi tiết toàn bộ cơ sở lý thuyết, kiến trúc, thiết kế, triển khai thực nghiệm và đánh giá hệ thống.
+   * Báo cáo đồ án, tài liệu kiến trúc, hợp đồng dữ liệu, cài đặt, vận hành và thiết kế trong thư mục `docs/`.
 
 ---
 
@@ -92,142 +83,147 @@ Tuy nhiên, phần lớn các công trình hiện nay thường chỉ dừng l�
 
 ### **2.1.1. Mô hình thương mại điện tử và bán hàng đa kênh**
 
-Thương mại điện tử (TMĐT) là phương thức kinh doanh trong đó các hoạt động giao dịch, mua bán hàng hóa và dịch vụ được tiến hành qua các mạng máy tính và phương tiện điện tử [1]. Trong mô hình B2C (Business-to-Consumer), doanh nghiệp thiết lập kênh tương tác trực tiếp với người tiêu dùng qua nền tảng web hoặc ứng dụng di động.
+Thương mại điện tử là phương thức kinh doanh trong đó giao dịch mua bán hàng hóa và dịch vụ được tiến hành qua mạng máy tính và phương tiện điện tử [1]. Trong mô hình B2C (Business-to-Consumer), doanh nghiệp tương tác trực tiếp với người tiêu dùng qua web hoặc ứng dụng di động.
 
-Khi doanh nghiệp mở rộng quy mô kinh doanh sang mô hình bán hàng đa kênh (Omnichannel / Multichannel Retailing), việc kết hợp giữa website bán hàng trực tuyến và chuỗi cửa hàng vật lý là xu hướng tất yếu. Thách thức lớn nhất của mô hình này là sự phân mảnh dữ liệu giữa các kênh, dễ dẫn đến hiện tượng sai lệch tồn kho (overselling) và khó khăn trong việc hợp nhất bức tranh doanh thu. Đề tài lựa chọn giải pháp tích hợp kênh trực tuyến (Storefront) và điểm bán hàng tại quầy (POS) trên cùng một hệ thống Backend và cơ sở dữ liệu giao dịch tập trung, bảo đảm dữ liệu sản phẩm, giá bán, khách hàng và tồn kho luôn được cập nhật đồng bộ và duy nhất.
+Khi mở rộng sang bán hàng đa kênh (Omnichannel), doanh nghiệp kết hợp website với chuỗi cửa hàng vật lý. Thách thức lớn nhất là dữ liệu phân mảnh giữa các kênh, dẫn đến sai lệch tồn kho (overselling) và khó hợp nhất doanh thu. Đề tài tích hợp kênh trực tuyến và POS trên cùng một Backend và một cơ sở dữ liệu giao dịch, nên sản phẩm, giá, khách hàng và tồn kho luôn có một nguồn sự thật duy nhất.
 
 ### **2.1.2. Quy trình quản lý bán hàng, đơn hàng và tồn kho**
 
-Quy trình bán hàng trong ngành thời trang đòi hỏi sự quản lý tỉ mỉ do tính chất đa dạng về biến thể sản phẩm (SKU) theo màu sắc và kích cỡ. Dù khách hàng đặt hàng qua website hay mua trực tiếp tại quầy, hệ thống đều phải thực thi nhất quán các bước kiểm tra nghiệp vụ: xác thực giá bán, áp dụng mã giảm giá hợp lệ và kiểm tra tính khả dụng của tồn kho.
+Bán hàng thời trang đòi hỏi quản lý theo biến thể (SKU) màu sắc và kích cỡ. Dù khách đặt online hay mua tại quầy, hệ thống đều thực hiện cùng các bước: xác thực giá bán, áp dụng mã giảm giá hợp lệ và kiểm tra tồn kho khả dụng.
 
-Về quản lý vòng đời đơn hàng, hệ thống tách bạch ba luồng trạng thái độc lập nhưng có mối liên kết chặt chẽ:
-1. **Trạng thái đơn hàng** (*Chờ xử lý, Đã xác nhận, Đang xử lý, Hoàn thành, Đã hủy*).
-2. **Trạng thái thanh toán** (*Chưa thanh toán, Đã thanh toán, Hoàn tiền một phần, Hoàn tiền toàn bộ*).
-3. **Trạng thái giao nhận** (*Chờ lấy hàng, Đang giao, Đã giao thành công, Giao thất bại*).
+Vòng đời đơn hàng tách ba luồng trạng thái liên kết với nhau:
+1. **Trạng thái đơn hàng** (chờ xử lý, đã xác nhận, đang xử lý, hoàn thành, đã hủy).
+2. **Trạng thái thanh toán** (chưa thanh toán, đã thanh toán, hoàn tiền một phần, hoàn tiền toàn bộ).
+3. **Trạng thái giao nhận** (chờ lấy hàng, đang giao, giao thành công, giao thất bại).
 
-Việc phân tách này giúp kiểm soát chính xác các trường hợp thanh toán khi nhận hàng (COD), xử lý đổi trả hoặc hủy đơn mà không ghi nhận sai lệch thời điểm ghi nhận doanh thu thực tế. Đồng thời, đối với tồn kho, hệ thống phân biệt rõ ràng giữa tồn kho tổng của chuỗi và tồn kho vật lý tại từng cửa hàng, bảo đảm việc xuất kho bán lẻ tại POS hay xuất kho giao hàng online luôn được ghi nhận giao dịch tức thời vào sổ cái biến động kho (`inventory_transactions`).
+Cách tách này giúp xử lý đúng các trường hợp COD, hủy đơn và đổi trả mà không ghi nhận sai thời điểm doanh thu. Với tồn kho, mọi biến động (nhập, xuất bán online, bán tại quầy, hoàn trả, điều chỉnh) được ghi vào sổ cái `inventory_transactions`; số dư tồn bằng tồn đầu cộng tổng sổ cái theo biến thể và vị trí.
 
 ### **2.1.3. Vai trò của phân tích dữ liệu trong hoạt động kinh doanh**
 
-Trong môi trường kinh doanh hiện đại, dữ liệu được coi là tài sản chiến lược. Dữ liệu giao dịch từ hệ thống OLTP phản ánh chính xác kết quả kinh doanh quá khứ: doanh thu thuần, số lượng đơn hàng, tỷ lệ hủy đơn, biên lợi nhuận gộp và vòng quay hàng tồn kho. Tuy nhiên, dữ liệu giao dịch chỉ cho biết *kết quả đã xảy ra* mà không giải thích được *hành vi dẫn đến kết quả đó*.
+Dữ liệu giao dịch phản ánh kết quả kinh doanh: doanh thu thuần, số đơn, tỷ lệ hủy, lợi nhuận gộp và tồn kho. Tuy nhiên, nó chỉ cho biết *kết quả đã xảy ra*, không giải thích *hành vi dẫn đến kết quả đó*.
 
-Dữ liệu nhật ký truy cập (Access Log) cung cấp góc nhìn bổ trợ vô giá: lưu lượng truy cập theo khung giờ, các mặt hàng được tìm kiếm nhiều nhất, tỷ lệ thoát trang tại bước giỏ hàng hoặc thanh toán. Do hệ thống OLTP được tối ưu hóa cho các thao tác đọc/ghi giao dịch ngắn hạn (ACID), việc thực hiện các truy vấn phân tích tổng hợp phức tạp trên OLTP sẽ gây khóa bảng, nghẽn tài nguyên và ảnh hưởng trực tiếp đến người dùng mua sắm. Vì vậy, việc đồng bộ dữ liệu giao dịch và log sang nền tảng Data Lakehouse chuyên dụng là điều kiện tiên quyết để phân tích dữ liệu hiệu quả mà không làm suy giảm hiệu năng của hệ thống vận hành.
+Dữ liệu nhật ký truy cập bổ sung góc nhìn hành vi: lưu lượng theo giờ, sản phẩm được xem nhiều, điểm rơi trong phễu giỏ hàng – thanh toán. Hệ thống OLTP được tối ưu cho giao dịch ngắn; chạy truy vấn tổng hợp nặng trên đó gây tranh chấp tài nguyên và ảnh hưởng người mua. Vì vậy dữ liệu được đồng bộ sang Lakehouse để phân tích mà không làm chậm hệ thống vận hành.
 
 ### **2.1.4. Hệ thống chỉ số KPI trong thương mại điện tử**
 
-Hệ thống chỉ số hiệu quả kinh doanh (KPI) được phân nhóm khoa học nhằm phục vụ các cấp quản trị khác nhau trong doanh nghiệp:
-
 | Nhóm KPI | Chỉ số cốt lõi | Ý nghĩa nghiệp vụ |
 |---|---|---|
-| **Kinh doanh (Sales)** | Doanh thu gộp, Hoàn tiền, Doanh thu thuần, Giá vốn hàng bán (COGS), Lợi nhuận gộp, Giá trị đơn trung bình (AOV) | Đánh giá sức khỏe tài chính và hiệu quả bán hàng thực tế sau khi đã trừ các khoản giảm trừ và hoàn tiền. |
-| **Kho vận (Inventory)** | Số lượng tồn kho, Giá trị tồn kho theo giá vốn bình quân, Tỷ lệ SKU hết hàng / sắp hết hàng, Tồn kho theo cửa hàng | Cảnh báo nguy cơ đứt gãy nguồn hàng hoặc ứ đọng vốn lưu động tại từng điểm bán lẻ. |
-| **Vận hành (Operations)** | Tỷ lệ giao hàng thành công, Thời gian xử lý đơn, Số lần giao hàng trung bình, Công nợ thu hộ COD theo khu vực | Tối ưu hóa hiệu quả của đội ngũ giao vận và quản lý rủi ro dòng tiền thu hộ. |
-| **Marketing** | Lượt truy cập, Lượt xem sản phẩm, Tỷ lệ thêm giỏ hàng, Hiệu quả mã coupon, Phễu chuyển đổi tương tác | Đánh giá mức độ thu hút của sản phẩm và hiệu quả của các chương trình khuyến mại. |
-| **Kỹ thuật hệ thống** | Lưu lượng request, Tỷ lệ lỗi HTTP 4xx/5xx, Độ trễ phản hồi API, Độ trễ dữ liệu công bố (Data Freshness) | Giám sát độ ổn định của hạ tầng công nghệ và độ tin cậy của dữ liệu phân tích. |
+| **Kinh doanh (Sales)** | Số đơn, giá trị đặt hàng, doanh thu hàng hóa, hoàn tiền, doanh thu thuần, giá vốn, lợi nhuận gộp | Sức khỏe tài chính sau giảm giá và hoàn tiền; doanh thu ghi nhận vào ngày muộn hơn giữa hoàn tất và thanh toán đủ |
+| **Kho vận (Inventory)** | Tồn theo vị trí, giá trị tồn, số biến thể còn/hết hàng, bán trung bình 28 ngày | Cảnh báo thiếu hàng hoặc ứ đọng vốn tại từng điểm bán |
+| **Vận hành (Operations)** | Tỷ lệ giao đúng hạn theo SLA thành phố, thời gian giao, đơn tồn đọng theo tuổi, tiền COD, hủy và đổi trả | Hiệu quả giao vận và rủi ro dòng tiền thu hộ |
+| **Khách hàng và Marketing** | Hiệu quả coupon, đánh giá theo giao đúng hạn/trễ, cohort mua lại, giá trị khách hàng, phễu xem → giỏ → checkout → đặt đơn | Hiệu quả khuyến mại, chất lượng dịch vụ và giữ chân khách |
+| **Kỹ thuật** | Lưu lượng request, tỷ lệ lỗi HTTP, độ trễ theo route | Độ ổn định của hệ thống nguồn |
+
+Định nghĩa chi tiết từng chỉ số nằm trong [DATA.md](DATA.md).
 
 ## **2.2. Kiến trúc và công nghệ phát triển hệ thống thương mại điện tử**
 
 ### **2.2.1. Kiến trúc Web Client–Server và REST API**
 
-Hệ thống thương mại điện tử nguồn được xây dựng theo kiến trúc Client–Server hiện đại, phân tách hoàn toàn giữa giao diện người dùng (Frontend) và logic xử lý nghiệp vụ (Backend) thông qua giao thức truyền thông RESTful API [2], [3].
+Hệ thống nguồn theo kiến trúc Client–Server, tách giao diện và nghiệp vụ qua RESTful API [3]. Backend dùng **FastAPI** (Python 3.11): kiểm tra dữ liệu bằng Pydantic, sinh tài liệu OpenAPI và định nghĩa phụ thuộc (xác thực, quyền, phiên giao dịch) bằng Dependency Injection.
 
-Tầng Frontend được phát triển bằng **Next.js 15** (sử dụng thư viện React 19 và kiến trúc App Router), hỗ trợ kỹ thuật kết hợp giữa Server-Side Rendering (SSR) để tối ưu hóa SEO và Client-Side Rendering (CSR) cho các trải nghiệm tương tác mượt mà tại giỏ hàng và thanh toán. Tầng Backend được xây dựng bằng **FastAPI** (Python 3.11), một framework hiện đại có tốc độ xử lý cao nhờ hỗ trợ bất đồng bộ (Asynchronous I/O), tự động kiểm thực dữ liệu qua Pydantic và sinh tài liệu API chuẩn OpenAPI/Swagger.
+Giao diện là **Streamlit** [2] (Platform Console), chạy cùng container với FastAPI. Console gọi API thật qua HTTP như mọi client, gồm hai màn hình: mô phỏng mua hàng online và quản trị quyền Lakehouse. Giao diện storefront web trước đây (Next.js) đã được gỡ để tập trung vào nền tảng dữ liệu.
 
 ### **2.2.2. Cơ sở dữ liệu giao dịch OLTP**
 
-Cơ sở dữ liệu giao dịch sử dụng **MySQL 8.4 LTS** với công cụ lưu trữ mặc định **InnoDB** [4]. InnoDB cung cấp đầy đủ các tính năng bảo đảm tính toàn vẹn dữ liệu: hỗ trợ giao dịch tuân thủ chuẩn ACID, quản lý khóa ở mức độ dòng (Row-level Locking) và cơ chế đọc nhất quán không khóa thông qua Multi-Version Concurrency Control (MVCC).
+Cơ sở dữ liệu giao dịch là **PostgreSQL 16** [4]: giao dịch ACID, khóa mức dòng và đọc nhất quán qua MVCC (Multi-Version Concurrency Control). Thời gian lưu kiểu `TIMESTAMPTZ` (UTC), UUID lưu kiểu UUID gốc, trạng thái được ràng buộc bằng CHECK, khóa ngoại và UNIQUE.
 
-Tầng ứng dụng sử dụng thư viện **SQLAlchemy 2.0 ORM** để ánh xạ dữ liệu [5]. Để giải quyết triệt để vấn đề tranh chấp dữ liệu khi nhiều người dùng đồng thời mua một sản phẩm có số lượng tồn kho giới hạn, hệ thống kết hợp cơ chế khóa bi quan (`SELECT ... FOR UPDATE`) trong một giao dịch Unit-of-Work, kèm theo cơ chế tự động thử lại (exponential backoff retry) khi phát sinh lỗi Deadlock (MySQL Error 1213) hoặc Lock Wait Timeout (MySQL Error 1205).
+Tầng ứng dụng dùng **SQLAlchemy 2.0 ORM** [5]; lược đồ `database/schema.sql` được sinh từ ORM và kiểm tra khớp trong CI. Để tránh bán vượt tồn khi nhiều người mua cùng lúc, checkout chạy trong một giao dịch READ COMMITTED, khóa dòng tồn kho bằng `SELECT ... FOR UPDATE`, và tự thử lại có giới hạn khi gặp deadlock, lỗi tuần tự hóa hoặc khóa không lấy được. Lỗi kết nối không được thử lại tự động vì kết quả commit khi đó không xác định.
 
 ### **2.2.3. Xác thực, phân quyền và bảo mật hệ thống**
 
-An toàn thông tin là yêu cầu sống còn của hệ thống thương mại điện tử. Mật khẩu người dùng được băm an toàn bằng thuật toán **Argon2id** (đạt giải quán quân Password Hashing Competition), có khả năng chống lại các cuộc tấn công vét cạn bằng phần cứng GPU chuyên dụng.
+Mật khẩu được băm bằng **Argon2id**, thuật toán thắng Password Hashing Competition, chống tấn công vét cạn bằng GPU. Thông tin đăng nhập nằm trong bảng riêng `customer_credentials`, không bao giờ được nạp vào Lakehouse.
 
-Cơ chế xác thực sử dụng JSON Web Token (JWT) được lưu trữ trong **HttpOnly, Secure Cookie**, ngăn chặn hoàn toàn nguy cơ bị đánh cắp token qua các lỗ hổng Cross-Site Scripting (XSS). Hệ thống tích hợp sẵn mã bảo vệ CSRF Token cho toàn bộ các yêu cầu thay đổi trạng thái (POST, PUT, DELETE) [6]. Quyền truy cập tài nguyên được kiểm soát chặt chẽ theo mô hình Phân quyền dựa trên vai trò (RBAC) kết hợp phạm vi cửa hàng (Store Scope), phân định rõ 6 vai trò: *Khách hàng, Nhân viên bán hàng POS, Nhân viên kho, Nhân viên giao vận, Quản lý cửa hàng, và Quản trị viên hệ thống*.
+Xác thực dùng JSON Web Token (JWT) trong **cookie HttpOnly**, chống đánh cắp token qua XSS; mọi yêu cầu thay đổi trạng thái cần CSRF token [6]. Quyền truy cập theo mô hình RBAC kết hợp phạm vi cửa hàng: tài khoản có một trong các vai trò `customer`, `admin`, `system_admin`, `store_manager`, `sales_manager`, `marketing_manager`, `inventory_manager`, `operations_manager`, `city_planner`, và route kiểm tra vai trò cùng cửa hàng được phân công.
 
 ## **2.3. Kiến trúc và công nghệ lưu trữ Data Lakehouse**
 
 ### **2.3.1. Tổng quan về kiến trúc Data Lakehouse**
 
-Kiến trúc Data Lakehouse đại diện cho thế hệ nền tảng dữ liệu hiện đại, hợp nhất ưu điểm của Data Warehouse và Data Lake trên cùng một nền tảng duy nhất [7]. Bằng cách bổ sung một tầng quản lý siêu dữ liệu (Metadata Layer) có cấu trúc phía trên hệ thống lưu trữ đối tượng chi phí thấp, Lakehouse cung cấp đầy đủ các tính năng nâng cao: giao dịch ACID đa bảng, quản lý phiên bản snapshot (Time-travel), tiến hóa lược đồ mà không cần viết lại toàn bộ dữ liệu, và hỗ trợ đồng thời cả tác vụ xử lý streaming lẫn batch.
+Data Lakehouse hợp nhất ưu điểm của Data Warehouse và Data Lake trên một nền tảng [7]. Một tầng siêu dữ liệu (metadata layer) đặt trên lưu trữ đối tượng chi phí thấp cung cấp giao dịch ACID theo bảng, quản lý phiên bản snapshot (time-travel), tiến hóa lược đồ không cần viết lại dữ liệu, và cho phép nhiều engine (batch, streaming, SQL) cùng đọc ghi một bảng.
 
 ### **2.3.2. Mô hình kiến trúc dữ liệu phân tầng Medallion**
 
-Dữ liệu trong Lakehouse được tổ chức khoa học theo mô hình kiến trúc phân tầng Medallion gồm bốn cấp độ chính:
-
 ```text
-[Nguồn dữ liệu] ---> [Landing/Staging] ---> [Bronze] ---> [Silver] ---> [Gold & Marts]
-   (MySQL, Log)      (Parquet thô)        (Raw Iceberg) (Cleaned)   (Star Schema/KPI)
-                                                             |
-                                                             v
-                                                      [Quarantine]
-                                                     (Bản ghi lỗi)
+[PostgreSQL] ──► [Staging] ──► [Bronze] ──► [Silver] ──► [Gold]
+                 bản trích     dòng nguồn    kiểu chuẩn    Star Schema
+                 xuất mới nhất hiện tại      hóa           và Data Mart
 ```
 
-* **Tầng Landing / Staging**: Vùng tiếp nhận dữ liệu trung gian dạng file Parquet được trích xuất từ nguồn MySQL hoặc tệp log tạm thời. Vùng này lưu trữ tạm thời theo chu kỳ xử lý và được ghi đè ở mỗi lượt chạy mới.
-* **Tầng Bronze (Raw Data)**: Lưu trữ toàn bộ dữ liệu thô dạng bảng Iceberg, bảo toàn nguyên vẹn mọi phiên bản dữ liệu từ nguồn gốc kèm theo các trường siêu dữ liệu truy vết nguồn gốc (`_ingested_at`, `_source_file`, `_source_run_id`).
-* **Tầng Silver (Cleaned & Conformed Data)**: Tầng dữ liệu nghiệp vụ chuẩn hóa. Dữ liệu từ Bronze được làm sạch, kiểm tra tính hợp lệ về kiểu dữ liệu và ràng buộc logic, loại bỏ trùng lặp theo khóa chính và thời điểm cập nhật, băm định danh các trường thông tin cá nhân nhạy cảm (PII), và cập nhật trạng thái mới nhất vào Iceberg qua lệnh `MERGE INTO`. Các bản ghi không hợp lệ được phân lập sang namespace `quarantine`.
-* **Tầng Gold (Business-Level Data & Data Marts)**: Tầng dữ liệu phân tích phục vụ trực tiếp cho người dùng nghiệp vụ và hệ thống báo cáo. Dữ liệu được tổ chức theo mô hình hình sao (Star Schema) gồm các bảng Dimension chuẩn tắc, các bảng Fact sự kiện giao dịch và hệ thống 17 Data Marts được tổng hợp sẵn theo các chiều nghiệp vụ then chốt.
+* **Staging**: bản trích xuất của lần chạy gần nhất, kèm `_ingested_at`. Mỗi lần nạp xoá trắng rồi ghi lại, nên chạy lại cho cùng kết quả.
+* **Bronze**: dòng nguồn giữ nguyên kiểu dữ liệu của PostgreSQL, là phiên bản hiện tại theo khóa chính, kèm cờ xoá mềm `_is_deleted`, `_deleted_at`.
+* **Silver**: cùng tập dòng với Bronze, kiểu dữ liệu chuẩn hóa (UUID 16 byte, timestamp có múi giờ), merge theo khóa chính.
+* **Gold**: mô hình hình sao gồm dimension, fact và mart tổng hợp sẵn theo câu hỏi nghiệp vụ.
+
+Dữ liệu cá nhân không bị băm; thay vào đó chỉ các cột được duyệt trong danh sách cho phép mới được nạp (mục 3.5.5).
 
 ### **2.3.3. Lưu trữ Object Storage và định dạng bảng mở Apache Iceberg**
 
-Hạ tầng lưu trữ đối tượng sử dụng **MinIO**, một hệ thống lưu trữ phân tán mã nguồn mở tương thích hoàn toàn với chuẩn Amazon S3 API [8]. MinIO cung cấp hiệu năng đọc ghi cao, hỗ trợ phân quyền truy cập thông qua các chính sách IAM Policy và quản lý khóa dịch vụ bảo mật.
+Lưu trữ đối tượng dùng **MinIO**, tương thích Amazon S3 API [8], hỗ trợ chính sách IAM và dịch vụ STS cấp credential tạm.
 
-Định dạng bảng phân tích sử dụng **Apache Iceberg** [9]. Khác với cách quản lý dựa trên cấu trúc thư mục truyền thống của Hive (dễ gây nghẽn NameNode và không hỗ trợ ACID), Iceberg quản lý bảng thông qua một cây phân cấp siêu dữ liệu (Metadata Tree) gồm: Snapshot, Manifest List và Manifest File. Mỗi thao tác ghi vào bảng Iceberg tạo ra một snapshot mới một cách nguyên tử (Atomic Commit), hỗ trợ các truy vấn đọc nhất quán cô lập (Snapshot Isolation), cho phép engine truy vấn đọc dữ liệu tại bất kỳ thời điểm nào trong quá khứ mà không bị ảnh hưởng bởi các tiến trình ghi đang diễn ra.
+Định dạng bảng là **Apache Iceberg** [9]. Khác với bảng Hive dựa trên thư mục, Iceberg quản lý bảng bằng cây siêu dữ liệu (metadata file, manifest list, manifest file). Mỗi lần ghi tạo một snapshot mới nguyên tử (atomic commit); người đọc luôn thấy một snapshot hoàn chỉnh (snapshot isolation), nên truy vấn không bị ảnh hưởng bởi tiến trình đang ghi. Iceberg cho thêm cột và nới kiểu (int → long, float → double, tăng độ chính xác decimal) mà không viết lại dữ liệu.
 
-Để quản lý thống nhất các bảng Iceberg giữa nhiều công cụ tính toán khác nhau (Spark, Flink, Trino), hệ thống sử dụng **Apache Polaris** làm Catalog trung tâm theo chuẩn Iceberg REST Catalog Specification [10]. Polaris hỗ trợ quản lý phân tầng namespace rõ ràng, tích hợp chính sách kiểm soát truy cập dựa trên vai trò (RBAC) cho từng engine tính toán độc lập.
+**Apache Polaris** là catalog trung tâm theo Iceberg REST Catalog Specification [10], cho phép PyIceberg, Trino và Flink dùng chung bảng. Polaris quản lý quyền theo vai trò (RBAC) và **cấp credential lưu trữ tạm (credential vending)**: khi một engine mở bảng, Polaris kiểm tra quyền rồi xin MinIO STS một credential chỉ dùng được cho thư mục của bảng đó, nên không engine nào giữ khóa MinIO.
 
 ### **2.3.4. Mô hình dữ liệu phân tích Kimball**
 
-Mô hình dữ liệu tại tầng Gold được thiết kế theo phương pháp luận mô hình hóa đa chiều (Dimensional Modeling) của Ralph Kimball [11]. Kiến trúc Star Schema gồm:
-* **Bảng chiều (Dimension Tables)**: Chứa các thuộc tính mô tả ngữ cảnh kinh doanh (khách hàng, sản phẩm, biến thể, cửa hàng, nhân viên giao hàng, ngày tháng). Các bảng chiều cung cấp các góc nhìn đa dạng để cắt lát (slice-and-dice) và gom nhóm dữ liệu.
-* **Bảng sự kiện (Fact Tables)**: Lưu trữ các độ đo số lượng (measures) phát sinh từ các sự kiện kinh doanh tại một mức độ chi tiết (grain) xác định duy nhất (ví dụ: một dòng sản phẩm trong đơn hàng, một lần chuyển trạng thái giao hàng, hay mức tồn kho tại một thời điểm quan sát).
-* **Bảng tổng hợp nghiệp vụ (Data Marts)**: Được tiền tổng hợp (pre-aggregated) từ các bảng Fact và Dimension để tối ưu hóa tối đa tốc độ phản hồi cho các báo cáo Dashboard, hạn chế việc phải thực hiện các phép kết nối (JOIN) bảng lớn đắt đỏ khi truy vấn.
+Tầng Gold theo phương pháp mô hình hóa đa chiều của Ralph Kimball [11]:
+* **Bảng chiều (Dimension)**: thuộc tính mô tả ngữ cảnh (ngày, thành phố, cửa hàng, sản phẩm, biến thể, khách hàng, nhân viên) để cắt lát và gom nhóm.
+* **Bảng sự kiện (Fact)**: độ đo tại một mức chi tiết (grain) xác định, ví dụ một dòng đơn hàng, một vận đơn hay tồn kho của một biến thể tại một vị trí trong một ngày.
+* **Data Mart**: bảng tổng hợp sẵn từ fact và dimension theo câu hỏi của từng nhóm người xem, giúp dashboard không phải JOIN bảng lớn khi truy vấn.
 
 ## **2.4. Công nghệ thu thập và xử lý dữ liệu lớn**
 
-### **2.4.1. Thu thập và xử lý dữ liệu theo lô với Apache Spark**
+### **2.4.1. Thu thập và xử lý dữ liệu theo lô với PyIceberg và dbt**
 
-**Apache Spark 3.5** là engine tính toán phân tán trong bộ nhớ chủ lực được sử dụng cho toàn bộ các tác vụ xử lý theo lô (Batch Processing) từ tầng Landing đến Gold [12]. Với cơ chế xử lý song song trên cấu trúc dữ liệu DataFrame và tối ưu hóa truy vấn thông qua bộ tối ưu Catalyst Optimizer, Spark mang lại hiệu năng vượt trội khi chuyển đổi dữ liệu quy mô lớn.
+Ở quy mô của đề tài (đến hàng chục triệu đơn trên một máy), một engine phân tán như Apache Spark là thừa. Pipeline dùng hai công cụ nhẹ hơn:
 
-Trong quy trình trích xuất dữ liệu từ MySQL, Spark kết nối qua JDBC và thực thi thuật toán phân trang theo khóa chính (Keyset Pagination), đọc tuần tự từng khối dữ liệu 10.000 dòng để bảo đảm an toàn bộ nhớ JVM và không gây áp lực tải đột biến lên cơ sở dữ liệu vận hành. Spark tích hợp trực tiếp với Apache Iceberg runtime, hỗ trợ các câu lệnh biến đổi nâng cao như `MERGE INTO` để đồng bộ dữ liệu vào Silver và Gold một cách hiệu quả.
+* **PyIceberg** [12]: thư viện Python đọc ghi bảng Iceberg qua Polaris. Pipeline đọc PostgreSQL bằng con trỏ phía server (server-side cursor), gom thành lô Apache Arrow và ghi vào staging và Bronze; Bronze dùng `upsert` theo khóa chính và `overwrite` cho lần nạp toàn bộ, mỗi thao tác là một commit Iceberg.
+* **dbt** [13] trên **Trino**: mỗi model Silver và Gold là một câu SQL; dbt dựng bảng theo thứ tự phụ thuộc `ref()`, dùng chiến lược incremental `merge` theo khóa và chạy data test sau khi dựng.
 
-### **2.4.2. Thu thập dữ liệu biến đổi (CDC) và nhật ký truy cập với Debezium, Kafka và Flink**
+### **2.4.2. Đồng bộ thay đổi nguồn và nhật ký truy cập với Kafka và Flink**
 
-Đối với các yêu cầu thu thập dữ liệu gần thời gian thực, hệ thống ứng dụng giải pháp Change Data Capture (CDC) không xâm nhập:
-* **Debezium MySQL Connector**: Hoạt động như một tiến trình theo dõi trực tiếp nhật ký nhị phân (Binary Log - binlog) của MySQL theo chế độ `ROW` [13]. Mọi thao tác thêm (Insert), sửa (Update), xóa (Delete) trên 27 bảng nghiệp vụ đều được Debezium ghi nhận và chuyển đổi thành các sự kiện có cấu trúc (chứa đầy đủ trạng thái dữ liệu trước và sau biến đổi).
-* **Apache Kafka 3.8**: Đóng vai trò là hệ thống hàng đợi phân tán trung tâm (Message Broker) hoạt động theo cơ chế KRaft (loại bỏ phụ thuộc ZooKeeper), tiếp nhận các luồng sự kiện CDC và luồng nhật ký truy cập mạng với độ trễ cực thấp và khả năng đệm dữ liệu bền bỉ [14].
-* **Apache Flink 1.19**: Là nền tảng xử lý luồng dữ liệu liên tục có trạng thái (Stateful Stream Processing) [15]. Flink tiêu thụ các thông điệp từ Kafka, thực hiện chuẩn hóa dữ liệu, bóc tách cấu trúc JSON và sử dụng cơ chế `StatementSet` để ghi song song vào nhiều bảng Iceberg đích trong cùng một chu kỳ kiểm tra trạng thái (Checkpointing 10 giây).
+Change Data Capture (CDC) theo nhật ký giao dịch (ví dụ Debezium đọc WAL của PostgreSQL) cho thấy mọi thay đổi gần thời gian thực, nhưng cần thêm dịch vụ, cấu hình `wal_level = logical` và thay đổi cả luồng nạp lô. Đề tài **không dùng CDC**. Thay vào đó, các thay đổi mà nạp gia tăng theo `updated_at` không thấy được xử lý bằng một DAG đồng bộ riêng (mục 3.5.2): dòng bị xoá được phát hiện bằng đối chiếu khóa chính, thay đổi cột bằng so lược đồ. Cách này chỉ đọc nguồn và không cần dịch vụ thêm.
+
+Với nhật ký truy cập, kiến trúc streaming gồm:
+* **Apache Kafka** [14]: hàng đợi phân tán (chế độ KRaft), nhận sự kiện truy cập từ middleware API qua topic `KAFKA_ACCESS_LOG_TOPIC`.
+* **Apache Flink** [15]: xử lý luồng có trạng thái, đọc từ Kafka và ghi vào bảng Iceberg theo chu kỳ checkpoint.
+
+Hạ tầng Kafka và Flink có trong profile `streaming`; job Flink nạp log vào Lakehouse đang được xây lại theo thiết kế ở mục 4.4.3.
 
 ### **2.4.3. Điều phối luồng dữ liệu tự động với Apache Airflow**
 
-**Apache Airflow 2.10** đảm nhiệm vai trò nhạc trưởng điều phối toàn bộ lịch trình thực thi của các pipeline dữ liệu [16]. Các quy trình làm việc được định nghĩa hoàn toàn bằng mã nguồn Python dưới dạng Đồ thị có hướng không chu trình (Directed Acyclic Graph - DAG).
-
-Airflow quản lý chặt chẽ sự phụ thuộc giữa các tác vụ (Task Dependency) thông qua cấu trúc TaskGroup, hỗ trợ cơ chế tự động thử lại khi có lỗi mạng tạm thời (Retry with Backoff), gửi cảnh báo trạng thái và quản lý ngữ cảnh thời gian trích xuất chính xác theo các khoảng thời gian (`data_interval_start` và `data_interval_end`).
+**Apache Airflow 3** [16] điều phối pipeline dưới dạng DAG viết bằng Python. Đề tài dùng các khái niệm:
+* **Data interval** (`data_interval_start`, `data_interval_end`): mỗi lần chạy theo lịch xử lý đúng một khoảng thời gian, nên chạy lại hay backfill một ngày cho cùng kết quả.
+* **TaskGroup**: mỗi tầng là một nhóm, mỗi bảng hoặc model dbt là một task; lỗi chỉ ra đúng bảng, và **Clear** chạy lại đúng task đó.
+* **Asset**: task cuối của DAG incremental phát Asset `lakehouse_oltp_loaded`, kích hoạt DAG đồng bộ.
+* **Pool và retry**: các task dùng chung pool `lakehouse_oltp` 4 slot, tự thử lại hai lần.
 
 ### **2.4.4. Kiểm soát chất lượng dữ liệu và quản lý lỗi**
 
-Chất lượng dữ liệu được kiểm soát chặt chẽ theo tiêu chuẩn quốc tế ISO/IEC 25012 về mô hình chất lượng dữ liệu [17]. Hệ thống thiết lập cổng kiểm soát chất lượng tự động (Quality Gate) tại tầng Gold, bao gồm 18 phép kiểm tra logic toàn diện:
-* Kiểm tra tính duy nhất (Uniqueness) và không rỗng (Completeness) của các khóa chính và khóa ngoại.
-* Kiểm tra tính toàn vẹn tham chiếu (Referential Integrity) giữa các bảng Fact và Dimension.
-* Kiểm tra tính nhất quán tài chính (Financial Consistency): Doanh thu thuần = Doanh thu gộp − Hoàn tiền; Lợi nhuận = Doanh thu thuần − Giá vốn.
-* Kiểm tra an toàn thông tin: Xác nhận 100% các trường dữ liệu định danh khách hàng nhạy cảm đã được băm mã hóa một chiều kèm chuỗi bí mật (Salted SHA-256).
+Mô hình chất lượng dữ liệu ISO/IEC 25012 [17] gồm các đặc tính như đầy đủ, chính xác, nhất quán và kịp thời. Đề tài áp dụng nguyên tắc: **kiểm tra chặn đặt ở nơi có thể làm sai số liệu, không kiểm tra lại những gì nguồn đã bảo đảm**.
 
-Mọi kết quả đánh giá chất lượng đều được ghi nhận vào bảng siêu dữ liệu hệ thống `lakehouse.system.data_quality_results`. Chỉ khi toàn bộ các bài kiểm tra đạt trạng thái PASSED, pipeline mới cho phép tạo bản công bố Snapshot (Publication) để phục vụ cho tầng báo cáo.
+* PostgreSQL đã bảo đảm khóa chính, trường bắt buộc, khóa ngoại và CHECK, nên pipeline không kiểm tra lại.
+* **Đối soát với nguồn** (lần nạp toàn bộ): so số dòng, tổng tiền (`orders`, `payments`, `refunds`) và số dư sổ kho của bản trích xuất với PostgreSQL tại cùng một mốc, trước khi Bronze thay đổi.
+* **Silver khớp Bronze**: test `matches_bronze` chặn khi tập khóa của hai tầng lệch nhau.
+* **Kiểm tra sau Gold** (chỉ cảnh báo, không chặn): phân bổ giảm giá bảo toàn tổng, đơn Gold khớp Silver, các mart doanh thu khớp nhau, tồn kho khớp sổ cái.
+* **Thay đổi lược đồ nguồn** được phân loại; thay đổi có thể làm sai số liệu (bỏ cột, đổi loại) dừng pipeline với thông báo cách xử lý.
+
+Kết quả kiểm tra nằm trong log của task Airflow; task trượt kiểm tra chặn sẽ lỗi và tầng sau giữ nguyên bản cũ.
 
 ## **2.5. Công nghệ phân tích và trực quan hóa dữ liệu**
 
 ### **2.5.1. Công cụ truy vấn dữ liệu phân tán Apache Trino**
 
-**Apache Trino** (tiền thân là PrestoSQL) là công cụ truy vấn SQL phân tán hiệu năng cao, được thiết kế chuyên biệt cho các tác vụ phân tích tương tác trên hồ dữ liệu [18]. Trino kết nối trực tiếp với Apache Iceberg thông qua Polaris REST Catalog, tận dụng siêu dữ liệu của Iceberg để thực hiện kỹ thuật cắt tỉa phân vùng (Partition Pruning) và lọc dữ liệu ở cấp độ tệp (Min/Max Statistics Pruning), giảm thiểu tối đa khối lượng dữ liệu phải đọc từ MinIO S3.
+**Trino** [18] là engine SQL phân tán cho truy vấn tương tác trên hồ dữ liệu. Trino đọc bảng Iceberg qua Polaris, dùng siêu dữ liệu Iceberg để cắt tỉa phân vùng (partition pruning) và bỏ qua tệp theo thống kê min/max, giảm lượng dữ liệu đọc từ MinIO.
 
-Đặc biệt, hệ thống áp dụng cơ chế ghim phiên đọc an toàn (**Snapshot Pinning**): API phân tích sẽ đọc bảng thông qua câu lệnh `FOR VERSION AS OF <snapshot_id>` dựa trên bản ghi Snapshot đã được công bố chính thức. Giải pháp này giúp các báo cáo Dashboard luôn đọc được dữ liệu nhất quán, không bao giờ gặp phải hiện tượng dữ liệu bị thay đổi giữa chừng khi các tiến trình batch đang ghi dữ liệu mới.
+Mỗi truy vấn Trino đọc một snapshot Iceberg hoàn chỉnh, nên dashboard không thấy dữ liệu ghi dở. Trino có hai catalog trỏ cùng warehouse: `lakehouse` chỉ đọc cho phân tích và `lakehouse_etl` cho dbt ghi `silver`/`gold`.
 
-### **2.5.2. Trực quan hóa dữ liệu và xây dựng Dashboard với Apache ECharts**
+### **2.5.2. Trực quan hóa dữ liệu và xây dựng Dashboard với Apache Superset**
 
-Giao diện Business Intelligence (BI Hub) được xây dựng bằng **Apache ECharts 6.1** tích hợp trong nền tảng Next.js [19], [20]. ECharts là thư viện đồ họa mạnh mẽ dựa trên Canvas/SVG, hỗ trợ hiển thị mượt mà các biểu đồ phức tạp: biểu đồ đường xu hướng doanh thu đa kênh, biểu đồ cột xếp hạng sản phẩm bán chạy, phễu chuyển đổi hành vi người dùng, và bản đồ nhiệt ma trận tồn kho.
+**Apache Superset** [20] là nền tảng BI mã nguồn mở, kết nối Trino qua SQLAlchemy, định nghĩa dataset trên bảng và dựng chart, dashboard. Thiết kế dashboard theo nguyên tắc của Stephen Few [19]: chỉ số chính ở đầu, xu hướng theo thời gian, rồi phân rã theo chiều.
 
-Hệ thống Dashboard được thiết kế đáp ứng tiêu chuẩn trải nghiệm người dùng hiện đại: hiển thị rõ ràng độ mới của dữ liệu (Data Freshness), phân biệt minh bạch giữa trạng thái không có dữ liệu (Empty Data) và lỗi hệ thống, tự động làm mới thông minh (Smart Auto-refresh) theo chu kỳ khi người dùng đang mở tab làm việc.
+Dashboard được khai báo bằng mã (dataset, chart, bố cục) và đồng bộ vào Superset bằng lệnh `make superset-sync`, nên dựng lại được giống hệt trên môi trường mới.
 
 ---
 
@@ -237,58 +233,56 @@ Hệ thống Dashboard được thiết kế đáp ứng tiêu chuẩn trải ng
 
 ### **3.1.1. Bối cảnh và phát biểu bài toán**
 
-Doanh nghiệp thời trang D&K vận hành mô hình kinh doanh bán lẻ kết hợp giữa nền tảng trực tuyến (website) và hệ thống cửa hàng thực tế. Hệ thống giao dịch hiện tại phải xử lý hàng nghìn yêu cầu mỗi ngày, bao gồm duyệt danh mục, đặt hàng, thanh toán qua ngân hàng, giao vận COD và xử lý đổi trả hàng hóa. Đồng thời, máy chủ web ghi nhận hàng triệu lượt tương tác của người dùng mỗi tháng.
+Doanh nghiệp thời trang D&K bán lẻ trên website và tại các cửa hàng. Hệ thống giao dịch xử lý duyệt sản phẩm, đặt hàng, thanh toán VietQR, giao COD và đổi trả; máy chủ web ghi nhận lượt tương tác của người dùng.
 
-Vấn đề đặt ra là: Ban giám đốc và các trưởng bộ phận thiếu một công cụ phân tích tập trung để theo dõi sát sao tình hình kinh doanh theo thời gian thực; việc tổng hợp báo cáo thủ công từ MySQL tốn nhiều thời gian, tiềm ẩn sai sót và làm chậm tốc độ phản hồi của website bán hàng; các dữ liệu nhật ký clickstream quý giá bị bỏ phí do không có hạ tầng lưu trữ và xử lý phù hợp. Do đó, bài toán đặt ra là phải thiết kế một kiến trúc nền tảng dữ liệu toàn diện, vừa bảo đảm vận hành giao dịch ổn định, vừa tự động hóa quá trình thu thập và phân tích dữ liệu chuyên sâu.
+Ban giám đốc và các bộ phận thiếu một nơi phân tích tập trung: tổng hợp báo cáo thủ công từ cơ sở dữ liệu giao dịch tốn thời gian, dễ sai và làm chậm hệ thống bán hàng; dữ liệu nhật ký bị bỏ phí. Bài toán là thiết kế một nền tảng dữ liệu vừa không ảnh hưởng hệ thống vận hành, vừa tự động thu thập, xử lý, đối soát và phân quyền truy cập dữ liệu phân tích.
 
 ### **3.1.2. Tác nhân và phạm vi hệ thống**
 
-Hệ thống phục vụ 5 nhóm tác nhân chính:
-
 | Tác nhân | Trách nhiệm và nhu cầu khai thác |
 |---|---|
-| **Khách hàng (Customer)** | Tìm kiếm sản phẩm thời trang theo kích cỡ/màu sắc, quản lý giỏ hàng, đặt hàng trực tuyến, thanh toán VietQR/COD, theo dõi vận đơn và gửi yêu cầu đổi trả. |
-| **Nhân viên thu ngân & kho (Store/Warehouse Staff)** | Bán hàng trực tiếp tại quầy qua giao diện POS, tra cứu tồn kho tức thời giữa các chi nhánh, tạo phiếu nhập kho và kiểm định hàng đổi trả. |
-| **Nhân viên giao nhận (Delivery Staff)** | Cập nhật tiến độ giao hàng, số lần giao và xác nhận thu hộ tiền COD. |
-| **Cấp quản lý (Managers / Executives)** | Xem các báo cáo phân tích tổng thể về doanh thu, lợi nhuận, hiệu quả kho vận, phễu marketing và đánh giá sản phẩm. |
-| **Kỹ sư vận hành dữ liệu (Data Engineer)** | Giám sát trạng thái các đường ống dữ liệu, kiểm tra chất lượng dữ liệu, thực hiện bảo trì định kỳ và quản lý quyền truy cập catalog. |
+| **Khách hàng (Customer)** | Duyệt sản phẩm theo màu/size, quản lý giỏ hàng, đặt hàng, thanh toán VietQR/COD, theo dõi đơn, đánh giá và yêu cầu đổi trả. |
+| **Nhân viên cửa hàng và kho** | Bán hàng tại quầy qua API POS, tra cứu tồn kho, nhập hàng và kiểm định hàng hoàn. |
+| **Nhân viên giao nhận** | Hồ sơ trong `delivery_staff`; các lần giao và tiền COD được ghi nhận trên vận đơn. |
+| **Cấp quản lý** | Xem báo cáo doanh thu, lợi nhuận, kho vận, giao vận, khách hàng trên Superset. |
+| **Kỹ sư dữ liệu và quản trị nền tảng** | Vận hành DAG Airflow, xử lý thay đổi nguồn, quản trị quyền Polaris và cấp credential cho workload qua Console. |
 
 ![Sơ đồ bối cảnh hệ thống](../assets/report/context.svg)
 
 ### **3.1.3. Yêu cầu chức năng**
 
 * **Nhóm chức năng ứng dụng giao dịch**:
-  * Quản lý danh mục đa cấp, sản phẩm và biến thể SKU chi tiết (màu sắc, kích cỡ, giá niêm yết, mã vạch).
-  * Xử lý giỏ hàng và đặt hàng an toàn, bảo đảm tính nhất quán của tồn kho khả dụng thông qua cơ chế khóa dòng.
-  * Hỗ trợ bán hàng tại quầy POS với tính năng quét mã nhanh và áp dụng mã giảm giá.
-  * Quản lý nhập kho theo phương pháp giá vốn bình quân gia quyền và theo dõi sổ cái biến động kho.
-  * Quản lý vòng đời vận chuyển, thu hộ tiền mặt COD và quy trình xử lý đổi trả/hoàn tiền nhiều bước.
-  * Ghi nhận tự động nhật ký tương tác của người dùng trên toàn bộ các route API.
+  * Quản lý danh mục, sản phẩm và biến thể SKU (màu, size, giá niêm yết, giá vốn).
+  * Giỏ hàng và checkout bảo đảm tồn kho nhất quán bằng khóa dòng.
+  * Bán hàng tại quầy POS, áp dụng mã giảm giá.
+  * Nhập hàng và sổ cái biến động kho.
+  * Vận đơn, các lần giao, thu hộ COD và quy trình đổi trả – hoàn tiền nhiều bước.
+  * Ghi nhật ký truy cập tự động trên mọi route API.
 * **Nhóm chức năng nền tảng dữ liệu và phân tích**:
-  * Trích xuất định kỳ 27 bảng dữ liệu quan hệ từ MySQL theo các khoảng thời gian (Batch interval) và đồng bộ vào Lakehouse.
-  * Thu thập sự kiện thay đổi dữ liệu (CDC) từ MySQL binlog vào tầng Bronze phục vụ kiểm toán.
-  * Thu thập và xử lý dòng dữ liệu nhật ký truy cập mạng, bóc tách thông tin người dùng và thiết bị.
-  * Xây dựng và duy trì 17 Data Marts phục vụ tính toán các chỉ số KPI nghiệp vụ.
-  * Kiểm tra chất lượng dữ liệu tự động trước khi công bố snapshot phục vụ báo cáo.
-  * Cung cấp Dashboard trực quan hóa đa chiều phân quyền theo 7 vai trò quản trị.
+  * Nạp toàn bộ và nạp gia tăng hằng ngày 19 bảng nguồn vào Lakehouse, đối soát với nguồn ở lần nạp toàn bộ.
+  * Phát hiện dòng bị xoá ở nguồn và giữ dấu vết (xoá mềm) qua mọi tầng; cho phép xoá cứng chủ động.
+  * Phát hiện thay đổi cột ở nguồn: tự áp dụng thay đổi an toàn, dừng với thay đổi phá vỡ, không nạp cột chưa được duyệt.
+  * Dựng 7 dimension, 6 fact và 14 mart phục vụ KPI.
+  * Quản trị quyền Lakehouse: principal, role, quyền theo catalog/namespace/bảng và cấp credential cho workload.
+  * Dashboard trực quan hóa trên Superset.
 
 ### **3.1.4. Yêu cầu phi chức năng**
 
-* **Tính toàn vẹn và nhất quán**: Dữ liệu giao dịch trên MySQL bảo đảm chuẩn ACID 100%. Dữ liệu phân tích trên Lakehouse duy trì tính nhất quán đọc thông qua cơ chế snapshot isolation; doanh thu báo cáo phải khớp chính xác với dữ liệu giao dịch gốc (sai số đối soát cho phép ≤ 0,05%).
-* **Khả năng mở rộng (Scalability)**: Kiến trúc phân tách hoàn toàn giữa tính toán (Spark, Flink, Trino) và lưu trữ (MinIO S3), cho phép mở rộng độc lập dung lượng lưu trữ và năng lực tính toán.
-* **Hiệu năng truy vấn**: Thời gian phản hồi các truy vấn Dashboard BI trên Trino đạt dưới 2 giây đối với các bảng Data Mart được tối ưu hóa.
-* **Bảo mật và an toàn thông tin**: Thông tin nhạy cảm của khách hàng (họ tên, email, số điện thoại, địa chỉ nhận hàng) phải được băm định danh (pseudonymization) trước khi lưu trữ vào tầng Silver và Gold; hệ thống API có cơ chế xác thực JWT, chống CSRF và phân quyền RBAC đa cấp.
+* **Tính toàn vẹn và nhất quán**: giao dịch nguồn tuân thủ ACID. Mỗi truy vấn phân tích đọc một snapshot Iceberg hoàn chỉnh. Lần nạp toàn bộ phải khớp nguồn về số dòng, tổng tiền và số dư sổ kho tại cùng mốc thời gian.
+* **Chạy lại an toàn (idempotency)**: retry, clear, chạy hỏng rồi chạy tiếp, hay backfill đều cho cùng bảng ở mọi tầng; mốc tiến độ chỉ tiến khi dữ liệu đã ghi xong.
+* **Khả năng mở rộng**: tách tính toán (PyIceberg, Trino, Flink) và lưu trữ (MinIO), mở rộng độc lập; pipeline chạy được từ preset 100 nghìn tới 50 triệu đơn.
+* **Bảo mật**: dữ liệu cá nhân chỉ vào Lakehouse khi cột được duyệt; workload không giữ khóa lưu trữ; Trino tách quyền đọc và ghi; API xác thực JWT, chống CSRF và phân quyền RBAC.
 
 ## **3.2. Phân tích chức năng và quy trình nghiệp vụ**
 
 ### **3.2.1. Sơ đồ Use Case hệ thống**
 
-Hệ thống phân rã các trường hợp sử dụng thành ba phân hệ chính:
-1. **Phân hệ Storefront**: Phục vụ trải nghiệm mua sắm của khách hàng cá nhân.
-2. **Phân hệ Quản trị & POS**: Phục vụ nghiệp vụ bán hàng tại quầy, quản trị kho và vận hành đơn hàng.
-3. **Phân hệ Quản trị Dữ liệu & BI**: Phục vụ các nhà quản lý và kỹ sư dữ liệu trong việc khai thác báo cáo và điều phối hệ thống.
+Hệ thống gồm ba phân hệ:
+1. **Phân hệ mua hàng**: khách hàng duyệt sản phẩm, giỏ hàng, checkout, theo dõi đơn, đánh giá và đổi trả qua API.
+2. **Phân hệ quản trị và POS**: bán tại quầy, quản lý sản phẩm, đơn, kho, nhập hàng, giao vận và hoàn tiền qua API có phân quyền.
+3. **Phân hệ dữ liệu và BI**: kỹ sư dữ liệu vận hành pipeline và quản trị quyền; cấp quản lý xem dashboard.
 
-![Sơ đồ Use Case Storefront](../assets/report/uc-storefront.svg)
+![Sơ đồ Use Case mua hàng](../assets/report/uc-shopping.svg)
 
 ![Sơ đồ Use Case Quản trị](../assets/report/uc-admin.svg)
 
@@ -296,22 +290,22 @@ Hệ thống phân rã các trường hợp sử dụng thành ba phân hệ ch�
 
 ### **3.2.2. Sơ đồ hoạt động (Activity Diagram) các nghiệp vụ cốt lõi**
 
-* **Quy trình Đặt hàng và Thanh toán (Checkout Workflow)**: Khách hàng tiến hành checkout → Backend kiểm tra tính hợp lệ của giỏ hàng, áp dụng mã coupon và kiểm tra tồn kho bằng khóa bi quan → Khởi tạo đơn hàng ở trạng thái `pending` → Tạm giữ tồn kho → Tạo bản ghi thanh toán tương ứng (chờ chuyển khoản VietQR hoặc ghi nhận COD) → Hoàn tất đơn hàng.
+* **Quy trình đặt hàng và thanh toán (Checkout)**: khách gửi checkout → backend kiểm tra giỏ, áp dụng coupon, khóa và kiểm tra tồn kho → tạo đơn, dòng đơn (chụp giá bán và giá vốn), bản ghi thanh toán và lịch sử trạng thái → trừ tồn kho và ghi sổ cái → commit một lần. COD bắt đầu ở trạng thái đã xác nhận/chờ thu; doanh thu chỉ ghi nhận khi hoàn tất và thu đủ tiền.
 
 ![Sơ đồ hoạt động Checkout](../assets/report/activity-checkout-commit.svg)
 
-* **Quy trình Bán hàng tại quầy (POS Workflow)**: Thu ngân chọn chi nhánh → Quét mã vạch sản phẩm → Hệ thống tự động kiểm tra tồn kho thực tế tại cửa hàng → Áp dụng chiết khấu → Xác nhận thanh toán → Trừ tồn kho chi nhánh tức thời và sinh hóa đơn bán lẻ.
+* **Quy trình bán hàng tại quầy (POS)**: nhân viên chọn cửa hàng → chọn biến thể → hệ thống kiểm tra tồn tại cửa hàng → áp dụng giảm giá → thanh toán → trừ tồn cửa hàng và hoàn tất đơn POS ngay.
 
 ![Sơ đồ hoạt động POS](../assets/report/activity-pos.svg)
 
-* **Quy trình Đổi trả và Hoàn tiền (Returns Workflow)**: Khách hàng tạo yêu cầu đổi trả kèm lý do → Quản trị viên duyệt yêu cầu → Nhân viên kho tiếp nhận và kiểm định chất lượng hàng hoàn → Nếu đạt chuẩn, hệ thống thực hiện hoàn kho và khởi tạo lệnh hoàn tiền (Refund) hoặc đổi sản phẩm mới.
+* **Quy trình đổi trả và hoàn tiền (Returns)**: khách tạo yêu cầu kèm lý do → quản trị viên duyệt → kho nhận và kiểm định hàng hoàn → hàng đạt chuẩn được nhập lại kho → tạo hoàn tiền gắn với yêu cầu trả hàng, hoặc đổi sản phẩm khác.
 
 ![Sơ đồ hoạt động Đổi trả](../assets/report/activity-returns.svg)
 
 ### **3.2.3. Sơ đồ tuần tự (Sequence Diagram) các luồng xử lý**
 
-* **Luồng giao dịch Checkout**: Minh họa sự tương tác đồng bộ giữa Trình duyệt người dùng, FastAPI Backend, MySQL Database và Message Broker Kafka (phát sinh Access Log).
-* **Luồng truy vấn báo cáo BI**: Minh họa quy trình an toàn khi Dashboard gửi yêu cầu lấy số liệu: API kiểm tra quyền người dùng → Đọc snapshot ID mới nhất từ bảng công bố → Gửi câu lệnh truy vấn tới Trino → Trino đọc metadata Iceberg trên Polaris và quét dữ liệu Parquet trên MinIO → Trả kết quả JSON về giao diện để vẽ biểu đồ ECharts.
+* **Luồng giao dịch Checkout**: client (Console mô phỏng) → FastAPI → PostgreSQL trong một giao dịch; middleware ghi sự kiện truy cập và, khi bật Kafka, gửi sự kiện vào topic log.
+* **Luồng truy vấn báo cáo BI**: người dùng mở dashboard Superset → Superset gửi SQL tới Trino bằng tài khoản `analytics_reader` → Trino lấy metadata bảng từ Polaris, nhận credential lưu trữ tạm cho đúng bảng → đọc tệp Parquet trên MinIO → trả kết quả cho chart.
 
 ![Sơ đồ tuần tự Checkout](../assets/report/seq-checkout.svg)
 
@@ -321,55 +315,57 @@ Hệ thống phân rã các trường hợp sử dụng thành ba phân hệ ch�
 
 ### **3.3.1. Kiến trúc tổng thể toàn hệ thống**
 
-Hệ thống được thiết kế theo mô hình kiến trúc phân lớp hiện đại, tách bạch rõ ràng giữa tầng thu nhận giao dịch trực tuyến (Online Transaction Processing) và tầng phân tích xử lý dữ liệu lớn (Online Analytical Processing).
+Hệ thống tách tầng giao dịch trực tuyến (OLTP) và tầng phân tích (OLAP):
 
-![Sơ đồ kiến trúc tổng thể toàn hệ thống](../assets/report/architecture-overview.png)
+```text
+Console / datagen ──► FastAPI ──► PostgreSQL ──► staging ──► [reconcile] ──► bronze ──► silver ──► gold ──► Trino ──► Superset
+                                                 PyIceberg    chỉ init       PyIceberg   dbt merge   dbt
+                         └─► Kafka (access log; job nạp Lakehouse đang xây lại)
+```
+
+![Sơ đồ kiến trúc tổng thể toàn hệ thống](../assets/report/architecture-overview.svg)
 
 ### **3.3.2. Kiến trúc thành phần ứng dụng thương mại điện tử**
 
-Ứng dụng thương mại điện tử nguồn được tổ chức theo cấu trúc module hóa cao độ (Modular Architecture) bên trong dịch vụ `ecommerce-api`:
-* Module `auth`: Xử lý đăng ký, đăng nhập, cấp phát JWT HttpOnly Cookie và kiểm tra quyền RBAC.
-* Module `catalog`: Quản lý danh mục sản phẩm, biến thể, hình ảnh và trạng thái hoạt động.
-* Module `cart` & `checkout`: Xử lý giỏ hàng, áp dụng coupon và thực thi giao dịch đặt hàng an toàn.
-* Module `orders`: Quản lý trạng thái vòng đời đơn hàng, lịch sử chuyển trạng thái.
-* Module `inventory`: Quản lý số dư tồn kho tổng và tồn kho chi nhánh, xử lý phiếu nhập hàng và sổ cái giao dịch kho.
-* Module `pos`: Cung cấp API chuyên biệt cho thu ngân bán lẻ tại quầy.
-* Module `logistics`: Quản lý vận đơn, lần thử giao hàng và đối soát tiền thu hộ COD.
-* Module `returns`: Quản lý yêu cầu trả hàng, kiểm định sản phẩm và tạo giao dịch hoàn tiền.
-* Middleware `access_logger`: Tự động bắt mọi request HTTP, làm sạch thông tin định danh (PII) và gửi sự kiện bất đồng bộ vào Kafka topic `ecommerce.access_logs`.
+Container `platform-app` chạy FastAPI (cổng 8000) và Streamlit (cổng 8501). API tổ chức theo module trong `services/platform-app/src/platform_app/api/modules/`:
+* `auth`: đăng ký, đăng nhập, cookie JWT, CSRF và kiểm tra quyền.
+* `catalog`, `location`, `store`: danh mục, sản phẩm, biến thể, thành phố và cửa hàng.
+* `cart`, `wishlist`, `checkout`, `coupons`: giỏ hàng, yêu thích, đặt hàng và mã giảm giá.
+* `orders`: vòng đời đơn hàng và lịch sử trạng thái.
+* `pos`: bán hàng tại quầy.
+* `inbound`: nhập hàng và sổ cái kho.
+* `logistics`: vận đơn, lần giao và COD.
+* `returns`, `reviews`: đổi trả – hoàn tiền và đánh giá.
+* `admin`, `analytics`: tác vụ quản trị và số liệu vận hành.
+* Middleware nhật ký truy cập (`api/core/access_logging.py`): ghi mọi request theo hợp đồng `ecommerce.access`, che dữ liệu nhạy cảm, gửi Kafka khi `KAFKA_ENABLED=true`.
+
+Ngoài API nghiệp vụ, router `/api/v1/access` phục vụ quản trị quyền Lakehouse, và service riêng `credential-exporter` ghi file credential vào volume của từng workload.
 
 ![Sơ đồ kiến trúc Web](../assets/report/architecture-web.svg)
 
 ### **3.3.3. Kiến trúc nền tảng Data Lakehouse và phục vụ phân tích**
 
-Nền tảng Data Lakehouse được tổ chức trên MinIO S3 với bucket duy nhất `lakehouse`, được phân chia thành 6 không gian tên (Namespaces) do Polaris REST Catalog quản lý tập trung:
-* `landing`: Lưu trữ các tệp Parquet trích xuất tạm thời từ MySQL và tệp nhật ký truy cập thô.
-* `bronze`: Lưu trữ các bảng Iceberg nguyên bản dữ liệu nguồn kèm siêu dữ liệu kiểm toán và bảng sự kiện `oltp_cdc_events`.
-* `silver`: Lưu trữ các bảng Iceberg nghiệp vụ đã được làm sạch, băm định danh PII và cập nhật trạng thái mới nhất theo khóa chính.
-* `gold`: Lưu trữ 6 bảng Dimension, 6 bảng Fact cốt lõi và 17 Data Marts phục vụ phân tích.
-* `quarantine`: Lưu trữ các bản ghi dữ liệu không vượt qua được bài kiểm tra tính hợp lệ tại tầng Silver, kèm lý do lỗi và payload đã được che dấu PII.
-* `system`: Lưu trữ bảng nhật ký kiểm tra chất lượng (`data_quality_results`) và bảng quản lý phiên bản công bố (`publication_snapshots`).
+Lakehouse dùng một bucket MinIO (`MINIO_LAKEHOUSE_BUCKET`, mặc định `lakehouse`) và một catalog Polaris `lakehouse`, chia bốn namespace:
+* `staging`: bản trích xuất của lần chạy gần nhất cho mỗi bảng nguồn.
+* `bronze`: dòng nguồn hiện tại theo khóa chính, kiểu dữ liệu nguồn, kèm cờ xoá mềm.
+* `silver`: cùng dòng với Bronze, kiểu chuẩn hóa.
+* `gold`: 7 dimension, 6 fact, 14 mart, 2 seed và bảng trạng thái `_mart_state` giữ mốc tiến độ của mart.
 
-Tầng phục vụ phân tích sử dụng Trino kết nối qua Polaris. Dịch vụ API phân tích (`analytics module`) duy trì một bộ nhớ đệm (In-memory Cache) kết hợp cơ chế dự phòng an toàn (Bounded Fallback): trong trường hợp Trino gặp sự cố kết nối, API sẽ trả về dữ liệu phân tích gần nhất còn trong thời hạn hợp lệ kèm cờ cảnh báo `degraded: true`, bảo đảm trải nghiệm người dùng trên Dashboard không bị gián đoạn hoàn toàn.
+Tầng phục vụ là Trino đọc trực tiếp bảng Gold hiện tại qua Polaris; Superset kết nối Trino. MinIO chỉ có một tài khoản lưu trữ, của Polaris, do service `minio-init` tạo; các workload nhận credential tạm theo bảng.
 
-![Sơ đồ kiến trúc Lakehouse](../assets/report/lakehouse.png)
+![Sơ đồ kiến trúc Lakehouse](../assets/report/lakehouse.svg)
 
 ### **3.3.4. Mô hình tương tác giữa các luồng dữ liệu**
 
-Hệ thống điều phối 6 luồng dữ liệu chính hoạt động nhịp nhàng:
-
 | Luồng dữ liệu | Cơ chế thực thi | Tần suất | Đầu vào | Đầu ra |
 |---|---|---|---|---|
-| **1. OLTP Batch** | Spark JDBC Keyset Pagination → Parquet Staging → Bronze MERGE → Silver MERGE → Gold/Marts → Quality Gate | 03:00 hàng ngày (Asia/Ho_Chi_Minh) | 27 bảng MySQL (theo khoảng thời gian `updated_at`/`created_at`) | Dữ liệu phân tích tầng Gold đã công bố snapshot |
-| **2. Full Init** | Spark Full Extract (`SELECT *`) → Nạp toàn diện các tầng Medallion | Kích hoạt thủ công khi khởi tạo | Toàn bộ 27 bảng MySQL | Dữ liệu khởi tạo toàn diện ban đầu trong Lakehouse |
-| **3. CDC Streaming** | Debezium bắt binlog → Kafka topic `cdc.ecommerce.*` → Flink streaming job | Thời gian thực (Checkpoint 10s) | Các thao tác INSERT, UPDATE, DELETE trên MySQL | Bảng Iceberg `bronze.oltp_cdc_events` phục vụ kiểm toán |
-| **4. Hard Delete Sync** | Spark lọc sự kiện CDC delete thỏa điều kiện → MERGE xóa dữ liệu tương ứng tại Silver | Kích hoạt thủ công khi cần | Sự kiện delete của `cart_items` và `wishlist_items` cũ hơn 30 ngày | Làm sạch dữ liệu rác tại Silver mà không làm mất lịch sử Bronze |
-| **5. Access Log Stream**| FastAPI Middleware → Kafka topic `ecommerce.access_logs` → Flink StatementSet | Thời gian thực (Checkpoint 10s) | Sự kiện truy cập mạng HTTP của người dùng | Ghi đồng thời vào 4 bảng Iceberg (Landing, Bronze, Silver, Gold Fact) |
-| **6. Log Mart Rollup** | Spark đọc `fact_web_events` và snapshot danh mục Silver → Tính toán và công bố | Chạy mỗi giờ | Fact log và dữ liệu sản phẩm | 3 Data Marts nhật ký truy cập đã công bố |
+| **1. Nạp toàn bộ (init)** | Tạo namespace và bảng → staging → đối soát → Bronze (thay cả bảng) → Silver → Gold → bảo trì | Chạy tay | Mọi dòng của 19 bảng tạo trước mốc chạy | Lakehouse dựng lại hoàn chỉnh |
+| **2. Nạp gia tăng (incremental)** | Staging theo data interval → Bronze upsert → Silver merge → Gold merge/tính lại ngày → bảo trì | 03:00 hằng ngày (Asia/Ho_Chi_Minh), catchup và backfill | Dòng có `updated_at`/`created_at` trong khoảng | Gold cập nhật; phát Asset `lakehouse_oltp_loaded` |
+| **3. Đồng bộ nguồn (sync)** | Kiểm tra lược đồ → phát hiện xoá/khôi phục → Bronze → Silver → Gold → bảo trì | Sau mỗi lần incremental thành công | Danh sách cột và toàn bộ khóa chính nguồn | Cột đã duyệt được thêm; dòng bị xoá được đánh dấu |
+| **4. Xoá cứng (purge)** | Xoá dòng `_is_deleted` ở Gold → Silver → Bronze | Chạy tay | Dòng đã xoá mềm | Lakehouse không còn dòng đã xoá |
+| **5. Access log** | Middleware → Kafka → Flink → `bronze.web_events` → Silver → mart phễu | Thiết kế, chưa xây | Sự kiện HTTP và file log lịch sử | `mart_web_funnel_daily` |
 
 ![Sơ đồ luồng Batch](../assets/report/flow-batch.svg)
-
-![Sơ đồ luồng CDC](../assets/report/flow-cdc.svg)
 
 ![Sơ đồ luồng Access Log](../assets/report/flow-access-log.svg)
 
@@ -377,165 +373,182 @@ Hệ thống điều phối 6 luồng dữ liệu chính hoạt động nhịp n
 
 ### **3.4.1. Phân tích các cụm thực thể nghiệp vụ**
 
-Cơ sở dữ liệu giao dịch MySQL được thiết kế chuẩn hóa mức 3NF, phân rã thành 7 cụm thực thể gắn liền với các phân hệ nghiệp vụ:
-1. **Cụm Định danh & Địa lý**: `customers`, `customer_credentials`, `cities`, `stores`, `delivery_staff`.
-2. **Cụm Sản phẩm & Danh mục**: `categories`, `products`, `product_variants`, `product_reviews`.
-3. **Cụm Khách hàng & Tương tác**: `carts`, `cart_items`, `wishlist_items`.
-4. **Cụm Khuyến mại**: `coupons`, `coupon_redemptions`.
-5. **Cụm Bán hàng & Đơn hàng**: `orders`, `order_items`, `order_status_history`.
-6. **Cụm Tồn kho & Nhập hàng**: `inventory`, `store_inventory`, `inbound_receipts`, `inbound_receipt_items`, `inventory_transactions`.
-7. **Cụm Vận chuyển & Hậu mãi**: `payments`, `shipments`, `shipment_attempts`, `return_requests`, `return_items`, `refunds`.
+Cơ sở dữ liệu PostgreSQL chuẩn hóa mức 3NF, gồm các cụm thực thể:
+1. **Định danh và địa điểm**: `customers`, `customer_credentials`, `cities`, `stores`, `delivery_staff`.
+2. **Sản phẩm**: `categories`, `products`, `product_variants`, `product_reviews`.
+3. **Khám phá và mua**: `carts`, `cart_items`, `wishlist_items`.
+4. **Khuyến mại**: `coupons`, `coupon_redemptions`.
+5. **Đơn hàng và thanh toán**: `orders`, `order_items`, `order_status_history`, `payments`.
+6. **Tồn kho và nhập hàng**: `inventory`, `store_inventory`, `inbound_receipts`, `inbound_receipt_items`, `inventory_transactions`.
+7. **Giao vận và hậu mãi**: `shipments`, `shipment_attempts`, `return_requests`, `return_items`, `refunds`.
 
 ### **3.4.2. Thiết kế sơ đồ quan hệ thực thể (ERD)**
 
-Sơ đồ ERD quan niệm phản ánh mối liên kết chặt chẽ giữa các cụm thực thể, bảo đảm toàn vẹn khóa ngoại và hỗ trợ truy xuất thông tin hai chiều giữa khách hàng, đơn hàng, kho bãi và giao vận.
+ERD thể hiện liên kết giữa các cụm: khách hàng – đơn hàng – dòng đơn – biến thể; đơn hàng – thanh toán – hoàn tiền; đơn hàng – vận đơn – lần giao; biến thể – tồn kho theo vị trí – sổ cái kho.
 
 ![Sơ đồ ERD Bán hàng](../assets/report/erd-conceptual-sales.svg)
 
 ![Sơ đồ ERD Tồn kho](../assets/report/erd-conceptual-stock.svg)
 
-### **3.4.3. Thiết kế lược đồ cơ sở dữ liệu vật lý MySQL (28 bảng)**
+### **3.4.3. Thiết kế lược đồ cơ sở dữ liệu vật lý PostgreSQL (28 bảng)**
 
-Lược đồ vật lý được cài đặt trong tệp `database/schema.sql` gồm đúng **28 bảng**, thiết lập 50 ràng buộc khóa ngoại (Foreign Keys) và hệ thống chỉ mục (Indexes) tối ưu hóa truy vấn:
+Lược đồ vật lý `database/schema.sql` được sinh từ ORM, gồm **28 bảng** với khóa ngoại, CHECK, UNIQUE và index. Cột "Nạp vào Lakehouse" cho biết bảng nằm trong 19 bảng của `SOURCE_TABLES` và cột cursor dùng cho nạp gia tăng.
 
-| STT | Tên bảng | Khóa chính (PK) | Cột lọc Batch | Tính chất | Mục đích lưu trữ nghiệp vụ |
-|---|---|---|---|---|---|
-| 1 | `customers` | `customer_id` | `updated_at` | Mutable | Thông tin người dùng, khách hàng và vai trò hệ thống. |
-| 2 | `customer_credentials`| `customer_id` | *Không trích xuất* | Bảo mật | Băm mật khẩu Argon2id (cách ly bảo mật, không đưa vào Lakehouse). |
-| 3 | `categories` | `category_id` | `updated_at` | Mutable | Cây danh mục sản phẩm thời trang (nam, nữ, phụ kiện...). |
-| 4 | `products` | `product_id` | `updated_at` | Mutable | Thông tin sản phẩm tổng thể (tên, mã, thương hiệu, mô tả). |
-| 5 | `product_variants` | `variant_id` | `updated_at` | Mutable | Biến thể cụ thể theo SKU (màu sắc, kích cỡ, mã vạch, giá niêm yết). |
-| 6 | `carts` | `cart_id` | `updated_at` | Mutable | Giỏ hàng của từng khách hàng. |
-| 7 | `cart_items` | `cart_item_id` | `updated_at` | Mutable | Chi tiết các mặt hàng nằm trong giỏ hàng. |
-| 8 | `wishlist_items` | `wishlist_item_id` | `updated_at` | Mutable | Danh sách sản phẩm yêu thích được khách hàng lưu lại. |
-| 9 | `orders` | `order_id` | `updated_at` | Mutable | Đơn hàng mua sắm (kênh Online hoặc kênh tại quầy POS). |
-| 10 | `order_items` | `order_item_id` | `created_at` | Append-only | Dòng sản phẩm trong đơn; chụp cố định giá bán và giá vốn tại thời điểm mua. |
-| 11 | `order_status_history`| `order_status_history_id`| `created_at` | Append-only | Sổ cái lịch sử chuyển đổi các trạng thái của đơn hàng. |
-| 12 | `inventory` | `variant_id` | `updated_at` | Mutable | Số dư tồn kho tổng của chuỗi theo từng biến thể. |
-| 13 | `inventory_transactions`| `transaction_id` | `created_at` | Append-only | Nhật ký biến động kho (nhập, xuất bán, hoàn trả, kiểm kê). |
-| 14 | `inbound_receipts` | `receipt_id` | `updated_at` | Mutable | Phiếu nhập hàng từ nhà cung cấp. |
-| 15 | `inbound_receipt_items`| `item_id` | `created_at` | Append-only | Chi tiết số lượng và đơn giá nhập của từng mặt hàng. |
-| 16 | `coupons` | `coupon_id` | `updated_at` | Mutable | Chương trình mã giảm giá (tỷ lệ %, tiền mặt, điều kiện tối thiểu). |
-| 17 | `coupon_redemptions` | `coupon_redemption_id` | `updated_at` | Mutable | Nhật ký các lượt khách hàng sử dụng mã giảm giá. |
-| 18 | `product_reviews` | `review_id` | `updated_at` | Mutable | Đánh giá xếp hạng sao và bình luận của khách hàng sau khi mua hàng. |
-| 19 | `cities` | `city_id` | `updated_at` | Mutable | Danh mục tỉnh / thành phố phục vụ địa chỉ và tính phí giao hàng. |
-| 20 | `stores` | `store_id` | `updated_at` | Mutable | Danh sách các cửa hàng vật lý trong chuỗi bán lẻ. |
-| 21 | `store_inventory` | `store_inventory_id`* | `updated_at` | Mutable | Tồn kho chi tiết của từng SKU tại từng cửa hàng cụ thể. |
-| 22 | `delivery_staff` | `staff_id` | `updated_at` | Mutable | Hồ sơ nhân viên giao vận và đội ngũ shipper. |
-| 23 | `shipments` | `shipment_id` | `updated_at` | Mutable | Vận đơn giao hàng và thông tin tiền thu hộ COD. |
-| 24 | `shipment_attempts` | `attempt_id` | `created_at` | Append-only | Nhật ký các lần nhân viên shipper đi giao hàng thực tế. |
-| 25 | `payments` | `payment_id` | `updated_at` | Mutable | Giao dịch thanh toán đơn hàng (VietQR, thẻ hoặc tiền mặt). |
-| 26 | `return_requests` | `return_id` | `updated_at` | Mutable | Đơn yêu cầu đổi trả hàng hóa từ khách hàng. |
-| 27 | `return_items` | `return_item_id` | `updated_at` | Mutable | Danh sách các món hàng đề nghị đổi trả và lý do chi tiết. |
-| 28 | `refunds` | `refund_id` | `updated_at` | Mutable | Lệnh hoàn tiền cho khách hàng sau khi kiểm định hàng hoàn đạt chuẩn. |
+| STT | Tên bảng | Khóa chính | Nạp vào Lakehouse (cursor) | Mục đích lưu trữ |
+|---|---|---|---|---|
+| 1 | `customers` | `customer_id` | `updated_at` | Người dùng, khách hàng và vai trò |
+| 2 | `customer_credentials` | `customer_id` | Không nạp | Mật khẩu băm Argon2id, chỉ dùng cho xác thực |
+| 3 | `categories` | `category_id` | `updated_at` | Cây danh mục |
+| 4 | `products` | `product_id` | `updated_at` | Sản phẩm |
+| 5 | `product_variants` | `variant_id` | `updated_at` | Biến thể SKU: màu, size, giá niêm yết, giá vốn |
+| 6 | `carts` | `cart_id` | Không nạp | Giỏ hàng |
+| 7 | `cart_items` | `cart_item_id` | Không nạp | Dòng giỏ hàng |
+| 8 | `wishlist_items` | `wishlist_item_id` | Không nạp | Sản phẩm yêu thích |
+| 9 | `orders` | `order_id` | `updated_at` | Đơn hàng online và POS |
+| 10 | `order_items` | `order_item_id` | `created_at` | Dòng đơn; chụp giá bán và giá vốn lúc mua |
+| 11 | `order_status_history` | `order_status_history_id` | `created_at` | Lịch sử trạng thái đơn |
+| 12 | `inventory` | `variant_id` | Chỉ để đối soát | Tồn tổng theo biến thể |
+| 13 | `inventory_transactions` | `transaction_id` | `created_at` | Sổ cái biến động kho |
+| 14 | `inbound_receipts` | `receipt_id` | Không nạp | Phiếu nhập hàng |
+| 15 | `inbound_receipt_items` | `item_id` | `created_at` | Dòng phiếu nhập |
+| 16 | `coupons` | `coupon_id` | `updated_at` | Mã giảm giá |
+| 17 | `coupon_redemptions` | `coupon_redemption_id` | Không nạp | Lượt dùng mã giảm giá |
+| 18 | `product_reviews` | `review_id` | `updated_at` | Đánh giá sản phẩm |
+| 19 | `cities` | `city_id` | `updated_at` | Tỉnh/thành phố |
+| 20 | `stores` | `store_id` | `updated_at` | Cửa hàng |
+| 21 | `store_inventory` | `store_inventory_id` | Chỉ để đối soát | Tồn theo cửa hàng và biến thể |
+| 22 | `delivery_staff` | `staff_id` | `updated_at` | Nhân viên giao hàng |
+| 23 | `shipments` | `shipment_id` | `updated_at` | Vận đơn và tiền COD |
+| 24 | `shipment_attempts` | `attempt_id` | Không nạp | Các lần giao |
+| 25 | `payments` | `payment_id` | `updated_at` | Thanh toán (VietQR, COD, thẻ, tiền mặt) |
+| 26 | `return_requests` | `return_id` | `updated_at` | Yêu cầu đổi trả |
+| 27 | `return_items` | `return_item_id` | `updated_at` | Dòng hàng đổi trả |
+| 28 | `refunds` | `refund_id` | `updated_at` | Hoàn tiền |
 
-> **Ghi chú**: Bảng `store_inventory` có khóa chính vật lý tổ hợp `(store_id, variant_id)` và một cột định danh duy nhất `store_inventory_id`; pipeline sử dụng cột này làm khóa định danh phân trang trích xuất an toàn.
+Các bảng không nạp không được bảng Gold nào dùng; `customer_credentials` không được cấp quyền đọc cho pipeline.
 
 ### **3.4.4. Ràng buộc toàn vẹn và bảo đảm tính nhất quán giao dịch**
 
-Hệ thống thiết lập các cơ chế toàn vẹn dữ liệu đa tầng:
-* **Toàn vẹn quan hệ (Referential Integrity)**: Ràng buộc khóa ngoại `ON DELETE RESTRICT` ngăn chặn việc xóa các bản ghi cha (ví dụ: sản phẩm, khách hàng) khi đã phát sinh các bản ghi giao dịch con (đơn hàng, chi tiết đơn).
-* **Bảo toàn giá trị lịch sử (Snapshot Pricing)**: Bảng `order_items` lưu trữ cố định đơn giá bán (`unit_price`), chiết khấu và giá vốn (`cost_price`) tại chính xác thời điểm khách bấm đặt hàng. Mọi sự thay đổi về giá niêm yết trong bảng `product_variants` sau đó đều không ảnh hưởng đến số liệu lịch sử của các đơn đã tạo.
-* **Cơ chế Idempotency Key**: Các thao tác nhạy cảm (tạo đơn, xác nhận thanh toán, hoàn tiền) yêu cầu gửi kèm khóa định danh duy nhất `idempotency_key` để chống việc hệ thống xử lý lặp khi người dùng bấm đúp hoặc do mạng thử lại yêu cầu.
+* **Toàn vẹn tham chiếu**: khóa ngoại ngăn xoá bản ghi cha khi đã có giao dịch con.
+* **Bảo toàn giá lịch sử**: `order_items` lưu đơn giá bán, giảm giá và giá vốn tại thời điểm đặt; đổi giá trong `product_variants` sau đó không ảnh hưởng đơn cũ.
+* **Idempotency key**: các thao tác nhạy cảm (tạo đơn, thanh toán, hoàn tiền) nhận `idempotency_key`, nên bấm đúp hay mạng gửi lại không tạo thao tác thứ hai.
+* **Thời gian cập nhật**: trigger đặt `updated_at` khi dòng đổi, làm cơ sở cho nạp gia tăng.
 
 ## **3.5. Thiết kế nền tảng Data Lakehouse (OLAP)**
 
 ### **3.5.1. Xác định và phân loại nguồn dữ liệu**
 
-Lakehouse tiếp nhận hai luồng dữ liệu chính:
-1. **Nguồn giao dịch có cấu trúc (OLTP MySQL)**: Gồm 27 bảng nghiệp vụ (loại trừ bảng nhạy cảm `customer_credentials`). Chia làm 2 nhóm: nhóm bảng biến đổi trạng thái (Mutable - lọc theo `updated_at`) và nhóm bảng chỉ ghi chèn (Append-only - lọc theo `created_at`).
-2. **Nguồn nhật ký tương tác bán cấu trúc (Access Log)**: Gồm các sự kiện truy cập HTTP được sinh ra từ các client gửi về máy chủ API, tuân thủ chặt chẽ định dạng schema contract `ecommerce.access` v1.0.0.
+1. **Nguồn giao dịch có cấu trúc (PostgreSQL)**: 19 bảng được khai báo tường minh trong `airflow/lakehouse/oltp/sources.py`. Bảng thay đổi trạng thái lọc theo `updated_at`; bảng chỉ ghi thêm lọc theo `created_at`. Mỗi bảng có danh sách cột được nạp (`columns`) và danh sách cột cố ý bỏ (`excluded`, gồm dữ liệu cá nhân như `receiver_phone`, `shipping_address_text`).
+2. **Nguồn nhật ký truy cập bán cấu trúc**: sự kiện HTTP theo hợp đồng `ecommerce.access` (API phát v1.0.0; bộ sinh dữ liệu phát v1.1.0 có thêm `session.id`, `ecommerce.order_number`).
 
-### **3.5.2. Thiết kế quy trình trích xuất Batch, CDC và Access Log**
+### **3.5.2. Thiết kế quy trình trích xuất Batch, đồng bộ nguồn và Access Log**
 
-* **Quy trình trích xuất Batch theo khoảng thời gian**:
-  * DAG Airflow truyền hai mốc thời gian cố định `data_interval_start` và `data_interval_end` (chuẩn hóa UTC) cho Spark Job.
-  * Spark đọc dữ liệu từ MySQL qua câu truy vấn có điều kiện: `WHERE change_time >= interval_start AND change_time < interval_end`.
-  * Áp dụng giải pháp phân trang Keyset Pagination: `WHERE ... AND pk > last_pk ORDER BY pk ASC LIMIT 10000`, ghi tuần tự từng tệp Parquet vào vùng đệm `landing/oltp/staging/<table>/`. Quá trình này không lưu file con trỏ (cursor) phức tạp, bảo đảm khả năng chạy lại (idempotent) hoàn hảo.
-* **Quy trình CDC phục vụ kiểm toán**: Debezium bắt toàn bộ sự kiện binlog từ MySQL, đẩy vào các topic Kafka dạng `cdc.ecommerce.<table>`. Flink tiêu thụ và ghi nối tiếp vào bảng Iceberg `lakehouse.bronze.oltp_cdc_events`, lưu trữ đầy đủ `before_image`, `after_image`, loại thao tác và timestamp gốc `source_ts`.
-* **Quy trình xóa cứng thủ công (Manual Hard Delete)**: Để tuân thủ chính sách dọn dẹp dữ liệu mà không làm phá vỡ tính toàn vẹn của báo cáo, DAG `manual_lakehouse_hard_delete` được kích hoạt thủ công, lọc các sự kiện delete từ CDC của hai bảng `cart_items` và `wishlist_items` thỏa mãn: có đánh dấu xóa mềm trước đó (`is_present=0`, `removed_at IS NOT NULL`) và thời điểm xóa thực tế tại MySQL đã trôi qua ít nhất 30 ngày (`source_ts <= DAG start time - 30 days`). Lệnh Spark MERGE sẽ xóa các dòng tương ứng tại tầng Silver mà vẫn bảo tồn lịch sử kiểm toán tại Bronze.
+* **Trích xuất theo lô**:
+  * Lần nạp toàn bộ đọc mọi dòng tạo trước mốc bắt đầu lần chạy, nên 19 bảng dừng ở cùng một thời điểm; lần nạp gia tăng đọc các dòng có cursor trong `[data_interval_start, data_interval_end)`.
+  * Mỗi bảng đọc trong một giao dịch repeatable-read bằng con trỏ phía server (10.000 dòng mỗi lần fetch), ghi vào staging mỗi lô 200.000 dòng.
+  * Staging được xoá trắng trước khi ghi, nên chạy lại cùng khoảng luôn cho cùng kết quả mà không cần lưu con trỏ.
+* **Đồng bộ nguồn** (DAG `lakehouse_oltp_sync`, chạy sau mỗi lần incremental):
+  1. **Thay đổi cột** (nhóm `schema`, chạy trước). So nguồn với danh sách cho phép và Bronze:
+     * cột mới chưa duyệt: sync báo lỗi chờ người duyệt; incremental vẫn chạy;
+     * cột đã duyệt: tự thêm vào staging và Bronze, bật cờ `lakehouse.reload-pending`, rồi nạp lại cả bảng trong một commit;
+     * kiểu được nới (int → long…): tự nới;
+     * cột bị bỏ hoặc đổi loại: mọi DAG dừng kèm thông báo cách xử lý.
+  2. **Dòng bị xoá** (nhóm `detect`, chạy sau). So toàn bộ khóa chính nguồn với khóa còn sống ở Bronze:
+     * khóa mất ở nguồn: xoá mềm (`_is_deleted`, `_deleted_at`) qua Bronze, Silver và Gold; mart không tính;
+     * khóa có lại ở nguồn: dòng sống lại.
+![Sơ đồ luồng đồng bộ nguồn](../assets/report/flow-sync.svg)
+
+* **Xoá cứng chủ động**: DAG chạy tay `lakehouse_oltp_purge` xoá hẳn các dòng đã xoá mềm, theo thứ tự Gold → Silver → Bronze.
+* **Access Log**: thiết kế ở mục 4.4.3.
 
 ### **3.5.3. Thiết kế các tầng dữ liệu Medallion**
 
 ![Sơ đồ phân tầng Medallion](../assets/report/medallion.svg)
 
-Hệ thống phân cấp các tầng dữ liệu rõ ràng:
-* **Bronze**: Ghi nhận toàn bộ dữ liệu thô. Áp dụng kỹ thuật MERGE phiên bản nguồn dựa trên cặp khóa `(PK, change_timestamp)`, bảo đảm không phát sinh bản ghi trùng lặp khi chạy lại một khoảng thời gian.
-* **Silver**: Lọc bỏ bản ghi lỗi logic đưa vào `quarantine`, thực hiện băm định danh PII bằng chuỗi bí mật ngẫu nhiên (Salted SHA-256), sau đó thực thi `MERGE INTO` vào bảng Silver tương ứng theo khóa chính.
-* **Gold**: Tổ chức theo mô hình Star Schema và hệ thống Data Marts, tính toán các chỉ số kinh doanh phục vụ báo cáo.
+* **Staging**: bản trích xuất của lần chạy, kèm `_ingested_at`.
+* **Bronze**: lần nạp toàn bộ thay cả bảng trong một commit, giữ các dòng đã xoá mềm và đánh dấu xoá các dòng nguồn không còn; lần nạp gia tăng upsert theo khóa chính và không để dòng có cursor cũ hơn ghi đè bản mới.
+* **Silver**: dbt merge các dòng Bronze mới hơn `_ingested_at` lớn nhất của Silver, chuẩn hóa kiểu; test `matches_bronze` chặn khi hai tầng lệch khóa.
+* **Gold**: dimension và fact merge các dòng có đầu vào thay đổi; mart xoá rồi dựng lại các ngày bị ảnh hưởng kể từ mốc trong `gold._mart_state`.
 
 ### **3.5.4. Thiết kế mô hình dữ liệu Dimensional Model (Star Schema) và Data Marts**
 
-Mô hình tầng Gold được chuẩn hóa gồm:
-* **6 Bảng Dimension dùng chung (Conformed Dimensions)**:
-  * `dim_date`: Khởi tạo sẵn toàn bộ các thuộc tính thời gian (ngày, tháng, quý, năm, thứ trong tuần, ngày cuối tuần).
-  * `dim_product`: Thông tin sản phẩm tổng thể và phân cấp danh mục cha - con.
-  * `dim_variant`: Chi tiết biến thể SKU (màu sắc, kích cỡ, giá niêm yết).
-  * `dim_store`: Thông tin chi nhánh cửa hàng và địa bàn thành phố.
-  * `dim_delivery_staff`: Hồ sơ nhân sự giao hàng và khu vực hoạt động.
-  * `dim_customer`: Thông tin khách hàng đã được băm định danh an toàn.
+* **7 bảng Dimension**:
+  * `dim_date`: lịch, ngày lễ và ngày sale (seed `calendar_events`).
+  * `dim_city`: thành phố, vùng giao và SLA giao hàng (seed `delivery_sla`).
+  * `dim_store`: cửa hàng.
+  * `dim_product`: sản phẩm và danh mục.
+  * `dim_variant`: biến thể SKU.
+  * `dim_customer`: khách hàng.
+  * `dim_staff`: nhân viên giao hàng và nhân viên bán.
 
 ![Sơ đồ Star Schema Bán hàng](../assets/report/gold-sales.svg)
 
-* **6 Bảng Fact cốt lõi**:
-  * `fact_order_item`: Grain là từng dòng hàng trong đơn mua, đo lường số lượng bán, doanh thu gộp, chiết khấu và giá vốn hàng bán.
-  * `fact_order`: Grain là một đơn hàng tổng thể, đo lường tổng giá trị đơn, phụ phí vận chuyển và số lượng sản phẩm.
-  * `fact_shipment`: Grain là một vận đơn giao hàng, theo dõi thời gian giao, số lần thử và số tiền thu hộ COD.
-  * `fact_return_exchange`: Grain là từng mặt hàng đề nghị đổi trả, ghi nhận lý do và số tiền hoàn trả.
-  * `fact_inventory_daily_snapshot`: Grain là Ngày quan sát × SKU × Cửa hàng/Kho, lưu mức tồn cuối ngày.
-  * `fact_inventory_current`: Grain là SKU × Cửa hàng/Kho, phản ánh tồn kho khả dụng và tồn kho thực tế tức thời.
-  * *(Bổ sung)* `fact_web_events`: Grain là từng sự kiện truy cập HTTP của người dùng do Flink streaming ghi nhận.
+* **6 bảng Fact**:
+  * `fact_order`: một dòng mỗi đơn.
+  * `fact_order_item`: một dòng mỗi dòng đơn; giảm giá đơn được phân bổ theo tỷ lệ tiền dòng, làm tròn xuống tích lũy nên tổng phân bổ bằng đúng giảm giá đơn.
+  * `fact_shipment`: một dòng mỗi vận đơn.
+  * `fact_return`: một dòng mỗi dòng hàng trả.
+  * `fact_inventory_daily`: ngày × vị trí × biến thể, dựng từ sổ cái kho.
+  * `fact_review`: một dòng mỗi đánh giá.
+
+  Dimension và fact mang cờ `_is_deleted`; mỗi fact giữ `_previous_dates` (các ngày trước lần merge) để mart tính lại cả ngày mà dòng vừa rời đi.
 
 ![Sơ đồ Star Schema Vận hành](../assets/report/gold-operations.svg)
 
-* **Hệ thống 17 Data Marts chuyên biệt**:
-  1. *Nhóm Kinh doanh (3 marts)*: `mart_sales_daily`, `mart_order_daily`, `mart_product_sales_daily`.
-  2. *Nhóm Vận chuyển & Hoàn trả (4 marts)*: `mart_logistics_performance`, `mart_product_returns`, `mart_operations_summary`, `mart_cod_region_daily`.
-  3. *Nhóm Tồn kho & Cửa hàng (4 marts)*: `mart_inventory_health`, `mart_inventory_current`, `mart_inventory_summary`, `mart_store_overview`.
-  4. *Nhóm Marketing giao dịch (3 marts)*: `mart_marketing_summary`, `mart_coupon_usage`, `mart_product_review_summary`.
-  5. *Nhóm Phân tích nhật ký truy cập (3 marts)*: `mart_hourly_route_metrics`, `mart_daily_product_demand`, `mart_marketing_funnel_daily`.
+* **14 Data Mart theo nhóm người xem**:
+  1. *Kinh doanh*: `mart_orders_daily`, `mart_sales_daily`, `mart_product_sales_daily`, `mart_cancellations_daily`.
+  2. *Cửa hàng*: `mart_pos_hourly`.
+  3. *Giao vận và đổi trả*: `mart_delivery_daily`, `mart_fulfilment_backlog_daily`, `mart_returns_daily`.
+  4. *Tồn kho*: `mart_inventory_current`, `mart_inventory_health_daily`.
+  5. *Khách hàng và marketing*: `mart_coupon_daily`, `mart_reviews_daily`, `mart_customer_value`, `mart_customer_cohort_monthly`.
+
+  Mart chỉ đọc dòng còn sống qua macro `live()`. Grain của từng mart nằm trong [DATA.md](DATA.md).
 
 ![Sơ đồ Data Marts OLTP](../assets/report/gold-marts.svg)
 
-![Sơ đồ Data Marts Access Log](../assets/report/gold-log-marts.svg)
-
 ### **3.5.5. Thiết kế quy trình kiểm soát chất lượng dữ liệu và bảo mật thông tin**
 
-![Sơ đồ kiểm soát chất lượng Quality Gates](../assets/report/quality-gates.svg)
-
-* **Cơ chế Quality Gate**: Triển khai tập trung tại `pipelines/src/lakehouse/oltp/quality/gate.py`. Sau khi xây dựng xong các bảng tầng Gold, Spark thực thi tự động bộ 18 bài kiểm tra chất lượng. Kết quả được lưu trữ vào bảng `lakehouse.system.data_quality_results`. Chỉ khi không có lỗi nghiêm trọng nào phát sinh, tiến trình mới cập nhật snapshot ID mới vào bảng `lakehouse.system.publication_snapshots`.
-* **Bảo mật và phân quyền hạ tầng**: Thiết lập chính sách RBAC cho từng công cụ tính toán thông qua Polaris REST Catalog (Spark có quyền đọc/ghi Bronze-Silver-Gold; Flink có quyền ghi Access Log; Trino chỉ có quyền đọc tầng Gold và Silver). MinIO áp dụng chính sách Bucket Policy hạn chế tối đa việc truy cập trực tiếp vào các file dữ liệu thô.
+* **Chất lượng dữ liệu**:
+  * Đối soát với nguồn khi nạp toàn bộ (số dòng, tổng tiền `orders`/`payments`/`refunds`, số dư sổ kho so với `inventory`/`store_inventory`), chặn trước khi Bronze đổi.
+  * Test `matches_bronze` chặn khi Silver lệch khóa với Bronze.
+  * Data test sau Gold (cảnh báo): khóa duy nhất, phân bổ giảm giá bảo toàn, đơn khớp Silver, các mart doanh thu khớp nhau, tồn khớp sổ cái, grain của tồn kho ngày.
+  * Phân loại thay đổi lược đồ nguồn (mục 3.5.2).
+* **Bảo mật và phân quyền hạ tầng**:
+  * Pipeline đọc PostgreSQL bằng role chỉ `SELECT`, phiên read-only.
+  * Chỉ cột trong danh sách cho phép được nạp; cột cá nhân mới không thể lọt vào trước khi được duyệt.
+  * Mỗi workload một principal Polaris: `batch_airflow`, `trino_writer`, `flink_landing` (vai trò ghi) và `trino_reader` (vai trò đọc). Quyền gán theo chuỗi principal → principal role → catalog role → quyền trên catalog, namespace hoặc bảng.
+  * Polaris cấp credential MinIO tạm cho đúng bảng được mở; MinIO chỉ có một tài khoản lưu trữ, của Polaris.
+  * Trino xác thực bằng mật khẩu qua HTTPS: `analytics_reader` chỉ đọc catalog `lakehouse`, `dbt_writer` chỉ ghi schema `silver` và `gold` của `lakehouse_etl`.
 
 ![Sơ đồ bảo mật RBAC](../assets/report/security-engines.svg)
 
 ## **3.6. Thiết kế giao diện người dùng và hệ thống Dashboard**
 
-### **3.6.1. Thiết kế giao diện bán hàng Storefront**
+### **3.6.1. Thiết kế giao diện Console mô phỏng mua hàng**
 
-Giao diện Storefront được thiết kế theo xu hướng hiện đại, chuẩn Responsive trên cả thiết bị di động và máy tính:
-* Trang chủ và Trang danh mục (`/products`): Hỗ trợ bộ lọc đa năng theo danh mục, khoảng giá, màu sắc và kích cỡ; tích hợp thanh tìm kiếm thông minh với cơ chế debounce giảm tải cho máy chủ.
-* Trang chi tiết sản phẩm (`/products/[slug]`): Hiển thị hình ảnh chất lượng cao, bộ chọn biến thể hai chiều (chọn màu tự lọc size khả dụng và ngược lại), bảng hướng dẫn chọn kích cỡ (Size Guide) và khu vực đánh giá nhận xét của khách hàng.
-* Giỏ hàng và Thanh toán (`/checkout`): Thiết kế giao diện 2 cột tinh gọn, hỗ trợ chọn địa chỉ phân cấp hành chính Việt Nam (Tỉnh/Thành → Quận/Huyện → Phường/Xã) và phương thức thanh toán linh hoạt (VietQR động NAPAS 247 hoặc COD).
+Màn hình **Mô phỏng API** của Streamlit chạy kịch bản mua hàng online qua API thật, thay cho thao tác tay trên storefront:
+* Người dùng chọn số lượt mua và cấu hình kịch bản; worker chạy nền thực hiện các bước như một khách thật: đăng nhập, xem sản phẩm, thêm giỏ, lấy báo giá, checkout VietQR hoặc COD.
+* Mỗi lượt được ghi vào journal; lượt chỉ được ghi thành công khi đọc lại đơn và giỏ thấy khớp (mã đơn, tổng tiền, SKU, số lượng, trạng thái thanh toán, giỏ rỗng).
+* Lượt không xác định được kết quả (lỗi mạng sau khi gửi) được đánh dấu riêng và không tự gửi lại.
 
-![Sơ đồ giao diện Storefront](../assets/report/ui-products.svg)
+![Sơ đồ giao diện Console](../assets/report/ui-console.svg)
 
-### **3.6.2. Thiết kế giao diện Quản trị Admin và Bán hàng tại quầy POS**
+### **3.6.2. Thiết kế giao diện quản trị quyền Lakehouse và nghiệp vụ Admin/POS**
 
-* Giao diện Quản trị (`/admin`): Thiết lập bố cục chuyên nghiệp với thanh điều hướng bảo vệ theo quyền. Cung cấp các màn hình quản trị danh mục sản phẩm, duyệt đơn hàng, theo dõi trạng thái giao vận và tạo phiếu nhập kho với bảng tính giá vốn tự động.
-* Giao diện POS (`/admin/pos`): Tối ưu cho thao tác nhanh của nhân viên thu ngân, hỗ trợ phím tắt, tìm kiếm sản phẩm tức thì theo mã vạch, chọn chi nhánh làm việc và in hóa đơn bán hàng.
+* Nghiệp vụ Admin và POS (quản lý sản phẩm, đơn, kho, nhập hàng, bán tại quầy) được cung cấp qua API có phân quyền theo vai trò và cửa hàng.
+* Màn hình **Quản trị quyền** của Streamlit chỉ dành cho admin bootstrap, gồm các tab: Danh sách, Tạo mới, Sửa, Xóa, Gán/Gỡ quyền, Credential và Cấp cho workload. Mọi thao tác ghi cần CSRF và được ghi audit trước và sau.
 
-### **3.6.3. Thiết kế hệ thống Dashboard BI phân quyền theo 7 vai trò**
+### **3.6.3. Thiết kế hệ thống Dashboard BI trên Superset**
 
 ![Sơ đồ Dashboard BI](../assets/report/ui-dashboard-sales.svg)
 
-Hệ thống BI Hub phân tách thành 7 góc nhìn bảng điều khiển độc lập:
-1. **Executive Dashboard**: Dành cho Ban giám đốc, hiển thị tổng quan doanh thu thuần, tăng trưởng lợi nhuận gộp, tổng số đơn hàng, giá trị đơn trung bình (AOV) và tỷ lệ thanh toán COD.
-2. **Sales Dashboard**: Dành cho Trưởng phòng kinh doanh, phân tích sâu cơ cấu doanh số theo kênh bán (Online vs POS), hiệu quả từng chi nhánh và danh sách top sản phẩm sinh lời cao nhất.
-3. **Store Dashboard**: Dành cho Quản lý cửa hàng, hiển thị doanh số tại chi nhánh được phân quyền, cảnh báo các mặt hàng sắp hết hàng tại chỗ và hiệu suất thu ngân.
-4. **Inventory Dashboard**: Dành cho Quản lý kho vận, hiển thị giá trị tồn kho tổng thể, ma trận cảnh báo sức khỏe tồn kho (hết hàng, tồn đọng, cận date) và lịch sử biến động kho.
-5. **Operations Dashboard**: Dành cho Trưởng bộ phận vận hành, theo dõi tỷ lệ giao hàng thành công, hiệu suất giao nhận của từng shipper và tỷ lệ thu hồi công nợ COD.
-6. **Marketing Dashboard**: Dành cho Bộ phận tiếp thị, phân tích phễu chuyển đổi từ lượt truy cập → xem sản phẩm → thêm giỏ hàng → mua hàng, cùng hiệu quả của các chiến dịch mã giảm giá coupon.
-7. **System Dashboard**: Dành cho Kỹ sư dữ liệu, giám sát độ tươi mới của dữ liệu (Data Freshness), kết quả kiểm tra chất lượng Quality Gate và tình trạng đồng bộ giữa MySQL và Lakehouse.
+Dashboard doanh thu đọc ba mart `mart_orders_daily`, `mart_sales_daily`, `mart_product_sales_daily`:
+1. **Chỉ số chính**: số đơn đặt, giá trị đặt hàng, doanh thu thuần, lợi nhuận gộp.
+2. **Xu hướng**: doanh thu thuần và lợi nhuận gộp theo ngày ghi nhận.
+3. **Phân rã**: doanh thu thuần theo kênh (online/POS) và theo điểm bán.
+4. **Sản phẩm**: top 10 sản phẩm theo doanh thu sau giảm giá.
+
+Các mart còn lại đã sẵn sàng; dashboard cho kho, giao vận, khách hàng và phân quyền theo cửa hàng sẽ được bổ sung sau khi các pipeline ổn định.
 
 ---
 
@@ -545,198 +558,197 @@ Hệ thống BI Hub phân tách thành 7 góc nhìn bảng điều khiển độ
 
 ### **4.1.1. Cấu trúc dự án Monorepo và môi trường phát triển**
 
-Toàn bộ dự án được tổ chức theo mô hình Monorepo thống nhất, bảo đảm tính gắn kết giữa ứng dụng web nguồn, các dịch vụ dữ liệu và hạ tầng điều phối:
-
 ```text
 dk-ecommerce-data-platform/
-├── apps/
-│   └── storefront/              # Ứng dụng Next.js 15: Storefront, POS, Admin & BI Hub
-├── services/
-│   └── ecommerce-api/           # FastAPI Backend Service: Nghiệp vụ OLTP, Auth & Logging
-├── database/
-│   ├── schema.sql               # Lược đồ DDL vật lý MySQL 8.4 chuẩn hóa 28 bảng
-│   └── seeds/                  # Dữ liệu mầm khởi tạo ban đầu (catalog, admin user)
-├── pipelines/
-│   ├── config/default.yml       # Cấu hình đường dẫn staging và thông số pipeline
-│   ├── src/jobs/                # Các điểm thực thi CLI (oltp, logs, cdc, maintenance)
-│   └── src/lakehouse/           # Thư viện lõi xử lý dữ liệu Lakehouse
-│       ├── utils/               # Cấu hình chia sẻ, khởi tạo Spark session, SQL loader
-│       ├── oltp/                # Logic extract, ingestion, silver, gold, quality, hard-delete
-│       ├── logs/                # Bộ phân tích log, Flink streaming, Spark mart rollup
-│       ├── streaming/           # Tiện ích Flink runtime, catalog và cấu hình bảng Iceberg
-│       └── sql_templates/       # Các câu truy vấn SQL mẫu tối ưu cho Spark và Trino
+├── services/platform-app/   # FastAPI, Streamlit Console, quản trị quyền, credential exporter
+├── database/                # schema.sql sinh từ ORM, seed danh mục
+├── generator/               # CLI datagen, notebook EDA, preset OLTP và log
 ├── airflow/
-│   └── dags/                    # 6 DAGs điều phối luồng dữ liệu tự động
-├── infrastructure/              # Dockerfile, MinIO policy, Polaris RBAC và cấu hình engine
-├── generator/                   # Notebook EDA và preset YAML cho dữ liệu mô phỏng (oltp/, logs/)
-└── scripts/                     # Bộ kịch bản tự động hóa khởi động, nạp dữ liệu và kiểm thử
+│   ├── dags/                # lakehouse_oltp_init, _incremental, _sync, _purge
+│   ├── tasks/               # callable của PythonOperator, task dbt
+│   ├── lakehouse/           # thư viện: nguồn, staging, Bronze, đồng bộ, đối soát, tạo bảng
+│   └── tests/               # unittest chạy trong container Airflow
+├── dbt/                     # models/silver, models/oltp (Gold), macros, seeds, tests
+├── streaming/sql/           # Flink SQL cũ của luồng log
+├── infrastructure/          # Dockerfile và cấu hình Airflow, MinIO, PostgreSQL, Trino, Superset, Flink
+└── docs/                    # kiến trúc, dữ liệu, cài đặt, vận hành, thiết kế
 ```
 
-Môi trường phát triển chuẩn hóa sử dụng Python 3.11 được quản lý gói bằng công cụ **uv** hiện đại, kết hợp Node.js 22 cho ứng dụng web. Toàn bộ mã nguồn tuân thủ nghiêm ngặt các công cụ kiểm tra chất lượng mã: `ruff` cho định dạng và kiểm tra tĩnh Python, `typescript` và `eslint` cho dự án Next.js.
+Môi trường Python 3.11 dùng chung `uv.lock` cho ba gói (`platform-app`, `data-generator`, pipeline trong `airflow/`). Mã được kiểm tra bằng `ruff`; `make test` chạy mọi bộ test (pipeline, platform-app, generator, Superset) mà không cần stack thật.
 
 ### **4.1.2. Đóng gói và triển khai dịch vụ bằng Docker Compose**
 
-Hệ thống được đóng gói hoàn chỉnh bằng Docker Compose, phân chia thành các hồ sơ dịch vụ (Profiles) linh hoạt nhằm tối ưu hóa việc phân bổ tài nguyên phần cứng:
-
-| Profile | Danh sách dịch vụ chính | Mục đích sử dụng |
+| Profile | Dịch vụ chính | Mục đích |
 |---|---|---|
-| `core` | `storefront`, `ecommerce-api`, `mysql` | Chạy ứng dụng web thương mại điện tử giao dịch cơ bản. |
-| `batch` | `minio`, `polaris`, `postgres`, `trino`, `airflow-webserver`, `airflow-scheduler` | Nền tảng lưu trữ Data Lakehouse và điều phối batch định kỳ. |
-| `streaming` | `kafka`, `debezium-connect`, `flink-jobmanager`, `flink-taskmanager`, `flink-submit`, `flink-cdc-submit` | Hệ thống thu thập CDC và xử lý nhật ký truy cập thời gian thực. |
-| `tools` | `libredb-studio`, `polaris-console` | Giao diện quản trị trực quan cơ sở dữ liệu và catalog. |
-| `lakehouse-tools`| `spark-client` | Container chứa Spark SQL client chạy theo yêu cầu để truy vấn tương tác. |
+| `core` | `postgres`, `minio`, `minio-init`, `polaris`, `polaris-bootstrap`, `platform-app`, `platform-admin-init`, `credential-exporter`, Airflow (`airflow-init`, `airflow-api-server`, `airflow-scheduler`, `airflow-dag-processor`), `trino`, `trino-auth-init` | Nguồn giao dịch, Lakehouse, pipeline và quản trị quyền |
+| `streaming` | `kafka`, `kafka-init`, `flink-jobmanager`, `flink-taskmanager`, `flink-submit` | Hạ tầng luồng access log |
+| `bi` | `superset`, `superset-init`, `superset-sync` | Dashboard |
 
-Các engine tính toán phân tán Spark chạy ở chế độ `local[2]` bên trong container thực thi của Airflow, bảo đảm tính gọn nhẹ và ổn định tối đa trên môi trường máy chủ cục bộ mà không đòi hỏi duy trì cụm Spark Master/Worker thường trực.
+`make up` chỉ bật Console, API và các dependency quản trị; `make core` bật thêm Airflow và Trino sau khi quyền workload đã được cấp. Pipeline chạy bằng Python của chính image Airflow (`PythonOperator`), dbt chạy qua `BashOperator`; không có cụm tính toán thường trực.
 
 ### **4.1.3. Cấu hình mạng, kết nối và phân bổ tài nguyên**
 
-Toàn bộ 28 dịch vụ container được kết nối với nhau thông qua mạng cầu nối nội bộ `lakehouse-network`. Các thông số cấu hình môi trường nhạy cảm (mật khẩu, khóa truy cập S3, token bí mật) được tách biệt hoàn toàn trong tệp `.env` (tạo từ bản mẫu `.env.example`).
+22 dịch vụ kết nối qua mạng nội bộ `lakehouse-network`; các cổng quản trị chỉ mở trên `127.0.0.1`. Biến nhạy cảm (mật khẩu, secret) nằm trong `.env` tạo từ `.env.example`; không có secret hard-code trong mã.
 
-Dữ liệu của MySQL, MinIO S3, Kafka và PostgreSQL được gắn kết (mount) vào các Docker Named Volumes bền vững, bảo đảm an toàn dữ liệu không bị mất mát khi khởi động lại các container. Quá trình trao đổi thông tin xác thực giữa Polaris Catalog và các engine tính toán được tự động hóa thông qua các volume cấp phát credential động.
+Dữ liệu PostgreSQL, MinIO, Kafka và log Airflow nằm trên Docker named volume. Credential Polaris của từng workload nằm trên volume riêng (`polaris-batch-airflow-credentials`, `polaris-trino-reader-credentials`…), do `credential-exporter` ghi; `platform-app` không mount các volume này.
 
 ## **4.2. Xây dựng Backend và cơ sở dữ liệu giao dịch**
 
 ### **4.2.1. Khởi tạo cơ sở dữ liệu và quản lý lược đồ**
 
-Cơ sở dữ liệu giao dịch được khởi tạo tự động từ tệp DDL `database/schema.sql`. Quá trình tạo lập thiết lập bảng mã `utf8mb4` hỗ trợ đầy đủ tiếng Việt có dấu, múi giờ quốc tế `UTC`, và kích hoạt toàn bộ 50 ràng buộc khóa ngoại cùng hệ thống kiểm tra logic (`CHECK constraints`).
+Service một lần `platform-admin-init` áp lược đồ `database/schema.sql` lên database trống và tạo tài khoản admin bootstrap. Lược đồ được sinh từ ORM và kiểm tra khớp bằng lệnh `python -m platform_app.api.db.schema --check`. Thời gian lưu `TIMESTAMPTZ` theo UTC; trigger cập nhật `updated_at` khi dữ liệu đổi.
 
-Dữ liệu danh mục gốc được nạp tự động thông qua script `seed_catalog.py`, sử dụng định danh UUIDv5 sinh từ tên sản phẩm để bảo đảm tính bất biến (idempotent) khi chạy lại nhiều lần.
+Dữ liệu danh mục gốc nạp bằng `make seed`; tồn đầu ghi thành giao dịch `adjustment` trong sổ cái, nên số dư tồn luôn cộng ra được từ sổ cái.
 
 ### **4.2.2. Xây dựng dịch vụ xác thực, phân quyền và bảo mật API**
 
-Dịch vụ Backend triển khai chuẩn mực quy trình bảo mật:
-* Băm mật khẩu bằng hàm băm `argon2id` với các tham số bộ nhớ tối ưu.
-* Quản lý phiên làm việc bằng JSON Web Token (JWT) lưu trong HttpOnly Cookie với thời gian hết hạn hợp lý.
-* Kiểm tra xác thực và phân quyền thông qua hệ thống Dependency Injection của FastAPI, kiểm soát chặt chẽ quyền thao tác trên từng endpoint theo vai trò người dùng và phạm vi chi nhánh cửa hàng.
+* Băm mật khẩu bằng Argon2id.
+* Phiên đăng nhập bằng JWT trong cookie HttpOnly; yêu cầu ghi cần CSRF token.
+* Quyền kiểm tra qua Dependency Injection của FastAPI theo vai trò và cửa hàng của từng route; riêng quản trị quyền Lakehouse chỉ chấp nhận đúng tài khoản admin bootstrap.
 
 ### **4.2.3. Triển khai các module quản lý sản phẩm, giỏ hàng và đơn hàng**
 
-Module bán hàng hiện thực hóa đầy đủ các nghiệp vụ TMĐT:
-* Quản lý danh mục đa tầng và biến thể SKU với cơ chế Eager Loading chống lỗi truy vấn N+1.
-* Cơ chế giỏ hàng duy trì tính hiện diện thông qua hai trường `is_present` và `removed_at` phục vụ phân tích hành vi từ bỏ giỏ hàng.
-* Quy trình đặt hàng thực thi trong một giao dịch Unit-of-Work duy nhất: khóa bi quan dòng tồn kho (`FOR UPDATE`), kiểm tra tính hợp lệ của mã coupon, tạo đơn hàng và cố định giá bán/giá vốn lịch sử vào bảng `order_items`.
+* Danh mục và biến thể SKU, nạp kèm quan hệ để tránh truy vấn N+1.
+* Giỏ hàng và danh sách yêu thích theo khách hàng.
+* Checkout chạy trong một giao dịch: khóa dòng tồn kho (`FOR UPDATE`), kiểm tra coupon, tạo đơn, dòng đơn (chụp giá bán và giá vốn), thanh toán và lịch sử trạng thái, trừ tồn và ghi sổ cái; tự thử lại có giới hạn khi deadlock hoặc lỗi tuần tự hóa.
 
 ### **4.2.4. Triển khai module quản lý kho hàng, nhập kho và POS**
 
-* Nghiệp vụ nhập kho hỗ trợ tạo phiếu nhập `inbound_receipts`, tự động tính toán lại đơn giá vốn bình quân gia quyền (Weighted Average Cost) của sản phẩm và ghi nhận chi tiết giao dịch vào sổ cái `inventory_transactions`.
-* Điểm bán lẻ POS hỗ trợ tìm kiếm sản phẩm tức thì, tự động kiểm tra tồn kho tại chính cửa hàng thu ngân đang đăng nhập và hoàn tất đơn hàng bán lẻ tại chỗ.
+* Nhập hàng tạo phiếu nhập và dòng phiếu, ghi biến động vào sổ cái `inventory_transactions`.
+* POS bán tại quầy, kiểm tra tồn tại đúng cửa hàng và hoàn tất đơn ngay.
+* Tồn được theo dõi theo biến thể và vị trí (kho tổng và từng cửa hàng).
 
 ### **4.2.5. Triển khai module thanh toán, vận chuyển và đổi trả hàng**
 
-* Thanh toán hỗ trợ tạo mã VietQR động theo chuẩn NAPAS 247 chứa đầy đủ số tiền và nội dung chuyển khoản mã hóa đơn, kèm phương thức thanh toán tiền mặt khi nhận hàng (COD).
-* Vận chuyển theo dõi chi tiết từng lần đi giao của shipper (`shipment_attempts`) và trạng thái thu hộ tiền COD.
-* Quy trình đổi trả kiểm soát chặt chẽ các bước: tiếp nhận yêu cầu → kiểm định hàng hoàn → hoàn kho và khởi tạo giao dịch hoàn tiền (`refunds`).
+* Thanh toán VietQR, COD, thẻ và tiền mặt tại quầy; COD chỉ ghi nhận đã thu khi giao thành công.
+* Vận đơn theo dõi các lần giao (`shipment_attempts`) và tiền thu hộ COD; giao thất bại có biến động kho tương ứng.
+* Đổi trả theo các bước: yêu cầu → duyệt → nhận và kiểm định hàng hoàn → nhập lại kho → hoàn tiền gắn với yêu cầu.
 
 ### **4.2.6. Triển khai Middleware ghi nhận Access Log phi cấu trúc**
 
-Hệ thống tích hợp middleware tùy biến `AccessLogMiddleware` chặn bắt mọi yêu cầu HTTP đến máy chủ:
-* Chuẩn hóa cấu trúc log theo schema contract `ecommerce.access` v1.0.0, bao gồm: `request_id`, thời gian chuẩn UTC, phương thức HTTP, route chuẩn tắc, mã trạng thái phản hồi, thời gian xử lý (latency tính bằng mili-giây), cùng thông tin thiết bị User-Agent.
-* Tự động làm sạch dữ liệu (Data Cleansing) và che giấu các trường thông tin cá nhân nhạy cảm (PII) như mật khẩu, mã token, email bằng biểu thức chính quy (Regex Redaction).
-* Phát tán sự kiện bất đồng bộ vào Kafka topic `ecommerce.access_logs` với cơ chế không nghẽn luồng xử lý chính của người dùng.
+Middleware trong `api/core/access_logging.py` ghi mọi request (trừ health check):
+* Theo hợp đồng `ecommerce.access` v1.0.0: `request.id` 32 ký tự hex do server tạo, thời gian UTC, method, route template (không dùng đường dẫn thô), mã trạng thái, thời gian xử lý, actor và hành động thương mại (ví dụ `product_detail`, `cart_item_set`, `checkout_submit`) kèm sản phẩm nếu route có.
+* Không ghi request body, mật khẩu, header Authorization, cookie hay thông tin thanh toán; từ khóa tìm kiếm chứa dữ liệu cá nhân được che.
+* Ghi structured log; gửi thêm vào Kafka khi `KAFKA_ENABLED=true`, không chặn request của người dùng.
 
 ## **4.3. Xây dựng giao diện người dùng**
 
-### **4.3.1. Giao diện người mua hàng Storefront**
+### **4.3.1. Giao diện Console mô phỏng mua hàng (Streamlit)**
 
-Ứng dụng Storefront trên Next.js 15 mang lại trải nghiệm mua sắm hiện đại:
-* Trang danh mục (`/products`) tích hợp bộ lọc đa chiều (Faceted Search) hỗ trợ liên kết sâu (Deep Linking qua URL Query Params), thanh tìm kiếm tối ưu hóa độ trễ phản hồi, hình ảnh tối ưu với `next/image` và tính năng xem nhanh sản phẩm.
-* Trang chi tiết sản phẩm (`/products/[slug]`) cho phép chọn linh hoạt kích cỡ và màu sắc, hiển thị tình trạng còn hàng theo thời gian thực và tích hợp ngăn kéo giỏ hàng (Cart Drawer) tiện lợi.
-* Trang thanh toán (`/checkout`) hiển thị mã VietQR động trực quan, tự động tính phí giao hàng theo địa chỉ lựa chọn.
+Màn hình **Mô phỏng API** (`ui/views/scenarios.py`, `ui/scenarios/`) chạy kịch bản mua online qua API thật bằng worker nền: tạo phiên khách, xem sản phẩm, thêm giỏ, báo giá, checkout. Journal ghi từng lượt (`succeeded`, `failed`, `unknown`) và hậu điều kiện kiểm tra sau checkout, nên dữ liệu sinh qua Console đi đúng đường của khách thật, khác với dữ liệu lịch sử do `datagen` ghi thẳng.
 
-### **4.3.2. Giao diện Quản trị viên Admin và Thu ngân POS**
+### **4.3.2. Giao diện quản trị quyền Lakehouse (Streamlit)**
 
-* Phân hệ Admin bảo vệ toàn diện qua Layout bảo mật, cung cấp bảng dữ liệu quản lý đơn hàng với các bộ lọc trạng thái động, hộp thoại điều phối giao vận thông minh và tính năng xuất dữ liệu báo cáo ra file CSV.
-* Giao diện POS tại quầy thiết kế tối giản, hỗ trợ thao tác nhanh không cần chuột, quét mã vạch tức thời và in phiếu thanh toán trong tích tắc.
+Màn hình **Quản trị quyền** (`ui/views/access*.py`) gọi router `/api/v1/access`:
+* Tạo, sửa thuộc tính, xoá catalog, principal, principal role và catalog role Polaris; xoá bị chặn khi còn liên kết hoặc principal đang cấp cho workload.
+* Gán/gỡ liên kết principal → principal role → catalog role → quyền ở cấp catalog, namespace hoặc bảng.
+* Cấp credential cho workload: API đọc credential principal đã lưu, gửi yêu cầu ký JWT (kèm digest payload) tới `credential-exporter`; exporter ghi `clients.env` quyền `0600` với đúng chủ là UID/GID của workload.
+* Mọi thao tác ghi được ghi audit (`started`, rồi `done`, `rejected` hoặc `failed`) trong `data/access-admin/audit.jsonl`.
 
 ## **4.4. Xây dựng hệ thống thu thập dữ liệu**
 
-### **4.4.1. Thu thập dữ liệu giao dịch MySQL theo lô bằng Apache Spark**
+### **4.4.1. Thu thập dữ liệu giao dịch PostgreSQL theo lô bằng PyIceberg và Airflow**
 
-Tác vụ trích xuất dữ liệu batch được hiện thực trong `pipelines/src/lakehouse/oltp/extract.py`:
-* Nhận tham số khoảng thời gian trích xuất (`interval_start` và `interval_end`) từ Airflow.
-* Kết nối MySQL qua Spark JDBC, thực thi trích xuất tuần tự 27 bảng nghiệp vụ bằng giải pháp phân trang Keyset Pagination: mỗi lần truy vấn lấy tối đa 10.000 dòng theo thứ tự khóa chính tăng dần.
-* Ghi dữ liệu trực tiếp thành các tệp Parquet nén Snappy tại đường dẫn staging `landing/oltp/staging/<table>/`. Trường hợp không có bản ghi mới trong khoảng thời gian, hệ thống tự động ghi một tệp Parquet rỗng có đầy đủ cấu trúc lược đồ để bảo đảm tính an toàn cho các tác vụ tiếp theo.
+Thư viện `airflow/lakehouse/oltp/` và callable `airflow/tasks/oltp.py`:
+* Kết nối PostgreSQL qua Airflow connection `oltp_postgres` (`PostgresHook`), phiên read-only.
+* Mỗi bảng một task `staging.<bảng>`: một giao dịch repeatable-read, con trỏ phía server đọc 10.000 dòng mỗi lần, ghi vào staging mỗi lô 200.000 dòng kèm `_ingested_at`.
+* Nạp gia tăng chỉ đọc các cột vừa được duyệt vừa có ở Bronze, và dừng với thông báo rõ khi nguồn bỏ cột hoặc đổi loại cột.
+* Lần nạp toàn bộ có nhóm `reconcile.<bảng>` đối soát staging với nguồn tại cùng mốc trước khi Bronze đổi.
 
-### **4.4.2. Thu thập dữ liệu biến đổi (CDC) bằng Debezium, Kafka và Flink**
+### **4.4.2. Đồng bộ dòng bị xoá và thay đổi cột ở nguồn**
 
-* Connector Debezium được cấu hình theo dõi nhật ký MySQL binlog, tự động chụp ảnh dữ liệu ban đầu (Initial Snapshot) và đẩy luồng biến đổi của 27 bảng vào Kafka.
-* Ứng dụng Flink streaming `mysql_cdc_to_bronze.py` tiêu thụ liên tục từ các topic CDC, chuẩn hóa siêu dữ liệu và ghi nối tiếp vào bảng Iceberg `lakehouse.bronze.oltp_cdc_events` với chu kỳ lưu trạng thái (Checkpoint) 10 giây một lần, bảo đảm khả năng phục hồi dữ liệu chính xác một lần (Exactly-once).
+DAG `lakehouse_oltp_sync` thay vai trò mà CDC thường đảm nhận, chỉ bằng cách đọc nguồn:
+* `schema.<bảng>`: thêm cột đã duyệt (cùng cờ `lakehouse.reload-pending` trong một commit Iceberg), nới kiểu, báo lỗi cột chưa duyệt. Khi bảng có tệp dữ liệu cũ thiếu cột, Bronze được ghi lại một lần, vì PyIceberg 0.12 không upsert được vào bảng như vậy.
+* `detect.<bảng>`: đọc toàn bộ khóa chính nguồn và khóa sống ở Bronze, đánh dấu xoá mềm khóa đã mất, đưa dòng khôi phục vào staging; khi cờ nạp lại bật, đưa mọi dòng của bảng vào staging.
+* `bronze.<bảng>`: khi cờ bật, thay cả bảng Bronze trong một commit (giữ dòng đã xoá mềm) rồi mới xoá cờ; nếu không, upsert như incremental. Silver và Gold nhận thay đổi qua `_ingested_at` như mọi dòng khác.
+
+Khi backfill incremental, DAG sync được tạm dừng và trigger tay một lần sau khi backfill xong, vì `max_active_runs` không giới hạn giữa hai DAG.
 
 ### **4.4.3. Thu thập và xử lý dòng dữ liệu Access Log bằng Apache Flink**
 
-* Ứng dụng Flink streaming `kafka_to_lakehouse.py` lắng nghe topic `ecommerce.access_logs`.
-* Bóc tách và kiểm thực cấu trúc JSON của từng sự kiện, chuẩn hóa thời gian về UTC và phân loại hành vi người dùng (tìm kiếm, xem sản phẩm, thêm giỏ hàng, đặt hàng).
-* Sử dụng cơ chế `StatementSet` để ghi đồng thời luồng dữ liệu đã xử lý vào 4 bảng Iceberg đích trong cùng một chu kỳ commit: `landing.access_logs`, `bronze.web_events`, `silver.silver_logs`, và `gold.fact_web_events`.
-* DAG Airflow `lakehouse_logs_marts` định kỳ mỗi giờ một lần kích hoạt Spark đọc `fact_web_events`, kết hợp với siêu dữ liệu sản phẩm từ Silver để tổng hợp và công bố 3 Data Marts nhật ký truy cập mạng.
+Luồng log cũ (Flink ghi `landing.access_logs`, mart log tính hai lần) đã được gỡ. Thiết kế mới đã duyệt ([ACCESS_LOG_DESIGN.md](ACCESS_LOG_DESIGN.md)), chưa xây:
+* Hợp đồng log v1.1.0 thêm `session.id` và `ecommerce.order_number`; API sẽ cấp cookie phiên và gắn mã đơn vào sự kiện checkout.
+* `bronze.web_events` chỉ lưu dữ liệu thô (`raw_payload`, `event_at`, `_ingested_at`, `_source`), nạp bằng hai đường: streaming Kafka → Flink và nạp file Parquet lịch sử từ `datagen logs`.
+* `silver.web_events` tách trường, kiểm hợp đồng, bỏ trùng theo `request.id`.
+* `mart_web_funnel_daily` đếm số phiên ở mỗi bước (xem sản phẩm → thêm giỏ → checkout → đặt đơn khớp `fact_order`), nối hành vi web với đơn hàng thật.
 
 ## **4.5. Xây dựng nền tảng Data Lakehouse**
 
 ### **4.5.1. Triển khai lớp lưu trữ MinIO S3, Iceberg và Polaris REST Catalog**
 
-* MinIO được thiết lập với chính sách quản trị tập trung, tự động khởi tạo bucket `lakehouse` và cấu hình các tài khoản dịch vụ cùng quyền hạn IAM Policy tương ứng.
-* Apache Polaris quản lý tập trung toàn bộ siêu dữ liệu của 6 không gian tên (Namespaces) theo chuẩn Iceberg REST Catalog, phân quyền RBAC độc lập cho từng công cụ tính toán.
+* Service `minio-init` (dùng `mc`) tạo bucket `lakehouse`, policy `lakehouse-polaris` và tài khoản lưu trữ của Polaris; chạy lại không đổi gì.
+* Polaris quản lý catalog `lakehouse` với đường dẫn `s3://lakehouse/warehouse`, cấu hình MinIO STS để cấp credential tạm theo bảng.
+* Principal, role và quyền được tạo trên Console; credential được cấp cho Airflow, Trino (đọc, ghi) và Flink qua exporter.
 
 ### **4.5.2. Xử lý và chuyển đổi dữ liệu tại tầng Bronze và Silver**
 
-* **Tầng Bronze** (`bronze/writer.py`): Thực thi câu lệnh `MERGE` dữ liệu từ staging vào Bronze dựa trên cặp thuộc tính `(PK, change_timestamp)`. Cơ chế này bảo đảm lưu giữ trọn vẹn lịch sử các phiên bản biến đổi của từng bản ghi nguồn mà không gây trùng lặp khi chạy lại pipeline.
-* **Tầng Silver** (`silver/writer.py`): Đọc các phiên bản Bronze tương ứng với lượt xử lý, thực hiện khử trùng lặp dữ liệu, kiểm tra các ràng buộc logic nghiệp vụ, băm định danh PII (Salted SHA-256) đối với các trường thông tin nhạy cảm, và cập nhật trạng thái mới nhất vào bảng Silver qua lệnh `MERGE INTO`. Toàn bộ các bản ghi sai sót hoặc không hợp lệ được chuyển hướng lưu trữ an toàn tại `lakehouse.quarantine`.
-* **Đồng bộ xóa cứng** (`hard_delete.py`): Kịch bản Spark xử lý các sự kiện CDC delete thỏa mãn điều kiện thời gian 30 ngày đối với `cart_items` và `wishlist_items`, thực thi xóa dữ liệu tương ứng tại Silver một cách chính xác.
+* **Bronze** (`lakehouse/oltp/bronze.py`): lần nạp toàn bộ thay cả bảng trong một commit, giữ dấu xoá cũ và đánh dấu dòng nguồn không còn; lần nạp gia tăng upsert theo khóa chính, bỏ dòng có cursor cũ hơn bản hiện có. Mỗi dòng mới hoặc khôi phục có `_is_deleted = false`.
+* **Silver** (`dbt/models/silver`): 19 model incremental merge các dòng Bronze mới hơn mốc `_ingested_at` của Silver, chuẩn hóa UUID và timestamp, chuyển nguyên cờ xoá mềm; test `matches_bronze` chặn khi lệch khóa.
 
 ### **4.5.3. Xây dựng tầng Gold và các Data Mart phục vụ phân tích**
 
-Tầng Gold được xây dựng tự động từ dữ liệu Silver, thực thi hạch toán chuẩn xác các quy tắc tài chính và vận hành:
-* Doanh thu hàng hóa chỉ được ghi nhận đối với các đơn hàng có trạng thái hợp lệ (`delivered`, `completed`, `returned`).
-* Doanh thu thuần được tính toán chính xác bằng doanh thu gộp trừ đi phần tiền hoàn trả thực tế đã phân bổ về từng dòng sản phẩm.
-* Giá vốn hàng bán (COGS) được tổng hợp từ giá vốn cố định lịch sử tại thời điểm đặt hàng.
-* Tồn kho phân tách rạch ròi giữa số dư tức thời hiện tại (`fact_inventory_current`) và lịch sử tồn kho chụp theo từng ngày quan sát (`fact_inventory_daily_snapshot`).
+Gold (`dbt/models/oltp`) áp dụng các quy tắc hạch toán:
+* Doanh thu hàng hóa = dòng hàng trừ giảm giá phân bổ, ghi nhận vào ngày muộn hơn giữa `completed_at` và `paid_at`; không gồm phí vận chuyển.
+* Hoàn tiền thành công của đơn đã ghi nhận giảm doanh thu vào ngày hoàn; hoàn tiền của đơn chưa từng ghi nhận (trả tiền rồi hủy) không trừ doanh thu.
+* Giá vốn lấy từ giá vốn chụp trên dòng đơn; hàng trả đạt kiểm định được trừ lại giá vốn vào ngày hoàn tiền, nên đơn trả toàn bộ cho lãi 0.
+* Giao đúng hạn khi ngày giao (giờ Việt Nam) không quá ngày đặt cộng SLA của thành phố nhận (TP.HCM 4 ngày; Bình Dương, Cần Thơ, Hà Nội 6; Đà Nẵng, Hải Phòng 8).
+* Tồn kho cộng dồn từ sổ cái theo vị trí tới từng ngày; giá trị tồn = tồn × giá vốn hiện tại.
+
+Dimension và fact là model incremental merge; mart xoá và dựng lại các ngày bị ảnh hưởng. Mốc của mart nằm trong `gold._mart_state` (chỉ ghi thêm), được post-hook đẩy lên chỉ sau khi mart đã ghi xong, nên một lần chạy hỏng sẽ được lần sau bắt kịp. `DBT_AS_OF` (mốc bắt đầu lần chạy) là ngày hiện tại của Gold.
 
 ### **4.5.4. Điều phối toàn diện Pipeline bằng Apache Airflow**
 
-Hệ thống điều phối bao gồm 6 DAGs chuyên biệt:
-
-| Tên DAG | Lịch thực thi | Cấu trúc nhiệm vụ |
+| Tên DAG | Lịch thực thi | Cấu trúc |
 |---|---|---|
-| `lakehouse_oltp_pipeline` | 03:00 hàng ngày (Asia/Ho_Chi_Minh) | Gồm 5 TaskGroups tuần tự: 27 staging + 27 Bronze + 27 Silver + 12 Gold Facts/Dims + 14 Data Marts + 1 Quality Gate, tổng cộng **108 tasks**. |
-| `init_lakehouse_oltp` | Thủ công | Thực hiện trích xuất toàn bộ dữ liệu nguồn (`SELECT *`) và nạp toàn diện các tầng Medallion. |
-| `manual_lakehouse_hard_delete` | Thủ công | Đồng bộ các sự kiện xóa cứng từ CDC Debezium sang Silver cho giỏ hàng và danh sách yêu thích. |
-| `lakehouse_logs_marts` | Mỗi giờ một lần | Rollup dữ liệu nhật ký truy cập từ `fact_web_events` và công bố 3 Data Marts log. |
-| `lakehouse_oltp_maintenance` | 03:00 hàng ngày | Tối ưu hóa tệp dữ liệu Iceberg (compaction), dọn dẹp snapshot cũ và dọn dẹp bảng quarantine. |
-| `lakehouse_streaming_maintenance` | Mỗi 2 giờ một lần | Kiểm tra trạng thái hoạt động của các Flink jobs và bảo trì định kỳ bảng streaming. |
+| `lakehouse_oltp_init` | Chạy tay | `create_schema` → `staging` → `reconcile` → `bronze` → `silver` → `gold` → `maintenance` |
+| `lakehouse_oltp_incremental` | 03:00 hằng ngày (Asia/Ho_Chi_Minh), catchup, backfill | `staging` → `bronze` → `silver` → `gold` → `maintenance`; task cuối phát Asset `lakehouse_oltp_loaded` |
+| `lakehouse_oltp_sync` | Sau mỗi sự kiện `lakehouse_oltp_loaded` | `schema` → `detect` → `bronze` → `silver` → `gold` → `maintenance` |
+| `lakehouse_oltp_purge` | Chạy tay | `silver_gold` → `bronze` |
 
-### **4.5.5. Kiểm soát chất lượng dữ liệu và cơ chế công bố Snapshot**
+Mỗi nhóm có một task cho mỗi bảng hoặc model dbt; thứ tự các task Gold được suy ra từ lời gọi `ref()`/`live()` trong model. Nhóm `maintenance`: `compact` gộp tệp nhỏ của Bronze, `optimize` (dbt) viết lại tệp nhỏ của Silver và Gold, `expire` xoá snapshot ngoài 20 snapshot mới nhất và ngoài 3 ngày gần nhất, `orphan` đếm tệp mồ côi mà không xoá.
 
-Sau khi hoàn tất việc tính toán tầng Gold, DAG kích hoạt tác vụ Quality Gate thực thi bộ kiểm tra 18 tiêu chí logic. Kết quả kiểm định được lưu vết vào bảng `lakehouse.system.data_quality_results`. Chỉ khi toàn bộ kiểm tra thành công, hệ thống mới ghi nhận các Snapshot ID hiện tại vào bảng `lakehouse.system.publication_snapshots` với cấu trúc schema phiên bản 3. Cơ chế này bảo đảm tầng phục vụ phân tích luôn được bảo vệ an toàn, không bao giờ đọc phải dữ liệu bị lỗi hoặc chưa hoàn thiện.
+### **4.5.5. Kiểm soát chất lượng dữ liệu và khả năng chạy lại (idempotency)**
+
+Kiểm tra chặn gồm đối soát với nguồn ở lần nạp toàn bộ và test `matches_bronze`; trượt thì task lỗi và tầng sau giữ bản cũ. Data test sau Gold chạy ở mức cảnh báo.
+
+Mọi tầng được thiết kế chạy lại an toàn:
+* Staging xoá trắng rồi ghi lại; Bronze upsert theo khóa; Silver và Gold merge theo khóa từ mốc của chúng.
+* Mốc của mart chỉ tiến khi mart đã ghi xong.
+* Đồng bộ nguồn: chạy lại `detect` cho cùng hai tập khóa; `_deleted_at` giữ giá trị lần phát hiện đầu; cờ nạp lại chỉ bị xoá sau khi Bronze đã nạp đủ.
+
+Do đó retry, Clear, chạy tiếp sau một lần hỏng, hay backfill đều cho cùng bảng (kết quả kiểm chứng ở mục 4.8.1).
 
 ## **4.6. Xây dựng hệ thống Business Intelligence và phục vụ phân tích**
 
-### **4.6.1. Kết nối Apache Trino và xây dựng API phân tích phục vụ Dashboard**
+### **4.6.1. Kết nối Apache Trino và phân quyền truy vấn phân tích**
 
-Dịch vụ phân tích trong Backend kết nối với Apache Trino thông qua thư viện `trino-python-client`:
-* Triển khai kỹ thuật **Snapshot Pinning**: Trước khi thực thi truy vấn, dịch vụ đọc phiên bản công bố mới nhất từ bảng publication, sau đó tự động chèn mệnh đề `FOR VERSION AS OF <snapshot_id>` vào các câu lệnh SQL gửi đến Trino.
-* Dịch vụ duy trì bộ nhớ đệm (In-memory Cache) có giới hạn thời gian (TTL) cho từng góc nhìn báo cáo nhằm giảm thiểu tối đa áp lực truy vấn lặp lên cụm Trino.
+* Trino chạy HTTPS, xác thực bằng mật khẩu; SQL access rules giới hạn `analytics_reader` chỉ đọc catalog `lakehouse` và `dbt_writer` chỉ ghi schema `silver`, `gold` của catalog `lakehouse_etl`.
+* Hai catalog Trino dùng hai principal Polaris khác nhau (`trino_reader`, `trino_writer`), nên quyền đọc và ghi được kiểm soát ở cả Trino lẫn Polaris.
+* Mỗi truy vấn đọc snapshot Iceberg hiện tại hoàn chỉnh; không cần bảng công bố riêng để tránh đọc dữ liệu ghi dở.
 
-### **4.6.2. Trực quan hóa dữ liệu và hoàn thiện Dashboard theo 7 vai trò**
+### **4.6.2. Trực quan hóa dữ liệu với Apache Superset**
 
-Ứng dụng BI Hub trên Next.js 15 kết hợp thư viện Apache ECharts hoàn thiện 7 bảng điều khiển nghiệp vụ chuyên sâu:
-* Hiển thị trực quan các thẻ chỉ số KPI then chốt kèm tỷ lệ tăng trưởng so với kỳ trước.
-* Biểu đồ xu hướng đa trục phân tích doanh số và biên lợi nhuận theo thời gian.
-* Biểu đồ phễu tương tác trực quan hóa hành trình trải nghiệm người dùng từ lúc truy cập trang đến khi thanh toán thành công.
-* Tính năng tự động làm mới thông minh (Auto-refresh) định kỳ 60 giây khi người dùng đang mở tab làm việc.
+Dashboard doanh thu (mục 3.6.3) được khai báo trong `infrastructure/superset/` (dataset, chart, bố cục) và đồng bộ bằng `make superset-sync`. Superset đọc trực tiếp bảng Gold hiện tại, nên dữ liệu mới hiện ngay sau mỗi lần pipeline chạy mà không cần đồng bộ lại.
 
-### **4.6.3. Kiểm soát phân quyền truy cập Dashboard và cơ chế dữ liệu dự phòng**
+### **4.6.3. Kiểm soát phân quyền truy cập dữ liệu phân tích**
 
-* Kiểm soát quyền truy cập chặt chẽ thông qua hàm kiểm thực `validate_role_access`: Người dùng chỉ có thể xem dữ liệu và bảng điều khiển thuộc phạm vi vai trò của mình; các yêu cầu xem số liệu chi nhánh bị giới hạn nghiêm ngặt theo mã cửa hàng được phân công.
-* Cơ chế dự phòng an toàn (Bounded Fallback): Khi Trino bận hoặc đang bảo trì, hệ thống tự động phục vụ dữ liệu phân tích từ bộ nhớ đệm gần nhất và gửi kèm trạng thái cảnh báo trên giao diện, bảo đảm tính sẵn sàng liên tục của hệ thống.
+* Superset kết nối Trino bằng tài khoản chỉ đọc `analytics_reader`; Superset có đăng nhập riêng.
+* Trino không ghi được tầng phân tích qua catalog đọc; dbt là đường ghi duy nhất vào Silver và Gold.
+* Khi Polaris thu hồi một quyền, credential lưu trữ cấp sau đó không còn mở được bảng tương ứng.
+* Phân quyền dashboard theo cửa hàng (quản lý cửa hàng chỉ thấy cửa hàng của mình) là việc tiếp theo.
 
 ## **4.7. Xây dựng dữ liệu mô phỏng phục vụ trình diễn và kiểm thử**
 
 ### **4.7.1. Hướng tiếp cận**
 
-Dữ liệu mô phỏng được xây theo nguyên tắc **quy luật trước, bộ sinh sau**: các quy luật hành vi được rút ra từ dữ liệu công khai, ghi thành cấu hình YAML có nhãn nguồn, rồi mới cài đặt bộ sinh đọc cấu hình đó. Mỗi khối tham số mang một trong ba nhãn: `measured` (đo trực tiếp trong notebook), `transfer` (đo ở nguồn nước ngoài và áp cho shop thời trang Việt Nam như một giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản, không có dữ liệu để ước lượng).
+Dữ liệu mô phỏng theo nguyên tắc **quy luật trước, bộ sinh sau**: quy luật hành vi được rút ra từ dữ liệu công khai, ghi thành cấu hình YAML có nhãn nguồn, rồi bộ sinh đọc cấu hình đó. Mỗi khối tham số mang một trong ba nhãn: `measured` (đo trực tiếp trong notebook), `transfer` (đo ở nguồn nước ngoài, áp cho shop thời trang Việt Nam như giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản).
 
-Mỗi quy luật được trình bày theo ba phần: dữ liệu cho thấy gì (biểu đồ hoặc bảng), quy luật một câu với ít tham số nhất có thể, và kiểm tra bằng cách so phân phối của mô hình với thực tế, sai lệch tính bằng điểm phần trăm. Chỉ những quy luật lặp lại giữa các nguồn hoặc dự báo đúng trên phần dữ liệu chưa dùng để ước lượng mới được chuyển sang shop Việt Nam.
+Mỗi quy luật gồm: dữ liệu cho thấy gì, quy luật một câu với ít tham số nhất, và kiểm tra bằng cách so phân phối mô hình với thực tế (sai lệch tính bằng điểm phần trăm). Chỉ quy luật lặp lại giữa các nguồn hoặc dự báo đúng trên phần dữ liệu chưa dùng để ước lượng mới được chuyển sang shop Việt Nam.
 
-Bộ sinh dữ liệu cũ (`data-generator` 0.10, xuất SQL và nạp qua Streamlit) đã được gỡ bỏ. Bộ sinh mới cho OLTP và cho access log lịch sử (đọc dữ liệu OLTP từ PostgreSQL) là hướng phát triển tiếp theo.
+CLI `datagen` hiện thực các quy luật:
+* `datagen generate`: nạp 12 tháng lịch sử OLTP vào PostgreSQL trong một giao dịch, dựng lại index sau khi nạp (`make generate PRESET=1m`).
+* `datagen verify`: đối chiếu dữ liệu đã nạp với quy luật của preset (sổ kho, R01–R07, tỷ lệ kịch bản, POS, địa điểm).
+* `datagen logs`: sinh log truy cập mùa sale khớp với đơn online đã nạp, ghi Parquet theo ngày.
 
 ### **4.7.2. Quy luật mua hàng (OLTP)**
 
@@ -750,8 +762,9 @@ Phân tích nằm trong [purchase_behavior_eda.ipynb](../generator/oltp/notebook
 | R04. Giỏ hàng | Số sản phẩm mỗi đơn theo phân phối hình học, lệch tối đa 1,6 điểm %; kích thước giỏ độc lập với khách. | p = 0,296; bảng biến thể/số lượng |
 | R05. Lịch | Black Friday gấp 5,55 (H&M) và 7,24 (Olist) lần ngày thường, ba ngày sau gấp khoảng 2,6 lần; hai nguồn không có hình dạng chung theo thứ trong tuần. | Ngày sale ×6,39; sau sale ×2,6; giờ theo Olist |
 | R06. Giao trễ và đánh giá | Giao đúng hẹn 62% chấm 5 sao; trễ trên 8 ngày 68% chấm 1 sao. | Bảng số sao theo mức trễ; tỷ lệ trễ 5,5% |
+| R07. Thời gian giao | Hãng lấy hàng cùng ngày nếu shop giao trước 10h30, sau đó lấy ngày kế; số ngày giao đều trong khoảng của vùng theo cam kết công bố của GHTK Express. | Nội thành TP.HCM 1–2; Bình Dương, Cần Thơ 2–4; Hà Nội 3–4; Đà Nẵng, Hải Phòng 4–6 ngày |
 
-Ba preset `1m`, `10m`, `50m` dùng chung các quy luật trên và chỉ khác quy mô: 260.000, 2.600.000 và 13.000.000 khách có mua, tương ứng khoảng 1, 10 và 50 triệu đơn trong 12 tháng. Tổng số đơn là kết quả của R01, không phải đầu vào. Giá, thời gian giao, tỷ lệ hủy/COD/trả hàng, coupon và Tết là giả định; notebook đối chiếu chúng với số liệu Việt Nam công khai (báo cáo sàn, Metric, iPrice) nhưng không dùng các số đó để hiệu chỉnh.
+Bốn preset `100k`, `1m`, `10m`, `50m` dùng chung các quy luật trên, chỉ khác quy mô: 26.000, 260.000, 2.600.000 và 13.000.000 khách có mua, tương ứng khoảng 0,1, 1, 10 và 50 triệu đơn online trong 12 tháng. Tổng số đơn là kết quả của R01, không phải đầu vào. `100k` dùng để chạy thử pipeline nhanh. Giá, tỷ lệ hủy/COD/trả hàng, coupon và Tết là giả định; notebook đối chiếu chúng với số liệu Việt Nam công khai nhưng không dùng các số đó để hiệu chỉnh.
 
 ### **4.7.3. Quy luật duyệt web (access log)**
 
@@ -764,54 +777,66 @@ Phân tích nằm trong [browsing_behavior_eda.ipynb](../generator/logs/notebook
 | L3. Nhịp request | Khoảng cách giữa hai sự kiện theo log-normal, lệch 4,4 điểm %. | Trung vị 36,2 giây; σ = 0,938 |
 | L4. Chuyển đổi ngày sale | Ngày đông nhất tháng 11 (17/11/2019) có r = 16,2 so với trung vị 45,9 của ngày thường: khách ngày sale vào để mua, tỷ lệ chuyển đổi cao gấp khoảng 2,8 lần. Chỉ có một đợt sale để đo. | r × 0,35 ngày sự kiện |
 
-Phễu giỏ hàng được đặt làm giả định vì nguồn ghi thiếu sự kiện giỏ và phép hiệu chỉnh không ổn định giữa các khối ngày. Hành trình nhiều phiên không được mô hình hóa. Lệnh `datagen logs` dùng các quy luật này để sinh log truy cập mùa sale 01/11–15/12/2025 khớp với đơn online đã nạp (ở `1m`: 45 triệu request).
+Phễu giỏ hàng được đặt làm giả định vì nguồn ghi thiếu sự kiện giỏ và phép hiệu chỉnh không ổn định giữa các khối ngày. Hành trình nhiều phiên không được mô hình hóa. Lệnh `datagen logs` dùng các quy luật này sinh log mùa sale 01/11–15/12/2025 theo hợp đồng v1.1.0: mỗi đơn online một phiên kết thúc bằng `checkout_submit` mang `order_number` (ở `1m`: khoảng 45 triệu request).
 
 ## **4.8. Đánh giá kết quả, giới hạn hệ thống và hướng phát triển**
 
 ### **4.8.1. Đánh giá kết quả đạt được của đề tài**
 
-Sau quá trình nghiên cứu, thiết kế và triển khai nghiêm túc, đề tài đã hoàn thành xuất sắc toàn bộ các mục tiêu đặt ra:
-* Xây dựng thành công ứng dụng thương mại điện tử hoàn chỉnh (Storefront, Admin, POS) tích hợp cơ sở dữ liệu giao dịch MySQL 8.4 chuẩn hóa 28 bảng, bảo đảm tính toàn vẹn ACID và kiểm soát dòng dữ liệu truy cập mạng an toàn.
-* Hiện thực hóa thành công kiến trúc Data Lakehouse đa tầng Medallion trên nền tảng MinIO S3, Apache Iceberg và Polaris REST Catalog, kết hợp linh hoạt cả ba phương thức thu thập dữ liệu hiện đại: Batch, CDC và Streaming.
-* Thiết kế mô hình dữ liệu đa chiều Kimball Star Schema với 6 Dimension, 6 Fact và 17 Data Marts, bảo đảm độ chính xác tài chính và tích hợp quy trình kiểm soát chất lượng dữ liệu tự động (Quality Gate) đạt chuẩn ISO/IEC 25012.
-* Xây dựng hệ thống phục vụ phân tích hiệu năng cao trên Trino với kỹ thuật Snapshot Pinning an toàn và giao diện BI Hub trực quan hóa đa chiều cho 7 vai trò quản trị.
+* **Hệ thống nguồn**: API FastAPI đầy đủ nghiệp vụ mua online, POS, kho, giao vận, đổi trả trên PostgreSQL 28 bảng; Console Streamlit mô phỏng mua hàng qua API thật.
+* **Lakehouse**: Medallion bốn tầng trên Iceberg, MinIO, Polaris; 19 bảng nguồn; Gold 7 dimension, 6 fact, 14 mart, 2 seed bằng dbt trên Trino.
+* **Pipeline chạy lại an toàn**, kiểm chứng trên preset `100k` bằng dấu vân tay của từng bảng (số dòng và checksum các cột nghiệp vụ):
+  * chạy lại init cho cùng kết quả;
+  * Clear rồi chạy lại một lần incremental cho cùng kết quả;
+  * một lần chạy hỏng (Trino dừng) rồi lần sau bằng dựng lại toàn bộ;
+  * backfill ba ngày bằng dựng lại toàn bộ;
+  * incremental cộng sync bằng init trên toàn bộ 67 bảng.
+* **Đồng bộ nguồn**, kiểm chứng trên `100k`:
+  * dòng bị xoá được đánh dấu qua mọi tầng; dòng khôi phục sống lại;
+  * purge để lại 0 dòng đã đánh dấu, mart không đổi, chạy purge lần hai không làm gì;
+  * cột chưa duyệt: incremental vẫn xanh, sync báo lỗi rõ, Lakehouse không đổi;
+  * cột đã duyệt: nạp lại đủ 28.610 dòng khách hàng; kiểu `integer` → `bigint` được nới; cột bị bỏ làm incremental dừng rõ, sửa theo thông báo thì chạy tiếp.
+* **Quản trị quyền tự vận hành**: principal Polaris riêng cho từng workload, credential lưu trữ tạm theo bảng, Trino tách đọc/ghi, Console quản trị có audit.
+* **Kiểm thử tự động**: `make test` chạy 102 test pipeline, 41 test platform-app, 143 test generator và 6 test Superset, không cần stack thật.
 
 ### **4.8.2. Các giới hạn hiện tại của hệ thống**
 
-Bên cạnh những kết quả đạt được, hệ thống vẫn tồn tại một số giới hạn kỹ thuật nhất định trong phạm vi đồ án:
-* Đã áp dụng nhu cầu sản phẩm có trọng số từ H&M; ánh xạ catalog và các tham số hành vi còn lại là giả định đã ghi rõ. Bằng chứng Việt Nam chưa xác định đầy đủ tỷ lệ theo đơn tại shop hoặc các hệ số mùa vụ; chưa khẳng định dữ liệu sinh đại diện thị trường Việt Nam.
-* Cơ chế xóa cứng CDC (Hard Delete Sync) hiện mới chỉ áp dụng cho hai bảng dữ liệu giao dịch phụ là giỏ hàng (`cart_items`) và danh sách yêu thích (`wishlist_items`) sau chu kỳ 30 ngày; các danh mục cốt lõi khác vẫn áp dụng cơ chế lưu trữ lịch sử hoặc lưu trữ vô hiệu hóa.
-* Dữ liệu nhật ký truy cập mạng trên Dashboard phân tích hiện được cập nhật theo chu kỳ gom nhóm từng giờ (Hourly Rollup) thông qua Spark chứ chưa hỗ trợ bảng điều khiển phân tích trực tiếp theo thời gian thực (Real-time Streaming Dashboard).
-* Toàn bộ hệ thống hiện được đóng gói và thử nghiệm trên môi trường máy chủ cục bộ bằng Docker Compose, chưa được triển khai phân cụm đa máy chủ (Multi-node Cluster) hoặc tích hợp cơ chế tự động co giãn (Kubernetes Autoscaling).
+* Luồng access log vào Lakehouse (`bronze.web_events`, `silver.web_events`, `mart_web_funnel_daily`) mới có thiết kế; API còn phát hợp đồng v1.0.0.
+* Superset mới có dashboard doanh thu; chưa phân quyền dashboard theo cửa hàng.
+* Đồng bộ nguồn dựa trên đối chiếu khóa định kỳ: `_deleted_at` là lúc phát hiện chứ không phải lúc xoá thật; lần sửa dòng mà nạp gia tăng bỏ sót (giao dịch commit sau khi cửa sổ đã đóng) chưa được bắt.
+* Duyệt một cột mới làm nạp lại cả bảng; một cột chưa duyệt ở một bảng làm hoãn đồng bộ xoá của mọi bảng cho tới khi được duyệt.
+* Dữ liệu sinh dùng quy luật đo trên dữ liệu nước ngoài và các giả định có ghi rõ; chưa khẳng định đại diện cho thị trường Việt Nam.
+* Hệ thống chạy trên một máy bằng Docker Compose; chưa có phân cụm, HA, sao lưu/khôi phục đồng bộ nhiều hệ thống.
 
 ### **4.8.3. Hướng nghiên cứu và phát triển trong tương lai**
 
-Nhằm nâng cao hơn nữa giá trị thực tiễn của nền tảng dữ liệu, các hướng phát triển tiếp theo được đề xuất bao gồm:
-* Mở rộng hạ tầng triển khai hệ thống lên nền tảng đám mây (Kubernetes / Helm Charts) kết hợp kiến trúc phân cụm chịu lỗi cao (High Availability) cho các engine Spark, Flink và Trino.
-* Nghiên cứu ứng dụng các mô hình học máy (Machine Learning) trên nền tảng dữ liệu Lakehouse đã xây dựng, phục vụ bài toán gợi ý sản phẩm cá nhân hóa (Recommendation System), dự báo nhu cầu hàng tồn kho theo mùa vụ và phát hiện gian lận giao dịch thanh toán.
-* Nâng cấp đường ống xử lý nhật ký truy cập mạng sang kiến trúc phân tích thời gian thực hoàn toàn (Real-time OLAP) kết hợp kết nối phễu hành trình người dùng đa phiên (Multi-session Customer Journey Attribution).
+* Xây luồng access log theo thiết kế đã duyệt: hợp đồng v1.1.0 trên API, Flink ghi `bronze.web_events`, nạp file log lịch sử, Silver và mart phễu nối phiên web với đơn hàng; kèm kịch bản "traffic liên tục" trên Console để trình diễn streaming.
+* Hoàn thiện dashboard cho kho, giao vận, khách hàng và phân quyền theo cửa hàng.
+* CDC theo WAL (Debezium) để bắt thay đổi và xoá gần thời gian thực khi quy mô hoặc yêu cầu độ trễ tăng.
+* Triển khai trên Kubernetes với HA cho Trino, Polaris và Flink.
+* Ứng dụng học máy trên Lakehouse: gợi ý sản phẩm, dự báo nhu cầu tồn kho theo mùa, phát hiện gian lận thanh toán.
 
 ---
 
 # **TÀI LIỆU THAM KHẢO**
 
 [1] OECD, *OECD Handbook on Compiling Digital Supply and Use Tables*, OECD Publishing, Paris, 2023. DOI: https://doi.org/10.1787/11a0db02-en.  
-[2] Next.js, *Next.js App Router Documentation*, Vercel, 2024. https://nextjs.org/docs/app.  
+[2] Streamlit, *Streamlit Documentation*, Snowflake Inc., 2024. https://docs.streamlit.io.  
 [3] FastAPI, *FastAPI Framework Documentation*, Tiangolo, 2024. https://fastapi.tiangolo.com.  
-[4] Oracle, *MySQL 8.4 Reference Manual: The InnoDB Storage Engine*, Oracle Corporation, 2024. https://dev.mysql.com/doc/refman/8.4/en/innodb-introduction.html.  
+[4] PostgreSQL Global Development Group, *PostgreSQL 16 Documentation*, 2024. https://www.postgresql.org/docs/16/.  
 [5] SQLAlchemy, *SQLAlchemy 2.0 Documentation*, SQLAlchemy Authors, 2024. https://docs.sqlalchemy.org/en/20/.  
 [6] OWASP, *API Security Top 10 2023*, Open Web Application Security Project, 2023. https://owasp.org/API-Security/.  
 [7] M. Armbrust, A. Ghodsi, R. Xin, và M. Zaharia, "Lakehouse: A New Generation of Open Platforms that Unify Data Warehousing and Advanced Analytics," trong *Proceedings of the 11th Conference on Innovative Data Systems Research (CIDR)*, 2021.  
 [8] MinIO, *MinIO High Performance Object Storage Documentation*, MinIO, Inc., 2024. https://min.io/docs/minio/linux/index.html.  
 [9] Apache Iceberg, *Apache Iceberg Table Format Documentation*, Apache Software Foundation, 2024. https://iceberg.apache.org/docs/latest/.  
-[10] Apache Polaris, *Apache Polaris (Incubating) Documentation*, Apache Software Foundation, 2024. https://polaris.apache.org/.  
+[10] Apache Polaris, *Apache Polaris Documentation*, Apache Software Foundation, 2025. https://polaris.apache.org/.  
 [11] R. Kimball và M. Ross, *The Data Warehouse Toolkit: The Definitive Guide to Dimensional Modeling*, 3rd ed., Wiley, Indianapolis, 2013.  
-[12] Apache Spark, *Spark SQL and DataFrames Guide*, Apache Software Foundation, 2024. https://spark.apache.org/docs/latest/sql-programming-guide.html.  
-[13] Debezium, *Debezium Connector for MySQL Documentation*, Red Hat, 2024. https://debezium.io/documentation/reference/stable/connectors/mysql.html.  
+[12] Apache Iceberg, *PyIceberg Documentation*, Apache Software Foundation, 2025. https://py.iceberg.apache.org/.  
+[13] dbt Labs, *dbt Documentation*, dbt Labs, Inc., 2025. https://docs.getdbt.com/.  
 [14] Apache Kafka, *Apache Kafka Documentation*, Apache Software Foundation, 2024. https://kafka.apache.org/documentation/.  
 [15] Apache Flink, *Apache Flink Documentation: Stateful Stream Processing*, Apache Software Foundation, 2024. https://nightlies.apache.org/flink/flink-docs-stable/.  
-[16] Apache Airflow, *Apache Airflow Documentation*, Apache Software Foundation, 2024. https://airflow.apache.org/docs/apache-airflow/stable/.  
+[16] Apache Airflow, *Apache Airflow Documentation*, Apache Software Foundation, 2025. https://airflow.apache.org/docs/apache-airflow/stable/.  
 [17] ISO/IEC, *ISO/IEC 25012:2008 - Software engineering -- Software product Quality Requirements and Evaluation (SQuaRE) -- Data quality model*, International Organization for Standardization, Geneva, 2008.  
 [18] Trino, *Trino Documentation: Iceberg Connector*, Trino Software Foundation, 2024. https://trino.io/docs/current/connector/iceberg.html.  
 [19] S. Few, *Information Dashboard Design: Displaying Data for At-a-Glance Monitoring*, 2nd ed., Analytics Press, Burlingame, 2013.  
-[20] Apache ECharts, *Apache ECharts Documentation and API Reference*, Apache Software Foundation, 2024. https://echarts.apache.org/handbook/en/get-started/.
+[20] Apache Superset, *Apache Superset Documentation*, Apache Software Foundation, 2025. https://superset.apache.org/docs/intro.

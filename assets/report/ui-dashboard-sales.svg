@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="700" viewBox="0 0 1100 700">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3A3A3A"/></marker><marker id="arrow-start" viewBox="0 0 10 10" refX="0.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M 10 0 L 0 5 L 10 10 z" fill="#3A3A3A"/></marker></defs>
+<rect width="100%" height="100%" fill="#FFFFFF"/>
+<text x="550.0" y="30.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="17" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Dashboard doanh thu trên Superset (wireframe)</text>
+<rect x="20" y="60" width="1060" height="620" rx="10" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="550.0" y="374.6" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="normal" text-anchor="middle" fill="#1F1F1F"></text>
+<rect x="40" y="80" width="240" height="90" rx="8" fill="#FFF8DC" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="160.0" y="112.9" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Số đơn đặt</text>
+<text x="160.0" y="129.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">123.456</text>
+<text x="160.0" y="145.9" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_orders_daily</text>
+<rect x="300" y="80" width="240" height="90" rx="8" fill="#FFF8DC" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="420.0" y="112.9" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Giá trị đặt hàng (VND)</text>
+<text x="420.0" y="129.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">123.456</text>
+<text x="420.0" y="145.9" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_orders_daily</text>
+<rect x="560" y="80" width="240" height="90" rx="8" fill="#FFF8DC" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="680.0" y="112.9" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Doanh thu thuần (VND)</text>
+<text x="680.0" y="129.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">123.456</text>
+<text x="680.0" y="145.9" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_sales_daily</text>
+<rect x="820" y="80" width="240" height="90" rx="8" fill="#FFF8DC" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="940.0" y="112.9" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Lợi nhuận gộp (VND)</text>
+<text x="940.0" y="129.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">123.456</text>
+<text x="940.0" y="145.9" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_sales_daily</text>
+<rect x="40" y="190" width="1020" height="200" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="550.0" y="294.6" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="normal" text-anchor="middle" fill="#1F1F1F"></text>
+<text x="55.0" y="214.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="start" fill="#1F1F1F">Doanh thu thuần và lợi nhuận gộp theo ngày ghi nhận (VND)</text>
+<polyline points="70,335 180,310 290,318 400,280 510,288 620,250 730,262 840,232 950,240 1040,225" fill="none" stroke="#2C6FB7" stroke-width="2.2"/>
+<polyline points="70,363 180,338 290,346 400,308 510,316 620,278 730,290 840,260 950,268 1040,253" fill="none" stroke="#D08A2C" stroke-width="2.2"/>
+<rect x="40" y="410" width="500" height="250" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="290.0" y="539.5" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="normal" text-anchor="middle" fill="#1F1F1F"></text>
+<text x="55.0" y="434.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="start" fill="#1F1F1F">Doanh thu thuần theo kênh (VND)</text>
+<text x="145.0" y="482.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="end" fill="#1F1F1F">Online</text>
+<rect x="155" y="466" width="300" height="24" fill="#7BA7D6"/>
+<text x="145.0" y="528.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="end" fill="#1F1F1F">POS</text>
+<rect x="155" y="512" width="170" height="24" fill="#7BA7D6"/>
+<rect x="560" y="410" width="500" height="250" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="810.0" y="539.5" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="normal" text-anchor="middle" fill="#1F1F1F"></text>
+<text x="575.0" y="434.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="start" fill="#1F1F1F">Doanh thu thuần theo điểm bán (VND)</text>
+<text x="665.0" y="482.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="end" fill="#1F1F1F">Online</text>
+<rect x="675" y="466" width="260" height="24" fill="#7BA7D6"/>
+<text x="665.0" y="528.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="end" fill="#1F1F1F">CH Quận 1</text>
+<rect x="675" y="512" width="140" height="24" fill="#7BA7D6"/>
+<text x="665.0" y="574.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="end" fill="#1F1F1F">CH Hà Nội</text>
+<rect x="675" y="558" width="110" height="24" fill="#7BA7D6"/>
+<text x="665.0" y="620.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="end" fill="#1F1F1F">CH Đà Nẵng</text>
+<rect x="675" y="604" width="80" height="24" fill="#7BA7D6"/>
+<text x="550.0" y="690.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#444444">Thêm: bảng top 10 sản phẩm theo doanh thu sau giảm giá (mart_product_sales_daily).</text>
+</svg>

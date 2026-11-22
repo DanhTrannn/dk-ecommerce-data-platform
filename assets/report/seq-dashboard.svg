@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="650" viewBox="0 0 1100 650">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3A3A3A"/></marker><marker id="arrow-start" viewBox="0 0 10 10" refX="0.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M 10 0 L 0 5 L 10 10 z" fill="#3A3A3A"/></marker></defs>
+<rect width="100%" height="100%" fill="#FFFFFF"/>
+<text x="550.0" y="30.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="17" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Sơ đồ tuần tự: Phục vụ dashboard</text>
+<rect x="22.0" y="50" width="156" height="44" rx="8" fill="#E3EEFB" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="100.0" y="76.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">Người dùng</text>
+<line x1="100.0" y1="94" x2="100.0" y2="630" stroke="#8A8A8A" stroke-width="1.2" stroke-dasharray="5 4"/>
+<rect x="247.0" y="50" width="156" height="44" rx="8" fill="#E3EEFB" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="325.0" y="76.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">Superset</text>
+<line x1="325.0" y1="94" x2="325.0" y2="630" stroke="#8A8A8A" stroke-width="1.2" stroke-dasharray="5 4"/>
+<rect x="472.0" y="50" width="156" height="44" rx="8" fill="#E3EEFB" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="550.0" y="76.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">Trino</text>
+<line x1="550.0" y1="94" x2="550.0" y2="630" stroke="#8A8A8A" stroke-width="1.2" stroke-dasharray="5 4"/>
+<rect x="697.0" y="50" width="156" height="44" rx="8" fill="#E3EEFB" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="775.0" y="76.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">Polaris</text>
+<line x1="775.0" y1="94" x2="775.0" y2="630" stroke="#8A8A8A" stroke-width="1.2" stroke-dasharray="5 4"/>
+<rect x="922.0" y="50" width="156" height="44" rx="8" fill="#E3EEFB" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="1000.0" y="76.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">MinIO</text>
+<line x1="1000.0" y1="94" x2="1000.0" y2="630" stroke="#8A8A8A" stroke-width="1.2" stroke-dasharray="5 4"/>
+<line x1="100.0" y1="130.0" x2="322.0" y2="130.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="137.7" y="111.5" width="149.7" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="212.5" y="123.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Mở dashboard doanh thu</text>
+<line x1="325.0" y1="176.0" x2="547.0" y2="176.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="275.7" y="157.5" width="323.6" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="437.5" y="169.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">SQL trên lakehouse.gold.mart_* (analytics_reader)</text>
+<line x1="550.0" y1="222.0" x2="772.0" y2="222.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="523.3" y="203.5" width="278.5" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="662.5" y="215.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Tải metadata bảng (principal trino_reader)</text>
+<path d="M 775.0 260.0 L 821.0 260.0 L 821.0 278.0 L 779.0 278.0" fill="none" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<text x="829.0" y="273.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#333333">Kiểm tra quyền theo role</text>
+<line x1="775.0" y1="314.0" x2="997.0" y2="314.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="767.6" y="295.5" width="239.8" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="887.5" y="307.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">STS: credential tạm cho thư mục bảng</text>
+<line x1="775.0" y1="360.0" x2="553.0" y2="360.0" stroke="#3A3A3A" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<rect x="578.0" y="341.5" width="169.0" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="662.5" y="353.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Metadata + credential tạm</text>
+<line x1="550.0" y1="406.0" x2="997.0" y2="406.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="651.9" y="387.5" width="246.3" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="775.0" y="399.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Đọc tệp Parquet của snapshot hiện tại</text>
+<line x1="1000.0" y1="452.0" x2="553.0" y2="452.0" stroke="#3A3A3A" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<rect x="748.5" y="433.5" width="53.1" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="775.0" y="445.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Dữ liệu</text>
+<line x1="550.0" y1="498.0" x2="328.0" y2="498.0" stroke="#3A3A3A" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<rect x="382.0" y="479.5" width="111.0" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="437.5" y="491.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Kết quả truy vấn</text>
+<line x1="325.0" y1="544.0" x2="103.0" y2="544.0" stroke="#3A3A3A" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<rect x="182.7" y="525.5" width="59.5" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="212.5" y="537.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Vẽ chart</text>
+</svg>
