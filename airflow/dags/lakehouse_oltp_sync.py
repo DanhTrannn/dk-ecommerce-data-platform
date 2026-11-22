@@ -1,7 +1,8 @@
 """Sync rows deleted or restored at the source: flag them in Bronze, then carry them through Silver and Gold.
 
-It runs after each successful lakehouse_oltp_incremental run, which writes the same tables, so the two never
-run at once.
+It runs after each successful lakehouse_oltp_incremental run, which writes the same tables. On the daily schedule
+the two never overlap; during a backfill they would, so pause this DAG while backfilling and trigger it once by
+hand afterwards.
 """
 
 from datetime import timedelta

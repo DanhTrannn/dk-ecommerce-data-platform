@@ -1,7 +1,9 @@
 """Load the OLTP rows changed in each daily interval: staging, Bronze, Silver and Gold.
 
 Run lakehouse_oltp_init first and keep this DAG paused while it runs; both DAGs write the same tables. To reload a
-past range, use `airflow backfill create --dag-id lakehouse_oltp_incremental --from-date ... --to-date ...`.
+past range, pause lakehouse_oltp_sync, run `airflow backfill create --dag-id lakehouse_oltp_incremental --from-date
+... --to-date ...`, then unpause the sync and trigger it once by hand. Each run here triggers a sync, and a sync
+running beside the next backfill run can empty that run's staging before Bronze reads it.
 """
 
 from datetime import timedelta

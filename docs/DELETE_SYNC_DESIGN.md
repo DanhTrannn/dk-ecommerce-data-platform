@@ -52,7 +52,7 @@ Staging và mart không có hai cột này. `create_schema` thêm chúng vào Br
 
 ### 5.2 DAG `lakehouse_oltp_sync`
 
-- **Lịch:** chạy sau mỗi lần `lakehouse_oltp_incremental` thành công, qua một Asset mà task cuối của incremental phát ra. Hai DAG vì thế không chạy chồng nhau theo lịch thường.
+- **Lịch:** chạy sau mỗi lần `lakehouse_oltp_incremental` thành công, qua một Asset mà task cuối của incremental phát ra. Hai DAG vì thế không chạy chồng nhau theo lịch thường. Khi backfill hay catchup nhiều ngày, sync của ngày trước sẽ chạy song song với incremental ngày sau, vì `max_active_runs` chỉ giới hạn trong từng DAG. Quy tắc vận hành: tạm dừng sync trong lúc backfill, xong thì bật lại và trigger tay một lần.
 - **Luồng:** `detect >> bronze >> silver >> gold >> maintenance`. Ba nhóm sau dùng lại đúng task của incremental.
 - **`detect.<bảng>`**, mỗi bảng một task:
   1. Trong một transaction đọc của nguồn, đọc toàn bộ khoá chính (chỉ cột khoá).
