@@ -59,10 +59,9 @@ Staging và mart không có hai cột này. `create_schema` thêm chúng vào Br
   2. Đọc khoá và `_is_deleted` của Bronze.
   3. `deleted` = khoá sống ở Bronze nhưng không còn ở nguồn.
   4. `restored` = khoá có ở nguồn nhưng Bronze không có hoặc đang đánh dấu xoá.
-  5. Ghi dòng của `restored` (đọc theo khoá từ nguồn) vào staging của bảng đó; ghi khoá `deleted` vào một bảng staging riêng `staging._deleted_keys` (bảng, khoá).
-- **`bronze.<bảng>`:**
-  - dòng `restored` đi qua upsert hiện có, với `_is_deleted = false`;
-  - dòng `deleted` được upsert lại với `_is_deleted = true`, `_deleted_at = coalesce(_deleted_at hiện có, thời điểm chạy)`, `_ingested_at = thời điểm chạy`. Nhờ `_ingested_at` mới, Silver và Gold nhận thay đổi qua mốc như mọi dòng khác.
+  5. Đánh dấu xoá thẳng các dòng `deleted` trong Bronze của bảng đó: `_is_deleted = true`, `_deleted_at` = thời điểm chạy, `_ingested_at` mới. Mỗi bảng chỉ có một task ghi, vì nhiều task cùng commit vào một bảng chung sẽ xung đột.
+  6. Ghi các dòng `restored` (đọc theo khoá từ nguồn) vào staging của bảng đó.
+- **`bronze.<bảng>`:** upsert các dòng `restored` như incremental, với `_is_deleted = false`. Nhờ `_ingested_at` mới, Silver và Gold nhận cả dấu xoá lẫn dòng khôi phục qua mốc như mọi dòng khác.
 
 ### 5.3 Bronze
 

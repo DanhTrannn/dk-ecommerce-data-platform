@@ -2,7 +2,7 @@ from datetime import UTC
 
 import pyarrow as pa
 
-from lakehouse.utils.postgres import source_query
+from lakehouse.utils.postgres import source_keys_query, source_query
 
 # Rows per fetch: each chunk is held as Python rows until it becomes an Arrow table.
 CHUNK_ROWS = 10_000
@@ -53,7 +53,7 @@ def to_arrow(rows, description):
     return pa.Table.from_pylist(records, schema=schema)
 
 
-def source_chunks(connection, table, start=None, end=None, *, created_before=None):
+def source_chunks(connection, table, start=None, end=None, *, created_before=None, keys=None):
     """Yield the source rows in chunks of CHUNK_ROWS, or one empty chunk when there are none.
 
     The named cursor keeps the result on the server and needs the transaction source_read_transaction opens.
@@ -61,7 +61,8 @@ def source_chunks(connection, table, start=None, end=None, *, created_before=Non
     if (start is None) != (end is None):
         raise ValueError("Both interval bounds are required")
     with connection.cursor(name=f"source_{table.name}") as cursor:
-        cursor.execute(source_query(table, start, end, created_before=created_before))
+        query = source_query(table, start, end, created_before=created_before, keys=keys is not None)
+        cursor.execute(query, None if keys is None else {"keys": keys})
         while True:
             rows = cursor.fetchmany(CHUNK_ROWS)
             chunk = to_arrow(rows, cursor.description)
@@ -70,3 +71,16 @@ def source_chunks(connection, table, start=None, end=None, *, created_before=Non
             yield chunk
             if len(rows) < CHUNK_ROWS:
                 break
+
+
+def source_keys(connection, table):
+    """Return every primary key of the source table, read in chunks on a named cursor."""
+    chunks = []
+    with connection.cursor(name=f"keys_{table.name}") as cursor:
+        cursor.execute(source_keys_query(table))
+        while True:
+            rows = cursor.fetchmany(CHUNK_ROWS)
+            chunks.append(to_arrow(rows, cursor.description)[table.pk])
+            if len(rows) < CHUNK_ROWS:
+                break
+    return pa.chunked_array(chunks, pa.int64()).combine_chunks()

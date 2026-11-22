@@ -27,7 +27,7 @@ class NamedCursor:
     def __exit__(self, *exc):
         return False
 
-    def execute(self, query):
+    def execute(self, query, params=None):
         self.queries.append(query)
 
     def fetchmany(self, size):

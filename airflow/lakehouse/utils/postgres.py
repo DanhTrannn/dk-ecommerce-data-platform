@@ -18,13 +18,22 @@ def _utc(value, label):
     return moment.astimezone(timezone.utc)
 
 
-def source_query(table, interval_start=None, interval_end=None, *, created_before=None):
-    """Build the source SELECT for a cursor interval [start, end), or for rows created before a cutoff.
+def source_keys_query(table):
+    return f'SELECT {identifier(table.pk)} FROM "public".{identifier(table.name)}'
+
+
+def source_query(table, interval_start=None, interval_end=None, *, created_before=None, keys=False):
+    """Build the source SELECT for a cursor interval [start, end), rows created before a cutoff, or given keys.
 
     The cutoff keeps every table of a full load at the same moment, although each is read at a different time.
+    With `keys`, the query takes the keys as the `keys` parameter.
     """
     columns = ", ".join(identifier(column) for column in table.columns)
     query = f'SELECT {columns} FROM "public".{identifier(table.name)}'
+    if keys:
+        if interval_start is not None or interval_end is not None or created_before is not None:
+            raise ValueError("Use keys alone, without a cursor interval or a cutoff")
+        return f"{query} WHERE {identifier(table.pk)} = ANY(%(keys)s)"
     if created_before is not None:
         if interval_start is not None or interval_end is not None:
             raise ValueError("Use either a cursor interval or a created_before cutoff")
