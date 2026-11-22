@@ -7,6 +7,8 @@ class TableSpec:
     cursor_field: str
     pk: str
     columns: tuple[str, ...]
+    # Source columns deliberately not loaded, such as personal data; any other new source column stops the sync.
+    excluded: tuple[str, ...] = ()
 
 
 SOURCE_TABLES = [
@@ -29,6 +31,7 @@ SOURCE_TABLES = [
             "created_at",
             "updated_at",
         ),
+        excluded=("anonymized_at", "cod_reinstated_at", "cod_reinstated_by", "cod_reinstatement_reason"),
     ),
     TableSpec(
         "categories",
@@ -41,6 +44,7 @@ SOURCE_TABLES = [
         "updated_at",
         "product_id",
         ("product_id", "public_id", "category_id", "slug", "name", "description", "image_url", "is_active", "created_at", "updated_at"),
+        excluded=("archived_at", "archived_by_customer_id", "archive_reason"),
     ),
     TableSpec(
         "product_variants",
@@ -60,6 +64,7 @@ SOURCE_TABLES = [
         "updated_at",
         "staff_id",
         ("staff_id", "public_id", "full_name", "vehicle_plate", "is_active", "created_at", "updated_at"),
+        excluded=("phone",),
     ),
     TableSpec(
         "orders",
@@ -94,6 +99,7 @@ SOURCE_TABLES = [
             "channel",
             "staff_id",
         ),
+        excluded=("receiver_name", "receiver_phone", "shipping_address_text"),
     ),
     TableSpec(
         "order_items",
@@ -129,6 +135,7 @@ SOURCE_TABLES = [
         "updated_at",
         "refund_id",
         ("refund_id", "public_id", "payment_id", "return_id", "refund_idempotency_key", "status", "amount_vnd", "reason", "created_at", "completed_at", "updated_at"),
+        excluded=("requested_by_customer_id",),
     ),
     TableSpec(
         "order_status_history",
@@ -141,6 +148,7 @@ SOURCE_TABLES = [
         "updated_at",
         "coupon_id",
         ("coupon_id", "public_id", "code_normalized", "discount_type", "discount_value", "minimum_subtotal_vnd", "starts_at", "ends_at", "is_active", "total_usage_limit", "per_customer_usage_limit", "used_count", "created_at", "updated_at"),
+        excluded=("archived_at", "archived_by_customer_id", "archive_reason"),
     ),
     TableSpec(
         "shipments",
@@ -153,6 +161,7 @@ SOURCE_TABLES = [
         "updated_at",
         "return_id",
         ("return_id", "public_id", "return_code", "order_id", "customer_id", "action_type", "status", "customer_reason", "admin_note", "reviewed_at", "resolved_at", "created_at", "updated_at"),
+        excluded=("image_urls",),
     ),
     TableSpec(
         "return_items",
@@ -165,6 +174,7 @@ SOURCE_TABLES = [
         "updated_at",
         "review_id",
         ("review_id", "public_id", "order_item_id", "customer_id", "product_id", "rating", "content", "status", "moderation_reason", "moderated_at", "created_at", "updated_at"),
+        excluded=("moderated_by_customer_id",),
     ),
     TableSpec(
         "inventory_transactions",
