@@ -8,6 +8,7 @@ import pyarrow as pa
 from iceberg_fixture import AT, TABLES, category, page, sql_catalog
 from lakehouse.oltp.staging import write_staging
 from lakehouse.oltp import schema
+from lakehouse.oltp.bronze import mark_deleted, merge_bronze
 from lakehouse.oltp.drift import SchemaChanged
 from lakehouse.oltp.schema import MART_STATE, create_oltp_schema, evolve_schema
 from lakehouse.oltp.sources import SOURCE_TABLES
@@ -111,6 +112,14 @@ class CreateSchemaTests(unittest.TestCase):
         for layer in ("staging", "bronze"):
             self.assertIn("loyalty_tier", self.catalog.load_table((layer, "categories")).schema().column_names)
         self.assertEqual(evolve_schema(self.catalog, approved, source).evolve, ())
+
+    def test_bronze_accepts_upserts_after_a_column_is_added(self):
+        create_oltp_schema(self.catalog, Source())
+        write_staging(self.catalog, TABLES["categories"], [page("categories", [category(1)])], AT)
+        merge_bronze(self.catalog, TABLES["categories"], full=True)
+        approved = replace(TABLES["categories"], columns=(*TABLES["categories"].columns, "loyalty_tier"))
+        evolve_schema(self.catalog, approved, {f.name: f.type for f in page("categories", []).schema} | {"loyalty_tier": pa.string()})
+        self.assertEqual(mark_deleted(self.catalog, approved, pa.array([1]), AT, AT), 1)
 
     def test_evolve_widens_a_column(self):
         create_oltp_schema(self.catalog, Source(types={"boom_count": 23}))

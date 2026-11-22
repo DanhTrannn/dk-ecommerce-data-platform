@@ -1,4 +1,8 @@
-"""Sync rows deleted or restored at the source: flag them in Bronze, then carry them through Silver and Gold.
+"""Sync source changes the incremental load cannot see: column changes, then rows deleted or restored.
+
+`schema` adds the columns approved in sources.py and widens types in staging and Bronze, and fails on an
+unreviewed new column, a dropped column or an incompatible type. `detect` flags deleted rows in Bronze and stages
+restored ones, or the whole table when a new column still has to be filled. Silver and Gold then pick them up.
 
 It runs after each successful lakehouse_oltp_incremental run, which writes the same tables. On the daily schedule
 the two never overlap; during a backfill they would, so pause this DAG while backfilling and trigger it once by
@@ -28,6 +32,10 @@ with DAG(
     default_args={"owner": "lakehouse", "retries": 2, "retry_delay": timedelta(minutes=2)},
     tags=["lakehouse", "oltp", "sync"],
 ) as dag:
+    with TaskGroup("schema") as schema:
+        for table in SOURCE_TABLES:
+            PythonOperator(task_id=table.name, python_callable=oltp.schema, op_kwargs={"table": table.name}, pool=POOL)
+
     with TaskGroup("detect") as detect:
         for table in SOURCE_TABLES:
             PythonOperator(task_id=table.name, python_callable=oltp.detect, op_kwargs={"table": table.name}, pool=POOL)
@@ -59,4 +67,4 @@ with DAG(
         orphan = PythonOperator(task_id="orphan", python_callable=oltp.maintain, op_kwargs={"action": "orphan"})
         compact >> optimize >> expire >> orphan
 
-    detect >> bronze >> silver >> gold >> maintenance
+    schema >> detect >> bronze >> silver >> gold >> maintenance

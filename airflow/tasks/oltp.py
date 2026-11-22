@@ -16,7 +16,7 @@ from lakehouse.oltp.reconcile import reconcile_table, source_reconciliation
 from lakehouse.oltp.schema import MART_STATE, create_oltp_schema
 from lakehouse.oltp.sources import SOURCE_TABLES, TABLES_BY_NAME
 from lakehouse.oltp.staging import extract_table
-from lakehouse.oltp.sync import detect_deletes
+from lakehouse.oltp.sync import detect_deletes, sync_schema
 from lakehouse.utils.iceberg import iceberg_catalog
 from lakehouse.utils.maintenance import maintain_tables
 from lakehouse.utils.postgres import source_read_transaction
@@ -59,6 +59,11 @@ def staging_incremental(table, data_interval_start=None, data_interval_end=None)
             start=data_interval_start.isoformat(),
             end=data_interval_end.isoformat(),
         )
+
+
+def schema(table):
+    with source_connection() as connection:
+        sync_schema(iceberg_catalog(), connection, TABLES_BY_NAME[table])
 
 
 def detect(table, dag_run):

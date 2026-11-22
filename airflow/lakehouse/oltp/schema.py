@@ -43,6 +43,12 @@ def evolve_schema(catalog, table, source):
         for layer in ("staging", "bronze"):
             with catalog.load_table((layer, table.name)).update_schema() as update:
                 update.union_by_name(changes)
+    if drift.approved:
+        # PyIceberg cannot upsert into a table whose older files lack a column, so Bronze is rewritten once, in one
+        # commit, with the new columns as NULL. The sync then reloads the table to fill them.
+        bronze = catalog.load_table(("bronze", table.name))
+        if bronze.current_snapshot() is not None:
+            bronze.overwrite(bronze.scan().to_arrow_batch_reader())
     return drift
 
 

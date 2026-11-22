@@ -39,6 +39,10 @@ class TaskTests(unittest.TestCase):
         )
         self.assertEqual(ingest.call_args.kwargs, {"start": START.isoformat(), "end": END.isoformat()})
 
+    def test_schema_checks_the_named_table(self):
+        check, _ = self.call("sync_schema", oltp.schema, table="orders")
+        self.assertEqual(check.call_args.args[-1], oltp.TABLES_BY_NAME["orders"])
+
     def test_detect_flags_deletions_at_the_run_start(self):
         detect, _ = self.call("detect_deletes", oltp.detect, table="orders", dag_run=DAG_RUN)
         self.assertEqual(detect.call_args.args[-1], RUN_AFTER)

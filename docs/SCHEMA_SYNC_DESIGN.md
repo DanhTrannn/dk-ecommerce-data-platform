@@ -76,7 +76,7 @@ Luồng: `schema` → `detect` → `bronze` → `silver` → `gold` → `mainten
 
 1. So khác biệt.
 2. `dropped` hoặc `incompatible`: báo lỗi như incremental. Lỗi này chỉ gặp khi trigger sync bằng tay, vì incremental đã dừng trước.
-3. `approved` và `widened`: sửa schema staging và Bronze (dùng lại `create_or_evolve`, nới kiểu qua `update_schema`).
+3. `approved` và `widened`: sửa schema staging và Bronze bằng `update_schema().union_by_name`. Sau khi thêm cột, Bronze được ghi lại một lần (một commit, đọc dạng stream), để mọi file đều có cột mới mang giá trị NULL. Lý do: PyIceberg 0.12 không upsert được vào bảng có file cũ thiếu cột.
 4. `unlisted`: báo lỗi `SCHEMA table=<bảng> unlisted=[...]` sau khi đã sửa xong các thay đổi an toàn, nêu cách duyệt (mục 5.5). Sync dừng; incremental vẫn nạp các cột đã duyệt.
 5. Cột của Bronze mà Silver chưa có (đọc metadata bảng Silver, không đọc dữ liệu): ghi cảnh báo `silver_missing=[...]`.
 
@@ -130,8 +130,8 @@ Vì tín hiệu nằm trong dữ liệu, một lần chạy hỏng giữa chừn
 - Đổi tên cột không được nhận diện riêng; nó là `dropped` cộng `unlisted`.
 - `incompatible` cần xoá và dựng lại bảng Bronze của bảng đó, vì Iceberg không đổi được loại cột. Việc xoá bảng luôn cần người duyệt.
 
-## 9. Để người làm tự quyết
+## 9. Cài đặt
 
-- Tên module của hàm phân loại, ví dụ `lakehouse/oltp/drift.py`.
-- Cách so kiểu Arrow với kiểu Iceberg.
-- Cách đọc metadata bảng Silver qua PyIceberg (chỉ schema, không quét dữ liệu).
+- Hàm phân loại nằm ở `airflow/lakehouse/oltp/drift.py` (`classify`, `Drift`, `SchemaChanged`).
+- Kiểu được so ở dạng Arrow. Kiểu của Bronze (`schema().as_arrow()`) được chuẩn hoá trước khi so: `large_string` thành `string`, `large_binary` thành `binary`, và múi giờ của timestamp thành `UTC`.
+- Metadata Silver được đọc bằng `catalog.load_table(...).schema()`, không quét dữ liệu.

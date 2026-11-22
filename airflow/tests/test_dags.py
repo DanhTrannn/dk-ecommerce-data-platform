@@ -49,6 +49,11 @@ class DagTests(unittest.TestCase):
         self.assertIn("gold.fact_order", self.sync.task_dict)
         self.assertIn("maintenance.orphan", self.sync.task_dict)
 
+    def test_sync_checks_the_schema_before_detecting(self):
+        for table in SOURCE_TABLES:
+            self.assertIn(f"detect.{table.name}", self.sync.task_dict[f"schema.{table.name}"].downstream_task_ids)
+        self.assertFalse([task for task in self.incremental.task_dict if task.startswith("schema.")])
+
     def test_purge_runs_by_hand_from_gold_down_to_bronze(self):
         self.assertIsNone(self.purge.schedule)
         downstream = self.purge.task_dict["silver_gold"].get_flat_relative_ids(upstream=False)
