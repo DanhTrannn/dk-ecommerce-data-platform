@@ -53,7 +53,7 @@ def to_arrow(rows, description):
     return pa.Table.from_pylist(records, schema=schema)
 
 
-def source_chunks(connection, table, start=None, end=None, *, created_before=None, keys=None):
+def source_chunks(connection, table, start=None, end=None, *, created_before=None, keys=None, columns=None):
     """Yield the source rows in chunks of CHUNK_ROWS, or one empty chunk when there are none.
 
     The named cursor keeps the result on the server and needs the transaction source_read_transaction opens.
@@ -61,7 +61,7 @@ def source_chunks(connection, table, start=None, end=None, *, created_before=Non
     if (start is None) != (end is None):
         raise ValueError("Both interval bounds are required")
     with connection.cursor(name=f"source_{table.name}") as cursor:
-        query = source_query(table, start, end, created_before=created_before, keys=keys is not None)
+        query = source_query(table, start, end, created_before=created_before, keys=keys is not None, columns=columns)
         cursor.execute(query, None if keys is None else {"keys": keys})
         while True:
             rows = cursor.fetchmany(CHUNK_ROWS)

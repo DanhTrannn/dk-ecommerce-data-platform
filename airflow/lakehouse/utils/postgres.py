@@ -22,14 +22,14 @@ def source_keys_query(table):
     return f'SELECT {identifier(table.pk)} FROM "public".{identifier(table.name)}'
 
 
-def source_query(table, interval_start=None, interval_end=None, *, created_before=None, keys=False):
+def source_query(table, interval_start=None, interval_end=None, *, created_before=None, keys=False, columns=None):
     """Build the source SELECT for a cursor interval [start, end), rows created before a cutoff, or given keys.
 
     The cutoff keeps every table of a full load at the same moment, although each is read at a different time.
-    With `keys`, the query takes the keys as the `keys` parameter.
+    With `keys`, the query takes the keys as the `keys` parameter. `columns` defaults to the configured columns.
     """
-    columns = ", ".join(identifier(column) for column in table.columns)
-    query = f'SELECT {columns} FROM "public".{identifier(table.name)}'
+    selected = ", ".join(identifier(column) for column in (columns or table.columns))
+    query = f'SELECT {selected} FROM "public".{identifier(table.name)}'
     if keys:
         if interval_start is not None or interval_end is not None or created_before is not None:
             raise ValueError("Use keys alone, without a cursor interval or a cutoff")

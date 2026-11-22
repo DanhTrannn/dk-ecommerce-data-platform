@@ -37,6 +37,11 @@ class PostgresSourceTests(unittest.TestCase):
                 SOURCE_TABLES[0], "2026-11-20T00:00:00Z", "2026-11-21T00:00:00Z", created_before="2026-11-21T00:00:00Z"
             )
 
+    def test_column_list_overrides_the_configured_columns(self):
+        orders = next(table for table in SOURCE_TABLES if table.name == "orders")
+        query = source_query(orders, created_before="2026-11-21T00:00:00Z", columns=("order_id", "updated_at"))
+        self.assertTrue(query.startswith('SELECT "order_id", "updated_at" FROM "public"."orders"'))
+
     def test_key_query_reads_only_the_primary_key(self):
         orders = next(table for table in SOURCE_TABLES if table.name == "orders")
         self.assertEqual(source_keys_query(orders), 'SELECT "order_id" FROM "public"."orders"')

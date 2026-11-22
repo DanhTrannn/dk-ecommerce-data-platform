@@ -2,6 +2,7 @@ import pyarrow as pa
 from pyiceberg.expressions import AlwaysTrue
 from pyiceberg.io.pyarrow import schema_to_pyarrow
 
+from lakehouse.oltp.drift import SchemaChanged, classify, refuse, source_columns
 from lakehouse.oltp.source import source_chunks
 from lakehouse.utils.iceberg import load_table
 from lakehouse.utils.postgres import source_read_transaction
@@ -56,8 +57,24 @@ def staging_rows(catalog, table, columns=("*",)):
 
 
 def extract_table(catalog, connection, table, ingested_at, *, start=None, end=None, created_before=None):
+    """Extract into staging. An incremental extract reads only the configured columns Bronze already has, since
+    the sync DAG adds new ones, and refuses a breaking change before touching staging."""
     with source_read_transaction(connection):
-        chunks = source_chunks(connection, table, start, end, created_before=created_before)
-        written = write_staging(catalog, table, chunks, ingested_at)
+        columns, widened = None, ()
+        if start is not None:
+            bronze = load_table(catalog, ("bronze", table.name)).schema().as_arrow()
+            drift = classify(table, source_columns(connection, table), bronze)
+            refuse(table, drift, ("dropped", "incompatible"))
+            columns, widened = [name for name in table.columns if name in bronze.names], drift.widened
+        chunks = source_chunks(connection, table, start, end, created_before=created_before, columns=columns)
+        try:
+            written = write_staging(catalog, table, chunks, ingested_at)
+        except pa.ArrowInvalid as error:
+            if not widened:
+                raise
+            raise SchemaChanged(
+                f"Source table {table.name} widened {list(widened)} and a value does not fit Bronze yet: "
+                "trigger lakehouse_oltp_sync, then clear this task"
+            ) from error
     print(f"STAGING table={table.name} rows={written}", flush=True)
     return written
