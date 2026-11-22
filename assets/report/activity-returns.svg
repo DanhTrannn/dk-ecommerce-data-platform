@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="820" viewBox="0 0 860 820">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3A3A3A"/></marker><marker id="arrow-start" viewBox="0 0 10 10" refX="0.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M 10 0 L 0 5 L 10 10 z" fill="#3A3A3A"/></marker></defs>
+<rect width="100%" height="100%" fill="#FFFFFF"/>
+<text x="430.0" y="30.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="17" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Sơ đồ hoạt động: Đổi trả và hoàn tiền</text>
+<circle cx="410" cy="60" r="9" fill="#3A3A3A"/>
+<rect x="250.0" y="90" width="320" height="46" rx="8" fill="#E3EEFB" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="410.0" y="117.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">Khách tạo yêu cầu đổi trả kèm lý do</text>
+<polygon points="410,162.0 525.0,194 410,226.0 295.0,194" fill="#FFF8DC" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="410.0" y="198.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">Admin duyệt?</text>
+<rect x="250.0" y="252" width="320" height="46" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="410.0" y="279.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">Kho nhận hàng hoàn</text>
+<polygon points="410,324.0 525.0,356 410,388.0 295.0,356" fill="#FFF8DC" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="410.0" y="360.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">Đạt kiểm định?</text>
+<rect x="250.0" y="414" width="320" height="46" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="410.0" y="441.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">Nhập lại kho, ghi sổ cái</text>
+<polygon points="410,486.0 525.0,518 410,550.0 295.0,518" fill="#FFF8DC" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="410.0" y="522.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">Đổi hay hoàn?</text>
+<rect x="250.0" y="576" width="320" height="46" rx="8" fill="#FAEDBF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="410.0" y="603.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">Hoàn tiền gắn với yêu cầu trả hàng</text>
+<line x1="410.0" y1="136.0" x2="410.0" y2="162.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="410.0" y1="226.0" x2="410.0" y2="252.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="410.0" y1="298.0" x2="410.0" y2="324.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="410.0" y1="388.0" x2="410.0" y2="414.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="410.0" y1="460.0" x2="410.0" y2="486.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="410.0" y1="550.0" x2="410.0" y2="576.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="410.0" y1="69.0" x2="410.0" y2="90.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="650" y="171" width="180" height="46" rx="8" fill="#FCE1E1" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="740.0" y="190.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Từ chối</text>
+<text x="740.0" y="206.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">yêu cầu</text>
+<line x1="525.0" y1="194.0" x2="650.0" y2="194.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="567.4" y="177.5" width="40.2" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="587.5" y="189.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Không</text>
+<rect x="413.6" y="231.5" width="20.9" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="424.0" y="243.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Có</text>
+<rect x="650" y="333" width="180" height="46" rx="8" fill="#FCE1E1" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="740.0" y="352.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Không nhập kho;</text>
+<text x="740.0" y="368.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">xử lý theo chính sách</text>
+<line x1="525.0" y1="356.0" x2="650.0" y2="356.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="567.4" y="339.5" width="40.2" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="587.5" y="351.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Không</text>
+<rect x="413.6" y="393.5" width="20.9" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="424.0" y="405.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Có</text>
+<rect x="650" y="495" width="180" height="46" rx="8" fill="#FAEDBF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="740.0" y="514.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Giao biến thể đổi</text>
+<text x="740.0" y="530.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">(exchange_variant)</text>
+<line x1="525.0" y1="518.0" x2="650.0" y2="518.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="573.8" y="501.5" width="27.3" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="587.5" y="513.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Đổi</text>
+<rect x="411.1" y="555.5" width="33.8" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="428.0" y="567.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">Hoàn</text>
+<circle cx="410" cy="669.0" r="13" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.5"/>
+<circle cx="410" cy="669.0" r="9" fill="#3A3A3A"/>
+<line x1="410.0" y1="622.0" x2="410.0" y2="656.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+</svg>

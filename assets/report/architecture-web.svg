@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="580" viewBox="0 0 1120 580">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3A3A3A"/></marker><marker id="arrow-start" viewBox="0 0 10 10" refX="0.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M 10 0 L 0 5 L 10 10 z" fill="#3A3A3A"/></marker></defs>
+<rect width="100%" height="100%" fill="#FFFFFF"/>
+<text x="560.0" y="30.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="17" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Kiến trúc thành phần ứng dụng</text>
+<rect x="30" y="60" width="700" height="490" rx="12" fill="#E3EEFB" fill-opacity="0.45" stroke="#6B6B6B" stroke-width="1.2"/>
+<text x="42.0" y="80.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="start" fill="#333333">Container platform-app</text>
+<rect x="60" y="100" width="300" height="64" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="210.0" y="128.1" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Streamlit (cổng 8501)</text>
+<text x="210.0" y="145.1" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="normal" text-anchor="middle" fill="#1F1F1F">Mô phỏng API · Quản trị quyền</text>
+<rect x="60" y="200" width="650" height="330" rx="12" fill="#FFFFFF" fill-opacity="0.45" stroke="#6B6B6B" stroke-width="1.2" stroke-dasharray="7 5"/>
+<text x="72.0" y="220.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="start" fill="#333333">FastAPI (cổng 8000)</text>
+<rect x="80" y="236" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="126.0" y="262.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">auth</text>
+<rect x="182" y="236" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="228.0" y="262.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">catalog</text>
+<rect x="284" y="236" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="330.0" y="262.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">location</text>
+<rect x="386" y="236" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="432.0" y="262.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">store</text>
+<rect x="80" y="302" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="126.0" y="328.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">cart</text>
+<rect x="182" y="302" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="228.0" y="328.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">wishlist</text>
+<rect x="284" y="302" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="330.0" y="328.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">checkout</text>
+<rect x="386" y="302" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="432.0" y="328.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">coupons</text>
+<rect x="80" y="368" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="126.0" y="394.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">orders</text>
+<rect x="182" y="368" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="228.0" y="394.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">pos</text>
+<rect x="284" y="368" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="330.0" y="394.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">inbound</text>
+<rect x="386" y="368" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="432.0" y="394.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">logistics</text>
+<rect x="80" y="434" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="126.0" y="460.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">returns</text>
+<rect x="182" y="434" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="228.0" y="460.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">reviews</text>
+<rect x="284" y="434" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="330.0" y="460.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">admin</text>
+<rect x="386" y="434" width="92" height="44" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="432.0" y="460.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">analytics</text>
+<rect x="505" y="236" width="185" height="60" rx="8" fill="#FFF8DC" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="597.5" y="262.3" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Middleware log</text>
+<text x="597.5" y="277.8" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">ecommerce.access 1.0.0</text>
+<rect x="505" y="322" width="185" height="60" rx="8" fill="#EDE4F6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="597.5" y="348.3" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Router /api/v1/access</text>
+<text x="597.5" y="363.8" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">quản trị quyền</text>
+<rect x="505" y="408" width="185" height="72" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="597.5" y="432.5" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Unit of Work</text>
+<text x="597.5" y="448.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">READ COMMITTED,</text>
+<text x="597.5" y="463.5" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">thử lại khi deadlock</text>
+<line x1="210.0" y1="164.0" x2="210.0" y2="236.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="193.1" y="183.5" width="33.8" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="210.0" y="195.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">HTTP</text>
+<rect x="800" y="236" width="280" height="60" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3" stroke-dasharray="6 4"/>
+<text x="940.0" y="262.1" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Kafka (profile streaming)</text>
+<text x="940.0" y="279.1" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="normal" text-anchor="middle" fill="#1F1F1F">topic access log</text>
+<rect x="800" y="312" width="280" height="50" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="940.0" y="333.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Polaris</text>
+<text x="940.0" y="349.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">principal, role, quyền</text>
+<rect x="800" y="378" width="280" height="60" rx="8" fill="#E4F4E6" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="940.0" y="404.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1F1F1F">credential-exporter</text>
+<text x="940.0" y="420.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">ghi clients.env cho workload</text>
+<rect x="800" y="456" width="280" height="56" rx="8" fill="#E3EEFB" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="940.0" y="480.1" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#1F1F1F">PostgreSQL 16</text>
+<text x="940.0" y="497.1" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="normal" text-anchor="middle" fill="#1F1F1F">28 bảng nghiệp vụ</text>
+<line x1="690.0" y1="266.0" x2="800.0" y2="266.0" stroke="#3A3A3A" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<rect x="699.1" y="249.5" width="91.7" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="745.0" y="261.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">KAFKA_ENABLED</text>
+<line x1="690.0" y1="344.0" x2="800.0" y2="337.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="728.1" y="324.0" width="33.8" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="745.0" y="335.5" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">REST</text>
+<line x1="690.0" y1="362.0" x2="800.0" y2="404.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="721.7" y="366.5" width="46.6" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="745.0" y="378.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">JWT ký</text>
+<line x1="690.0" y1="450.0" x2="800.0" y2="484.0" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="708.8" y="450.5" width="72.4" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="745.0" y="462.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">SQLAlchemy</text>
+</svg>

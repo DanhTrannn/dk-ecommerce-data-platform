@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="858" viewBox="0 0 900 858">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3A3A3A"/></marker><marker id="arrow-start" viewBox="0 0 10 10" refX="0.5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M 10 0 L 0 5 L 10 10 z" fill="#3A3A3A"/></marker></defs>
+<rect width="100%" height="100%" fill="#FFFFFF"/>
+<text x="450.0" y="30.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="17" font-weight="bold" text-anchor="middle" fill="#1F1F1F">Data Mart theo nhóm người xem</text>
+<rect x="30" y="234.0" width="200" height="50" rx="8" fill="#FAEDBF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="130.0" y="263.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">fact_order</text>
+<line x1="230.0" y1="259.0" x2="300.0" y2="259.0" stroke="#3A3A3A" stroke-width="1.4"/>
+<rect x="30" y="304.0" width="200" height="50" rx="8" fill="#FAEDBF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="130.0" y="333.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">fact_order_item</text>
+<line x1="230.0" y1="329.0" x2="300.0" y2="329.0" stroke="#3A3A3A" stroke-width="1.4"/>
+<rect x="30" y="374.0" width="200" height="50" rx="8" fill="#FAEDBF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="130.0" y="403.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">fact_shipment</text>
+<line x1="230.0" y1="399.0" x2="300.0" y2="399.0" stroke="#3A3A3A" stroke-width="1.4"/>
+<rect x="30" y="444.0" width="200" height="50" rx="8" fill="#FAEDBF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="130.0" y="473.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">fact_return</text>
+<line x1="230.0" y1="469.0" x2="300.0" y2="469.0" stroke="#3A3A3A" stroke-width="1.4"/>
+<rect x="30" y="514.0" width="200" height="50" rx="8" fill="#FAEDBF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="130.0" y="543.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">fact_inventory_daily</text>
+<line x1="230.0" y1="539.0" x2="300.0" y2="539.0" stroke="#3A3A3A" stroke-width="1.4"/>
+<rect x="30" y="584.0" width="200" height="50" rx="8" fill="#FAEDBF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="130.0" y="613.4" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12.5" font-weight="normal" text-anchor="middle" fill="#1F1F1F">fact_review</text>
+<line x1="230.0" y1="609.0" x2="300.0" y2="609.0" stroke="#3A3A3A" stroke-width="1.4"/>
+<line x1="300" y1="259.0" x2="300" y2="609.0" stroke="#3A3A3A" stroke-width="1.4"/>
+<rect x="276.7" y="211.5" width="46.6" height="16.5" fill="#FFFFFF" fill-opacity="0.92"/>
+<text x="300.0" y="223.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#333333">live()</text>
+<rect x="400" y="70" width="460" height="174" rx="12" fill="#EDE4F6" fill-opacity="0.45" stroke="#6B6B6B" stroke-width="1.2" stroke-dasharray="7 5"/>
+<text x="412.0" y="90.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="start" fill="#333333">Kinh doanh</text>
+<rect x="420" y="102" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="119.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_orders_daily</text>
+<rect x="420" y="134" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="151.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_sales_daily</text>
+<rect x="420" y="166" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="183.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_product_sales_daily</text>
+<rect x="420" y="198" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="215.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_cancellations_daily</text>
+<path d="M 300.0 259.0 L 350.0 259.0 L 350.0 157.0 L 400.0 157.0" fill="none" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="400" y="258" width="460" height="78" rx="12" fill="#EDE4F6" fill-opacity="0.45" stroke="#6B6B6B" stroke-width="1.2" stroke-dasharray="7 5"/>
+<text x="412.0" y="278.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="start" fill="#333333">Cửa hàng</text>
+<rect x="420" y="290" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="307.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_pos_hourly</text>
+<path d="M 300.0 297.0 L 400.0 297.0" fill="none" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="400" y="350" width="460" height="142" rx="12" fill="#EDE4F6" fill-opacity="0.45" stroke="#6B6B6B" stroke-width="1.2" stroke-dasharray="7 5"/>
+<text x="412.0" y="370.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="start" fill="#333333">Giao vận và đổi trả</text>
+<rect x="420" y="382" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="399.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_delivery_daily</text>
+<rect x="420" y="414" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="431.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_fulfilment_backlog_daily</text>
+<rect x="420" y="446" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="463.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_returns_daily</text>
+<path d="M 300.0 421.0 L 400.0 421.0" fill="none" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="400" y="506" width="460" height="110" rx="12" fill="#EDE4F6" fill-opacity="0.45" stroke="#6B6B6B" stroke-width="1.2" stroke-dasharray="7 5"/>
+<text x="412.0" y="526.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="start" fill="#333333">Tồn kho</text>
+<rect x="420" y="538" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="555.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_inventory_current</text>
+<rect x="420" y="570" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="587.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_inventory_health_daily</text>
+<path d="M 300.0 561.0 L 400.0 561.0" fill="none" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="400" y="630" width="460" height="174" rx="12" fill="#EDE4F6" fill-opacity="0.45" stroke="#6B6B6B" stroke-width="1.2" stroke-dasharray="7 5"/>
+<text x="412.0" y="650.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" text-anchor="start" fill="#333333">Khách hàng và marketing</text>
+<rect x="420" y="662" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="679.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_coupon_daily</text>
+<rect x="420" y="694" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="711.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_reviews_daily</text>
+<rect x="420" y="726" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="743.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_customer_value</text>
+<rect x="420" y="758" width="420" height="26" rx="8" fill="#FFFFFF" stroke="#3A3A3A" stroke-width="1.3"/>
+<text x="630.0" y="775.2" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#1F1F1F">mart_customer_cohort_monthly</text>
+<path d="M 300.0 609.0 L 350.0 609.0 L 350.0 717.0 L 400.0 717.0" fill="none" stroke="#3A3A3A" stroke-width="1.4" marker-end="url(#arrow)"/>
+<text x="450.0" y="842.0" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#444444">Mart chỉ đọc dòng còn sống qua live(); xoá và dựng lại các ngày bị ảnh hưởng kể từ mốc trong gold._mart_state.</text>
+</svg>
