@@ -1,5 +1,7 @@
 {{ config(materialized='incremental', unique_key='order_id', properties={"partitioning": "ARRAY['month(order_date)']"}) }}
 -- Revenue is recognized on the day an order is both completed and paid (the later of the two, design §5).
+-- Child rows deleted at the source drop out of the values, but their `_ingested_at` still counts, so the order
+-- picks up the deletion and its watermark moves past it.
 WITH
 {% if is_incremental() %}
 changed AS (
@@ -21,14 +23,14 @@ changed AS (
 history AS (
   SELECT
     order_id,
-    max_by(reason, transitioned_at) FILTER (WHERE to_status = 'cancelled') AS cancel_reason,
+    max_by(reason, transitioned_at) FILTER (WHERE to_status = 'cancelled' AND NOT _is_deleted) AS cancel_reason,
     max(_ingested_at) AS _ingested_at
   FROM {{ ref('order_status_history') }}
   WHERE {{ in_changed('order_id') }}
   GROUP BY order_id
 ),
 items AS (
-  SELECT order_id, sum(quantity) AS item_quantity, max(_ingested_at) AS _ingested_at
+  SELECT order_id, sum(quantity) FILTER (WHERE NOT _is_deleted) AS item_quantity, max(_ingested_at) AS _ingested_at
   FROM {{ ref('order_items') }}
   WHERE {{ in_changed('order_id') }}
   GROUP BY order_id
@@ -36,7 +38,7 @@ items AS (
 refunds AS (
   SELECT
     p.order_id,
-    sum(r.amount_vnd) FILTER (WHERE r.status = 'succeeded') AS refunded_vnd,
+    sum(r.amount_vnd) FILTER (WHERE r.status = 'succeeded' AND NOT r._is_deleted) AS refunded_vnd,
     max(r._ingested_at) AS _ingested_at
   FROM {{ ref('refunds') }} r
   JOIN {{ ref('payments') }} p ON p.payment_id = r.payment_id
@@ -80,6 +82,8 @@ SELECT
   o.shipping_fee_vnd,
   o.total_vnd,
   coalesce(r.refunded_vnd, 0) AS refunded_vnd,
+  o._is_deleted,
+  o._deleted_at,
   {{ latest('o._ingested_at', 's._ingested_at', 'h._ingested_at', 'i._ingested_at', 'r._ingested_at') }} AS _ingested_at,
   {{ previous_dates('prev.order_date', 'prev.revenue_date', 'prev.cancelled_date') }} AS _previous_dates
 FROM {{ ref('orders') }} o

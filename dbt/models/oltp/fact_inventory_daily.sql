@@ -8,6 +8,7 @@
 -- to the last built day. Built from the stock ledger only: a position's balance is the running sum of its
 -- movements. An incremental run extends every position to the new last day and rebuilds a position from its
 -- earliest new movement, or from its first day when its variant's cost changed (stock is valued at current cost).
+-- A movement deleted at the source moves nothing, and a position left with no movement is flagged as deleted.
 WITH
 {% if is_incremental() %}
 built AS (
@@ -52,7 +53,14 @@ bounds AS (
 ),
 {% endif %}
 ledger AS (
-  SELECT t.*, {{ vn_date('t.created_at') }} AS movement_date
+  SELECT
+    t.location_type,
+    t.store_id,
+    t.variant_id,
+    t.movement_type,
+    CASE WHEN t._is_deleted THEN 0 ELSE t.quantity_delta END AS quantity_delta,
+    t._ingested_at,
+    {{ vn_date('t.created_at') }} AS movement_date
   FROM {{ ref('inventory_transactions') }} t
   {% if is_incremental() %}
   JOIN starts s
@@ -107,6 +115,14 @@ days AS (
   FROM movements
   GROUP BY 1, 2, 3, 4
 ),
+positions AS (
+  SELECT location_type, store_id AS store_key, variant_id AS variant_key, count(*) FILTER (WHERE NOT _is_deleted) AS live_movements
+  FROM {{ ref('inventory_transactions') }}
+  {% if is_incremental() %}
+  WHERE variant_id IN (SELECT variant_key FROM starts)
+  {% endif %}
+  GROUP BY 1, 2, 3
+),
 balances AS (
   SELECT
     d.*,
@@ -141,7 +157,11 @@ SELECT
   CASE WHEN day = b.movement_date THEN b.adjustment_qty ELSE 0 END AS adjustment_qty,
   b.closing_qty,
   b.closing_qty * v.cost_price_vnd AS closing_value_vnd,
+  coalesce(p.live_movements, 0) = 0 AS _is_deleted,
+  CAST(NULL AS timestamp(6) with time zone) AS _deleted_at,
   {{ latest('b.position_ingested_at', 'v._ingested_at') }} AS _ingested_at
 FROM balances b
 CROSS JOIN UNNEST(sequence(b.movement_date, date_add('day', -1, b.next_movement_date))) AS calendar(day)
 LEFT JOIN {{ ref('product_variants') }} v ON v.variant_id = b.variant_key
+LEFT JOIN positions p
+  ON p.location_type = b.location_type AND p.store_key IS NOT DISTINCT FROM b.store_key AND p.variant_key = b.variant_key

@@ -7,6 +7,8 @@ SELECT
   sla.delivery_zone,
   sla.carrier_days,
   sla.sla_days,
+  c._is_deleted,
+  c._deleted_at,
   c._ingested_at
 FROM {{ ref('cities') }} c
 LEFT JOIN {{ ref('delivery_sla') }} sla ON sla.city_code = c.code

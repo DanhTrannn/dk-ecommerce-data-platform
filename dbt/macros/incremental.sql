@@ -70,3 +70,9 @@
   CAST(ARRAY[] AS array(date))
   {% endif %}
 {%- endmacro %}
+
+{#- The rows of `model` still present at the source. Marts read through it; the macros that pick the days to
+    recompute read the deleted rows too. -#}
+{% macro live(model) -%}
+  (SELECT * FROM {{ ref(model) }} WHERE NOT _is_deleted)
+{%- endmacro %}

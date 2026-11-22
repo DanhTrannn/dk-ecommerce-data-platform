@@ -37,6 +37,8 @@ SELECT
     WHEN s.delivered_at IS NOT NULL
     THEN {{ vn_date('s.delivered_at') }} <= date_add('day', c.sla_days, {{ vn_date('o.created_at') }})
   END AS is_on_time,
+  s._is_deleted,
+  s._deleted_at,
   {{ latest('s._ingested_at', 'o._ingested_at', 'c._ingested_at') }} AS _ingested_at,
   {{ previous_dates('prev.end_date', vn_date('prev.created_at'), vn_date('prev.dispatched_at'), vn_date('prev.order_created_at')) }} AS _previous_dates
 FROM shipments s

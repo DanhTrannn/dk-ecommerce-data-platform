@@ -20,7 +20,7 @@ reviews AS (
 deliveries AS (
   SELECT
     order_id,
-    max_by(is_on_time, delivered_at) FILTER (WHERE delivered_at IS NOT NULL) AS is_on_time,
+    max_by(is_on_time, delivered_at) FILTER (WHERE delivered_at IS NOT NULL AND NOT _is_deleted) AS is_on_time,
     max(_ingested_at) AS _ingested_at
   FROM {{ ref('fact_shipment') }}
   WHERE order_id IN (SELECT order_id FROM reviews)
@@ -41,6 +41,8 @@ SELECT
     WHEN NOT d.is_on_time THEN 'late'
     ELSE 'not_shipped'
   END AS delivery_timeliness,
+  r._is_deleted,
+  r._deleted_at,
   {{ latest('r._ingested_at', 'r.item_ingested_at', 'd._ingested_at') }} AS _ingested_at,
   {{ previous_dates('prev.review_date') }} AS _previous_dates
 FROM reviews r

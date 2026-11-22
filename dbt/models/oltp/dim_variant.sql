@@ -9,6 +9,8 @@ SELECT
   price_vnd,
   cost_price_vnd,
   is_active,
+  _is_deleted,
+  _deleted_at,
   _ingested_at
 FROM {{ ref('product_variants') }}
 {% if is_incremental() %}

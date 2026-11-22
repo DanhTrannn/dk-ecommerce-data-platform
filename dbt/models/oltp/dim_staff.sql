@@ -16,6 +16,8 @@ SELECT
   full_name AS staff_name,
   CAST(NULL AS bigint) AS store_key,
   is_active,
+  _is_deleted,
+  _deleted_at,
   _ingested_at
 FROM {{ ref('delivery_staff') }}
 {% if is_incremental() %}
@@ -29,6 +31,8 @@ SELECT
   display_name,
   store_id,
   status = 'active',
+  _is_deleted,
+  _deleted_at,
   _ingested_at
 FROM {{ ref('customers') }}
 WHERE role <> 'customer'

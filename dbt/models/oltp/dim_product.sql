@@ -8,6 +8,8 @@ SELECT
   c.name AS category_name,
   p.is_active,
   p.created_at,
+  p._is_deleted,
+  p._deleted_at,
   {{ latest('p._ingested_at', 'c._ingested_at') }} AS _ingested_at
 FROM {{ ref('products') }} p
 LEFT JOIN {{ ref('categories') }} c ON c.category_id = p.category_id

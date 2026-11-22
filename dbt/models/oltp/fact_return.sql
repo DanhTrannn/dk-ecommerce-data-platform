@@ -20,8 +20,8 @@ items AS (
 refunds AS (
   SELECT
     return_id,
-    max(completed_at) FILTER (WHERE status = 'succeeded') AS refunded_at,
-    count(*) FILTER (WHERE status = 'succeeded') > 0 AS is_refunded,
+    max(completed_at) FILTER (WHERE status = 'succeeded' AND NOT _is_deleted) AS refunded_at,
+    count(*) FILTER (WHERE status = 'succeeded' AND NOT _is_deleted) > 0 AS is_refunded,
     max(_ingested_at) AS _ingested_at
   FROM {{ ref('refunds') }}
   WHERE return_id IN (SELECT return_id FROM items)
@@ -48,6 +48,8 @@ SELECT
   f.refunded_at,
   {{ vn_date('r.created_at') }} AS request_date,
   {{ vn_date('r.resolved_at') }} AS resolved_date,
+  i._is_deleted,
+  i._deleted_at,
   {{ latest('i._ingested_at', 'r._ingested_at', 'v._ingested_at', 'f._ingested_at') }} AS _ingested_at,
   {{ previous_dates('prev.request_date', 'prev.resolved_date', vn_date('prev.refunded_at')) }} AS _previous_dates
 FROM items i

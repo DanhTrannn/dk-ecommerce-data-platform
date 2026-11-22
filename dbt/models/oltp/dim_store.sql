@@ -8,6 +8,8 @@ SELECT
   s.address,
   s.phone,
   s.is_active,
+  s._is_deleted,
+  s._deleted_at,
   {{ latest('s._ingested_at', 'c._ingested_at') }} AS _ingested_at
 FROM {{ ref('stores') }} s
 LEFT JOIN {{ ref('cities') }} c ON c.city_id = s.city_id
