@@ -12,7 +12,7 @@ WITH requests AS (
     sum(refund_requested_vnd) AS refund_requested_vnd,
     sum(refund_paid_vnd) AS refund_paid_vnd,
     max(date_diff('second', requested_at, resolved_at)) AS processing_seconds
-  FROM {{ ref('fact_return') }}
+  FROM {{ live('fact_return') }}
   WHERE {{ filter_in('request_date', return_days()) }}
   GROUP BY 1, 2, 3, 4, 5
 )
@@ -31,6 +31,6 @@ SELECT
   count(r.processing_seconds) AS resolved_requests,
   sum(r.processing_seconds) / 3600e0 AS processing_hours
 FROM requests r
-LEFT JOIN {{ ref('dim_variant') }} v ON v.variant_key = r.variant_key
-LEFT JOIN {{ ref('dim_product') }} p ON p.product_key = r.product_key
+LEFT JOIN {{ live('dim_variant') }} v ON v.variant_key = r.variant_key
+LEFT JOIN {{ live('dim_product') }} p ON p.product_key = r.product_key
 GROUP BY 1, 2, 3, 4, 5, 6

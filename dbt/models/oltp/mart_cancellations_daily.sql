@@ -6,6 +6,6 @@ SELECT
   payment_method,
   count(*) AS cancelled_orders,
   sum(total_vnd) AS cancelled_value_vnd
-FROM {{ ref('fact_order') }}
+FROM {{ live('fact_order') }}
 WHERE status_group = 'cancelled' AND {{ filter_in('order_date', order_days()) }}
 GROUP BY 1, 2, 3, 4

@@ -13,16 +13,16 @@ WITH stock AS (
     sum(f.closing_value_vnd) AS stock_value_vnd,
     sum(f.inbound_qty) AS inbound_qty,
     sum(f.sold_online_qty + f.sold_pos_qty) AS sold_qty
-  FROM {{ ref('fact_inventory_daily') }} f
-  LEFT JOIN {{ ref('dim_product') }} p ON p.product_key = f.product_key
+  FROM {{ live('fact_inventory_daily') }} f
+  LEFT JOIN {{ live('dim_product') }} p ON p.product_key = f.product_key
   WHERE {{ filter_in('f.inventory_date', inventory_days()) }}
   GROUP BY 1, 2, 3, 4, 5
 ),
 inbound AS (
   SELECT {{ vn_date('i.created_at') }} AS inventory_date, p.category_key, sum(i.total_cost_vnd) AS inbound_value_vnd
-  FROM {{ ref('inbound_receipt_items') }} i
-  LEFT JOIN {{ ref('dim_variant') }} v ON v.variant_key = i.variant_id
-  LEFT JOIN {{ ref('dim_product') }} p ON p.product_key = v.product_key
+  FROM {{ live('inbound_receipt_items') }} i
+  LEFT JOIN {{ live('dim_variant') }} v ON v.variant_key = i.variant_id
+  LEFT JOIN {{ live('dim_product') }} p ON p.product_key = v.product_key
   WHERE i.created_at <= {{ as_of() }} AND {{ filter_in(vn_date('i.created_at'), inventory_days()) }}
   GROUP BY 1, 2
 )
@@ -43,4 +43,4 @@ SELECT
 FROM stock s
 LEFT JOIN inbound i
   ON s.location_type = 'central_warehouse' AND i.inventory_date = s.inventory_date AND i.category_key IS NOT DISTINCT FROM s.category_key
-LEFT JOIN {{ ref('dim_store') }} st ON st.store_key = s.store_key
+LEFT JOIN {{ live('dim_store') }} st ON st.store_key = s.store_key

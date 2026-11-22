@@ -12,7 +12,7 @@ SELECT
   count_if(r.rating = 4) AS rating_4,
   count_if(r.rating = 5) AS rating_5,
   count_if(r.status = 'rejected') AS rejected_reviews
-FROM {{ ref('fact_review') }} r
-LEFT JOIN {{ ref('dim_product') }} p ON p.product_key = r.product_key
+FROM {{ live('fact_review') }} r
+LEFT JOIN {{ live('dim_product') }} p ON p.product_key = r.product_key
 WHERE {{ filter_in('r.review_date', review_days()) }}
 GROUP BY 1, 2, 3, 4

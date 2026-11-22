@@ -5,8 +5,8 @@ WITH orders AS (
     o.customer_key,
     date_trunc('month', o.revenue_date) AS revenue_month,
     o.subtotal_vnd - o.discount_vnd - o.refunded_vnd AS net_revenue_vnd
-  FROM {{ ref('fact_order') }} o
-  JOIN {{ ref('dim_customer') }} c ON c.customer_key = o.customer_key
+  FROM {{ live('fact_order') }} o
+  JOIN {{ live('dim_customer') }} c ON c.customer_key = o.customer_key
   WHERE o.revenue_date IS NOT NULL
 ),
 cohorts AS (

@@ -18,8 +18,8 @@ SELECT
   count_if(s.delivered_at IS NOT NULL AND s.dispatched_at IS NOT NULL) AS dispatched_and_delivered_shipments,
   sum(s.cod_amount_vnd) AS cod_due_vnd,
   sum(s.cod_collected_vnd) AS cod_collected_vnd
-FROM {{ ref('fact_shipment') }} s
-LEFT JOIN {{ ref('dim_city') }} c ON c.city_key = s.city_key
-LEFT JOIN {{ ref('dim_staff') }} st ON st.staff_key = s.delivery_staff_key
+FROM {{ live('fact_shipment') }} s
+LEFT JOIN {{ live('dim_city') }} c ON c.city_key = s.city_key
+LEFT JOIN {{ live('dim_staff') }} st ON st.staff_key = s.delivery_staff_key
 WHERE s.end_date IS NOT NULL AND {{ filter_in('s.end_date', delivery_days()) }}
 GROUP BY 1, 2, 3, 4, 5, 6

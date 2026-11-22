@@ -14,7 +14,7 @@ SELECT
   count_if(o.channel = 'pos') AS pos_orders,
   count_if(o.channel = 'online') / CAST(count(*) AS double) AS online_share,
   count(*) > 1 AS is_repeat_customer
-FROM {{ ref('fact_order') }} o
-JOIN {{ ref('dim_customer') }} c ON c.customer_key = o.customer_key
+FROM {{ live('fact_order') }} o
+JOIN {{ live('dim_customer') }} c ON c.customer_key = o.customer_key
 WHERE o.revenue_date IS NOT NULL AND {{ filter_in('o.customer_key', customer_keys()) }}
 GROUP BY 1, 2, 3

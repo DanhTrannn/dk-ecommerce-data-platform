@@ -4,7 +4,7 @@
 -- within the longest (8 days), past every SLA.
 WITH shipments AS (
   SELECT order_id, min(dispatched_at) AS dispatched_at, max(coalesce(delivered_at, failed_at)) AS ended_at
-  FROM {{ ref('fact_shipment') }}
+  FROM {{ live('fact_shipment') }}
   GROUP BY order_id
 ),
 stages AS (
@@ -12,7 +12,7 @@ stages AS (
     o.order_id, o.order_date, o.payment_method, o.total_vnd, 'awaiting_dispatch' AS stage,
     {{ vn_date('o.confirmed_at') }} AS first_day,
     coalesce({{ vn_date('least(s.dispatched_at, o.cancelled_at)') }}, {{ vn_date('s.dispatched_at') }}, {{ vn_date('o.cancelled_at') }}, date_add('day', 1, {{ backlog_last_day() }})) AS end_day
-  FROM {{ ref('fact_order') }} o
+  FROM {{ live('fact_order') }} o
   LEFT JOIN shipments s ON s.order_id = o.order_id
   WHERE o.channel = 'online' AND o.confirmed_at IS NOT NULL
   UNION ALL
@@ -20,7 +20,7 @@ stages AS (
     o.order_id, o.order_date, o.payment_method, o.total_vnd, 'in_delivery',
     {{ vn_date('s.dispatched_at') }},
     coalesce({{ vn_date('s.ended_at') }}, date_add('day', 1, {{ backlog_last_day() }}))
-  FROM {{ ref('fact_order') }} o
+  FROM {{ live('fact_order') }} o
   JOIN shipments s ON s.order_id = o.order_id
   WHERE o.channel = 'online' AND s.dispatched_at IS NOT NULL
 ),

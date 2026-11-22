@@ -10,8 +10,8 @@ SELECT
   count(*) AS orders,
   sum(o.subtotal_vnd - o.discount_vnd) AS revenue_vnd,
   sum(o.item_quantity) AS items_sold
-FROM {{ ref('fact_order') }} o
-LEFT JOIN {{ ref('dim_store') }} s ON s.store_key = o.store_key
-LEFT JOIN {{ ref('dim_staff') }} st ON st.staff_key = o.sales_staff_key
+FROM {{ live('fact_order') }} o
+LEFT JOIN {{ live('dim_store') }} s ON s.store_key = o.store_key
+LEFT JOIN {{ live('dim_staff') }} st ON st.staff_key = o.sales_staff_key
 WHERE o.channel = 'pos' AND o.revenue_date IS NOT NULL AND {{ filter_in('o.order_date', order_days()) }}
 GROUP BY 1, 2, 3, 4, 5, 6

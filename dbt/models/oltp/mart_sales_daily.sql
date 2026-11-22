@@ -15,7 +15,7 @@ items AS (
     sum(line_total_vnd) AS gross_revenue_vnd,
     sum(allocated_discount_vnd) AS discount_vnd,
     sum(cost_vnd) AS cogs_vnd
-  FROM {{ ref('fact_order_item') }}
+  FROM {{ live('fact_order_item') }}
   WHERE revenue_date IS NOT NULL AND {{ filter_in('revenue_date', 'SELECT * FROM days') }}
   GROUP BY order_id
 ),
@@ -24,25 +24,25 @@ events AS (
     o.revenue_date, o.channel, o.store_key, o.city_key,
     1 AS recognized_orders, o.item_quantity AS items_sold,
     i.gross_revenue_vnd, i.discount_vnd, i.cogs_vnd, 0 AS refund_vnd, 0 AS returned_cogs_vnd
-  FROM {{ ref('fact_order') }} o
+  FROM {{ live('fact_order') }} o
   JOIN items i ON i.order_id = o.order_id
   WHERE {{ filter_in('o.revenue_date', 'SELECT * FROM days') }}
   UNION ALL
   SELECT
     {{ vn_date('r.completed_at') }}, o.channel, o.store_key, o.city_key,
     0, 0, 0, 0, 0, r.amount_vnd, 0
-  FROM {{ ref('refunds') }} r
-  JOIN {{ ref('payments') }} p ON p.payment_id = r.payment_id
-  JOIN {{ ref('fact_order') }} o ON o.order_id = p.order_id
+  FROM {{ live('refunds') }} r
+  JOIN {{ live('payments') }} p ON p.payment_id = r.payment_id
+  JOIN {{ live('fact_order') }} o ON o.order_id = p.order_id
   WHERE r.status = 'succeeded' AND r.completed_at IS NOT NULL AND o.revenue_date IS NOT NULL
     AND {{ filter_in(vn_date('r.completed_at'), 'SELECT * FROM days') }}
   UNION ALL
   SELECT
     {{ vn_date('r.refunded_at') }}, o.channel, o.store_key, o.city_key,
     0, 0, 0, 0, 0, 0, r.accepted_quantity * (i.cost_vnd / i.quantity)
-  FROM {{ ref('fact_return') }} r
-  JOIN {{ ref('fact_order_item') }} i ON i.order_item_id = r.order_item_id
-  JOIN {{ ref('fact_order') }} o ON o.order_id = r.order_id
+  FROM {{ live('fact_return') }} r
+  JOIN {{ live('fact_order_item') }} i ON i.order_item_id = r.order_item_id
+  JOIN {{ live('fact_order') }} o ON o.order_id = r.order_id
   WHERE r.refunded_at IS NOT NULL AND r.accepted_quantity > 0 AND o.revenue_date IS NOT NULL
     AND {{ filter_in(vn_date('r.refunded_at'), 'SELECT * FROM days') }}
 )
@@ -63,6 +63,6 @@ SELECT
   sum(e.gross_revenue_vnd - e.discount_vnd - e.refund_vnd) AS net_revenue_vnd,
   sum(e.gross_revenue_vnd - e.discount_vnd - e.refund_vnd - e.cogs_vnd + e.returned_cogs_vnd) AS gross_profit_vnd
 FROM events e
-LEFT JOIN {{ ref('dim_store') }} s ON s.store_key = e.store_key
-LEFT JOIN {{ ref('dim_city') }} c ON c.city_key = e.city_key
+LEFT JOIN {{ live('dim_store') }} s ON s.store_key = e.store_key
+LEFT JOIN {{ live('dim_city') }} c ON c.city_key = e.city_key
 GROUP BY 1, 2, 3, 4, 5, 6
