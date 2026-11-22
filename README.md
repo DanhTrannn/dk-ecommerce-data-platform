@@ -31,7 +31,7 @@
 | Generator | `datagen` loads 12 months of synthetic history from YAML presets (`100k`/`1m`/`10m`/`50m` online orders per year) |
 | Console | Streamlit: purchase scenarios against the API, and Polaris access administration |
 | OLTP pipeline | Airflow: PostgreSQL → staging → Bronze (PyIceberg) → Silver → Gold (dbt on Trino); see [airflow/README.md](airflow/README.md) |
-| Access governance | Per-workload MinIO users, Polaris principals and roles, vended storage credentials, Trino SQL access rules |
+| Access governance | Polaris principals and roles per workload, per-table storage credentials vended by Polaris (one MinIO account, Polaris's), Trino SQL access rules |
 | BI | Optional Superset dashboard over three Gold sales marts |
 
 The access-log path (API → Kafka → Flink → lakehouse) is being redesigned: the API can still publish to Kafka, but the Flink job and log DAGs are removed. The table designs are kept in [`streaming/sql`](streaming/sql) and [`dbt/models/logs`](dbt/models/logs).

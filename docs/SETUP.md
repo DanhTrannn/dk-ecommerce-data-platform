@@ -55,7 +55,7 @@ make up     # khởi động platform-app và các dependency quản trị
 | `trino-reader` | `polaris-trino-reader-credentials` | `/run/polaris/clients.env` trong Trino |
 | `trino-writer` | `polaris-trino-writer-credentials` | `/run/polaris-writer/clients.env` trong Trino |
 
-API gửi yêu cầu đã ký tới `credential-exporter`; exporter ghi file với UID/GID của consumer và xác minh kết quả. Tạo principal chưa tự cấp file. Thay credential đã có cần xác nhận; gỡ file cần nhập đúng workload. Sau thay đổi, khởi động lại consumer hoặc submit lại job nếu tiến trình giữ credential trong bộ nhớ. Chi tiết CRUD và giới hạn ở [platform-app](../services/platform-app/README.md#quản-trị-quyền-trên-streamlit).
+Sau khi cấp hoặc thay, khởi động lại consumer hoặc submit lại job Flink. Luồng cấp và các ràng buộc ở [platform-app](../services/platform-app/README.md#cấp-credential-polaris-cho-workload).
 
 ### Bật workload sau khi cấu hình quyền
 

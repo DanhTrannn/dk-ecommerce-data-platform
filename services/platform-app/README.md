@@ -116,7 +116,19 @@ Quyền hiển thị là snapshot của lần tải. Dùng **Tải lại quyền
 
 ### Cấp credential Polaris cho workload
 
-Tạo principal chưa tự cấu hình consumer. Trong tab **Cấp cho workload**, chọn principal có credential nguồn đã lưu và cấp cho `batch-airflow`, `flink`, `trino-reader` hoặc `trino-writer`. API ký yêu cầu gửi tới `credential-exporter:8011`; exporter chạy root riêng, đọc `access-admin-secrets` ở chế độ read-only và ghi file `clients.env` với UID/GID tương ứng vào bốn volume consumer. Manifest/audit exporter nằm trong `credential-export-state`.
+Tạo principal chưa tự cấu hình consumer. Trong tab **Cấp cho workload**, chọn principal có credential nguồn đã lưu và cấp cho `batch-airflow`, `flink`, `trino-reader` hoặc `trino-writer`.
+
+```text
+Streamlit ─► platform-app API ──(JWT ký)──► credential-exporter ─► volume workload/clients.env ─► Airflow / Trino / Flink
+             đọc credential principal        ghi file theo UID/GID                                    │ đăng nhập
+                                                                                                      ▼
+                                       credential S3 tạm, chỉ cho bảng được mở ◄─ MinIO STS ◄─ Polaris (kiểm tra role)
+```
+
+1. API đọc client ID/secret của principal trong `access-admin-secrets` (lưu lúc tạo principal) và đối chiếu với Polaris, dưới khóa audit.
+2. API gửi yêu cầu tới `credential-exporter:8011` với JWT ký bằng `exporter.key`; token chứa method, path và digest của payload nên yêu cầu bị sửa sẽ bị từ chối. Payload mang `revision` trạng thái exporter; trạng thái vừa đổi thì trả 409.
+3. Exporter chạy root riêng, đọc `access-admin-secrets` ở chế độ read-only, từ chối đường dẫn qua symlink, rồi ghi `clients.env` (`POLARIS_<WORKLOAD>_CLIENT_ID`/`_CLIENT_SECRET`) với file `0600`, thư mục `0700`, chủ là UID/GID của consumer, kèm `fsync`. Phân công workload → principal và audit của exporter nằm trong `credential-export-state`. `platform-app` không mount volume của consumer.
+4. Consumer đọc file khi khởi động, đăng nhập Polaris; khi mở một bảng, Polaris kiểm tra quyền theo role rồi xin MinIO STS credential S3 tạm chỉ cho bảng đó. Workload không giữ key MinIO.
 
 UI cho xem trạng thái file/ownership và principal đã cấp. Thay file đã có cần xác nhận; gỡ cần nhập đúng workload. Principal còn được phân công bị chặn xóa. Consumer giữ credential trong bộ nhớ cần khởi động lại hoặc submit lại job để áp dụng. Gỡ file không tự thu hồi quyền/secret trên Polaris.
 
