@@ -28,6 +28,8 @@ SELECT
   CAST(store_id AS bigint) AS store_id,
   CAST(channel AS varchar) AS channel,
   CAST(staff_id AS bigint) AS staff_id,
+  coalesce(CAST(_is_deleted AS boolean), false) AS _is_deleted,
+  CAST(_deleted_at AS timestamp(6) with time zone) AS _deleted_at,
   CAST(_ingested_at AS timestamp(6) with time zone) AS _ingested_at
 FROM {{ source('bronze', 'orders') }}
 {% if is_incremental() %}

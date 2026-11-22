@@ -10,6 +10,8 @@ SELECT
   CAST(transition_idempotency_key AS varchar) AS transition_idempotency_key,
   CAST(transitioned_at AS timestamp(6) with time zone) AS transitioned_at,
   CAST(created_at AS timestamp(6) with time zone) AS created_at,
+  coalesce(CAST(_is_deleted AS boolean), false) AS _is_deleted,
+  CAST(_deleted_at AS timestamp(6) with time zone) AS _deleted_at,
   CAST(_ingested_at AS timestamp(6) with time zone) AS _ingested_at
 FROM {{ source('bronze', 'order_status_history') }}
 {% if is_incremental() %}

@@ -12,6 +12,8 @@ SELECT
   CAST(inspection_status AS varchar) AS inspection_status,
   CAST(created_at AS timestamp(6) with time zone) AS created_at,
   CAST(updated_at AS timestamp(6) with time zone) AS updated_at,
+  coalesce(CAST(_is_deleted AS boolean), false) AS _is_deleted,
+  CAST(_deleted_at AS timestamp(6) with time zone) AS _deleted_at,
   CAST(_ingested_at AS timestamp(6) with time zone) AS _ingested_at
 FROM {{ source('bronze', 'return_items') }}
 {% if is_incremental() %}
