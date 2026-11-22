@@ -90,7 +90,7 @@ Không đổi: reconcile so phần extract trong staging với nguồn, và stag
 
 - `schedule=None`, chỉ chạy tay.
 - Xoá cứng mọi dòng `_is_deleted` ở Gold, rồi Silver, rồi Bronze, theo thứ tự từ dưới lên để không tầng nào đọc lại dòng đã mất.
-- Từ chối chạy (task đầu báo lỗi) nếu incremental hoặc sync đang chạy, hoặc nếu Gold chưa xử lý hết dòng xoá mới nhất ở Silver (so `_ingested_at`).
+- Không có điều kiện chặn: người vận hành tự trigger khi incremental và sync đang nghỉ.
 - Mart không đổi số liệu sau khi purge, vì chúng vốn đã bỏ dòng đã xoá.
 
 ## 6. Idempotency

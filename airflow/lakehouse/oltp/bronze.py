@@ -136,3 +136,14 @@ def merge_bronze(catalog, table, *, full):
         written = upsert_table(target, reader, transform, schema, table)
     print(f"BRONZE table={table.name} rows={written} full={full}", flush=True)
     return written
+
+
+def purge_bronze(catalog, table):
+    """Delete the rows flagged as deleted for good, and return how many there were."""
+    target = load_table(catalog, ("bronze", table.name))
+    flagged = EqualTo("_is_deleted", True)
+    count = target.scan(row_filter=flagged, selected_fields=(table.pk,)).to_arrow().num_rows
+    if count:
+        target.delete(flagged)
+    print(f"PURGE table=bronze.{table.name} rows={count}", flush=True)
+    return count

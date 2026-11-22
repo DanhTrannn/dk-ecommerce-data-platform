@@ -22,7 +22,7 @@ class DagTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.init, cls.incremental = load_dag("lakehouse_oltp_init"), load_dag("lakehouse_oltp_incremental")
-        cls.sync = load_dag("lakehouse_oltp_sync")
+        cls.sync, cls.purge = load_dag("lakehouse_oltp_sync"), load_dag("lakehouse_oltp_purge")
 
     def test_only_init_creates_tables_and_reconciles(self):
         self.assertEqual([task.task_id for task in self.init.roots], ["create_schema"])
@@ -49,8 +49,13 @@ class DagTests(unittest.TestCase):
         self.assertIn("gold.fact_order", self.sync.task_dict)
         self.assertIn("maintenance.orphan", self.sync.task_dict)
 
+    def test_purge_runs_by_hand_from_gold_down_to_bronze(self):
+        self.assertIsNone(self.purge.schedule)
+        downstream = self.purge.task_dict["silver_gold"].get_flat_relative_ids(upstream=False)
+        self.assertEqual(downstream, {f"bronze.{table.name}" for table in SOURCE_TABLES})
+
     def test_every_python_task_gets_its_arguments_from_airflow(self):
-        for dag in (self.init, self.incremental, self.sync):
+        for dag in (self.init, self.incremental, self.sync, self.purge):
             for task in dag.tasks:
                 if isinstance(task, PythonOperator):
                     context = {key: object() for key in CONTEXT_KEYS} | task.op_kwargs

@@ -4,7 +4,7 @@ from datetime import timedelta
 import pyarrow as pa
 
 from iceberg_fixture import AT, TABLES, category, create_tables, page, sql_catalog
-from lakehouse.oltp.bronze import live_keys, mark_deleted, merge_bronze
+from lakehouse.oltp.bronze import live_keys, mark_deleted, merge_bronze, purge_bronze
 from lakehouse.oltp.staging import write_staging
 
 CATEGORIES = TABLES["categories"]
@@ -73,6 +73,19 @@ class BronzeTests(unittest.TestCase):
         later = AT + timedelta(days=1)
         self.load([category(3)], full=True, at=later)
         self.assertEqual(self.flags(), {1: (True, AT), 2: (True, later), 3: (False, None)})
+
+
+    def test_purge_bronze_removes_only_flagged_rows(self):
+        self.load([category(1), category(2), category(3)], full=True)
+        mark_deleted(self.catalog, CATEGORIES, pa.array([2]), AT, AT)
+        self.assertEqual(purge_bronze(self.catalog, CATEGORIES), 1)
+        self.assertEqual(self.flags(), {1: (False, None), 3: (False, None)})
+
+    def test_purge_bronze_twice_deletes_nothing_the_second_time(self):
+        self.load([category(1), category(2)], full=True)
+        mark_deleted(self.catalog, CATEGORIES, pa.array([2]), AT, AT)
+        purge_bronze(self.catalog, CATEGORIES)
+        self.assertEqual(purge_bronze(self.catalog, CATEGORIES), 0)
 
 
 if __name__ == "__main__":

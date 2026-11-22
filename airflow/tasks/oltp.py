@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.sdk import Asset
 
-from lakehouse.oltp.bronze import merge_bronze
+from lakehouse.oltp.bronze import merge_bronze, purge_bronze
 from lakehouse.oltp.reconcile import reconcile_table, source_reconciliation
 from lakehouse.oltp.schema import MART_STATE, create_oltp_schema
 from lakehouse.oltp.sources import SOURCE_TABLES, TABLES_BY_NAME
@@ -72,6 +72,10 @@ def bronze_full(table):
 
 def bronze_incremental(table):
     merge_bronze(iceberg_catalog(), TABLES_BY_NAME[table], full=False)
+
+
+def purge(table):
+    purge_bronze(iceberg_catalog(), TABLES_BY_NAME[table])
 
 
 def reconcile(table, dag_run):
