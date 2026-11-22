@@ -107,6 +107,23 @@ services:
       retries: 20
     networks: ["lakehouse-network"]
 
+  minio-init:
+    image: cgr.dev/chainguard/minio:latest-dev
+    profiles: ["core"]
+    entrypoint: ["/bin/sh", "/opt/minio/init.sh"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
+      MINIO_POLARIS_ACCESS_KEY: ${MINIO_POLARIS_ACCESS_KEY:?set MINIO_POLARIS_ACCESS_KEY}
+      MINIO_POLARIS_SECRET_KEY: ${MINIO_POLARIS_SECRET_KEY:?set MINIO_POLARIS_SECRET_KEY}
+    volumes:
+      - ./infrastructure/minio:/opt/minio:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks: ["lakehouse-network"]
+
   postgres:
     image: postgres:16.8
     profiles: ["core"]
@@ -194,8 +211,8 @@ services:
       - "${POLARIS_BIND_ADDRESS:-127.0.0.1}:${POLARIS_API_PORT:-8181}:8181"
       - "${POLARIS_BIND_ADDRESS:-127.0.0.1}:${POLARIS_MANAGEMENT_PORT:-8182}:8182"
     depends_on:
-      minio:
-        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       polaris-bootstrap:
         condition: service_completed_successfully
     healthcheck:
@@ -398,8 +415,6 @@ services:
       POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
       POLARIS_ROOT_CLIENT_ID: ${POLARIS_ROOT_CLIENT_ID:-root}
       POLARIS_ROOT_CLIENT_SECRET: ${POLARIS_ROOT_CLIENT_SECRET:?set POLARIS_ROOT_CLIENT_SECRET}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
       SCENARIO_API_BASE_URL: ${SCENARIO_API_BASE_URL:-http://127.0.0.1:8000}
       SCENARIO_HTTP_TIMEOUT_SECONDS: ${SCENARIO_HTTP_TIMEOUT_SECONDS:-15}
       KAFKA_ENABLED: ${KAFKA_ENABLED:-false}

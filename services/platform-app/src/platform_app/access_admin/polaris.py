@@ -3,7 +3,6 @@
 import os
 import re
 import tempfile
-from copy import deepcopy
 from urllib.parse import quote
 
 from platform_app.api.core.errors import AppError
@@ -330,19 +329,11 @@ class PolarisAccess:
         }[change.kind]
 
     def validate_mutation(self, change, state):
-        self._validated_mutation = None
-        self._mutation_preserved = None
+        """Check the change and return the body of an update, or None for a delete."""
         if (
-            change.kind not in {"principal", "principal_role", "catalog_role", "catalog"}
-            or change.operation not in {"update", "delete"}
-            or not editable_name(change.name)
-            or change.name.lower() in PROTECTED_ROLES
+            change.name.lower() in PROTECTED_ROLES
             or change.name == self.settings.polaris_client_id
             or (change.kind == "catalog" and change.name != self.settings.polaris_catalog)
-            or change.enabled is not None
-            or change.bucket is not None
-            or change.prefixes
-            or change.actions
         ):
             raise AppError("INVALID_RESOURCE", "Đối tượng hoặc thao tác Polaris không hợp lệ hoặc được bảo vệ.", 400)
         if any(self._reserved_property(key) for key in change.properties):
@@ -352,27 +343,14 @@ class PolarisAccess:
         item = self._mutation_item(change, state)
         if item is None:
             raise AppError("ACCESS_RESOURCE_MISSING", "Đối tượng Polaris không còn tồn tại.", 404)
-        payload = None
-        if change.operation == "update":
-            version = item.get("entityVersion")
-            if not isinstance(version, int) or isinstance(version, bool):
-                raise AppError("ACCESS_STALE", "Thiếu phiên bản đối tượng Polaris; tải lại trạng thái.", 409)
-            properties = {
-                key: value for key, value in (item.get("properties") or {}).items() if self._reserved_property(key)
-            }
-            properties.update(change.properties)
-            payload = {"currentEntityVersion": version, "properties": properties}
-            self._mutation_preserved = {
-                "properties": {key: value for key, value in properties.items() if self._reserved_property(key)},
-                "catalog": deepcopy({key: item.get(key) for key in ("type", "storageConfigInfo")})
-                if change.kind == "catalog"
-                else None,
-            }
-        else:
-            if change.properties:
-                raise AppError("INVALID_RESOURCE", "Xóa đối tượng không nhận thuộc tính cập nhật.", 400)
+        if change.operation == "delete":
             self._validate_delete_dependencies(change)
-        self._validated_mutation = (change.kind, change.name, change.operation, dict(change.properties), payload)
+            return None
+        version = item.get("entityVersion")
+        if not isinstance(version, int) or isinstance(version, bool):
+            raise AppError("ACCESS_STALE", "Thiếu phiên bản đối tượng Polaris; tải lại trạng thái.", 409)
+        properties = {key: value for key, value in (item.get("properties") or {}).items() if self._reserved_property(key)}
+        return {"currentEntityVersion": version, "properties": {**properties, **change.properties}}
 
     def _validate_delete_dependencies(self, change):
         path = self._mutation_path(change)
@@ -411,41 +389,12 @@ class PolarisAccess:
                 ]
                 require_empty([grant for grant in grants if grant not in builtin_grants])
 
-    def mutate(self, change):
-        validated = getattr(self, "_validated_mutation", None)
-        if validated is None or validated[:4] != (change.kind, change.name, change.operation, change.properties):
-            raise AppError("INVALID_RESOURCE", "Phải kiểm tra đối tượng trước khi thay đổi Polaris.", 400)
-        self._validated_mutation = None
+    def mutate(self, change, payload):
         path = self._mutation_path(change)
-        if change.operation == "delete":
-            return self.client.call("DELETE", path)
-        return self.client.call("PUT", path, validated[4])
-
-    def mutation_matches(self, change, after):
-        item = self._mutation_item(change, after)
-        if change.operation == "delete":
-            return item is None
-        preserved = getattr(self, "_mutation_preserved", None)
-        if item is not None and preserved is not None:
-            if {
-                key: value for key, value in (item.get("properties") or {}).items() if self._reserved_property(key)
-            } != preserved["properties"]:
-                return False
-            if (
-                change.kind == "catalog"
-                and {key: item.get(key) for key in ("type", "storageConfigInfo")} != preserved["catalog"]
-            ):
-                return False
-        return (
-            item is not None
-            and {
-                key: value for key, value in (item.get("properties") or {}).items() if not self._reserved_property(key)
-            }
-            == change.properties
-        )
-
-    def finalize_mutation(self, change, after):
-        if change.kind == "principal" and change.operation == "delete" and self.mutation_matches(change, after):
+        if change.operation == "update":
+            return self.client.call("PUT", path, payload)
+        self.client.call("DELETE", path)
+        if change.kind == "principal":
             (self.settings.credentials_dir / (change.name + ".json")).unlink(missing_ok=True)
 
     def saved_credentials(self, name):

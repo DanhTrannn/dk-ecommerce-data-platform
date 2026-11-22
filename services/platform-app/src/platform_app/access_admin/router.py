@@ -1,5 +1,3 @@
-from typing import Literal
-
 from fastapi import APIRouter, Depends, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -21,13 +19,14 @@ from platform_app.access_admin.schemas import (
     editable_name,
 )
 from platform_app.access_admin.service import (
-    adapter,
     change_binding,
     configured_audit,
-    snapshot,
     create_resource,
     mutate_resource,
+    polaris,
+    snapshot,
 )
+from platform_app.access_admin.workloads import ExporterClient, assign_workload, guard_principal_delete
 
 
 class AccessRoute(APIRoute):
@@ -94,42 +93,24 @@ def read_audit(customer=Depends(require_admin)):
     return configured_audit().recent()
 
 
-@router.get("/{provider}")
-def read_access(provider: Literal["polaris", "minio"], customer=Depends(require_admin)):
-    with adapter(provider) as backend:
+@router.get("/polaris")
+def read_access(customer=Depends(require_admin)):
+    with polaris() as backend:
         return snapshot(backend)
 
 
-@router.post("/{provider}/bindings")
-def write_access(
-    provider: Literal["polaris", "minio"],
-    payload: BindingChange,
-    customer=Depends(require_admin),
-    csrf=Depends(verify_csrf),
-):
-    # Provider/kind mismatch is rejected before reading administrative credentials.
-    if (provider == "minio") != (payload.kind == "policy"):
-        from platform_app.api.core.errors import AppError
-
-        raise AppError("INVALID_BINDING", "Loại liên kết không khớp hệ thống.", 400)
-    with adapter(provider) as backend:
+@router.post("/polaris/bindings")
+def write_access(payload: BindingChange, customer=Depends(require_admin), csrf=Depends(verify_csrf)):
+    with polaris() as backend:
         return change_binding(backend, payload, customer, configured_audit())
 
 
-@router.post("/{provider}/resources", status_code=201)
+@router.post("/polaris/resources", status_code=201)
 def create_access_resource(
-    provider: Literal["polaris", "minio"],
-    payload: ResourceCreate,
-    response: Response,
-    customer=Depends(require_admin),
-    csrf=Depends(verify_csrf),
+    payload: ResourceCreate, response: Response, customer=Depends(require_admin), csrf=Depends(verify_csrf)
 ):
-    if (provider == "minio") != (payload.kind in {"user", "bucket", "policy"}):
-        from platform_app.api.core.errors import AppError
-
-        raise AppError("INVALID_RESOURCE", "Loại đối tượng không khớp hệ thống.", 400)
     response.headers["Cache-Control"] = "no-store"
-    with adapter(provider) as backend:
+    with polaris() as backend:
         return create_resource(backend, payload, customer, configured_audit())
 
 
@@ -151,7 +132,7 @@ def read_principal_credentials(
                 "status": "started",
             }
         )
-        with adapter("polaris") as backend:
+        with polaris() as backend:
             credentials = backend.saved_credentials(name)
         audit.append(
             {
@@ -165,25 +146,15 @@ def read_principal_credentials(
     return {"credentials": credentials}
 
 
-@router.patch("/{provider}/resources")
+@router.patch("/polaris/resources")
 def mutate_access_resource(
-    provider: Literal["polaris", "minio"],
-    payload: ResourceMutation,
-    response: Response,
-    customer=Depends(require_admin),
-    csrf=Depends(verify_csrf),
+    payload: ResourceMutation, response: Response, customer=Depends(require_admin), csrf=Depends(verify_csrf)
 ):
-    if (provider == "minio") != (payload.kind in {"user", "bucket", "policy"}):
-        from platform_app.api.core.errors import AppError
-
-        raise AppError("INVALID_RESOURCE", "Loại đối tượng không khớp hệ thống.", 400)
     response.headers["Cache-Control"] = "no-store"
-    with adapter(provider) as backend:
-        from platform_app.access_admin.workloads import guard_principal_delete
-
+    with polaris() as backend:
         preflight = (
             (lambda: guard_principal_delete(payload.name, customer, backend=backend))
-            if provider == "polaris" and payload.kind == "principal" and payload.operation == "delete"
+            if payload.kind == "principal" and payload.operation == "delete"
             else None
         )
         return mutate_resource(backend, payload, customer, configured_audit(), preflight=preflight)
@@ -191,8 +162,6 @@ def mutate_access_resource(
 
 @router.get("/polaris/workload-credentials")
 def read_workload_credentials(response: Response, customer=Depends(require_admin)):
-    from platform_app.access_admin.workloads import ExporterClient
-
     response.headers["Cache-Control"] = "no-store"
     return ExporterClient().snapshot(customer)
 
@@ -201,7 +170,5 @@ def read_workload_credentials(response: Response, customer=Depends(require_admin
 def write_workload_credentials(
     payload: WorkloadAssignment, response: Response, customer=Depends(require_admin), csrf=Depends(verify_csrf)
 ):
-    from platform_app.access_admin.workloads import assign_workload
-
     response.headers["Cache-Control"] = "no-store"
     return assign_workload(payload, customer, configured_audit())

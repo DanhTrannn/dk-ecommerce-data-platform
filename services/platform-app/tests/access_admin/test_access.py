@@ -11,21 +11,19 @@ from pydantic import ValidationError
 from streamlit.testing.v1 import AppTest
 
 from platform_app.access_admin.audit import Audit
-from platform_app.access_admin.minio import MinioAccess
 from platform_app.access_admin.polaris import PolarisAccess
-from platform_app.access_admin.schemas import BindingChange
-from platform_app.access_admin.service import change_binding, snapshot
+from platform_app.access_admin.schemas import BindingChange, ResourceCreate, ResourceMutation
+from platform_app.access_admin.service import change_binding
 from platform_app.access_admin.settings import AccessSettings
 from platform_app.api.core.errors import AppError
 from platform_app.ui.access_client import AccessSession, AccessUIError
 
 
 class MemoryAccess:
+    """Fake Polaris holding one principal and its principal roles."""
+
     def __init__(self):
-        self.state = {
-            "users": [{"name": "lakehouse-trino", "policies": ["lakehouse-trino"]}],
-            "policies": [{"name": "lakehouse-trino"}, {"name": "lakehouse-batch"}],
-        }
+        self.state = {"principals": [{"name": "trino_reader", "roles": ["reader"]}]}
         self.calls = 0
         self.failure = False
 
@@ -33,17 +31,17 @@ class MemoryAccess:
         return copy.deepcopy(self.state)
 
     def assigned(self, change, state):
-        if change.subject != "lakehouse-trino" or change.target not in {"lakehouse-batch", "lakehouse-trino"}:
+        if change.subject != "trino_reader" or change.target not in {"reader", "writer"}:
             raise AppError("INVALID_BINDING", "Unsupported", 400)
-        return change.target in state["users"][0]["policies"]
+        return change.target in state["principals"][0]["roles"]
 
     def apply(self, change):
         self.calls += 1
-        policies = self.state["users"][0]["policies"]
+        roles = self.state["principals"][0]["roles"]
         if change.granted:
-            policies.append(change.target)
+            roles.append(change.target)
         else:
-            policies.remove(change.target)
+            roles.remove(change.target)
         if self.failure:
             raise RuntimeError("private-root-secret")
 
@@ -56,44 +54,28 @@ class AccessServiceTests(unittest.TestCase):
         self.backend = MemoryAccess()
         self.actor = SimpleNamespace(public_id="actor-id", role="system_admin")
 
-    def change(self, granted=True, target="lakehouse-batch"):
-        return BindingChange(
-            kind="policy",
-            subject="lakehouse-trino",
-            target=target,
-            granted=granted,
-            revision=snapshot(self.backend)["revision"],
-        )
+    def change(self, granted=True, target="writer", subject="trino_reader"):
+        return BindingChange(kind="principal_role", subject=subject, target=target, granted=granted)
 
-    def test_apply_readback_audit_and_remove(self):
-        change = self.change()
-        self.assertEqual(change_binding(self.backend, change, self.actor, self.audit)["status"], "verified")
-        self.assertEqual(change_binding(self.backend, self.change(False), self.actor, self.audit)["status"], "verified")
+    def test_apply_audit_and_remove(self):
+        self.assertEqual(change_binding(self.backend, self.change(), self.actor, self.audit)["status"], "done")
+        self.assertEqual(change_binding(self.backend, self.change(False), self.actor, self.audit)["status"], "done")
         self.assertEqual(self.backend.calls, 2)
-        self.assertEqual([row["status"] for row in self.audit.recent()], ["verified", "started", "verified", "started"])
+        self.assertEqual([row["status"] for row in self.audit.recent()], ["done", "started", "done", "started"])
         self.assertEqual(self.audit.path.stat().st_mode & 0o777, 0o600)
 
-    def test_stale_revision_does_not_write(self):
-        change = self.change()
-        self.backend.state["users"][0]["policies"].append("another-policy")
-        with self.assertRaises(AppError) as error:
-            change_binding(self.backend, change, self.actor, self.audit)
-        self.assertEqual(error.exception.status_code, 409)
+    def test_existing_binding_is_not_sent_again(self):
+        change_binding(self.backend, self.change(True, "reader"), self.actor, self.audit)
         self.assertEqual(self.backend.calls, 0)
 
-    def test_noop_does_not_repeat_upstream(self):
-        result = change_binding(self.backend, self.change(True, "lakehouse-trino"), self.actor, self.audit)
-        self.assertEqual(result["status"], "noop")
-        self.assertEqual(self.backend.calls, 0)
-
-    def test_unknown_outcome_redacts_error_and_does_not_retry(self):
+    def test_failure_redacts_error_and_does_not_retry(self):
         self.backend.failure = True
         with self.assertRaises(AppError) as error:
             change_binding(self.backend, self.change(), self.actor, self.audit)
         self.assertEqual(error.exception.status_code, 502)
         self.assertNotIn("private-root-secret", str(error.exception))
         self.assertEqual(self.backend.calls, 1)
-        self.assertEqual(self.audit.recent()[0]["status"], "unknown")
+        self.assertEqual(self.audit.recent()[0]["status"], "failed")
 
     def test_unwritable_audit_prevents_mutation(self):
         with patch.object(self.audit, "append", side_effect=OSError("private-path")):
@@ -105,59 +87,31 @@ class AccessServiceTests(unittest.TestCase):
     def test_post_apply_journal_failure_is_not_success(self):
         append = self.audit.append
 
-        def fail_verified(record):
-            if record["status"] == "verified":
+        def fail_done(record):
+            if record["status"] == "done":
                 raise OSError("disk failure")
             append(record)
 
-        with patch.object(self.audit, "append", side_effect=fail_verified):
+        with patch.object(self.audit, "append", side_effect=fail_done):
             with self.assertRaises(AppError) as error:
                 change_binding(self.backend, self.change(), self.actor, self.audit)
         self.assertEqual(error.exception.status_code, 503)
         self.assertEqual(self.backend.calls, 1)
 
-    def test_root_subject_rejected(self):
-        change = self.change().model_copy(update={"subject": "root"})
+    def test_unknown_subject_is_rejected_without_writing(self):
         with self.assertRaises(AppError):
-            change_binding(self.backend, change, self.actor, self.audit)
+            change_binding(self.backend, self.change(subject="someone_else"), self.actor, self.audit)
         self.assertEqual(self.backend.calls, 0)
+        self.assertEqual(self.audit.recent()[0]["status"], "rejected")
+
+    def test_minio_resources_are_not_accepted(self):
+        with self.assertRaises(ValidationError):
+            ResourceCreate(kind="user", name="lakehouse-batch")
+        with self.assertRaises(ValidationError):
+            ResourceCreate(kind="catalog", name="lakehouse")
 
 
 class AdapterTests(unittest.TestCase):
-    def test_mc_secret_environment_only_and_error_redacted(self):
-        seen = []
-
-        def runner(command, **kwargs):
-            seen.append((command, kwargs))
-            return SimpleNamespace(returncode=1, stdout="private-root-secret", stderr="private-root-secret")
-
-        settings = AccessSettings(minio_user="root", minio_secret="private-root-secret", _env_file=None)
-        backend = MinioAccess(settings, runner=runner)
-        with self.assertRaises(AppError) as error:
-            backend.command("admin", "policy", "list", "accessadmin")
-        self.assertNotIn("private-root-secret", str(error.exception))
-        self.assertFalse(any("private-root-secret" in part for part in seen[0][0]))
-        self.assertIn("private-root-secret", seen[0][1]["env"]["MC_HOST_accessadmin"])
-        self.assertEqual(len(seen), 1)
-
-    def test_minio_policy_order_does_not_create_a_stale_revision(self):
-        from platform_app.access_admin.minio import canonical_policy
-        from platform_app.access_admin.service import revision
-
-        first = {
-            "Statement": [
-                {"Action": ["s3:PutObject", "s3:GetObject"], "Resource": ["b", "a"]},
-                {"Action": ["s3:ListBucket"]},
-            ]
-        }
-        second = {
-            "Statement": [
-                {"Action": ["s3:ListBucket"]},
-                {"Resource": ["a", "b"], "Action": ["s3:GetObject", "s3:PutObject"]},
-            ]
-        }
-        self.assertEqual(revision(canonical_policy(first)), revision(canonical_policy(second)))
-
     def test_polaris_filters_secrets_and_protected_roles(self):
         class Client:
             def call(self, method, path, missing=False):
@@ -182,13 +136,9 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual([item["name"] for item in state["principals"]], ["trino_reader"])
         self.assertNotIn("catalog_admin", [item["name"] for item in state["catalog_roles"]])
         with self.assertRaises(ValidationError):
-            BindingChange(
-                kind="principal_role", subject="root", target="trino_reader_role", granted=True, revision="0" * 64
-            )
+            BindingChange(kind="principal_role", subject="root", target="trino_reader_role", granted=True)
 
     def test_polaris_catalog_vends_credentials_through_minio_sts(self):
-        from platform_app.access_admin.schemas import ResourceCreate
-
         sent = []
 
         class Client:
@@ -197,7 +147,7 @@ class AdapterTests(unittest.TestCase):
                 return {}
 
         settings = AccessSettings(minio_url="http://minio:9000", _env_file=None)
-        change = ResourceCreate(kind="catalog", name="lakehouse", revision="0" * 64, bucket="lakehouse")
+        change = ResourceCreate(kind="catalog", name="lakehouse", bucket="lakehouse")
         PolarisAccess(settings, client=Client()).create(change)
         method, path, body = sent[0]
         storage = body["catalog"]["storageConfigInfo"]
@@ -205,6 +155,23 @@ class AdapterTests(unittest.TestCase):
         self.assertFalse(storage["stsUnavailable"])
         self.assertEqual(storage["stsEndpoint"], "http://minio:9000")
         self.assertEqual(storage["allowedLocations"], ["s3://lakehouse/"])
+
+    def test_deleting_a_principal_removes_its_saved_credential(self):
+        sent = []
+
+        class Client:
+            def call(self, method, path, body=None):
+                sent.append((method, path))
+                return {}
+
+        with tempfile.TemporaryDirectory() as directory:
+            settings = AccessSettings(credentials_dir=Path(directory), _env_file=None)
+            saved = Path(directory) / "trino_reader.json"
+            saved.write_text("{}")
+            change = ResourceMutation(kind="principal", name="trino_reader", operation="delete", confirm_name="trino_reader")
+            PolarisAccess(settings, client=Client()).mutate(change, None)
+            self.assertEqual(sent, [("DELETE", "/api/management/v1/principals/trino_reader")])
+            self.assertFalse(saved.exists())
 
 
 class AccessClientTests(unittest.TestCase):
@@ -225,7 +192,7 @@ class AccessClientTests(unittest.TestCase):
         self.addCleanup(session.close)
         session.login("admin@example.com", "password")
         with self.assertRaises(AccessUIError):
-            session.request("POST", "minio/bindings", {})
+            session.request("POST", "polaris/bindings", {})
         self.assertEqual(calls[-1].headers["X-CSRF-Token"], "csrf-value")
         self.assertIn("auth=token", calls[-1].headers["cookie"])
         self.assertEqual(len(calls), 2)
@@ -255,7 +222,6 @@ class AccessViewTests(unittest.TestCase):
                     return {"role": "admin"}
                 if path == "polaris":
                     return {
-                        "revision": "0" * 64,
                         "catalog": "lakehouse",
                         "catalog_exists": True,
                         "principals": [{"name": "trino_reader", "roles": []}],
@@ -278,7 +244,7 @@ class AccessViewTests(unittest.TestCase):
                         ],
                     }
                 if path.endswith("/bindings"):
-                    return {"status": "verified", "operation_id": "operation"}
+                    return {"status": "done", "operation_id": "operation"}
                 return []
 
         app = AppTest.from_string("from platform_app.ui.views.access import render\nrender()")

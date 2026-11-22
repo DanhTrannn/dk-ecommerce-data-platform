@@ -8,7 +8,8 @@ import httpx
 
 from platform_app.api.core.errors import AppError
 from platform_app.access_admin.settings import AccessSettings
-from platform_app.access_admin.service import adapter
+from platform_app.access_admin.service import polaris
+from platform_app.credential_export.auth import make_token
 
 
 def credential_digest(value):
@@ -21,8 +22,6 @@ class ExporterClient:
         self.transport = transport
 
     def _request(self, method, path, actor, payload=None):
-        from platform_app.credential_export.auth import make_token
-
         try:
             file = self.settings.export_key_file
             metadata = file.lstat()
@@ -96,7 +95,7 @@ def assign_workload(change, actor, audit, exporter=None):
         with audit.lock():
             payload = change.model_dump(mode="json")
             if change.action == "assign":
-                with adapter("polaris") as backend:
+                with polaris() as backend:
                     credential = backend.saved_credentials(change.principal)
                 payload["credential_fingerprint"] = credential_digest(credential)
             audit.append({**record, "status": "started"})
@@ -145,8 +144,8 @@ def guard_principal_delete(name, actor, exporter=None, *, backend=None):
             409,
         )
     if backend is None:
-        with adapter("polaris") as polaris:
-            return guard_principal_delete(name, actor, exporter, backend=polaris)
+        with polaris() as backend:
+            return guard_principal_delete(name, actor, exporter, backend=backend)
     principal = backend.client.call("GET", backend.base + "/principals/" + quote(name, safe=""))
     client_id = principal.get("clientId")
     if not client_id:

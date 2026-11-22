@@ -3,6 +3,7 @@
 from urllib.parse import urlsplit
 
 import httpx
+import streamlit as st
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -68,3 +69,16 @@ class AccessSession:
         identity = self.request("POST", "login", {"email": email, "password": password})
         self.csrf_cookie = identity["csrf_cookie_name"]
         return identity
+
+
+SESSION = "access_admin_session"
+SESSION_KEYS = ("access_polaris", "access_identity", "access_created_credentials", "access_workload_state")
+
+
+def clear_session():
+    """Close the admin session and forget everything read with it."""
+    session = st.session_state.pop(SESSION, None)
+    if session:
+        session.close()
+    for key in SESSION_KEYS:
+        st.session_state.pop(key, None)

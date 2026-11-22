@@ -1,26 +1,15 @@
-"""Manage MinIO/Polaris resources, bindings and workload credential assignments."""
+"""Manage Polaris resources, bindings and workload credential assignments."""
 
 import streamlit as st
 
+from platform_app.ui.access_client import (
+    SESSION,
+    AccessSession,
+    AccessUIError,
+    AccessUISettings,
+    clear_session,
+)
 from platform_app.ui.views import access_create, access_manage, access_workloads
-from platform_app.ui.access_client import AccessSession, AccessUIError, AccessUISettings
-
-SESSION = "access_admin_session"
-
-
-def _clear():
-    session = st.session_state.pop(SESSION, None)
-    if session:
-        session.close()
-    for key in (
-        "access_polaris",
-        "access_minio",
-        "access_identity",
-        "access_created_credentials",
-        "access_policy_preview",
-        "access_workload_state",
-    ):
-        st.session_state.pop(key, None)
 
 
 def _login():
@@ -28,7 +17,7 @@ def _login():
     try:
         session = AccessSession(AccessUISettings().access_admin_url)
         identity = session.login(st.session_state.get("access_email", ""), st.session_state.get("access_password", ""))
-        _clear()
+        clear_session()
         st.session_state[SESSION] = session
         st.session_state["access_identity"] = identity
     except AccessUIError as error:
@@ -43,28 +32,27 @@ def _login():
         st.session_state["access_password"] = ""
 
 
-def _apply(provider, kind, subject, target, granted, state, *, scope="catalog", namespace=None, table=None):
+def _apply(kind, subject, target, granted, *, scope="catalog", namespace=None, table=None):
     try:
         result = st.session_state[SESSION].request(
             "POST",
-            provider + "/bindings",
+            "polaris/bindings",
             {
                 "kind": kind,
                 "subject": subject,
                 "target": target,
                 "granted": granted,
-                "revision": state["revision"],
                 "scope": scope,
                 "namespace": namespace or [],
                 "table": table,
             },
         )
-        st.session_state["access_flash"] = f"Đã xác minh thao tác: {result['status']} · {result['operation_id']}"
+        st.session_state["access_flash"] = f"Đã áp dụng: {result['status']} · {result['operation_id']}"
     except AccessUIError as error:
         st.session_state["access_error"] = str(error)
         if error.status in {401, 403}:
-            _clear()
-    st.session_state.pop("access_" + provider, None)
+            clear_session()
+    st.session_state.pop("access_polaris", None)
     st.rerun()
 
 
@@ -121,48 +109,14 @@ def _polaris(state):
         action = st.radio("Thao tác Polaris", ("Gán", "Gỡ"), horizontal=True)
         if st.form_submit_button("Áp dụng Polaris"):
             _apply(
-                "polaris",
                 selected,
                 subject,
                 value,
                 action == "Gán",
-                state,
                 scope=scope,
                 namespace=namespace.split(".") if namespace else [],
                 table=table,
             )
-
-
-def _minio(state):
-    st.caption("Buckets: " + ", ".join(state.get("buckets", [])))
-    st.caption(
-        "Policy trực tiếp và group membership được hiển thị riêng. Gỡ policy trực tiếp không loại bỏ quyền kế thừa từ group hoặc policy khác."
-    )
-    st.dataframe(
-        [
-            {
-                "Account": row["name"],
-                "Trạng thái": row["status"],
-                "Policy trực tiếp": ", ".join(row["policies"]),
-                "Groups": ", ".join(row["groups"]),
-            }
-            for row in state["users"]
-        ],
-        hide_index=True,
-    )
-    with st.expander("Xem policy hiện có"):
-        for policy in state["policies"]:
-            st.write(policy["name"])
-            st.json(policy["document"])
-    if not state["users"] or not state["policies"]:
-        st.info("Tạo account và policy ở phần Tạo mới trước khi gán quyền.")
-        return
-    with st.form("minio-binding"):
-        user = st.selectbox("Account MinIO", [row["name"] for row in state["users"]])
-        policy = st.selectbox("Policy", [row["name"] for row in state["policies"]])
-        action = st.radio("Thao tác MinIO", ("Gán", "Gỡ"), horizontal=True)
-        if st.form_submit_button("Áp dụng MinIO"):
-            _apply("minio", "policy", user, policy, action == "Gán", state)
 
 
 def render():
@@ -185,7 +139,7 @@ def render():
         st.error(str(error))
         if error.status in {401, 403}:
             st.session_state["access_error"] = str(error)
-            _clear()
+            clear_session()
             st.rerun()
         return
     st.caption(f"Role: {identity['role']}")
@@ -194,47 +148,36 @@ def render():
             session.request("POST", "logout")
         except AccessUIError:
             pass
-        _clear()
+        clear_session()
         st.rerun()
-    provider = st.radio(
-        "Hệ thống", ("polaris", "minio"), format_func={"polaris": "Polaris", "minio": "MinIO"}.get, horizontal=True
-    )
     if st.button("Tải lại quyền"):
-        st.session_state.pop("access_" + provider, None)
+        st.session_state.pop("access_polaris", None)
         st.session_state.pop("access_workload_state", None)
     try:
-        key = "access_" + provider
-        if key not in st.session_state:
-            st.session_state[key] = session.request("GET", provider)
-        state = st.session_state[key]
-        labels = ["Danh sách", "Tạo mới", "Sửa", "Xóa", "Gán / Gỡ quyền"]
-        if provider == "polaris":
-            labels.extend(["Credential", "Cấp cho workload"])
-        tabs = st.tabs(labels)
+        if "access_polaris" not in st.session_state:
+            st.session_state["access_polaris"] = session.request("GET", "polaris")
+        state = st.session_state["access_polaris"]
+        tabs = st.tabs(["Danh sách", "Tạo mới", "Sửa", "Xóa", "Gán / Gỡ quyền", "Credential", "Cấp cho workload"])
         with tabs[0]:
-            access_manage.overview(provider, state)
+            access_manage.overview(state)
         with tabs[1]:
-            if provider == "polaris":
-                access_create.polaris(state, section="create")
-            else:
-                access_create.minio(state)
+            access_create.polaris(state, section="create")
         with tabs[2]:
-            access_manage.editor(provider, state, "update")
+            access_manage.editor(state, "update")
         with tabs[3]:
-            access_manage.editor(provider, state, "delete")
+            access_manage.editor(state, "delete")
         with tabs[4]:
-            _polaris(state) if provider == "polaris" else _minio(state)
-        if provider == "polaris":
-            with tabs[5]:
-                access_create.polaris(state, section="credentials")
-            with tabs[6]:
-                access_workloads.render(state)
+            _polaris(state)
+        with tabs[5]:
+            access_create.polaris(state, section="credentials")
+        with tabs[6]:
+            access_workloads.render(state)
         with st.expander("Audit thao tác gần đây"):
             st.dataframe(session.request("GET", "audit"), hide_index=True)
     except AccessUIError as error:
         st.error(str(error))
-        st.session_state.pop("access_" + provider, None)
+        st.session_state.pop("access_polaris", None)
         if error.status in {401, 403}:
             st.session_state["access_error"] = str(error)
-            _clear()
+            clear_session()
             st.rerun()
