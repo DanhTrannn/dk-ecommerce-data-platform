@@ -6,7 +6,8 @@ from airflow.sdk import TaskGroup
 
 DBT_PROJECT = Path("/opt/project/dbt")
 GOLD_TESTS = "path:tests/oltp"
-REF = re.compile(r"""ref\(\s*['"]([a-z0-9_]+)['"]\s*\)""")
+# Marts read Gold through the live() macro, which wraps ref(); both name a parent.
+REF = re.compile(r"""(?:ref|live)\(\s*['"]([a-z0-9_]+)['"]\s*\)""")
 
 
 def gold_seeds(project=DBT_PROJECT):

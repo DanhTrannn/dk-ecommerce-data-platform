@@ -54,6 +54,11 @@ class DagTests(unittest.TestCase):
         downstream = self.purge.task_dict["silver_gold"].get_flat_relative_ids(upstream=False)
         self.assertEqual(downstream, {f"bronze.{table.name}" for table in SOURCE_TABLES})
 
+    def test_marts_wait_for_the_facts_they_read_through_live(self):
+        for dag in (self.init, self.incremental, self.sync):
+            self.assertIn("gold.mart_reviews_daily", dag.task_dict["gold.fact_review"].get_flat_relative_ids(upstream=False))
+            self.assertIn("gold.mart_sales_daily", dag.task_dict["gold.fact_order"].get_flat_relative_ids(upstream=False))
+
     def test_every_python_task_gets_its_arguments_from_airflow(self):
         for dag in (self.init, self.incremental, self.sync, self.purge):
             for task in dag.tasks:
