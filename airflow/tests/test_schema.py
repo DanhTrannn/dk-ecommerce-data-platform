@@ -68,9 +68,10 @@ class CreateSchemaTests(unittest.TestCase):
             ["bronze", "gold", "silver", "staging"],
         )
         for table in SOURCE_TABLES:
-            for layer in ("staging", "bronze"):
-                copy = self.catalog.load_table((layer, table.name))
-                self.assertEqual(copy.schema().column_names, [*table.columns, "_ingested_at"])
+            staging = self.catalog.load_table(("staging", table.name))
+            self.assertEqual(staging.schema().column_names, [*table.columns, "_ingested_at"])
+            bronze = self.catalog.load_table(("bronze", table.name))
+            self.assertEqual(bronze.schema().column_names, [*table.columns, "_ingested_at", "_is_deleted", "_deleted_at"])
         self.assertEqual(self.catalog.load_table(MART_STATE).schema().column_names, ["mart", "watermark", "last_day"])
 
     def test_rerun_keeps_the_mart_state(self):

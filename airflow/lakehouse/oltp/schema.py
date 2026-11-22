@@ -1,5 +1,6 @@
 import pyarrow as pa
 
+from lakehouse.oltp.bronze import DELETE_FIELDS
 from lakehouse.oltp.staging import LINEAGE_FIELDS
 from lakehouse.oltp.source import arrow_source_schema
 from lakehouse.oltp.sources import SOURCE_TABLES
@@ -36,7 +37,7 @@ def create_or_evolve(catalog, key, schema, properties):
 
 def create_staging_and_bronze(catalog, table, schema):
     create_or_evolve(catalog, ("staging", table.name), schema, PROPERTIES)
-    create_or_evolve(catalog, ("bronze", table.name), schema, PROPERTIES)
+    create_or_evolve(catalog, ("bronze", table.name), pa.schema([*schema, *DELETE_FIELDS]), PROPERTIES)
 
 
 def create_oltp_schema(catalog, connection):
