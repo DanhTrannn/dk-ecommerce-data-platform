@@ -1,6 +1,8 @@
 """Delete for good the rows flagged as deleted: Gold and Silver through dbt, then Bronze.
 
-Trigger it by hand while lakehouse_oltp_incremental and lakehouse_oltp_sync are idle; it writes the same tables.
+Trigger it by hand while lakehouse_oltp_incremental and lakehouse_oltp_sync are idle, and only after a sync run
+has succeeded: a deleted row purged from Silver before Gold read its flag, or from Gold before every mart read it,
+stays live downstream until the next init.
 """
 
 from datetime import timedelta

@@ -8,7 +8,8 @@
 -- to the last built day. Built from the stock ledger only: a position's balance is the running sum of its
 -- movements. An incremental run extends every position to the new last day and rebuilds a position from its
 -- earliest new movement, or from its first day when its variant's cost changed (stock is valued at current cost).
--- A movement deleted at the source moves nothing, and a position left with no movement is flagged as deleted.
+-- A movement deleted at the source moves nothing. The days before a position's first remaining movement, or all
+-- of them when none remains, are flagged as deleted, so a purge leaves what a rebuild without them would build.
 WITH
 {% if is_incremental() %}
 built AS (
@@ -116,7 +117,12 @@ days AS (
   GROUP BY 1, 2, 3, 4
 ),
 positions AS (
-  SELECT location_type, store_id AS store_key, variant_id AS variant_key, count(*) FILTER (WHERE NOT _is_deleted) AS live_movements
+  SELECT
+    location_type,
+    store_id AS store_key,
+    variant_id AS variant_key,
+    min({{ vn_date('created_at') }}) FILTER (WHERE NOT _is_deleted) AS first_live_day,
+    max(_deleted_at) AS deleted_at
   FROM {{ ref('inventory_transactions') }}
   {% if is_incremental() %}
   WHERE variant_id IN (SELECT variant_key FROM starts)
@@ -157,8 +163,8 @@ SELECT
   CASE WHEN day = b.movement_date THEN b.adjustment_qty ELSE 0 END AS adjustment_qty,
   b.closing_qty,
   b.closing_qty * v.cost_price_vnd AS closing_value_vnd,
-  coalesce(p.live_movements, 0) = 0 AS _is_deleted,
-  CAST(NULL AS timestamp(6) with time zone) AS _deleted_at,
+  coalesce(day < p.first_live_day, true) AS _is_deleted,
+  CASE WHEN coalesce(day < p.first_live_day, true) THEN p.deleted_at END AS _deleted_at,
   {{ latest('b.position_ingested_at', 'v._ingested_at') }} AS _ingested_at
 FROM balances b
 CROSS JOIN UNNEST(sequence(b.movement_date, date_add('day', -1, b.next_movement_date))) AS calendar(day)
