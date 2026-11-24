@@ -2,9 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from platform_app.access_admin.schemas import NAME, editable_name
-
-Workload = Literal['batch-airflow', 'flink', 'trino-reader', 'trino-writer']
+from platform_app.access_admin.schemas import NAME, Workload, editable_name
 
 
 class Assignment(BaseModel):

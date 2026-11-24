@@ -34,22 +34,15 @@ uv run --locked --package platform-app -- \
 
 ## Chạy bằng Docker Compose
 
-Console nằm trong profile `core`:
+Dùng `make up` để mở toàn bộ stack. Để mở riêng Console/API khi thiết lập quyền lần đầu, chạy lệnh sau.
 
 ```bash
-# Console/API cùng dependency quản trị
-make build
-make up
-
-# Lệnh Compose tương đương
-docker compose --profile core up -d --build platform-app
+make up SERVICES=platform-app
 ```
 
 Mở `http://localhost:8501` (đổi `PLATFORM_APP_PORT` nếu cần). Thư mục host `./data` được mount vào `/data`; run mô phỏng nằm tại `./data/scenarios/`. Container chạy bằng UID/GID cấu hình trong `.env` (`PLATFORM_APP_UID`, `PLATFORM_APP_GID`) để file trên host không bị root sở hữu.
 
 Healthcheck kiểm tra cả FastAPI `/health/live` ở cổng 8000 và Streamlit `/_stcore/health` ở cổng 8501.
-
-Có thể build riêng image ứng dụng bằng `docker compose --profile core build platform-app`, không cần build toàn bộ hạ tầng.
 
 ## Biến môi trường
 
@@ -92,7 +85,7 @@ HTTP 4xx là lượt thất bại (408 được coi chưa xác định); runner 
 
 Runner hiện là kịch bản kiểm chứng nghiệp vụ, không phải sampler đã hiệu chỉnh: mỗi lượt là khách mới, một SKU và chọn hàng theo thứ tự catalog. API vẫn ghi `data_origin=manual`/`generation_run_id=NULL`; HTTP middleware ghi `observed` cho request thực sự nhận, không chứng minh hành vi người dùng thật. Run journal liên kết các giao dịch mô phỏng bằng email và idempotency key; chưa bổ sung lineage mô phỏng vào schema/API. Không suy tỷ lệ mua lại, độ phổ biến sản phẩm hay conversion tự nhiên từ kịch bản này.
 
-Compose nhận `KAFKA_ENABLED` từ môi trường, mặc định `false`; bật `true` khi dùng streaming để ghi request thực qua Kafka/Flink. Runner không tự bật producer, tải log lịch sử, gửi trực tiếp Kafka hoặc kích hoạt DAG. Khi được bật, producer tự thử kết nối lại nếu Kafka khởi động muộn và giữ lượt gửi chưa xác nhận trong DLQ dưới `data/events/`; `KAFKA_ENABLED=false` bỏ qua cả gửi Kafka lẫn ghi DLQ; replay DLQ vẫn là thao tác riêng. Xem [hướng dẫn log thực](../../docs/SETUP.md#log-api-thực). Chưa có fulfillment, hủy đơn, coupon, POS, nhập kho, đổi trả hoặc tự khôi phục mật khẩu tài khoản mô phỏng.
+FastAPI ghi access log ra stdout. Chưa có fulfillment, hủy đơn, coupon, POS, nhập kho, đổi trả hoặc tự khôi phục mật khẩu tài khoản mô phỏng. [Access log](../../docs/SETUP.md#5-access-log)
 
 ## Bootstrap ứng dụng
 
@@ -104,7 +97,7 @@ Mở **Quản trị quyền** và đăng nhập bằng admin bootstrap cấu hì
 
 Streamlit gọi FastAPI tại `http://127.0.0.1:8000/api/v1/access` trong cùng container `platform-app`. Router nằm trong `access_admin/router.py`, dùng chung cơ chế auth và xử lý lỗi với API nghiệp vụ; validation quản trị được rút gọn để không phản hồi dữ liệu bí mật. Request ghi cần CSRF. Không có API quản trị riêng ở cổng 8010.
 
-`platform-app` chạy bằng `PLATFORM_APP_UID`/`PLATFORM_APP_GID`, giữ credential admin Polaris và mount `access-admin-secrets`; không giữ credential root của MinIO. FastAPI và Streamlit dùng chung môi trường container; việc gộp giảm một container/Uvicorn nhưng cũng đưa credential quản trị vào container ứng dụng. Không mount Docker socket hoặc bốn volume credential consumer vào `platform-app`.
+`platform-app` chạy bằng `PLATFORM_APP_UID`/`PLATFORM_APP_GID`, giữ credential admin Polaris và mount `access-admin-secrets`. FastAPI và Streamlit dùng chung môi trường container. `credential-exporter` mount các volume credential của consumer.
 
 Phạm vi CRUD:
 
@@ -116,10 +109,10 @@ Quyền hiển thị là snapshot của lần tải. Dùng **Tải lại quyền
 
 ### Cấp credential Polaris cho workload
 
-Tạo principal chưa tự cấu hình consumer. Trong tab **Cấp cho workload**, chọn principal có credential nguồn đã lưu và cấp cho `batch-airflow`, `flink`, `trino-reader` hoặc `trino-writer`.
+Trong tab **Cấp cho workload**, chọn principal có credential nguồn đã lưu và cấp cho `batch-airflow`, `trino-reader` hoặc `trino-writer`.
 
 ```text
-Streamlit ─► platform-app API ──(JWT ký)──► credential-exporter ─► volume workload/clients.env ─► Airflow / Trino / Flink
+Streamlit ─► platform-app API ──(JWT ký)──► credential-exporter ─► volume workload/clients.env ─► Airflow / Trino
              đọc credential principal        ghi file theo UID/GID                                    │ đăng nhập
                                                                                                       ▼
                                        credential S3 tạm, chỉ cho bảng được mở ◄─ MinIO STS ◄─ Polaris (kiểm tra role)
@@ -132,19 +125,11 @@ Streamlit ─► platform-app API ──(JWT ký)──► credential-exporter �
 
 UI cho xem trạng thái file/ownership và principal đã cấp. Thay file đã có cần xác nhận; gỡ cần nhập đúng workload. Principal còn được phân công bị chặn xóa. Consumer giữ credential trong bộ nhớ cần khởi động lại hoặc submit lại job để áp dụng. Gỡ file không tự thu hồi quyền/secret trên Polaris.
 
-Cấp file chỉ xử lý **credential Polaris**; thao tác trên Streamlit không tự sửa `.env` hay cấu hình môi trường của container đã chạy. Xem [setup](../../docs/SETUP.md#2-build-và-chọn-profile) cho volume và thứ tự khởi động.
+Cấp file cập nhật credential Polaris trên volume consumer. [Thứ tự khởi động](../../docs/SETUP.md#2-khởi-động)
 
 ### Audit và chạy ứng dụng
 
 Audit append-only cục bộ tại `data/access-admin/audit.jsonl` (0600) ghi actor, thao tác, đối tượng, operation ID và kết quả (`started`, rồi `done`, `rejected` hoặc `failed`); không ghi password/token/admin secret. Không ghi được audit trước thao tác thì không gọi upstream. Khi thao tác `failed`, tải lại quyền để xem trạng thái thật trước khi làm tiếp. Audit không phải kho chống sửa/xóa hoặc giao dịch phân tán với Polaris.
-
-```bash
-make up
-# Nâng cấp từ bản có container quản trị riêng, giữ named volumes:
-docker compose --profile core up -d --build --wait --remove-orphans platform-app
-```
-
-`make up` chạy console/API và các dependency quản trị; chỉ dùng `make up-all` sau khi cấu hình quyền/credential cho workload.
 
 Khi chạy API trên host, dùng `uv run --locked --env-file .env --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --no-access-log`, rồi chạy Streamlit riêng. `CONSOLE_ACCESS_ADMIN_URL` mặc định là `http://127.0.0.1:8000`; nếu `.env` cũ còn đặt cổng 8010 thì đổi sang cổng API chung. Host cần URL Polaris (và MinIO cho cấu hình catalog), root credential Polaris, PostgreSQL/JWT và thư mục secret/audit có quyền phù hợp. Cấp credential cho volume consumer qua exporter là luồng Compose; không tự hoạt động chỉ bằng cách chạy API trên host.
 

@@ -87,4 +87,4 @@ Role chỉ SELECT 27 bảng nguồn phân tích (batch nạp 19 bảng, hai bả
 
 ## Metadata Superset tùy chọn
 
-`make superset-db` chạy script PostgreSQL riêng sau khi áp dụng env/mount mới, tạo database/user `superset` với password được cấu hình. Script hỗ trợ volume đang có, không sửa schema/dữ liệu nguồn và giữ password của role đã tồn tại. `make superset-init` mới thực hiện migration metadata Superset và tạo admin ban đầu. Xem [hướng dẫn BI](../docs/SETUP.md#6-superset-tùy-chọn); không dùng account OLTP/Polaris/Airflow làm owner metadata này.
+Khi chạy `make up`, `superset-db-init` tạo database và role metadata riêng. `superset-init` cập nhật schema metadata và tạo admin ban đầu. [Khởi tạo metadata Superset](../docs/SETUP.md#khởi-tạo-metadata-superset-lần-đầu)

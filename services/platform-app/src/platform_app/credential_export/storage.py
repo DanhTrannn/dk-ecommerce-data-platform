@@ -60,7 +60,6 @@ class ExportStore:
         self.workloads = {}
         for name, label, uid, gid, prefix, volume, hint in [
             ('batch-airflow', 'Batch / Airflow', settings.airflow_uid, 0, 'BATCH', 'polaris-batch-airflow-credentials', 'Job batch kế tiếp; tiến trình giữ credential cần khởi động lại'),
-            ('flink', 'Flink', 9999, 9999, 'FLINK', 'polaris-flink-credentials', 'Khởi động lại hoặc submit lại Flink job'),
             ('trino-reader', 'Trino reader', 1000, 1000, 'TRINO', 'polaris-trino-reader-credentials', 'Khởi động lại Trino reader'),
             ('trino-writer', 'Trino writer', 1000, 1000, 'BATCH', 'polaris-trino-writer-credentials', 'Khởi động lại Trino writer'),
         ]:

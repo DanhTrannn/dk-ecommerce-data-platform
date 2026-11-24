@@ -12,8 +12,8 @@ Cấu trúc dữ liệu và KPI ở [DATA.md](DATA.md), cài đặt ở [SETUP.m
 | Generator | `datagen generate/verify/logs/reset`; preset OLTP `100k`/`1m`/`10m`/`50m` |
 | Console | Streamlit: kịch bản mua online qua API, quản trị quyền Polaris |
 | Pipeline OLTP | Airflow: staging → Bronze → Silver → Gold, 19 bảng nguồn, 27 model Gold; đồng bộ dòng bị xoá bằng xoá mềm và thay đổi cột đã duyệt |
-| Access log | Đang thiết kế lại: API vẫn có thể gửi Kafka, đã gỡ job Flink và DAG log; thiết kế đã duyệt ở [ACCESS_LOG_DESIGN.md](ACCESS_LOG_DESIGN.md) |
-| BI | Superset tùy chọn, ba mart doanh thu; sẽ làm lại sau khi các pipeline ổn định |
+| Access log | API ghi JSON ra stdout. Generator sinh log lịch sử dạng Parquet |
+| BI | Superset đọc ba mart doanh thu |
 
 Không dùng Spark, Debezium hay CDC.
 
@@ -30,10 +30,9 @@ Không dùng Spark, Debezium hay CDC.
 | Airflow 3.3.2 | Bốn DAG OLTP (init, incremental, sync, purge); LocalExecutor; thư viện pipeline cài vào Python của image | [airflow](../airflow/), [image](../infrastructure/airflow/Dockerfile) |
 | dbt 1.11 (dbt-trino) | Dựng Silver và Gold trên Trino | [dbt](../dbt/) |
 | Trino 483 | Catalog `lakehouse` chỉ đọc cho phân tích, `lakehouse_etl` cho dbt ghi `silver`/`gold`; HTTPS, mật khẩu và SQL access rules | [trino](../infrastructure/trino/) |
-| Kafka 3.8, Flink 1.19 | Hạ tầng cho luồng access log (profile `streaming`) | [flink](../infrastructure/flink/) |
 | Superset 6.1.0 | Dashboard đọc bảng Gold | [superset](../infrastructure/superset/) |
 
-Python workspace dùng chung [uv.lock](../uv.lock): `platform-app`, `data-generator`, `batch-pipeline` (`airflow/`). Airflow, Flink và Superset có image riêng.
+Ba package `platform-app`, `data-generator` và `batch-pipeline` (`airflow/`) dùng chung [uv.lock](../uv.lock). Airflow và Superset có image riêng.
 
 ## 3. Luồng dữ liệu OLTP
 
@@ -53,7 +52,7 @@ API / datagen ──► PostgreSQL ──► staging ──► [reconcile] ─�
 
 ## 4. Định danh và quyền
 
-- Mỗi workload có danh tính riêng: Airflow (`batch-airflow`), Flink, Trino reader và Trino writer đều nhận credential principal Polaris qua `credential-exporter`. Không workload nào giữ key MinIO: Polaris cấp credential lưu trữ tạm thời, chỉ trong phạm vi bảng được đọc/ghi.
+- Airflow (`batch-airflow`), Trino reader và Trino writer nhận credential principal riêng qua `credential-exporter`. Polaris cấp credential MinIO tạm thời theo phạm vi bảng mỗi workload được đọc hoặc ghi.
 - Pipeline đọc PostgreSQL bằng role chỉ SELECT (`make source-reader`) qua connection Airflow `oltp_postgres`, phiên read-only.
 - Trino xác thực `analytics_reader` và `dbt_writer` bằng mật khẩu qua HTTPS; SQL access rules giới hạn `dbt_writer` vào schema `silver` và `gold`.
 - MinIO chỉ có một account lưu trữ cho Polaris, do `minio-init` tạo. Quản trị Polaris trên Streamlit chỉ dành cho admin bootstrap; thao tác ghi cần CSRF và được ghi audit trước và sau.
@@ -61,16 +60,10 @@ API / datagen ──► PostgreSQL ──► staging ──► [reconcile] ─�
 
 ## 5. Triển khai
 
-| Profile | Service |
-|---|---|
-| `core` | PostgreSQL, MinIO, Polaris, Airflow, Trino, platform-app, admin init, credential exporter |
-| `streaming` | Kafka, Flink |
-| `bi` | Superset |
-
-`make up` chỉ bật console/API và các dependency quản trị; `make core` bật cả Airflow và Trino sau khi quyền workload đã sẵn sàng. Nạp dữ liệu, cấp quyền và chạy pipeline là thao tác chủ động.
+`make up` khởi động toàn bộ stack và chuẩn bị metadata Superset sau khi cấp credential Polaris lần đầu. [Thứ tự thiết lập](SETUP.md#2-khởi-động)
 
 ## 6. Chưa hoàn tất
 
-- Luồng access log (Flink, Bronze/Silver log, mart log) và loader cho log sinh tổng hợp.
+- Nạp access log vào lakehouse và dựng các mart log.
 - Dashboard Superset cho các mart còn lại và quyền theo cửa hàng.
 - Runner cho nghiệp vụ ngoài mua online; HA, backup/restore và hardening khi triển khai public.

@@ -10,7 +10,7 @@ Paths below are relative to this directory, `services/platform-app/src/platform_
 
 | Directory | Responsibility |
 |---|---|
-| `core/` | Settings, JWT/Argon2, errors, middleware, structured access logs and Kafka delivery |
+| `core/` | Settings, JWT/Argon2, errors, middleware and structured access logs |
 | `db/` | SQLAlchemy sessions, role/CSRF dependencies and transactional Unit of Work |
 | `models/` | Source model mappings |
 | `modules/` | Domain routers, request/response schemas and services |
@@ -24,14 +24,13 @@ Shared-container components are siblings: [access administration](../access_admi
 From the repository root, configure `.env` using `.env.example` and the [setup guide](../../../../../docs/SETUP.md), then:
 
 ```bash
-make build
-docker compose --profile core up -d platform-app
+make up SERVICES=platform-app
 curl -fsS http://127.0.0.1:8000/health/ready
 ```
 
-`platform-app` uses the `core` profile. Compose starts its dependencies, including `platform-admin-init` and the credential exporter. The init job prepares private storage, applies `database/schema.sql` only when the source public schema has no tables, and creates the configured bootstrap admin. Existing accounts/passwords are preserved; an incomplete existing schema is rejected, rather than migrated or reset. It does not seed products, cities, stores or workload accounts. Run `make seed` explicitly for missing catalog/admin seed records; cities/stores and historical transactions require their own data loading. Startup of Uvicorn itself does not apply schemas.
+Compose starts the dependencies of `platform-app`, including `platform-admin-init` and the credential exporter. The init job prepares private storage, applies `database/schema.sql` only when the source public schema has no tables, and creates the configured bootstrap admin. It preserves existing accounts and passwords and rejects an incomplete schema. Run `make seed` for catalog and admin seed records.
 
-Default addresses are API `http://127.0.0.1:8000`, Swagger `http://127.0.0.1:8000/docs` and Streamlit `http://127.0.0.1:8501`. Compose uses configurable loopback bind addresses. `/health/live` checks the process; `/health/ready` executes `SELECT 1` on the source database. Readiness does not validate schema completeness, Kafka, infrastructure administration, Trino or publications.
+Default addresses are API `http://127.0.0.1:8000`, Swagger `http://127.0.0.1:8000/docs` and Streamlit `http://127.0.0.1:8501`. Compose uses configurable loopback bind addresses. `/health/live` checks the process. `/health/ready` executes `SELECT 1` on the source database.
 
 ## Run the API on the host
 
@@ -39,13 +38,10 @@ Use Python 3.11 and the repository uv workspace (`uv sync --locked`). Start Post
 
 ```bash
 # After configuring the required environment variables:
-export KAFKA_ENABLED=false
 uv run --locked --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-API settings load the root `.env` through Pydantic when launched there. Kafka and Trino modules read process environment directly: export those variables explicitly, or pass `--env-file .env` to `uv run`. Running Uvicorn alone starts neither Streamlit nor the credential exporter. Infrastructure administration also needs its provider credentials, private credential/audit paths and exporter configuration; the shared Compose runtime provides these mounts/settings.
-
-Compose forwards `KAFKA_ENABLED` with default `false`; the producer module's standalone default is `true`. When false, Kafka event delivery is skipped and no Kafka DLQ entry is created. When true, unavailable/failed/overloaded delivery is retained in the local JSONL DLQ (`/data/events/dlq_access_logs.jsonl` in Compose), with bounded pending delivery tasks and background reconnect. Structured stdout access logging remains independent. Enable the `streaming` profile and submit the Flink job explicitly for end-to-end log processing. Host Kafka clients use the externally advertised listener `localhost:9094`; container clients use `kafka:9092`.
+API settings load the root `.env` through Pydantic when launched there. The Trino module reads the process environment directly. Export its variables explicitly or pass `--env-file .env` to `uv run`. Infrastructure administration needs provider credentials, private credential and audit paths, and exporter configuration. Compose supplies these mounts and settings. FastAPI writes structured access logs to stdout.
 
 For the two analytics reads, the [Trino client](modules/analytics/trino_client.py) chooses `API_TRINO_URL`, then `TRINO_URL`, then `https://trino:8443`. A host process should use `https://localhost:8084` (or its configured port), a trusted CA file in `TRINO_CA_FILE`, and the read-only `TRINO_READER_USER`/`TRINO_READER_PASSWORD` credentials. Compose mounts its CA and forwards the reader password. TLS verification is enabled; the client uses Basic authentication when that password exists. Default Docker/host URL probing does not provision credentials or trust.
 
@@ -75,7 +71,7 @@ The endpoint reports HTTP observations, not business-event realtime or full Silv
 
 ## Settings and request conventions
 
-[API settings](core/config.py) use `API_*`; [Kafka delivery](core/kafka_producer.py) uses `KAFKA_*`; analytics also reads Trino and `API_ANALYTICS_CACHE_MAX_AGE_SECONDS` settings directly. Compose injects only explicitly listed variables; adding a variable to the root `.env` does not automatically inject it into a container. Published HTTP responses use a process-local last-good cache keyed by `days`, with a maximum age of 3600 seconds by default and up to 128 keys. Failed reads with no usable cached response return 503. Cache fallback does not query source PostgreSQL for replacement metrics.
+API settings use `API_*`. Analytics also reads Trino settings and `API_ANALYTICS_CACHE_MAX_AGE_SECONDS` directly. Compose injects the variables listed in the service environment. Published HTTP responses use a process-local last-good cache keyed by `days`, with a maximum age of 3600 seconds by default and up to 128 keys. Failed reads with no usable cached response return 503. [API settings](core/config.py)
 
 JWT defaults to the HttpOnly `web_access` cookie; login/register also set readable `web_csrf`. Routes marked Yes below require the cookie value in `X-CSRF-Token`. Cookies are not Secure by default in local configuration. Logout requires CSRF but does not require a valid authenticated customer. Internal order confirmation uses `X-Internal-Secret` instead of a customer cookie.
 

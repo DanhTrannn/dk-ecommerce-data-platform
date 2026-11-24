@@ -3,7 +3,6 @@ x-airflow-common: &airflow-common
     context: .
     dockerfile: infrastructure/airflow/Dockerfile
   image: lakehouse-airflow:3.3.2
-  profiles: ["core"]
   user: "${AIRFLOW_UID:-50000}:0"
   environment: &airflow-environment
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -43,7 +42,6 @@ x-superset-common: &superset-common
   build:
     context: .
     dockerfile: infrastructure/superset/Dockerfile
-  profiles: ["bi"]
   environment: &superset-environment
     SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-}
     SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER:-admin}
@@ -62,24 +60,6 @@ x-superset-common: &superset-common
     - trino-ca:/run/trino-ca:ro
   networks: ["lakehouse-network"]
 
-x-flink-common: &flink-common
-  build:
-    context: .
-    dockerfile: infrastructure/flink/Dockerfile
-    args:
-      FLINK_VERSION: "1.19"
-      ICEBERG_VERSION: ${ICEBERG_VERSION:-1.10.1}
-  image: lakehouse-flink:1.19-iceberg-${ICEBERG_VERSION:-1.10.1}
-  profiles: ["streaming"]
-  environment: &flink-environment
-    POLARIS_REALM: ${POLARIS_REALM:-POLARIS}
-    POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
-    AWS_REGION: ${AWS_REGION:-us-east-1}
-    KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-    KAFKA_ACCESS_LOG_TOPIC: ${KAFKA_ACCESS_LOG_TOPIC:-ecommerce.access_logs}
-    PYTHONPATH: /opt/project/pipelines/src
-  networks: ["lakehouse-network"]
-
 x-polaris-database-environment: &polaris-database-environment
   POLARIS_PERSISTENCE_TYPE: relational-jdbc
   POLARIS_PERSISTENCE_RELATIONAL_JDBC_DATABASE_TYPE: postgresql
@@ -91,7 +71,6 @@ services:
   minio:
     image: cgr.dev/chainguard/minio:latest-dev
     command: server /data --console-address ":9001"
-    profiles: ["core"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
@@ -109,7 +88,6 @@ services:
 
   minio-init:
     image: cgr.dev/chainguard/minio:latest-dev
-    profiles: ["core"]
     entrypoint: ["/bin/sh", "/opt/minio/init.sh"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
@@ -126,7 +104,6 @@ services:
 
   postgres:
     image: postgres:16.8
-    profiles: ["core"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
@@ -141,9 +118,6 @@ services:
       AIRFLOW_DB_USER: ${AIRFLOW_DB_USER:-airflow}
       POLARIS_DB_PASSWORD: ${POLARIS_DB_PASSWORD:-password}
       AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:-password}
-      SUPERSET_DB_NAME: ${SUPERSET_DB_NAME:-superset}
-      SUPERSET_DB_USER: ${SUPERSET_DB_USER:-superset}
-      SUPERSET_DB_PASSWORD: ${SUPERSET_DB_PASSWORD:-}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --data-checksums"
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -151,9 +125,8 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
       - ./infrastructure/postgres/configure-source-reader.sh:/opt/project/configure-source-reader.sh:ro
-      - ./infrastructure/postgres/configure-superset.sh:/opt/project/configure-superset.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -161,7 +134,6 @@ services:
 
   polaris-bootstrap:
     image: apache/polaris-admin-tool:1.8.0
-    profiles: ["core"]
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -192,7 +164,6 @@ services:
 
   polaris:
     image: apache/polaris:1.8.0
-    profiles: ["core"]
     environment:
       <<: *polaris-database-environment
       POLARIS_PERSISTENCE_RELATIONAL_JDBC_MAX_RETRIES: 5
@@ -299,7 +270,6 @@ services:
 
   trino-auth-init:
     image: lakehouse-platform-app:0.1.0
-    profiles: ["core"]
     user: "0:0"
     entrypoint: ["python", "-m", "platform_app.provisioning.trino"]
     environment:
@@ -312,7 +282,6 @@ services:
 
   trino:
     image: trinodb/trino:483
-    profiles: ["core"]
     entrypoint: ["/bin/sh", "/opt/trino/start.sh"]
     environment:
       POLARIS_CREDENTIAL_FILE: /run/polaris/clients.env
@@ -346,7 +315,6 @@ services:
 
   platform-admin-init:
     image: lakehouse-platform-app:0.1.0
-    profiles: ["core"]
     user: "0:0"
     entrypoint: ["python", "-m", "platform_app.provisioning.admin"]
     environment:
@@ -367,7 +335,6 @@ services:
 
   credential-exporter:
     image: lakehouse-platform-app:0.1.0
-    profiles: ["core"]
     user: "0:0"
     entrypoint: ["uvicorn", "platform_app.credential_export.app:app", "--host", "0.0.0.0", "--port", "8011", "--no-access-log"]
     environment:
@@ -376,7 +343,6 @@ services:
       - access-admin-secrets:/run/access-secrets:ro
       - credential-export-state:/run/export-state
       - polaris-batch-airflow-credentials:/run/polaris-output/batch-airflow
-      - polaris-flink-credentials:/run/polaris-output/flink
       - polaris-trino-reader-credentials:/run/polaris-output/trino-reader
       - polaris-trino-writer-credentials:/run/polaris-output/trino-writer
     depends_on:
@@ -394,7 +360,6 @@ services:
       context: .
       dockerfile: services/platform-app/Dockerfile
     image: lakehouse-platform-app:0.1.0
-    profiles: ["core"]
     user: "${PLATFORM_APP_UID:-1000}:${PLATFORM_APP_GID:-1000}"
     environment:
       API_TRINO_URL: https://trino:8443
@@ -417,10 +382,6 @@ services:
       POLARIS_ROOT_CLIENT_SECRET: ${POLARIS_ROOT_CLIENT_SECRET:?set POLARIS_ROOT_CLIENT_SECRET}
       SCENARIO_API_BASE_URL: ${SCENARIO_API_BASE_URL:-http://127.0.0.1:8000}
       SCENARIO_HTTP_TIMEOUT_SECONDS: ${SCENARIO_HTTP_TIMEOUT_SECONDS:-15}
-      KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      KAFKA_ACCESS_LOG_TOPIC: ${KAFKA_ACCESS_LOG_TOPIC:-ecommerce.access_logs}
-      KAFKA_DLQ_FILE_PATH: /data/events/dlq_access_logs.jsonl
       STREAMLIT_SERVER_HEADLESS: "true"
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
     ports:
@@ -455,8 +416,8 @@ services:
     ports:
       - "${SUPERSET_BIND_ADDRESS:-127.0.0.1}:${SUPERSET_PORT:-8088}:8088"
     depends_on:
-      postgres:
-        condition: service_healthy
+      superset-init:
+        condition: service_completed_successfully
       trino:
         condition: service_healthy
     healthcheck:
@@ -466,9 +427,30 @@ services:
       retries: 18
       start_period: 30s
 
+  superset-db-init:
+    image: postgres:16.8
+    user: postgres
+    entrypoint: ["/bin/sh", "/opt/project/configure-superset.sh"]
+    environment:
+      PGHOST: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_ECOMMERCE_DB: ${POSTGRES_ECOMMERCE_DB:-ecommerce}
+      POSTGRES_ECOMMERCE_USER: ${POSTGRES_ECOMMERCE_USER:-ecommerce_app}
+      AIRFLOW_DB_NAME: ${AIRFLOW_DB_NAME:-airflow}
+      POLARIS_DB_NAME: ${POLARIS_DB_NAME:-polaris}
+      SUPERSET_DB_NAME: ${SUPERSET_DB_NAME:-superset}
+      SUPERSET_DB_USER: ${SUPERSET_DB_USER:-superset}
+      SUPERSET_DB_PASSWORD: ${SUPERSET_DB_PASSWORD:-}
+    volumes:
+      - ./infrastructure/postgres/configure-superset.sh:/opt/project/configure-superset.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: ["lakehouse-network"]
+
   superset-init:
     <<: *superset-common
-    scale: 0
     command: ["python", "/app/project/initialize.py"]
     environment:
       <<: *superset-environment
@@ -476,8 +458,8 @@ services:
       SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:-bi-admin@example.com}
       SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:-}
     depends_on:
-      postgres:
-        condition: service_healthy
+      superset-db-init:
+        condition: service_completed_successfully
 
   superset-sync:
     <<: *superset-common
@@ -488,113 +470,6 @@ services:
         condition: service_healthy
       trino:
         condition: service_healthy
-
-  kafka:
-    image: apache/kafka:3.8.0
-    profiles: ["streaming"]
-    ports:
-      - "${KAFKA_PORT:-9092}:9092"
-      - "9094:9094"
-    environment:
-      KAFKA_NODE_ID: 1
-      KAFKA_LOG_DIRS: /var/lib/kafka/data
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9094
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-    volumes:
-      - kafka-data:/var/lib/kafka/data
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-      start_period: 15s
-    networks: ["lakehouse-network"]
-
-  kafka-init:
-    image: apache/kafka:3.8.0
-    profiles: ["streaming"]
-    command:
-      - /opt/kafka/bin/kafka-topics.sh
-      - --bootstrap-server
-      - kafka:9092
-      - --create
-      - --if-not-exists
-      - --topic
-      - ${KAFKA_ACCESS_LOG_TOPIC:-ecommerce.access_logs}
-      - --partitions
-      - "1"
-      - --replication-factor
-      - "1"
-    depends_on:
-      kafka:
-        condition: service_healthy
-    restart: "no"
-    networks: ["lakehouse-network"]
-
-  flink-jobmanager:
-    <<: *flink-common
-    command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/docker-entrypoint.sh", "jobmanager"]
-    ports:
-      - "${FLINK_JOBMANAGER_PORT:-8085}:8081"
-    environment:
-      <<: *flink-environment
-      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
-    volumes:
-      - ./pipelines:/opt/project/pipelines:ro
-      - polaris-flink-credentials:/run/polaris:ro
-      - flink-checkpoints:/opt/flink/checkpoints
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8081/overview || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-    depends_on:
-      kafka:
-        condition: service_healthy
-      polaris:
-        condition: service_healthy
-
-  flink-taskmanager:
-    <<: *flink-common
-    command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/docker-entrypoint.sh", "taskmanager"]
-    environment:
-      <<: *flink-environment
-      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
-    volumes:
-      - ./pipelines:/opt/project/pipelines:ro
-      - polaris-flink-credentials:/run/polaris:ro
-      - flink-checkpoints:/opt/flink/checkpoints
-    depends_on:
-      flink-jobmanager:
-        condition: service_started
-
-  flink-submit:
-    <<: *flink-common
-    profiles: ["streaming"]
-    scale: 0  # Run manually with docker compose run.
-    command: ["/opt/project/flink/bin/with-polaris-credentials.sh", "/opt/project/flink/bin/submit-job.sh"]
-    restart: "no"  # one-shot: submit job then exit
-    volumes:
-      - ./pipelines:/opt/project/pipelines:ro
-      - polaris-flink-credentials:/run/polaris:ro
-      - flink-checkpoints:/opt/flink/checkpoints
-    depends_on:
-      kafka-init:
-        condition: service_completed_successfully
-      flink-jobmanager:
-        condition: service_healthy
-      flink-taskmanager:
-        condition: service_started
 
 networks:
   lakehouse-network:
@@ -609,8 +484,5 @@ volumes:
   minio-data:
   postgres-data:
   polaris-batch-airflow-credentials:
-  polaris-flink-credentials:
   polaris-trino-reader-credentials:
   airflow-logs:
-  kafka-data:
-  flink-checkpoints:

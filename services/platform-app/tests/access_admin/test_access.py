@@ -12,10 +12,13 @@ from streamlit.testing.v1 import AppTest
 
 from platform_app.access_admin.audit import Audit
 from platform_app.access_admin.polaris import PolarisAccess
-from platform_app.access_admin.schemas import BindingChange, ResourceCreate, ResourceMutation
+from platform_app.access_admin.schemas import BindingChange, ResourceCreate, ResourceMutation, WorkloadAssignment
 from platform_app.access_admin.service import change_binding
 from platform_app.access_admin.settings import AccessSettings
 from platform_app.api.core.errors import AppError
+from platform_app.credential_export.schemas import Assignment
+from platform_app.credential_export.storage import ExportSettings, ExportStore
+from platform_app.provisioning.state import save_json
 from platform_app.ui.access_client import AccessSession, AccessUIError
 
 
@@ -172,6 +175,27 @@ class AdapterTests(unittest.TestCase):
             PolarisAccess(settings, client=Client()).mutate(change, None)
             self.assertEqual(sent, [("DELETE", "/api/management/v1/principals/trino_reader")])
             self.assertFalse(saved.exists())
+
+
+class WorkloadTests(unittest.TestCase):
+    def test_legacy_flink_assignment_does_not_appear_in_current_workloads(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings = ExportSettings(sources_dir=root / "sources", state_dir=root, outputs_root=root / "outputs")
+            store = ExportStore(settings)
+            legacy = {"flink": {"principal": "flink_landing"}}
+            save_json(store.manifest, legacy)
+
+            self.assertEqual(
+                [row["id"] for row in store.snapshot()["workloads"]],
+                ["batch-airflow", "trino-reader", "trino-writer"],
+            )
+            self.assertEqual(json.loads(store.manifest.read_text()), legacy)
+
+    def test_both_assignment_models_reject_the_removed_workload(self):
+        for model in (WorkloadAssignment, Assignment):
+            with self.subTest(model=model), self.assertRaises(ValidationError):
+                model(action="remove", workload="flink", confirm_remove="flink", revision="0" * 64)
 
 
 class AccessClientTests(unittest.TestCase):

@@ -1,13 +1,10 @@
-"""Explicit metadata initialization; reruns preserve existing admin credentials."""
+"""Initialize Superset metadata and preserve existing admin credentials."""
 
 import os
 import subprocess
 
 
 def main():
-    password = os.environ.get("SUPERSET_ADMIN_PASSWORD")
-    if not password:
-        raise ValueError("Set SUPERSET_ADMIN_PASSWORD for explicit initialization")
     subprocess.run(["superset", "db", "upgrade"], check=True)
     subprocess.run(["superset", "init"], check=True)
     from superset.app import create_app
@@ -17,6 +14,9 @@ def main():
     with app.app_context():
         username = os.environ.get("SUPERSET_ADMIN_USER", "admin")
         if security_manager.find_user(username=username) is None:
+            password = os.environ.get("SUPERSET_ADMIN_PASSWORD")
+            if not password:
+                raise ValueError("Set SUPERSET_ADMIN_PASSWORD to create the Superset admin")
             user = security_manager.add_user(
                 username=username,
                 first_name="BI",
