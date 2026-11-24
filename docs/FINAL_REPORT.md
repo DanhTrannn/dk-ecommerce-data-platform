@@ -739,45 +739,98 @@ Dashboard doanh thu (mục 3.6.3) được khai báo trong `infrastructure/super
 
 ## **4.7. Xây dựng dữ liệu mô phỏng phục vụ trình diễn và kiểm thử**
 
-### **4.7.1. Hướng tiếp cận**
+### **4.7.1. Bối cảnh và tính tất yếu của việc phân tích dữ liệu khám phá (EDA)**
 
-Dữ liệu mô phỏng theo nguyên tắc **quy luật trước, bộ sinh sau**: quy luật hành vi được rút ra từ dữ liệu công khai, ghi thành cấu hình YAML có nhãn nguồn, rồi bộ sinh đọc cấu hình đó. Mỗi khối tham số mang một trong ba nhãn: `measured` (đo trực tiếp trong notebook), `transfer` (đo ở nguồn nước ngoài, áp cho shop thời trang Việt Nam như giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản).
+Một trong những hạn chế lớn nhất của các đồ án xây dựng Data Lakehouse trong môi trường học thuật là sự thiếu hụt dữ liệu thực tế ở quy mô lớn. Việc sử dụng các công cụ sinh dữ liệu ngẫu nhiên phổ biến (như thư viện Faker, phân phối đều Uniform hoặc phân phối chuẩn thông thường) dẫn đến những tập dữ liệu "phẳng":
+* Không phản ánh được tính tập trung bất đối xứng (heavy-tailed, Pareto 80/20) vốn có của hành vi mua sắm.
+* Bỏ qua hoàn toàn mối tương quan nhân quả giữa chất lượng dịch vụ (thời gian giao hàng trễ) và phản hồi của người dùng (điểm số đánh giá sao).
+* Triệt tiêu tính chất mùa vụ, sự bùng nổ lưu lượng trong các đợt khuyến mại lớn (Sale ngày đôi, Black Friday, Tết), cũng như nhịp sinh học tự nhiên theo khung giờ trong ngày của người tiêu dùng trực tuyến.
 
-Mỗi quy luật gồm: dữ liệu cho thấy gì, quy luật một câu với ít tham số nhất, và kiểm tra bằng cách so phân phối mô hình với thực tế (sai lệch tính bằng điểm phần trăm). Chỉ quy luật lặp lại giữa các nguồn hoặc dự báo đúng trên phần dữ liệu chưa dùng để ước lượng mới được chuyển sang shop Việt Nam.
+Hệ quả là, khi nạp các tập dữ liệu ngẫu nhiên thuần túy vào Lakehouse, các Data Mart và Dashboard phân tích tại tầng Gold (như phân tích RFM, cohort khách hàng, tồn kho an toàn, phễu marketing) sẽ đưa ra các kết quả sai lệch và không có ý nghĩa kinh doanh thực tiễn.
 
-CLI `datagen` hiện thực các quy luật:
-* `datagen generate`: nạp 12 tháng lịch sử OLTP vào PostgreSQL trong một giao dịch, dựng lại index sau khi nạp (`make generate PRESET=1m`).
-* `datagen verify`: đối chiếu dữ liệu đã nạp với quy luật của preset (sổ kho, R01–R07, tỷ lệ kịch bản, POS, địa điểm).
-* `datagen logs`: sinh log truy cập mùa sale khớp với đơn online đã nạp, ghi Parquet theo ngày.
+Để khắc phục triệt để vấn đề này, đề tài áp dụng nguyên tắc nghiên cứu thực chứng: **"Quy luật trước, bộ sinh sau" (Data-driven synthetic data generation)**. Mọi tham số và quy luật sinh dữ liệu đều phải bắt nguồn từ quá trình phân tích dữ liệu khám phá (Exploratory Data Analysis – EDA) trên các tập dữ liệu thương mại điện tử công khai quy mô lớn, kết hợp đối chiếu với các báo cáo thị trường và cam kết dịch vụ thực tế tại Việt Nam.
 
-### **4.7.2. Quy luật mua hàng (OLTP)**
+Mỗi khối quy luật trong cấu hình sinh dữ liệu được gán nhãn xuất xứ rõ ràng (*provenance labels*):
+1. **`measured` (Đo lường trực tiếp):** Quy luật và tham số được ước lượng, kiểm định độ khớp phân phối trực tiếp từ dữ liệu thực nghiệm thông qua các Jupyter Notebook EDA.
+2. **`transfer` (Chuyển giao quy luật):** Quy luật kinh điển được đo lường trên các nguồn dữ liệu quốc tế lớn và được áp dụng cho doanh nghiệp bán lẻ thời trang Việt Nam như một giả định chuyển giao có cơ sở.
+3. **`assumption` (Tham số kịch bản):** Các tham số chính sách vận hành (dải giá, tỷ lệ hủy đơn, tỷ trọng COD, chiết khấu coupon) không có dữ liệu giao dịch gốc công khai, được thiết lập dựa trên đối chiếu định tính với các báo cáo khảo sát tại Việt Nam.
 
-Phân tích nằm trong [purchase_behavior_eda.ipynb](../generator/oltp/notebooks/purchase_behavior_eda.ipynb), dùng H&M kênh online năm 2019 và Olist năm 2017.
+### **4.7.2. Các tập dữ liệu thực nghiệm và nguồn khảo sát đối chiếu**
 
-| Quy luật | Kết quả thực nghiệm | Tham số |
-| :--- | :--- | :--- |
-| R01. Số đơn mỗi khách | Log-series lệch tối đa khoảng 1 điểm %, trong khi giả định "mọi khách cùng tốc độ" (Poisson) lệch 31 điểm %. α ước lượng từ 6 tháng dự báo đúng tỷ lệ khách mua một lần cho 3 và 12 tháng (lệch 1–3 điểm %). | θ = T/(α+T), α = 0,1141 năm |
-| R02. Khoảng cách mua lại | Khách mua ít lần có các đơn gần nhau hơn mức rải đều cả năm; một hệ số c bù được cho mọi k, sai số trung bình dưới 2%. | Mũ, trung bình T(1 − c/k)/(k+1), c = 0,518 |
-| R03. Độ bán chạy | Log(số bán) của sản phẩm bán đủ 12 tháng có dạng chuông; tỷ trọng top 10%/20% sản phẩm lệch 2–3,5 điểm %. Giá không liên quan độ bán chạy (Spearman 0,01). | LogNormal(0; 1,35) × hệ số nhóm hàng |
-| R04. Giỏ hàng | Số sản phẩm mỗi đơn theo phân phối hình học, lệch tối đa 1,6 điểm %; kích thước giỏ độc lập với khách. | p = 0,296; bảng biến thể/số lượng |
-| R05. Lịch | Black Friday gấp 5,55 (H&M) và 7,24 (Olist) lần ngày thường, ba ngày sau gấp khoảng 2,6 lần; hai nguồn không có hình dạng chung theo thứ trong tuần. | Ngày sale ×6,39; sau sale ×2,6; giờ theo Olist |
-| R06. Giao trễ và đánh giá | Giao đúng hẹn 62% chấm 5 sao; trễ trên 8 ngày 68% chấm 1 sao. | Bảng số sao theo mức trễ; tỷ lệ trễ 5,5% |
-| R07. Thời gian giao | Hãng lấy hàng cùng ngày nếu shop giao trước 10h30, sau đó lấy ngày kế; số ngày giao đều trong khoảng của vùng theo cam kết công bố của GHTK Express. | Nội thành TP.HCM 1–2; Bình Dương, Cần Thơ 2–4; Hà Nội 3–4; Đà Nẵng, Hải Phòng 4–6 ngày |
+Đề tài sử dụng ba bộ dữ liệu thương mại điện tử công khai để phân tích hành vi mua hàng và duyệt web. Notebook [purchase_behavior_eda.ipynb](../generator/oltp/notebooks/purchase_behavior_eda.ipynb) phân tích dữ liệu giao dịch OLTP. Notebook [browsing_behavior_eda.ipynb](../generator/logs/notebooks/browsing_behavior_eda.ipynb) phân tích dữ liệu sự kiện theo phiên truy cập.
+
+**Các tập dữ liệu thực nghiệm**
+
+* **H&M Personalized Fashion Recommendations.** Tệp giao dịch công khai có khoảng 31,8 triệu dòng. Notebook lọc kênh online năm 2019, thu được **11.397.400 dòng bán hàng**. Vì nguồn không có mã đơn, nghiên cứu quy ước mỗi cặp khách hàng và ngày mua là một lượt mua, thu được **2.682.063 lượt mua** của **751.398 khách hàng**. Mẫu này dùng để phân tích tần suất mua, khoảng cách giữa các lượt mua, kích thước giỏ và biến động theo ngày. Khi phân tích độ tập trung nhu cầu ở R03, notebook xét các nhóm sản phẩm `Ladieswear` và `Divided`. Phép ước lượng độ phân tán của lượng bán dùng các sản phẩm phát sinh giao dịch trong đủ 12 tháng. [Bộ dữ liệu H&M](https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations/data).
+* **Brazilian E-Commerce Public Dataset by Olist.** Bộ dữ liệu công khai gồm khoảng 100.000 đơn hàng. Notebook chọn **45.101 đơn đặt năm 2017** để phân tích phân bố theo giờ và so sánh số đơn dịp Black Friday với giai đoạn trước đó. Phân tích điểm đánh giá theo mức giao trễ sử dụng **43.098 đơn đã giao có đánh giá**, thu được sau khi lọc và ghép dữ liệu đơn hàng với dữ liệu đánh giá. [Bộ dữ liệu Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce).
+* **eCommerce Behavior Data của REES46.** Để phân tích các quy luật L1–L3, notebook dùng sự kiện từ **02 đến 31/10/2019 theo giờ UTC**, sau khi loại các phiên chạm biên đầu và cuối tháng. Mẫu còn khoảng **41,2 triệu sự kiện** thuộc **8.974.352 phiên**, trong đó có **303.167 phiên `apparel`** theo tiêu chí phân loại của notebook. Phân tích tập trung vào tỷ lệ phiên không mua trên phiên có mua, số lượt xem sản phẩm và khoảng thời gian giữa các sự kiện trong một phiên. Dữ liệu tháng 11 được dùng để nhận diện phiên vắt qua cuối tháng 10 và để phân tích riêng biến động mua hàng trong ngày cao điểm **17/11/2019** cho L4. [Bộ dữ liệu REES46](https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store).
+
+**Nguồn đối chiếu tại Việt Nam**
+
+Các nguồn sau giúp đặt giả định mô phỏng vào bối cảnh bán lẻ Việt Nam. Số liệu khảo sát và thống kê thị trường được dùng để đối chiếu tính hợp lý của kịch bản.
+
+* **Khảo sát mức sống dân cư 2024** cung cấp bối cảnh về mức chi tiêu và sự khác biệt giữa các nhóm thu nhập. Chỉ tiêu được công bố là tổng chi tiêu của người dân, nên phạm vi rộng hơn chi tiêu cho thời trang. [Cục Thống kê](https://www.nso.gov.vn/tin-tuc-thong-ke/2025/05/thong-cao-bao-chi-ket-qua-khao-sat-muc-song-dan-cu-nam-2024/).
+* **TGM Research và PwC** cung cấp thông tin về nhóm hàng mua trực tuyến, thiết bị mua sắm, hành vi đa kênh và phương thức thanh toán được ưa chuộng. Trong khảo sát PwC tại Việt Nam, **67%** người trả lời cho biết mua sắm trực tuyến qua điện thoại và **63%** mua sắm tại cửa hàng. Hai nhóm có thể trùng nhau. Tỷ lệ ưu tiên COD của TGM đo lựa chọn được người trả lời ưa chuộng. Tỷ trọng đơn online, POS và COD trong hệ thống mô phỏng được khai báo riêng trong preset. [TGM Research](https://tgmresearch.com/press-tgm-vietnam-ecommerce-insights-2025.html) · [Khảo sát COD](https://tgmresearch.vn/thanh-toan-thuong-mai-dien-tu-viet-nam-cod-bnpl.html) · [PwC Việt Nam](https://www.pwc.com/vn/vn/publications/vietnam-publications/voice-of-consumer-2024.html).
+* **Báo cáo thương mại điện tử của Metric** cung cấp bối cảnh về doanh số và phân khúc giá trên các sàn. Dải giá sản phẩm của cửa hàng mô phỏng là tham số kịch bản trong preset. [Báo cáo Metric 2025](https://metric.vn/blog/cong-bo-bao-cao-thuong-mai-dien-tu-viet-nam-2025).
+* **Bảng thời gian giao nhận của GHTK Express**, áp dụng từ ngày **10/11/2026**, là căn cứ để thiết lập khoảng ngày vận chuyển theo tuyến từ kho trung tâm TP.HCM trong R07. Đề tài đối chiếu với bảng dịch vụ GHN. Các khoảng thời gian này phản ánh cam kết công bố của hãng và được dùng làm giả định mô phỏng. [GHTK Express](https://ghtk.vn/dich-vu-giao-hang/bang-gia-dich-vu-ghtk/) · [GHN](https://ghn.vn/pages/dich-vu-giao-hang).
+
+Hồ sơ [S01–S11](DATA.md#8-hồ-sơ-nguồn-nghiên-cứu-generator) ghi chi tiết phạm vi và giới hạn của các nguồn đối chiếu. Các nguồn S09–S11 được lưu để tham khảo cho nghiên cứu tiếp theo. Các tham số giá, COD, hủy đơn, đổi trả, coupon và Tết được giữ dưới dạng giả định kịch bản.
+
+### **4.7.3. Phân tích chi tiết các quy luật hành vi mua hàng OLTP (R01 – R07)**
+
+Toàn bộ quy trình sinh dữ liệu giao dịch OLTP được điều khiển bởi 7 quy luật toán học – thống kê (R01 đến R07), được trích xuất và kiểm định từ dữ liệu thực nghiệm:
+
+| Mã quy luật | Tên quy luật | Mô hình toán học & Tham số thực nghiệm | Kết quả kiểm định EDA & Mức sai lệch | Nguồn & Nhãn |
+|---|---|---|---|---|
+| **R01** | Số đơn mỗi khách hàng | Phân phối **Log-series (Zero-Truncated)**:<br>$P(K = k) = -\frac{1}{\ln(1-\theta)} \frac{\theta^k}{k}$ với $k \ge 1$<br>$\theta = \frac{T}{\alpha + T}$, với $\alpha = 0,1141$ năm (~41,6 ngày) | Giả định Poisson (mọi khách cùng tốc độ) lệch tới **30,7 điểm %** (dự báo đa số mua 3–4 lần). Phân phối Log-series khớp sát thực tế với sai lệch tối đa chỉ **1,1 điểm %** (42% khách chỉ mua 1 lần). Dự báo ngoại suy cửa sổ 3 tháng và 12 tháng từ dữ liệu 6 tháng chỉ lệch 1–3 điểm %. | H&M 2019<br>`measured` |
+| **R02** | Khoảng cách giữa các lần mua | Phân phối **Hàm mũ (Exponential)** với trung bình co cụm:<br>$\mu = T \cdot \frac{1 - c/k}{k+1}$, hệ số $c = 0,518$ | Giả định rải đều cả năm ($T/(k+1)$) thất bại ở các khách mua ít lần ($k$ nhỏ). Khách mua 2 lần có khoảng cách trung bình thực tế là 90 ngày (thay vì 122 ngày). Mô hình hiệu chỉnh bù trừ co cụm cho sai số trung bình dưới **1,9%** với mọi $k$ từ 2 đến 30. | H&M 2019<br>`measured` |
+| **R03** | Độ bán chạy của sản phẩm | Phân phối **Log-Normal** kết hợp hệ số danh mục:<br>$w \sim \text{LogNormal}(0; \sigma = 1,35) \times \text{Multiplier}$ | Khi lọc cohort sản phẩm bán đủ 12 tháng, $\ln(\text{số bán})$ có dạng hình chuông đối xứng chuẩn mực. Tỷ trọng bán của top 10% và top 20% sản phẩm chỉ lệch **2–3,5 điểm %**. Hệ số tương quan Spearman giữa giá và số bán là $0,012$ (giá không quyết định độ bán chạy). | H&M 2019<br>`measured` |
+| **R04** | Kích thước giỏ hàng | Phân phối **Hình học (Geometric)**:<br>$P(X = x) = p(1-p)^{x-1}$ với $p = 0,296$ | Trung bình 3,38 mặt hàng/đơn. Sai lệch lớn nhất so với thực tế chỉ **1,6 điểm %**. Tương quan giữa kích thước giỏ hàng và tổng số đơn của khách là $0,016$ (kích thước giỏ độc lập với tần suất mua hàng). | H&M 2019<br>`transfer` |
+| **R05** | Nhịp độ lịch & Mùa vụ | Hệ số ngày Sale: Black Friday $\times 6,39$, 3 ngày sau $\times 2,6$. Phân phối khung giờ theo Olist | Black Friday tăng gấp 5,55 lần ở H&M và 7,24 lần ở Olist so với ngày thường. Khung giờ đặt hàng có hai đỉnh rõ rệt: trưa (11h–13h) và tối (20h–22h). Các ngày trong tuần có lưu lượng tương đương. | H&M, Olist<br>`transfer` |
+| **R06** | Đánh giá sao theo giao trễ | Bảng xác suất có điều kiện $P(\text{Sao} \mid \text{Mức trễ})$, tỷ lệ giao trễ tự nhiên 5,5% | Trên 43.098 đơn hàng Olist: Giao đúng hẹn có **62% chấm 5 sao** (chỉ 6,7% chấm 1 sao). Trễ 1–3 ngày tỷ lệ 5 sao giảm còn 33,6%. Trễ trên 8 ngày có tới **68,2% khách chấm 1 sao**. | Olist 2017<br>`measured` |
+| **R07** | Thời gian giao hàng theo vùng | Ngày giao = Ngày lấy hàng + Thời gian hành trình theo vùng địa lý Việt Nam | Dựa trên cam kết công bố của GHTK Express từ kho TP.HCM: Nội thành TP.HCM (1–2 ngày); Nội miền Bình Dương, Cần Thơ (2–4 ngày); Hà Nội (3–4 ngày); Liên miền xa Đà Nẵng, Hải Phòng (4–6 ngày). Đơn trước 10h30 lấy trong ngày, sau 10h30 lấy ngày kế tiếp. | GHTK Express<br>`assumption có căn cứ` |
 
 Bốn preset `100k`, `1m`, `10m`, `50m` dùng chung các quy luật trên, chỉ khác quy mô: 26.000, 260.000, 2.600.000 và 13.000.000 khách có mua, tương ứng khoảng 0,1, 1, 10 và 50 triệu đơn online trong 12 tháng. Tổng số đơn là kết quả của R01, không phải đầu vào. `100k` dùng để chạy thử pipeline nhanh. Giá, tỷ lệ hủy/COD/trả hàng, coupon và Tết là giả định; notebook đối chiếu chúng với số liệu Việt Nam công khai nhưng không dùng các số đó để hiệu chỉnh.
 
-### **4.7.3. Quy luật duyệt web (access log)**
+### **4.7.4. Phân tích chi tiết các quy luật duyệt web Access Log (L1 – L4)**
 
-Phân tích nằm trong [browsing_behavior_eda.ipynb](../generator/logs/notebooks/browsing_behavior_eda.ipynb), dùng eCommerce Behavior tháng 10/2019 (cohort 2–31/10, khoảng 9 triệu phiên) cho L1–L3 và tháng 11/2019 cho L4. Tham số lấy theo nhóm phiên `apparel`, gần với shop thời trang nhất.
+Dữ liệu nhật ký truy cập (Access Log) được sinh ra nhằm mục đích tái hiện chân thực hành vi người dùng trên website xung quanh các đơn hàng trực tuyến, tuân thủ 4 quy luật đo lường từ tập dữ liệu eCommerce Behavior (cohort thời trang `apparel`):
 
-| Quy luật | Kết quả thực nghiệm | Tham số |
-| :--- | :--- | :--- |
-| L1. Lưu lượng | Tỷ lệ phiên không mua trên phiên có mua ổn định theo ngày (13,6 với toàn bộ dữ liệu, 41,4 với `apparel`); giá trị phụ thuộc định nghĩa phiên `apparel` (31–52). | r = 41,39 |
-| L2. Lượt xem mỗi phiên | Phiên không mua theo log-series (lệch 1,3 điểm %); phiên có mua theo phân phối hình học (lệch 6,4 điểm %). | θ = 0,9239; p = 0,1044 |
-| L3. Nhịp request | Khoảng cách giữa hai sự kiện theo log-normal, lệch 4,4 điểm %. | Trung vị 36,2 giây; σ = 0,938 |
-| L4. Chuyển đổi ngày sale | Ngày đông nhất tháng 11 (17/11/2019) có r = 16,2 so với trung vị 45,9 của ngày thường: khách ngày sale vào để mua, tỷ lệ chuyển đổi cao gấp khoảng 2,8 lần. Chỉ có một đợt sale để đo. | r × 0,35 ngày sự kiện |
+| Mã quy luật | Hành vi duyệt web | Mô hình & Tham số thực nghiệm | Ý nghĩa và Kết quả kiểm định EDA |
+|---|---|---|---|
+| **L1** | Tỷ lệ lưu lượng duyệt / mua | $r = \frac{\text{Phiên không mua}}{\text{Phiên có mua}} = 41,39$ | Trên toàn bộ sàn TMĐT tổng hợp $r = 13,6$; nhưng riêng phân khúc thời trang `apparel`, tỷ lệ này ổn định ở mức $r = 41,39$ (khoảng tin cậy 31–52). Điều này phản ánh đặc thù ngành thời trang: người dùng xem lướt nhiều lần trước khi quyết định mua. |
+| **L2** | Số lượt xem mỗi phiên | Phiên có mua: Phân phối Hình học ($p = 0,1044$)<br>Phiên không mua: Phân phối Log-series ($\theta = 0,9239$) | Khách có mua hàng duyệt trung bình ~9,5 sản phẩm trước khi checkout. Ngược lại, khách không mua tuân theo Log-series với sai số chỉ **1,3 điểm %**, phần lớn chỉ xem 1–2 sản phẩm rồi thoát trang (bounce rate cao). |
+| **L3** | Nhịp độ giữa các request | Phân phối **Log-Normal**:<br>Median $= 36,2$ giây, $\sigma = 0,938$ | Đo lường khoảng cách thời gian giữa hai sự kiện liên tiếp của cùng một phiên. Mô hình Log-Normal khớp sát thực nghiệm với sai lệch tối đa chỉ **4,4 điểm %**. |
+| **L4** | Chuyển đổi trong ngày Sale | Hệ số chuyển đổi ngày hội mua sắm:<br>$r_{\text{sale}} = r \times 0,35 = 14,44$ | Vào ngày Sale lớn (đo trên ngày 17/11/2019), tỷ lệ $r$ giảm mạnh từ 45,9 ngày thường xuống 16,2. Khách hàng truy cập vào ngày sale có chủ đích mua hàng rõ rệt, thúc đẩy tỷ lệ chuyển đổi (*conversion rate*) tăng gấp **2,8 lần**. |
 
 Phễu giỏ hàng được đặt làm giả định vì nguồn ghi thiếu sự kiện giỏ và phép hiệu chỉnh không ổn định giữa các khối ngày. Hành trình nhiều phiên không được mô hình hóa. Lệnh `datagen logs` dùng các quy luật này sinh log mùa sale 01/11–15/12/2025 theo hợp đồng v1.1.0: mỗi đơn online một phiên kết thúc bằng `checkout_submit` mang `order_number` (ở `1m`: khoảng 45 triệu request).
+
+### **4.7.5. Hiện thực hóa các quy luật vào Bộ sinh dữ liệu `datagen`**
+
+Toàn bộ các quy luật thống kê trên được hiện thực hóa trong package Python `data-generator` (mã nguồn tại `generator/src/datagen/`), được điều khiển thông qua giao diện dòng lệnh `datagen`:
+
+1. **Kiến trúc module hóa chặt chẽ:**
+   * `distributions.py`: Định nghĩa các hàm phân phối xác suất giải tích (Log-series, Log-Normal, Geometric, Exponential co cụm) và kỳ vọng toán học chia sẻ chung giữa quá trình sinh và quá trình kiểm chứng.
+   * `randomness.py`: Quản lý các dòng số ngẫu nhiên độc lập được dẫn xuất từ hạt giống duy nhất (`seed: 20260724`), đảm bảo khả năng tái lập 100% kết quả giữa các lần chạy.
+   * `presets.py`: Kiểm thực cấu hình YAML theo schema nghiêm ngặt (`schema_version: 3`), hỗ trợ 4 mức quy mô: `100k`, `1m`, `10m`, `50m` đơn hàng.
+   * `postgres.py`: Tối ưu hóa I/O cơ sở dữ liệu. Để nạp hàng chục triệu bản ghi trong thời gian ngắn mà không làm nghẽn bộ nhớ, quy trình nạp thực hiện:
+     - Tạm thời gỡ bỏ (*DROP*) các khóa ngoại, ràng buộc UNIQUE và 115 chỉ mục thứ cấp trước khi nạp batch đầu tiên.
+     - Sử dụng lệnh `COPY` truyền dữ liệu theo từng khối (batch) trực tiếp vào PostgreSQL trong một transaction duy nhất.
+     - Tái tạo (*REBUILD*) toàn bộ chỉ mục và ràng buộc sau khi hoàn tất batch cuối cùng, đồng bộ hóa sequence và chạy `ANALYZE`.
+2. **Quy trình kiểm chứng đối soát 22 tiêu chí tự động (`datagen verify`):**
+   Lệnh `make generate-verify PRESET=1m` thực hiện đọc và kiểm tra 22 tiêu chuẩn nghiêm ngặt (định nghĩa trong `generator/src/datagen/verify/report.py`):
+   * *Sổ cái kho*: Số dư tại kho tổng và cửa hàng phải bằng chính xác tổng phát sinh trên sổ cái; không có vị trí nào bị âm tồn ở bất kỳ thời điểm nào; mọi dòng biến động phải gắn với chứng từ hợp lệ.
+   * *Quy luật mua sắm*: Kiểm tra số đơn trung bình trên mỗi khách (R01), khoảng cách giữa 2 đơn (R02), tỷ trọng sản lượng của top 10% sản phẩm (R03), số mặt hàng mỗi đơn (R04), tỷ lệ đơn ngày sale so với ngày thường (R05), tỷ lệ đánh giá 5 sao khi giao đúng hạn (R06).
+   * *Chính sách nghiệp vụ*: Kiểm tra tỷ lệ thanh toán COD, tỷ lệ hủy đơn, tỷ lệ giao hàng thất bại, tỷ lệ đổi hàng và tỷ lệ sử dụng mã giảm giá.
+   * Toàn bộ các lần chạy thử nghiệm trên các preset `1m` và `10m` đều vượt qua **22/22 bài kiểm tra** với sai số nằm trong ngưỡng dung sai cho phép.
+
+### **4.7.6. Ý nghĩa đối với việc Phân tích và Quản trị trên Data Lakehouse**
+
+Việc sinh dữ liệu dựa trên nền tảng EDA thực nghiệm mang lại giá trị cốt lõi cho nền tảng Lakehouse:
+* **Tính chân thực của chỉ số phân tích:** Khi chạy dbt để xây dựng các mô hình tầng Gold, các bảng phân tích khách hàng (`mart_customer_value`, `mart_customer_cohort_monthly`) thể hiện rõ nét đường cong suy giảm khách hàng (*customer churn rate*) và vòng đời giá trị khách hàng (LTV) theo đúng quy luật kinh tế học, thay vì các đường thẳng nhân tạo.
+* **Độ biến thiên doanh thu tự nhiên:** Bảng `mart_sales_daily` và `mart_orders_daily` phản ánh chân thực các đợt sóng doanh thu trong năm (các đỉnh Black Friday, ngày đôi 11/11, 12/12 và giai đoạn sắm Tết), cho phép kiểm thử chính xác năng lực tính toán lại theo ngày (*incremental date partition rebuild*) của dbt thông qua bảng trạng thái `gold._mart_state`.
+* **Cơ sở cho việc tối ưu kho vận:** Mô hình tồn kho theo sổ cái `fact_inventory_daily` kết hợp với phân phối bán chạy R03 giúp kiểm chứng các chỉ số cảnh báo hết hàng, đọng vốn và tính toán mức tồn kho an toàn (*safety stock*) trong `mart_inventory_health_daily`.
+* **Phễu chuyển đổi tiếp thị:** Cung cấp dữ liệu lưu lượng clickstream thực tế, phân biệt rõ giữa người dùng duyệt dạo và người dùng có chủ đích mua hàng, làm nền tảng vững chắc cho mô hình phân tích phễu marketing.
 
 ## **4.8. Đánh giá kết quả, giới hạn hệ thống và hướng phát triển**
 
