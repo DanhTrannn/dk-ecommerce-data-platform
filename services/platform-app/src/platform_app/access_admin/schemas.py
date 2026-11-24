@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 NAME = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
 BUCKET = r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
 PROTECTED_NAMES = {"root", "service_admin", "catalog_admin", "consoleadmin", "diagnostics"}
+Workload = Literal["batch-airflow", "trino-reader", "trino-writer"]
 
 
 def editable_name(name):
@@ -92,7 +93,7 @@ class ResourceMutation(BaseModel):
 
 class WorkloadAssignment(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    workload: Literal["batch-airflow", "flink", "trino-reader", "trino-writer"]
+    workload: Workload
     principal: str | None = Field(default=None, pattern=NAME)
     revision: str = Field(pattern=r"^[a-f0-9]{64}$")
     action: Literal["assign", "remove"] = "assign"

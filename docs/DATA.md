@@ -81,9 +81,9 @@ Catalog Polaris `lakehouse`, bucket `MINIO_LAKEHOUSE_BUCKET`, namespace `staging
 
 ## 4. Access-log contract và xử lý
 
-Thiết kế cho luồng log đang làm lại; chưa có job nào nạp log vào lakehouse.
+FastAPI ghi access log ra stdout và bộ sinh log ghi file Parquet. Việc nạp hai nguồn này vào lakehouse chưa được triển khai.
 
-Middleware API phát `schema.name=ecommerce.access`, version `1.0.0`; generator phát `1.1.0` với `session.id` và `ecommerce.order_number`. Parser giữ version (mặc định `1.0.0` khi thiếu), không chặn theo version/schema name. Middleware/builder tại [API core](../services/platform-app/src/platform_app/api/core/access_logging.py). Không mô tả parser như một full JSON Schema validator.
+Middleware API phát `schema.name=ecommerce.access` phiên bản `1.0.0`. Generator phát `1.1.0` với `session.id` và `ecommerce.order_number`. [Mã ghi access log của API](../services/platform-app/src/platform_app/api/core/access_logging.py)
 
 | Trường | Ý nghĩa |
 |---|---|
@@ -94,13 +94,11 @@ Middleware API phát `schema.name=ecommerce.access`, version `1.0.0`; generator 
 | `actor.*`, `ecommerce.*` | Actor/action, product slug/public UUID hoặc variant UUID nếu route cung cấp |
 | `severity_*`, `error.*`, `trace_id/span_id` | Mức lỗi và trace fields; không đồng nghĩa đã triển khai distributed tracing |
 | `data_origin` | `observed` cho request thực nhận, kể cả request mô phỏng; `synthetic` cho Parquet do generator tạo |
-| `session.id`, `ecommerce.order_number` | Generator 1.1.0 phát; parser/typed Silver/fact/mart chưa ánh xạ, chỉ giữ trong raw payload |
+| `session.id`, `ecommerce.order_number` | Mã phiên và số đơn trong raw payload của generator 1.1.0 |
 
 Không ghi request body, password, Authorization/cookie hoặc thanh toán nhạy cảm. Search có PII được redaction; route chuẩn giúp tránh dùng raw path làm dimension vô hạn. GET `/health/live` và `/health/ready` không phát event.
 
-Flink giữ decoded raw payload, kể cả sai contract. Pipeline log dùng raw hash để chống nhân bản Bronze, rồi ID cho Silver/fact; ID trùng nhưng hai valid payload khác nhau làm job lỗi trước publication. Mỗi layer đọc predecessor đã persist nên retry có thể tiếp tục sau lỗi giữa các commit. Cutoff cố định, không dùng event-time watermark để bỏ log đến muộn.
-
-Product resolver dùng snapshot hiện tại của Silver products/variants khi build log mart. Khóa chưa resolve giữ riêng; không gán sản phẩm tùy ý. Log publication lưu các snapshot đầu vào và mốc `observed_at`. Không tự nạp JSONL lịch sử vào Gold hoặc replay DLQ. Chưa có loader cho Parquet `datagen logs`; các file đó chưa tự vào Landing/publication. `event_ts` lấy từ payload `timestamp`; `observed_timestamp` do producer ghi nhận (generator đặt bằng event time); parser tạo `ingest_ts` theo đồng hồ xử lý. `--as-of` là cutoff event-time có timezone.
+API HTTP realtime đọc `landing.access_logs` nếu bảng đã có. API báo cáo HTTP đọc mart theo snapshot ghi trong publication. [Hợp đồng HTTP](../services/platform-app/src/platform_app/api/README.md#http-observability)
 
 ## 5. Dimension, fact và 17 mart
 

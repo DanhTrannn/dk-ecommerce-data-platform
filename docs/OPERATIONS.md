@@ -27,7 +27,6 @@ Không in `docker compose config` với `.env` thật hay dump biến môi trư�
 | Container `platform-app` | Log API có request ID |
 | `data/scenarios/` | Journal kịch bản mua hàng của runner |
 | `data/access-admin/audit.jsonl` | Journal thao tác quản trị quyền |
-| `data/events/dlq_access_logs.jsonl` | Event Kafka gửi chưa thành công; chưa có lệnh replay |
 
 ## 3. Kiểm tra bằng Trino
 
@@ -55,7 +54,7 @@ SELECT sum(net_revenue_vnd), sum(gross_profit_vnd) FROM lakehouse.gold.mart_sale
 | `silver.<bảng>` lỗi test `matches_bronze` | Silver và Bronze lệch khoá | Chạy `lakehouse_oltp_init` để dựng lại Silver |
 | `gold.<model>` lỗi | Lỗi SQL dbt hoặc Trino | Chạy tay theo [airflow/README.md](../airflow/README.md#run), **Clear** task kèm downstream |
 | Lỗi credential Polaris | Workload chưa được cấp credential, hoặc consumer chưa restart sau khi đổi | Kiểm tra tab **Cấp cho workload** và exporter; restart consumer |
-| S3 `403` khi đọc/ghi bảng | Account MinIO của Polaris thiếu hoặc lệch secret với `.env` | Xem `docker compose logs minio-init`, chạy lại `docker compose --profile core up minio-init`, rồi restart Polaris |
+| S3 `403` khi đọc/ghi bảng | Account MinIO của Polaris thiếu hoặc lệch secret với `.env` | Xem `docker compose logs minio-init`, chạy lại `docker compose up minio-init`, rồi restart Polaris |
 | Trino từ chối quyền ghi | Đúng thiết kế với catalog `lakehouse`; dbt ghi qua `lakehouse_etl` | Không cấp quyền ghi cho reader |
 | Compose báo thiếu biến | `.env` thiếu biến mới | So với `.env.example` |
 | API thiếu bảng | `platform-admin-init` không áp được schema | Xem log init; bootstrap không migrate schema dở dang |
@@ -80,8 +79,8 @@ Nhóm `maintenance` chạy cuối mỗi lần chạy DAG:
 | `postgres-data` | Nguồn nghiệp vụ, metadata Airflow, Polaris, Superset |
 | `minio-data` | Dữ liệu và metadata Iceberg |
 | `access-admin-secrets`, `credential-export-state` | Credential principal, khoá ký exporter, phân công workload |
-| Volume credential của consumer | `clients.env` của Airflow, Flink, Trino |
-| `./data` | Journal kịch bản, DLQ, audit quản trị quyền |
+| Volume credential của consumer | `clients.env` của Airflow và Trino |
+| `./data` | Journal kịch bản và audit quản trị quyền |
 | `.env` | Credential và secret khớp với dữ liệu đã lưu |
 
 `make down` giữ named volumes nhưng không phải bản sao lưu. Backup/restore đồng bộ nhiều hệ thống chưa được kiểm chứng.
@@ -92,11 +91,11 @@ Nhóm `maintenance` chạy cuối mỗi lần chạy DAG:
 uv lock --check
 uvx ruff check .
 make test                                                    # mọi bộ test; test pipeline chạy trong container Airflow
-docker compose --env-file .env.example --profile '*' config --quiet
+docker compose --env-file .env.example config --quiet
 uv run --locked --package platform-app -- \
   python -m platform_app.api.db.schema --output database/schema.sql --check
 ```
 
 Mọi bộ test đều nằm trong git và chạy không cần stack thật: `airflow/tests`, `services/platform-app/tests`, `generator/tests`, `infrastructure/superset/tests`, cùng dbt data test trong `dbt/tests`.
 
-CI ([workflow](../.github/workflows/ci.yml)) kiểm tra bốn tổ hợp profile Compose, compile DAG và chạy Ruff; CI không chạy test.
+CI kiểm tra cấu hình Compose, compile DAG và chạy Ruff. [Workflow](../.github/workflows/ci.yml)

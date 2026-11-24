@@ -5,8 +5,6 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16.8-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Apache Kafka](https://img.shields.io/badge/Apache_Kafka-3.8-231F20?style=flat-square&logo=apachekafka&logoColor=white)](https://kafka.apache.org)
-[![Apache Flink](https://img.shields.io/badge/Apache_Flink-1.19-E6526F?style=flat-square&logo=apacheflink&logoColor=white)](https://flink.apache.org)
 [![Polars](https://img.shields.io/badge/Polars-2.1.0-CD792C?style=flat-square&logo=polars&logoColor=white)](https://pola.rs)
 [![dbt](https://img.shields.io/badge/dbt-1.11-FF694B?style=flat-square&logo=dbt&logoColor=white)](https://www.getdbt.com)
 [![Apache Iceberg](https://img.shields.io/badge/Apache_Iceberg-1.10.1-blue?style=flat-square&logo=apache&logoColor=white)](https://iceberg.apache.org)
@@ -32,9 +30,9 @@
 | Console | Streamlit: purchase scenarios against the API, and Polaris access administration |
 | OLTP pipeline | Airflow: PostgreSQL → staging → Bronze (PyIceberg) → Silver → Gold (dbt on Trino); see [airflow/README.md](airflow/README.md) |
 | Access governance | Polaris principals and roles per workload, per-table storage credentials vended by Polaris (one MinIO account, Polaris's), Trino SQL access rules |
-| BI | Optional Superset dashboard over three Gold sales marts |
+| BI | Superset dashboard over three Gold sales marts |
 
-The access-log path (API → Kafka → Flink → lakehouse) is being redesigned: the API can still publish to Kafka, but the Flink job and log DAGs are removed. The approved design is in [docs/ACCESS_LOG_DESIGN.md](docs/ACCESS_LOG_DESIGN.md).
+FastAPI writes structured access logs to stdout. The generator can also write synthetic access logs to Parquet.
 
 ## Tech Stack
 
@@ -44,17 +42,16 @@ The access-log path (API → Kafka → Flink → lakehouse) is being redesigned:
 | Pipeline | Apache Airflow 3.3.2, PyIceberg 0.12, PyArrow, Polars 2.1, dbt 1.11 (dbt-trino) |
 | Storage and catalog | MinIO, Apache Iceberg 1.10.1, Apache Polaris 1.8.0 |
 | Query and BI | Trino 483, Apache Superset 6.1.0 |
-| Events | Apache Kafka 3.8, Apache Flink 1.19 |
 | Tooling | Docker Compose, uv workspace, Ruff, unittest, GitHub Actions |
 
 ## Quick Start
 
-Requires Docker Engine with Compose v2, Python 3.11 and uv. Full steps and variables: [docs/SETUP.md](docs/SETUP.md).
+Requires Docker Engine with Compose v2, Python 3.11 and uv. After first-time setup, start the full stack with `make up`. See the environment variables and setup steps in [docs/SETUP.md](docs/SETUP.md).
 
 ```bash
 cp .env.example .env            # only if .env does not exist; then fill in the secrets
 uv sync --locked
-make build && make up           # API, Streamlit, PostgreSQL, MinIO, Polaris
+make up SERVICES=platform-app   # first-time setup
 ```
 
 1. Open Streamlit at <http://127.0.0.1:8501> → **Quản trị quyền**, sign in as the bootstrap admin (`API_BOOTSTRAP_ADMIN_*`). `minio-init` already created the bucket and the storage account Polaris uses. Create the Polaris catalog, principals and roles, then assign principal credentials to workloads in **Cấp cho workload**.
@@ -66,10 +63,10 @@ make build && make up           # API, Streamlit, PostgreSQL, MinIO, Polaris
    make source-reader
    ```
 
-3. Start Airflow and Trino, then run the first load:
+3. Start the full stack and run the first load. Compose initializes Superset metadata during startup.
 
    ```bash
-   make core
+   make up
    docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_init
    docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_init
    # After it succeeds:
@@ -77,11 +74,7 @@ make build && make up           # API, Streamlit, PostgreSQL, MinIO, Polaris
    docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_sync
    ```
 
-| Profile | Services |
-|---|---|
-| `core` | PostgreSQL, MinIO, Polaris, Airflow, Trino, platform-app, admin bootstrap, credential exporter |
-| `streaming` | Kafka, Flink |
-| `bi` | Superset |
+After the first load succeeds, run `make superset-sync` to create the dashboard.
 
 | Interface | Address |
 |---|---|
@@ -98,11 +91,11 @@ make build && make up           # API, Streamlit, PostgreSQL, MinIO, Polaris
 .
 ├── airflow/                # OLTP pipeline: DAGs, tasks, lakehouse library, tests
 ├── dbt/                    # dbt project: Silver, Gold, seeds, data tests
-├── streaming/sql/          # access-log and Flink SQL designs (not running)
+├── streaming/sql/          # historical access-log table contracts
 ├── services/platform-app/  # FastAPI, Streamlit, access administration, credential exporter
 ├── generator/              # datagen CLI, EDA notebooks, YAML presets
 ├── database/               # PostgreSQL schema and seeds
-├── infrastructure/         # Airflow, Flink, Trino, MinIO, PostgreSQL, Superset configuration
+├── infrastructure/         # Airflow, Trino, MinIO, PostgreSQL, Superset configuration
 ├── docs/                   # architecture, data, setup, operations, final report
 ├── docker-compose.yml
 └── Makefile
@@ -118,7 +111,7 @@ make ps && make logs
 make down                       # remove containers, keep volumes
 ```
 
-CI ([workflow](.github/workflows/ci.yml)) validates the Compose profiles, compiles the DAGs and runs Ruff; it does not run tests. Every test suite is in git and runs offline, without a live stack.
+CI validates the Compose configuration, compiles the DAGs and runs Ruff. Test suites are in the repository and run offline. [CI workflow](.github/workflows/ci.yml)
 
 ## Documentation
 

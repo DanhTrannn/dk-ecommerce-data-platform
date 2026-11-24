@@ -41,11 +41,8 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
 
-      - name: Validate Docker Compose service groups
-        run: |
-          for profiles in core core,streaming core,bi core,streaming,bi; do
-            COMPOSE_PROFILES="$profiles" docker compose --env-file .env.example config --quiet
-          done
+      - name: Validate Docker Compose configuration
+        run: docker compose --env-file .env.example config --quiet
 
       - name: Verify Airflow DAG Python compilation
         run: python3 -m compileall -q airflow/dags/

@@ -127,7 +127,7 @@ docker compose exec -T -e DBT_AS_OF=2026-11-21T03:00:00+07:00 \
 
 ## Development
 
-`airflow/` is mounted into the Airflow containers and is on `PYTHONPATH`, so code changes apply without a rebuild. Changing `pyproject.toml` needs a new image (`make build-all`).
+`airflow/` is mounted into the Airflow containers and is on `PYTHONPATH`, so code changes apply without a rebuild. After changing `pyproject.toml`, run `make up` to rebuild the image.
 
 ```bash
 make test        # unittest suite in the scheduler container

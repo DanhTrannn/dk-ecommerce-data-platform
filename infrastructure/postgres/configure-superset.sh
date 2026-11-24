@@ -1,5 +1,5 @@
 #!/bin/sh
-# Explicitly add metadata storage to retained PostgreSQL volumes; never reset source data.
+# Create dedicated Superset metadata storage on new and retained PostgreSQL volumes.
 set -eu
 : "${SUPERSET_DB_PASSWORD:?set SUPERSET_DB_PASSWORD}"
 psql -X -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-postgres}" --dbname postgres \
