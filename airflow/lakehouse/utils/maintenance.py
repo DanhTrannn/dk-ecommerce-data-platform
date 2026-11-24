@@ -4,6 +4,8 @@ from urllib.parse import urlsplit
 
 import boto3
 
+from lakehouse.utils.iceberg import current_snapshot_has_manifests
+
 RETAIN_SNAPSHOTS = 20
 TARGET_FILE_SIZE_BYTES = 128 * 1024 * 1024
 # PyIceberg can only rewrite a whole table, so compaction waits until enough small files have piled up.
@@ -14,6 +16,8 @@ MIN_AGE = timedelta(days=3)
 
 
 def compact(table):
+    if not current_snapshot_has_manifests(table):
+        return {"rewritten": False, "small_files": 0}
     files = table.inspect.files()
     small = sum(size < SMALL_FILE_BYTES for size in files["file_size_in_bytes"].to_pylist())
     if small < MIN_SMALL_FILES and not any(files["content"].to_pylist()):
@@ -46,7 +50,9 @@ def orphan_files(table):
     if location.scheme not in {"s3", "s3a"} or location.netloc != bucket:
         raise ValueError("Orphan scan is limited to the configured lakehouse bucket")
     prefix = location.path.strip("/") + "/data/"
-    live = {urlsplit(path).path.lstrip("/") for path in table.inspect.all_files()["file_path"].to_pylist()}
+    live = set()
+    if any(snapshot.manifests(table.io) for snapshot in table.snapshots()):
+        live = {urlsplit(path).path.lstrip("/") for path in table.inspect.all_files()["file_path"].to_pylist()}
     # The credentials Polaris vended for this table only reach its own location, so the scan cannot leave it.
     vended = table.io.properties
     client = boto3.client(
