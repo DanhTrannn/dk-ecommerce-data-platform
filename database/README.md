@@ -1,6 +1,6 @@
 # PostgreSQL source schema
 
-`schema.sql` khởi tạo **28 bảng nguồn trên PostgreSQL 16**, không chứa dữ liệu. Khi chạy `make up`, `platform-admin-init` áp dụng schema nguồn trống và chỉ tạo admin bootstrap; seed catalog chạy thủ công. Quyền MinIO/Polaris và credential workload được quản trị trên Streamlit. Xem [phạm vi API nguồn](../docs/ARCHITECTURE.md#1-phạm-vi-và-hiện-trạng).
+`schema.sql` định nghĩa **28 bảng nguồn trên PostgreSQL 16**. `platform-admin-init` áp dụng schema lên nguồn trống và tạo admin bootstrap khi khởi động ứng dụng. Seed catalog chạy thủ công. Streamlit quản trị quyền Polaris và credential workload. [Phạm vi API nguồn](../docs/ARCHITECTURE.md#1-phạm-vi)
 
 ## Định nghĩa và tái lập
 
@@ -77,7 +77,7 @@ uv run --locked --package platform-app -- \
 
 ORM hiện có **28 bảng, 318 cột và 56 FK**. Lệnh `--check` xác minh bản DDL được render khớp code; nó không chứng minh database đang chạy đã được migrate.
 
-Các kiểm tra nền tảng/DDL và test quản trị không thay thế nghiệm thu toàn bộ giao dịch, pipeline và tập dữ liệu lớn. Chi tiết phạm vi kiểm chứng ở [operations](../docs/OPERATIONS.md#7-kiểm-tra-chất-lượng-và-ci).
+Xem các lệnh kiểm tra cấu hình, pipeline và truy vấn tại [hướng dẫn vận hành](../docs/OPERATIONS.md#7-kiểm-tra-mã-và-ci).
 
 ## Tài khoản đọc cho batch PostgreSQL
 
@@ -85,6 +85,6 @@ Sau bootstrap đủ bảng, đặt `POSTGRES_ECOMMERCE_READER_USER=ecommerce_rea
 
 Role chỉ SELECT 27 bảng nguồn phân tích (batch nạp 19 bảng, hai bảng tồn kho dùng để đối soát), không có quyền đọc `customer_credentials` hoặc quyền ghi bảng/sequence. Không dùng role ứng dụng/admin; script từ chối role có đặc quyền, membership hoặc sở hữu database/schema/relation. Mặc định phiên là UTC/read-only. Không grant mặc định cho bảng mới; khi whitelist thay đổi phải review và chạy lại. Script có thể áp lại password cấu hình khi chạy lại; đây không phải công cụ migrate database cũ. Cách batch dùng role này xem [pipeline OLTP](../airflow/README.md#connections-and-credentials).
 
-## Metadata Superset tùy chọn
+## Metadata Superset
 
 Khi chạy `make up`, `superset-db-init` tạo database và role metadata riêng. `superset-init` cập nhật schema metadata và tạo admin ban đầu. [Khởi tạo metadata Superset](../docs/SETUP.md#khởi-tạo-metadata-superset-lần-đầu)

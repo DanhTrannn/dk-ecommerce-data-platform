@@ -69,7 +69,7 @@ Catalog Polaris `lakehouse`, bucket `MINIO_LAKEHOUSE_BUCKET`, namespace `staging
 | Tầng | Nội dung | Ghi bởi |
 |---|---|---|
 | `staging.<bảng>` | Bản trích xuất của lần chạy gần nhất, kèm `_ingested_at`; xoá trắng mỗi lần nạp | PyIceberg |
-| `bronze.<bảng>` | Dòng nguồn giữ kiểu dữ liệu của PostgreSQL, phiên bản hiện tại theo khoá chính, kèm `_is_deleted`, `_deleted_at` | PyIceberg |
+| `bronze.<bảng>` | Projection nguồn theo khóa chính với `_is_deleted`, `_deleted_at`. UUID được chuyển thành chuỗi khi trích xuất. | PyIceberg |
 | `silver.<bảng>` | Cùng dòng với Bronze; UUID thành 16 byte, timestamp `timestamp(6) with time zone` | dbt (merge) |
 | `gold` | 7 dimension, 6 fact, 14 mart, 2 seed; `gold._mart_state` giữ mốc của mart | dbt (merge; mart tính lại theo ngày) |
 
@@ -98,11 +98,11 @@ Middleware API phát `schema.name=ecommerce.access` phiên bản `1.0.0`. Genera
 
 Không ghi request body, password, Authorization/cookie hoặc thanh toán nhạy cảm. Search có PII được redaction; route chuẩn giúp tránh dùng raw path làm dimension vô hạn. GET `/health/live` và `/health/ready` không phát event.
 
-API HTTP realtime đọc `landing.access_logs` nếu bảng đã có. API báo cáo HTTP đọc mart theo snapshot ghi trong publication. [Hợp đồng HTTP](../services/platform-app/src/platform_app/api/README.md#http-observability)
+Hai route quan sát HTTP còn trong API để đọc dữ liệu log đã có từ luồng cũ. Realtime cần `landing.access_logs`. Báo cáo HTTP cần mart và publication tương ứng. Một stack mới mặc định chỉ có đường nạp OLTP, nên các route log sẽ báo unavailable nếu thiếu bảng hoặc publication. [Hợp đồng HTTP](../services/platform-app/src/platform_app/api/README.md#http-observability) · [Thiết kế luồng log](ACCESS_LOG_DESIGN.md)
 
-## 5. Dimension, fact và 17 mart
+## 5. Dimension, fact và 14 mart OLTP
 
-Dimension: `dim_date` (lịch, ngày lễ và ngày sale từ seed `calendar_events`), `dim_city` (vùng giao và SLA từ seed `delivery_sla`), `dim_store`, `dim_product`, `dim_variant`, `dim_customer`, `dim_staff` (nhân viên giao và nhân viên bán). Fact: `fact_order` (một dòng/đơn), `fact_order_item` (một dòng/dòng đơn), `fact_shipment`, `fact_return` (một dòng/dòng trả hàng), `fact_inventory_daily` (ngày × vị trí × biến thể, dựng từ sổ kho), `fact_review`. Log có `fact_web_events` theo request ID.
+Dimension gồm `dim_date` (lịch, ngày lễ và ngày sale từ seed `calendar_events`), `dim_city` (vùng giao và SLA từ seed `delivery_sla`), `dim_store`, `dim_product`, `dim_variant`, `dim_customer` và `dim_staff`. Fact gồm `fact_order` (một dòng mỗi đơn), `fact_order_item` (mỗi dòng đơn), `fact_shipment` (mỗi vận đơn), `fact_return` (mỗi dòng trả hàng), `fact_inventory_daily` (ngày × vị trí × biến thể) và `fact_review` (mỗi đánh giá).
 
 | Mart | Grain |
 |---|---|
@@ -120,9 +120,6 @@ Dimension: `dim_date` (lịch, ngày lễ và ngày sale từ seed `calendar_eve
 | `mart_reviews_daily` | Ngày đánh giá × sản phẩm × giao đúng hạn/trễ |
 | `mart_customer_value` | Một khách đã mua; giá trị theo đơn đã ghi nhận |
 | `mart_customer_cohort_monthly` | Tháng mua đầu × tháng hoạt động |
-| `mart_hourly_route_metrics` | Ngày UTC × giờ × route × method (log) |
-| `mart_daily_product_demand` | Ngày UTC × product/resolved-or-raw key (log) |
-| `mart_marketing_funnel_daily` | Ngày UTC; request-event counts (log) |
 
 Không cộng nhiều ngày tồn thành tồn hiện tại. Model và data test nằm trong [dbt/models/oltp](../dbt/models/oltp/).
 
@@ -140,19 +137,18 @@ Không cộng nhiều ngày tồn thành tồn hiện tại. Model và data test
 | Tỷ lệ/biên | Tính từ tổng tử/mẫu hợp lệ, không trung bình tỷ lệ các dòng; không có mẫu số thì giữ NULL |
 | Tồn | Cộng dồn sổ kho theo vị trí tới ngày; giá trị = tồn × giá vốn hiện tại của biến thể |
 | Giao vận | Đúng hạn khi ngày giao (giờ VN) ≤ ngày đặt + `sla_days` của thành phố nhận. SLA = mức trên của vùng GHTK + 1 ngày xử lý + 1 ngày chờ lấy hàng: TP.HCM 4, Bình Dương/Cần Thơ/Hà Nội 6, Đà Nẵng/Hải Phòng 8. Thời gian trung bình = tổng/tổng mẫu, không AVG của AVG |
-| HTTP lỗi | `(4xx + 5xx) / total_requests ×100`; duration ns/1e6 thành ms; percentile theo route/giờ |
-| HTTP success | Cột legacy `success_2xx_count` thực tế đếm status <400; không gọi là chỉ 2xx |
-| Funnel | Thành công product_detail/catalog_search → cart_item_set/cart_add → checkout_quote/checkout_submit; purchase chỉ checkout_submit |
+| Độ phủ tồn kho | `closing_qty / avg_daily_sales_28d`. Giữ NULL khi 28 ngày không có lượng bán. |
+| Tỷ lệ hết hàng | Số vị trí × SKU hết hàng chia tổng số vị trí × SKU đã quan sát. |
+| Mua lặp lại | Số khách đã mua nhiều lần chia số khách có đơn ghi nhận trong nhóm lọc theo ngày mua đầu. |
+| Tỷ lệ hoạt động cohort | Số khách hoạt động ở tháng tương đối chia cho số khách ở tháng 0 của cùng cohort. |
 
-Funnel là **request events**, không phải unique people/session/order; step có thể chồng lặp và tỷ lệ vượt 100%. PUT giỏ không chứng minh lượng tăng. Không cộng distinct actor qua ngày/sản phẩm thành số khách duy nhất của kỳ. COD checkout chưa thu chưa tạo doanh thu; refund và thanh toán là dòng tiền riêng.
-
-Phân biệt NULL/chưa quan sát, 0 được đo từ nguồn hợp lệ và unavailable. Không tự tạo target, dự báo, biến động kỳ trước hoặc nhận định nhân quả. Mọi cột ngày trong Gold OLTP theo giờ Việt Nam; timestamp giữ UTC; mart log có UTC grain. Chuỗi ngày tồn kho và backlog kết thúc ở ngày `DBT_AS_OF`.
+KPI nhận giá trị NULL khi thiếu quan sát hoặc mẫu số. Số 0 biểu thị giá trị đo được. Mọi cột ngày trong Gold OLTP theo giờ Việt Nam. Timestamp giữ UTC. Chuỗi ngày tồn kho và backlog kết thúc ở ngày `DBT_AS_OF`. Các dashboard dùng ngày phù hợp với nghiệp vụ của từng dataset. [Danh sách dashboard](SETUP.md#6-dashboard-superset)
 
 Kiểm tra chặn gồm đối soát với nguồn và `matches_bronze` (mục 3). Sau Gold, data test dbt (khóa, phân bổ giảm giá bảo toàn, đơn khớp Silver, các mart doanh thu khớp nhau, tồn khớp sổ kho) chỉ ghi cảnh báo vào log, không chặn.
 
 ## 7. Dữ liệu sinh và căn cứ
 
-Lệnh `datagen` trong [generator](../generator/README.md) nạp 12 tháng lịch sử OLTP tổng hợp vào PostgreSQL theo preset (`make generate PRESET=1m`), và `make generate-verify PRESET=1m` đối chiếu dữ liệu đã nạp với quy luật của preset (sổ kho, R01–R07, tỷ lệ kịch bản, POS, địa điểm). `datagen logs --preset 1m --out <thư mục>` sinh log truy cập 01/11–15/12/2025 khớp với đơn online đã nạp: mỗi đơn một phiên kết thúc bằng `checkout_submit` mang `order_number`, ghi mỗi ngày một file Parquet (`raw_payload`, `event_at`) theo hợp đồng `ecommerce.access` 1.1.0. Các khối quy luật YAML ghi `source`: `measured` (đo trong notebook), `transfer` (đo ở nguồn nước ngoài, áp cho shop thời trang VN như giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản). YAML là danh mục tham số runtime; các bảng dưới tóm tắt quy luật. Preset `schema_version: 3` khác version access event/publication. Loader Parquet tổng hợp chưa có; session/order number chưa được ánh xạ vào typed layers.
+Lệnh `datagen` nạp 12 tháng lịch sử OLTP tổng hợp vào PostgreSQL. Dùng `make generate PRESET=100k` và `make generate-verify PRESET=100k` để nạp rồi kiểm tra sổ kho, R01–R06 và các tỷ lệ kịch bản. R07 định nghĩa cách sinh thời gian giao theo vùng. Preset `1m` đã nạp có thể dùng với `datagen logs --preset 1m --out <thư mục>` để sinh log mùa sale từ 01/11 đến 15/12/2025. Mỗi đơn online trong cửa sổ có một phiên kết thúc bằng `checkout_submit` mang `order_number`. Mỗi ngày phiên có một file Parquet (`raw_payload`, `event_at`) theo hợp đồng `ecommerce.access` 1.1.0. YAML là nguồn tham số runtime. Nhãn `measured` là số đo từ notebook, `transfer` là giả định khi áp số đo nước ngoài cho cửa hàng Việt Nam, `assumption` là tham số kịch bản. [Hướng dẫn và kết quả kiểm tra generator](../generator/README.md)
 
 ### Preset OLTP
 
@@ -288,13 +284,13 @@ Phần này giữ hồ sơ nguồn S01–S11 của nghiên cứu ngày **08/11/2
 
 ## 9. Hợp đồng Gold dbt/Trino
 
-Gold OLTP có 27 bảng: 7 dimension, 6 fact, 14 mart và 2 seed (`delivery_sla`, `calendar_events`), một task Airflow mỗi model theo thứ tự `ref()`/`live()`. Dimension và fact là model incremental merge theo khoá; mỗi fact giữ `_previous_dates` (các ngày trước lần merge) để mart tính lại cả ngày dòng vừa rời đi. Mart (trừ `mart_customer_cohort_monthly`, `mart_inventory_current` dựng lại toàn bộ) xoá rồi dựng lại các ngày bị ảnh hưởng kể từ mốc trong `gold._mart_state`. Dimension và fact có `_is_deleted`; mart chỉ đọc dòng còn sống. Giảm giá đơn được phân bổ cho các dòng theo tỷ lệ tiền dòng, làm tròn xuống tích luỹ, nên tổng phân bổ bằng đúng giảm giá đơn. Giá vốn lấy snapshot dòng đơn.
+Gold OLTP có 27 model (7 dimension, 6 fact, 14 mart), hai seed (`delivery_sla`, `calendar_events`) và bảng trạng thái `gold._mart_state`. Airflow tạo một task cho mỗi model hoặc seed theo đồ thị `ref()` và `live()`. Dimension và fact merge theo khóa. Những fact cần theo dõi ngày cũ giữ `_previous_dates` để mart tính cả ngày dòng vừa rời đi. Phần lớn mart tính lại ngày hoặc khách bị ảnh hưởng kể từ watermark. `mart_customer_cohort_monthly` và `mart_inventory_current` dựng lại toàn bộ. Dimension/fact có `_is_deleted`, còn mart tính các dòng hiệu lực. Giảm giá được phân bổ theo tỷ lệ tiền dòng, làm tròn xuống tích lũy để tổng phân bổ bằng tiền giảm của đơn. Giá vốn lấy snapshot dòng đơn.
 
-`DBT_AS_OF` (mốc bắt đầu lần chạy) là ngày hiện tại của Gold: kết thúc chuỗi ngày tồn kho và backlog, và cửa sổ 28 ngày của `mart_inventory_current`. `dim_date` phủ trọn các năm có dữ liệu. Data test trong `dbt/tests/oltp` và test khoá trong `gold.yml` chạy với severity `warn`.
+`DBT_AS_OF` dùng `run_after` của DAG để chốt ngày lập báo cáo. Nó xác định ngày tồn hiện tại và mốc thời gian của chuỗi tồn hoặc backlog. `dim_date` phủ các năm có dữ liệu. Năm data test trong `dbt/tests/oltp` chạy ở task `gold.tests` với mức cảnh báo. Các schema test của model chạy cùng `dbt build` theo cấu hình của model.
 
-## 10. Hợp đồng ba mart log dbt/Trino
+## 10. Hợp đồng tham khảo của luồng log cũ
 
-Thiết kế, chưa chạy: model ở [dbt/models/logs](../dbt/models/logs/), DDL ở [streaming/sql](../streaming/sql/). Giữ tên/cột/grain của `mart_hourly_route_metrics`, `mart_daily_product_demand` và `mart_marketing_funnel_daily`. Ngày/giờ tính theo UTC. Các chỉ số funnel là số request thành công, không phải số người/session/đơn hàng duy nhất; visitor đếm actor khác NULL. Tên cũ `success_2xx_count` vẫn tính HTTP dưới 400 (gồm 3xx). Mẫu số bằng 0 trả NULL.
+Các SQL tham khảo gồm `fact_web_events` theo request ID, `mart_hourly_route_metrics` theo ngày × giờ × route × method, `mart_daily_product_demand` theo ngày × khóa sản phẩm, và `mart_marketing_funnel_daily` theo ngày. Ngày/giờ dùng UTC. Phễu cũ đếm request thành công; visitor đếm actor khác NULL. Tên cột `success_2xx_count` đếm HTTP dưới 400, bao gồm 3xx. Mẫu số bằng 0 trả NULL. Phễu theo phiên của thiết kế mới có hợp đồng riêng. [Model log](../dbt/models/logs/) · [DDL](../streaming/sql/contracts/logs/) · [Thiết kế phễu theo phiên](ACCESS_LOG_DESIGN.md)
 
 Ánh xạ sản phẩm hỗ trợ slug, ID số và UUID 16 bytes; UUID có dấu gạch được chuẩn hóa, slug giữ dấu gạch. Product token có ưu tiên hơn variant token. Khóa chưa khớp giữ `raw-product:`/`raw-variant:` để vẫn thấy nhu cầu chưa ánh xạ; mapping làm nhân bản event bị chặn.
 

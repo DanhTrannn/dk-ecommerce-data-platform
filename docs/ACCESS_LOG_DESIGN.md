@@ -1,6 +1,8 @@
 # Thiết kế luồng access log
 
-Thiết kế đã duyệt (2026-11-13), **chưa xây**. Luồng cũ (Flink ghi `landing.access_logs`, mart log tính hai lần) đã gỡ; các file SQL ở [streaming/sql](../streaming/sql/) và [dbt/models/logs](../dbt/models/logs/) là thiết kế cũ để tham khảo. Khi xây, làm theo cách của pipeline OLTP: mỗi tầng chạy lại an toàn, task theo bảng hoặc model.
+## Hiện trạng
+
+FastAPI ghi `ecommerce.access` 1.0.0 ra stdout. `datagen logs` tạo Parquet theo ngày phiên với hợp đồng 1.1.0. Compose hiện phục vụ luồng OLTP. Việc đưa log vào Lakehouse và dựng phễu phiên nằm trong thiết kế bên dưới. Hai endpoint quan sát HTTP còn phụ thuộc vào bảng và publication của luồng cũ. Các SQL log trong repo dùng để tham khảo. [Hợp đồng API quan sát](../services/platform-app/src/platform_app/api/README.md#http-observability) · [SQL log cũ](../streaming/sql/contracts/logs/) · [Model log cũ](../dbt/models/logs/)
 
 ## Mục đích
 
@@ -34,21 +36,21 @@ Mọi việc tách trường, kiểm hợp đồng, bỏ trùng nằm ở Silver
 
 Số đơn khớp thấp hơn hẳn tổng đơn online nghĩa là log bị hụt. Đơn POS không thuộc phễu.
 
-## Đường nạp
+## Đường nạp đề xuất
 
-- **Streaming** (`_source='stream'`): API → Kafka → Flink → `bronze.web_events`. Flink chỉ lấy `timestamp` để điền `event_at`.
+- **Streaming** (`_source='stream'`) theo thiết kế ban đầu dùng API → Kafka → Flink → `bronze.web_events`. Tầng nạp đọc `timestamp` thành `event_at` và giữ payload gốc. Kafka và Flink đã được gỡ khỏi Compose, nên triển khai tương lai cần bổ sung đường thu nhận mới.
 - **Nạp file** (`_source='backfill'`): generator ghi mỗi ngày một file Parquet `(raw_payload, event_at)`; một lệnh chạy tay append vào Bronze, không cần DAG. File tạm không thuộc lakehouse.
 - **Airflow:** một DAG log dựng Silver tăng dần rồi dbt mart log.
 
-## Demo streaming
+## Demo streaming đề xuất
 
-Kịch bản "traffic liên tục" trên trang Scenarios của Streamlit, dựa trên `ui/scenarios/purchase.py` và worker có sẵn:
+Kịch bản "traffic liên tục" dự kiến mở rộng trang **Mô phỏng API**, dựa trên `ui/scenarios/purchase.py` và worker hiện chạy các lượt mua tuần tự.
 
 - mỗi phiên ảo một client HTTP và cookie riêng;
 - trộn khoảng 41 phiên chỉ xem cho 1 phiên mua, theo preset log; 7,5% phiên không mua vẫn đăng nhập và thêm giỏ;
 - phiên mua dùng luồng `purchase` (tạo đơn thật, trừ tồn kho);
 - người demo chỉnh số phiên song song và bấm Bắt đầu/Dừng, rồi kiểm tra bằng SQL trên `bronze.web_events` (`_source='stream'`) và `mart_web_funnel_daily`.
 
-## Không làm
+## Phạm vi mart log
 
 `mart_product_demand_daily`: preset log đặt lượt xem tỷ lệ thuận lượt mua, nên tỷ lệ xem/mua của mọi sản phẩm gần như nhau và mart không trả lời được câu hỏi của nó.

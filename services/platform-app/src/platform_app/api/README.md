@@ -1,6 +1,6 @@
 # Ecommerce API and Access Administration
 
-FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. Its active surface comprises source transactions, the ID lookups needed by scenarios, two HTTP observability reads, and Polaris administration under `/api/v1/access`. The Streamlit console uses this API; business sales BI uses the separate Superset PoC.
+FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. It serves source transactions, scenario lookups, Polaris administration under `/api/v1/access`, and two observability routes for existing log tables. Business analytics run through four Superset dashboards over OLTP Gold. [BI setup](../../../../../docs/SETUP.md#6-dashboard-superset)
 
 [Models](models) map 28 OLTP tables; the [physical schema](../../../../../database/schema.sql) is PostgreSQL. [Router registration](routes/router.py) and [handlers](modules) define supported endpoints. There is no separate access-admin web service: access routes share the API process, cookie session and port 8000. The credential exporter is a separate internal service on port 8011.
 
@@ -38,7 +38,8 @@ Use Python 3.11 and the repository uv workspace (`uv sync --locked`). Start Post
 
 ```bash
 # After configuring the required environment variables:
-uv run --locked --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --reload
+uv run --locked --env-file .env --package platform-app -- \
+  uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 API settings load the root `.env` through Pydantic when launched there. The Trino module reads the process environment directly. Export its variables explicitly or pass `--env-file .env` to `uv run`. Infrastructure administration needs provider credentials, private credential and audit paths, and exporter configuration. Compose supplies these mounts and settings. FastAPI writes structured access logs to stdout.
@@ -47,7 +48,7 @@ For the two analytics reads, the [Trino client](modules/analytics/trino_client.p
 
 ## HTTP observability
 
-The six former business BI reads are retired: GET `/api/v1/admin/overview`, `/api/v1/admin/store/dashboard` and `/api/v1/admin/analytics/{overview,role-metrics,sales-trend,stores}`. The retained analytics router has only the two endpoints below. Historical role dashboards and their types are not a current backend contract. Business sales serving uses the separately configured Superset PoC; see [architecture](../../../../../docs/ARCHITECTURE.md).
+The former business BI endpoints were retired. The retail dashboards query Gold through Superset and Trino. The two remaining endpoints below serve historical HTTP observability datasets. They require the old Landing table or Gold publication, which the current OLTP pipeline does not build. [BI architecture](../../../../../docs/ARCHITECTURE.md) · [Access-log design](../../../../../docs/ACCESS_LOG_DESIGN.md)
 
 ### HTTP metrics contract
 

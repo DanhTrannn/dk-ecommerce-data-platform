@@ -15,7 +15,7 @@ generator/
 │   ├── logs/              access-log history: inputs.py (PostgreSQL), sessions.py, events.py, run.py
 │   └── verify/            ledger.py, rules.py, report.py
 ├── oltp/
-│   ├── configs/     1m.yml, 10m.yml, 50m.yml   purchase-behavior presets
+│   ├── configs/     100k.yml, 1m.yml, 10m.yml, 50m.yml   purchase-behavior presets
 │   └── notebooks/   purchase_behavior_eda.ipynb
 └── logs/
     ├── configs/     1m.yml, 10m.yml, 50m.yml   browsing-behavior presets
@@ -28,11 +28,12 @@ Behavior blocks carry `source` provenance labels: `measured` (measured in the no
 
 | Preset | Buying customers | Products | Expected online orders (12 months) |
 |---|---|---|---|
+| `100k.yml` | 26,000 | 200 | ≈ 100,000 |
 | `1m.yml` | 260,000 | 500 | ≈ 1,000,000 |
 | `10m.yml` | 2,600,000 | 1,000 | ≈ 10,000,000 |
 | `50m.yml` | 13,000,000 | 2,000 | ≈ 50,000,000 |
 
-Preset names describe approximate online-order scale; POS adds orders to that total. Online orders are an outcome, not an input: expected online orders = buying customers × 3.846 for 12 months of history (log-series purchase frequency). Changing `history_months` changes that factor. The three presets share all behavior rules and differ only in `scenario_id` and `scale`.
+Preset names describe approximate online-order scale. POS adds orders to that total. Expected online orders are buying customers × 3.846 for 12 months of history under the log-series model. Changing `history_months` changes that factor. The four presets share behavior rules and differ in `scenario_id` and `scale`.
 
 Rules measured in [purchase_behavior_eda.ipynb](oltp/notebooks/purchase_behavior_eda.ipynb) (H&M online 2019, Olist 2017):
 
@@ -48,16 +49,15 @@ Rules measured in [purchase_behavior_eda.ipynb](oltp/notebooks/purchase_behavior
 
 Section 7 lists scenario assumptions (COD, cancellations, returns, coupons, Tết) and section 7.1 cross-checks them against public Vietnamese figures; those figures are not used for calibration. Section 7.2 takes the delivery time per zone (R07) from the carrier's published table, cross-checked with GHN.
 
-Blocks without a notebook measurement are scenario assumptions: `scale.stores` (5 / 20 / 50 stores), `locations` (cities, their share of customers, shipping addresses and stores, and their delivery zone seen from the central warehouse in TP.HCM), `pos` (POS orders per online order, walk-in rate, payment methods, opening hours, staff per store) and `policies` (operational ranges such as `timing.payment_delay_minutes`, `timing.dispatch_delay_hours`, `timing.completion_delay_hours`, `carts.active_cart_rate`, `inventory.store_buffer_units` and `shipping.delivery_staff`).
+Scenario assumptions include `scale.stores` (3 / 5 / 20 / 50 stores), `locations` (cities, customer and store shares, shipping addresses, delivery zones from the central warehouse in TP.HCM), `pos` (order volume, walk-in rate, payment methods, opening hours, staff) and operating ranges in `policies`.
 
 ## Running the OLTP generator
 
 The generator needs only PostgreSQL with the schema from `database/schema.sql` and the category seed (`make seed`; see [docs/SETUP.md](../docs/SETUP.md)). It generates its own products, stores and locations while reusing seeded category IDs. It reads the connection from `GENERATOR_DATABASE_URL` in `.env`; `.env.example` derives it from the source database owner.
 
 ```bash
-make generate PRESET=1m          # datagen generate --preset 1m
-make generate-verify PRESET=1m   # datagen verify --preset 1m
-uv run --locked --env-file .env --package data-generator -- datagen reset --yes
+make generate PRESET=100k
+make generate-verify PRESET=100k
 ```
 
 - `generate` is a one-time history load. It checks the live schema against its own column list, refuses to run when synthetic rows or API-created orders already exist, and loads batch by batch with `COPY`, all in one transaction. Before the first batch it drops the foreign keys, unique constraints and secondary indexes of the loaded tables (primary keys, CHECK and NOT NULL stay) and rebuilds them from the live catalog after the last one. A load/rebuild failure rolls back the history transaction: inserted history rows are removed and dropped indexes/constraints are restored. Post-commit `ANALYZE` is separate. The rolled-back rows still take disk space, though (tens of GB for `10m`), so before rerunning run `datagen reset --yes` and `make seed`; the error message says so too. Dropping/rebuilding objects takes table locks until commit, so affected API, Streamlit and source-reader operations can wait; lock acquisition has a 10-second timeout. Customers and orders carry `data_origin = 'synthetic'` and `generation_run_id = <scenario_id>:<seed>`; those columns do not exist on every source table. The same preset, seed and initial database state give deterministic generated data. Sequences are synchronized before commit; `ANALYZE` runs after the history transaction commits.
@@ -88,7 +88,9 @@ Tolerances live in one table, `verify/report.py`. "Old" orders are online orders
 
 ### Previously recorded measured runs
 
-These are historical local measurements, not fresh verification in this documentation audit. No `50m` execution is established here. Local PostgreSQL 16.8 with the Compose defaults, 8 cores, 15 GB RAM:
+The `100k` demo run on 22 November 2026 generated 101,730 online and 15,260 POS orders. `verify` passed 20 of 22 checks, including all four inventory-ledger checks. Product concentration was 60.88% against 52.73% expected with an 8 percentage point tolerance, and the sale-day ratio was 7.226 against 6.390 expected with a 12% relative tolerance.
+
+The historical benchmarks below used a local PostgreSQL 16.8 with the Compose defaults, 8 cores and 15 GB RAM. Benchmark results are available for `1m` and `10m`. `50m` is a configured preset.
 
 | Preset | Result | Wall time | Peak memory | Rows |
 |---|---|---|---|---|
@@ -119,8 +121,8 @@ uv run --locked --env-file .env --package data-generator -- datagen logs --prese
 - It requires at least one synthetic order with the selected OLTP run ID, a window inside that preset’s history and online orders in that window; `--out` must be new or empty. Subsequent queries read all online orders in the window plus current catalog/customer inputs, without filtering every row by run ID. Use the intended preset database for a matching backfill.
 - Every online order of the window gets one logged-in session that ends with `checkout_submit` at the order's `created_at`, carrying its `order_number`. Browsing sessions per day = r × buying sessions (× L4 on 11-11, Black Friday and 12-12); each has a 7.5% cart/login probability when active customers are available; the rest stay anonymous. Buying sessions include views of purchased products and cart actions; view weights come from units sold across the available order history.
 - Each request is one JSON event of contract `ecommerce.access` 1.1.0 (adds `session.id` and `ecommerce.order_number` to 1.0.0) with `data_origin = "synthetic"`, `status_code = 200` and `duration_ns = 0` (latency is not simulated).
-- Output: `session_date=YYYY-MM-DD.parquet` per day with `raw_payload` (the JSON text) and `event_at` (UTC). A session that crosses midnight stays in its session day's file; existing lakehouse log tables use day partitions on `event_ts`, not these filenames. The window is `[2025-11-01, 2025-12-16)` in `Asia/Ho_Chi_Minh`; days without orders produce no file. Requests can cross the session day/window boundaries. Gaps are clipped to 1 µs–30 min. Each day has its own random stream, so the same preset, seed and database inputs give the same events.
-- The lakehouse loader for these files is not built yet; inspect them directly as Parquet. API middleware still emits 1.0.0 with `data_origin="observed"`, including scenario requests. The parser keeps the version field but does not map `session.id` or `ecommerce.order_number` into typed Silver/fact/marts; these stay in raw JSON. Current funnel marts count successful requests, not unique sessions/orders.
+- Output is `session_date=YYYY-MM-DD.parquet` per day with `raw_payload` (JSON text) and `event_at` (UTC). A session that crosses midnight stays in its starting day's file. The window is `[2025-11-01, 2025-12-16)` in `Asia/Ho_Chi_Minh`. Days without orders produce no file. Requests can cross day and window boundaries. Each day has its own random stream, so the same preset, seed and database inputs give the same events.
+- Inspect these files directly as Parquet. The loader and a funnel that joins sessions to orders are part of the access-log design. FastAPI writes observed version 1.0.0 events to stdout, including scenario requests. [Access-log design](../docs/ACCESS_LOG_DESIGN.md)
 - Synthetic `timestamp` and `observed_timestamp` both equal generated event time; ingestion supplies its own processing time. Preset `schema_version: 3`, event version `1.1.0` and log publication version 1 are separate contracts.
 
 Previously recorded `1m` log run on the same machine (not rerun in this audit): 45 files, 206,632 buying and 7,147,494 browsing sessions, 45,083,918 requests, 2.4 GB of Parquet, 86 s, 2.9 GB peak memory. Every online order of the window appears once as a `checkout_submit`; the sale-event days carry 6.4 times the buying sessions of an ordinary day with r = 14.44 (41.39 × 0.35).

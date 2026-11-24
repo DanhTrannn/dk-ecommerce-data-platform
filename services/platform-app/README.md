@@ -12,7 +12,7 @@ Thiết kế và quyết định kỹ thuật: [docs/SETUP.md](../../docs/SETUP.
 
 ## API nguồn
 
-FastAPI giữ nghiệp vụ và lookup phục vụ dữ liệu; sáu API BI và mười GET danh sách/trùng lặp đã bỏ cùng service/schema riêng; giữ toàn bộ API ghi, gồm add-to-cart/checkout. Lookup customer yêu cầu email và trả customer_id; lookup địa điểm trả store_id/city_id. Superset có PoC doanh thu dùng hai mart; các dashboard khác và quyền viewer/store chưa triển khai. Hai API quan sát HTTP vẫn giữ quyền admin/system_admin. Chi tiết endpoint, transaction, hợp đồng tồn đầu/ledger và giới hạn kiểm chứng tại [API_SOURCE_SCOPE](../../docs/ARCHITECTURE.md#1-phạm-vi-và-hiện-trạng).
+FastAPI cung cấp nghiệp vụ như giỏ hàng, checkout, POS, kho, giao vận và đổi trả cùng các lookup phục vụ mô phỏng. Bốn dashboard Superset đọc 14 mart OLTP Gold qua Trino. Hai route quan sát HTTP dành cho admin hoặc system admin đọc các bảng log cũ nếu đã có. Vận hành mặc định ghi access log ra stdout. [Hợp đồng API](src/platform_app/api/README.md) · [Danh sách dashboard](../../docs/SETUP.md#6-dashboard-superset)
 
 ## Chạy cục bộ
 
@@ -54,7 +54,8 @@ Healthcheck kiểm tra cả FastAPI `/health/live` ở cổng 8000 và Streamlit
 ## Kiểm tra
 
 ```bash
-make test        # gồm test của platform-app; không cần stack thật
+PYTHONPATH=services/platform-app/tests uv run --locked --package platform-app -- \
+  python -m unittest discover -s services/platform-app/tests -t services/platform-app/tests
 uvx ruff check .
 ```
 

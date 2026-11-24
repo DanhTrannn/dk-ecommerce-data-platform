@@ -13,7 +13,7 @@ Cấu trúc dữ liệu và KPI ở [DATA.md](DATA.md), cài đặt ở [SETUP.m
 | Console | Streamlit: kịch bản mua online qua API, quản trị quyền Polaris |
 | Pipeline OLTP | Airflow: staging → Bronze → Silver → Gold, 19 bảng nguồn, 27 model Gold; đồng bộ dòng bị xoá bằng xoá mềm và thay đổi cột đã duyệt |
 | Access log | API ghi JSON ra stdout. Generator sinh log lịch sử dạng Parquet |
-| BI | Superset đọc ba mart doanh thu |
+| BI | 4 dashboard Superset, 27 biểu đồ, đọc 14 mart OLTP Gold qua Trino |
 
 Không dùng Spark, Debezium hay CDC.
 
@@ -43,12 +43,20 @@ API / datagen ──► PostgreSQL ──► staging ──► [reconcile] ─�
 
 | Tầng | Nội dung |
 |---|---|
-| `staging` | Bản trích xuất mới nhất; mỗi lần nạp xoá trắng rồi ghi lại, nên chạy lại cho cùng kết quả |
-| `bronze` | Dòng nguồn giữ nguyên kiểu dữ liệu, phiên bản hiện tại theo khoá chính |
+| `staging` | Bản trích xuất mới nhất. Mỗi lần nạp xoá trắng staging của bảng rồi ghi lại từ nguồn |
+| `bronze` | Phiên bản hiện tại theo khóa chính, giữ projection nguồn và cờ xóa mềm. UUID được biểu diễn dưới dạng chuỗi trong quá trình trích xuất. |
 | `silver` | Kiểu dữ liệu chuẩn hoá (UUID, timestamp), merge theo khoá chính; dbt test `matches_bronze` bảo đảm cùng tập khoá với Bronze |
 | `gold` | 7 dimension, 6 fact, 14 mart và 2 seed; dimension và fact merge dòng đổi, mart tính lại các ngày bị ảnh hưởng |
 
-`lakehouse_oltp_init` nạp toàn bộ nguồn tại một mốc chung và đối soát với nguồn trước khi Bronze đổi. `lakehouse_oltp_incremental` chạy 03:00 hằng ngày theo cursor `updated_at`/`created_at`. Sau mỗi lần incremental, `lakehouse_oltp_sync` thêm cột đã duyệt và nới kiểu ở staging và Bronze (dừng với cột mới chưa duyệt, cột bị bỏ hay đổi loại), rồi so khoá nguồn với Bronze và đánh dấu xoá mềm (`_is_deleted`) dòng đã mất ở nguồn qua mọi tầng; `lakehouse_oltp_purge` chạy tay để xoá cứng. Ràng buộc khoá, trường bắt buộc và khoá ngoại đã được PostgreSQL bảo đảm nên pipeline không kiểm tra lại. Chi tiết ở [airflow/README.md](../airflow/README.md).
+`lakehouse_oltp_init` dùng chung mốc `created_at < run_after` cho các bảng. Mỗi task trích xuất đọc trong transaction riêng. Đối soát số dòng, tổng tiền và sổ kho chạy trước Bronze. `lakehouse_oltp_incremental` chạy 03:00 hằng ngày theo cursor `updated_at` hoặc `created_at`. `lakehouse_oltp_sync` chạy theo Asset từ incremental hoặc chạy tay. Sync xử lý cột đã duyệt hoặc kiểu tương thích, đánh dấu khóa đã xóa và nạp lại khóa xuất hiện trở lại. `lakehouse_oltp_purge` chạy tay để xóa cứng. [Chi tiết pipeline](../airflow/README.md)
+
+### Dashboard BI
+
+Superset đọc bảng Gold hiện hành qua `lakehouse` và tài khoản `analytics_reader`. `make superset-sync` quản lý cấu hình của bốn dashboard từ mã Python. Sau khi tạo dashboard, các lần nạp OLTP cập nhật dữ liệu mà biểu đồ đọc trực tiếp. [Thiết lập và danh sách dashboard](SETUP.md#6-dashboard-superset)
+
+### Access log
+
+FastAPI ghi sự kiện `ecommerce.access` 1.0.0 ra stdout. `datagen logs` viết dữ liệu lịch sử theo hợp đồng 1.1.0 ra Parquet. Các model log cũ và thiết kế phễu theo phiên được giữ để tham khảo. Compose hiện triển khai đường nạp OLTP. [Hợp đồng dữ liệu](DATA.md#4-access-log-contract-và-xử-lý) · [Thiết kế luồng log](ACCESS_LOG_DESIGN.md)
 
 ## 4. Định danh và quyền
 
@@ -60,10 +68,10 @@ API / datagen ──► PostgreSQL ──► staging ──► [reconcile] ─�
 
 ## 5. Triển khai
 
-`make up` khởi động toàn bộ stack và chuẩn bị metadata Superset sau khi cấp credential Polaris lần đầu. [Thứ tự thiết lập](SETUP.md#2-khởi-động)
+Thiết lập lần đầu dùng `make up SERVICES=platform-app` để bật Console và cấp credential Polaris. Sau đó `make up` bật toàn bộ stack. `superset-db-init` và `superset-init` chuẩn bị metadata trước khi web Superset khởi động. [Thứ tự thiết lập](SETUP.md#2-khởi-động)
 
 ## 6. Chưa hoàn tất
 
 - Nạp access log vào lakehouse và dựng các mart log.
-- Dashboard Superset cho các mart còn lại và quyền theo cửa hàng.
+- Phân quyền Superset theo cửa hàng.
 - Runner cho nghiệp vụ ngoài mua online; HA, backup/restore và hardening khi triển khai public.

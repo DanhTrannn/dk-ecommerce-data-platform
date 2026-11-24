@@ -117,11 +117,12 @@ Kiểm tra cả `trino` và `airflow-scheduler` đã lên `healthy`. Mở [Airfl
 
 ### Bước 12 Nạp dữ liệu mẫu nếu cần
 
-Nếu PostgreSQL đang trống và cần lịch sử cho dashboard, chạy hai lệnh dưới. Preset `1m` sinh khoảng một triệu đơn online, cộng thêm đơn POS. Nếu đã có dữ liệu cần phân tích, tiếp tục Bước 13. [Generator và điều kiện nạp dữ liệu](../generator/README.md)
+Nếu nguồn demo chưa có lịch sử đơn, dùng preset `100k` để sinh khoảng 100.000 đơn online và đơn POS đi kèm. Nếu đã có dữ liệu cần phân tích, tiếp tục Bước 13. [Generator và điều kiện nạp dữ liệu](../generator/README.md)
 
 ```bash
 make seed
-make generate PRESET=1m
+make generate PRESET=100k
+make generate-verify PRESET=100k
 ```
 
 ### Bước 13 Chạy lần nạp đầu
@@ -144,8 +145,8 @@ SELECT count(*) FROM lakehouse.gold.fact_order;
 Sau đó bật DAG chạy incremental lúc **03:00 giờ Việt Nam** mỗi ngày:
 
 ```bash
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_sync
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
 ```
 
 `lakehouse_oltp_sync` chạy sau mỗi lần incremental để đồng bộ thay đổi cột và dòng bị xoá ở nguồn.
@@ -156,7 +157,7 @@ FastAPI ghi access log ra stdout. [Access log](SETUP.md#5-access-log)
 
 ## Dashboard Superset
 
-### Bước 15 Tạo dashboard
+### Bước 15 Đồng bộ dashboard
 
 Sau khi batch full đã chạy xong, chạy:
 
@@ -164,7 +165,7 @@ Sau khi batch full đã chạy xong, chạy:
 make superset-sync
 ```
 
-Đăng nhập [Superset](http://localhost:8088) bằng `SUPERSET_ADMIN_USER` và `SUPERSET_ADMIN_PASSWORD`. Mở đường dẫn dashboard trong dòng `SUPERSET_RESULT`. Dashboard luôn đọc bảng Gold hiện tại. [Thiết lập và đồng bộ Superset](SETUP.md#6-dashboard-superset)
+Đăng nhập bằng `SUPERSET_ADMIN_USER` và `SUPERSET_ADMIN_PASSWORD`. Mở bốn dashboard từ danh sách **Dashboards** hoặc theo URL trong `SUPERSET_RESULT.dashboards`. Dashboard luôn đọc bảng Gold hiện tại. [Superset](http://localhost:8088) · [Danh sách dashboard và cách lọc ngày](SETUP.md#6-dashboard-superset)
 
 ## Khởi động lại và xử lý lỗi
 
