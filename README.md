@@ -64,7 +64,7 @@
 | Access governance | Polaris principals and roles per workload, per-table storage credentials vended by Polaris (one MinIO account, Polaris's), Trino SQL access rules |
 | BI | Four Superset dashboards for sales, operations, POS, and customer and marketing analysis. They read all 14 OLTP Gold marts. |
 
-FastAPI writes structured access logs to stdout, and the generator can write synthetic access logs to Parquet. Their ingestion into the lakehouse is designed in [the access-log design](docs/ACCESS_LOG_DESIGN.md) but not built yet.
+FastAPI writes structured access logs to stdout, and the generator can write synthetic access logs to Parquet. Streaming and file ingestion of these logs into the lakehouse is future work of the thesis; its approved design is kept in [the access-log design](docs/ACCESS_LOG_DESIGN.md).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -230,7 +230,7 @@ Components: [platform-app](services/platform-app/README.md), [API](services/plat
 - [x] Soft-delete sync and approved source column changes
 - [x] Polaris access administration and per-workload credential vending
 - [x] Four Superset dashboards over the 14 OLTP Gold marts
-- [ ] Access-log ingestion and session funnel ([design](docs/ACCESS_LOG_DESIGN.md))
+- [ ] Future work: streaming access-log ingestion and session funnel ([design](docs/ACCESS_LOG_DESIGN.md))
 - [ ] Store-level permissions in Superset
 - [ ] Scenario runners beyond online purchase
 - [ ] HA, backup/restore and hardening for public deployment

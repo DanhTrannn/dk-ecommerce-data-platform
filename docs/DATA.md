@@ -81,7 +81,7 @@ Catalog Polaris `lakehouse`, bucket `MINIO_LAKEHOUSE_BUCKET`, namespace `staging
 
 ## 4. Access-log contract và xử lý
 
-FastAPI ghi access log ra stdout và bộ sinh log ghi file Parquet. Việc nạp hai nguồn này vào lakehouse chưa được triển khai.
+FastAPI ghi access log ra stdout và bộ sinh log ghi file Parquet. Nạp hai nguồn này vào lakehouse là hướng phát triển của khóa luận. [Thiết kế luồng log](ACCESS_LOG_DESIGN.md)
 
 Middleware API phát `schema.name=ecommerce.access` phiên bản `1.0.0`. Generator phát `1.1.0` với `session.id` và `ecommerce.order_number`. [Mã ghi access log của API](../services/platform-app/src/platform_app/api/core/access_logging.py)
 
