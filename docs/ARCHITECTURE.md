@@ -10,7 +10,7 @@ Cấu trúc dữ liệu và KPI ở [DATA.md](DATA.md), cài đặt ở [SETUP.m
 |---|---|
 | Nguồn nghiệp vụ | FastAPI + PostgreSQL 28 bảng |
 | Generator | `datagen generate/verify/logs/reset`; preset OLTP `100k`/`1m`/`10m`/`50m` |
-| Console | Streamlit: kịch bản mua online qua API, quản trị quyền Polaris |
+| Console | Streamlit: 8 kịch bản qua API (mua, giao, giao thất bại, huỷ, đánh giá, đổi trả, coupon, POS), quản trị quyền Polaris |
 | Pipeline OLTP | Airflow: staging → Bronze → Silver → Gold, 19 bảng nguồn, 27 model Gold; đồng bộ dòng bị xoá bằng xoá mềm và thay đổi cột đã duyệt |
 | Access log | API ghi JSON ra stdout. Generator sinh log lịch sử dạng Parquet. Nạp vào lakehouse là hướng phát triển |
 | BI | 4 dashboard Superset, 27 biểu đồ, đọc 14 mart OLTP Gold qua Trino |
@@ -74,4 +74,4 @@ Thiết lập lần đầu dùng `make up SERVICES=platform-app` để bật Con
 
 - Luồng access log: nạp streaming và nạp file vào lakehouse, mart phễu theo phiên. [Thiết kế](ACCESS_LOG_DESIGN.md)
 - Phân quyền Superset theo cửa hàng.
-- Runner cho nghiệp vụ ngoài mua online; HA, backup/restore và hardening khi triển khai public.
+- Kịch bản nhập kho trên Console; HA, backup/restore và hardening khi triển khai public.

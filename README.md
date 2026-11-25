@@ -59,7 +59,7 @@
 |---|---|
 | Source | FastAPI + PostgreSQL (28 tables): catalog, accounts, cart/checkout, POS, stock, delivery, returns, reviews |
 | Generator | `datagen` loads 12 months of synthetic history from YAML presets (`100k`/`1m`/`10m`/`50m` online orders per year) |
-| Console | Streamlit: purchase scenarios against the API, and Polaris access administration |
+| Console | Streamlit: eight API scenarios (purchase, delivery, failed delivery, cancellation, review, return, coupon, POS) and Polaris access administration |
 | OLTP pipeline | Airflow: PostgreSQL → staging → Bronze (PyIceberg) → Silver → Gold (dbt on Trino); see [airflow/README.md](airflow/README.md) |
 | Access governance | Polaris principals and roles per workload, per-table storage credentials vended by Polaris (one MinIO account, Polaris's), Trino SQL access rules |
 | BI | Four Superset dashboards for sales, operations, POS, and customer and marketing analysis. They read all 14 OLTP Gold marts. |
@@ -165,6 +165,10 @@ The first start provisions access in Streamlit, then the full stack runs with `m
 | Polaris catalog | <http://127.0.0.1:8181/api/catalog> |
 | Superset | <http://127.0.0.1:8088> |
 
+[![Console scenarios][scenarios-gif]](services/platform-app/README.md#kịch-bản-mô-phỏng-qua-api)
+
+Console scenarios drive the source through the public API; each one feeds a Gold mart after the next pipeline run. [Scenario list](services/platform-app/README.md#kịch-bản-mô-phỏng-qua-api)
+
 `lakehouse_oltp_incremental` runs daily at 03:00 and `lakehouse_oltp_sync` follows it; existing dashboards read the current Gold tables as the pipeline updates them. Running DAGs by hand, Trino checks and recovery are in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 Development commands:
@@ -230,9 +234,9 @@ Components: [platform-app](services/platform-app/README.md), [API](services/plat
 - [x] Soft-delete sync and approved source column changes
 - [x] Polaris access administration and per-workload credential vending
 - [x] Four Superset dashboards over the 14 OLTP Gold marts
+- [x] Eight console scenarios through the public API (delivery, cancellation, review, return, coupon, POS)
 - [ ] Future work: streaming access-log ingestion and session funnel ([design](docs/ACCESS_LOG_DESIGN.md))
 - [ ] Store-level permissions in Superset
-- [ ] Scenario runners beyond online purchase
 - [ ] HA, backup/restore and hardening for public deployment
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -267,6 +271,7 @@ This is a personal academic project and is not open for outside contributions. N
 [last-commit-shield]: https://img.shields.io/github/last-commit/DanhTrannn/dk-ecommerce-data-platform/dev.svg?style=for-the-badge
 [last-commit-url]: https://github.com/DanhTrannn/dk-ecommerce-data-platform/commits/dev
 [architecture-gif]: assets/readme/architecture.gif
+[scenarios-gif]: assets/readme/scenarios-demo.gif
 [Python-shield]: https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white
 [Python-url]: https://www.python.org
 [FastAPI-shield]: https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white

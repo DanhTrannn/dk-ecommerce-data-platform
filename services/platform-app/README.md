@@ -61,32 +61,46 @@ uvx ruff check .
 
 ## Giới hạn
 
-- Mô phỏng API chỉ gồm mua online; chưa upload log hoặc trigger Airflow/Superset.
+- Mô phỏng API chỉ ghi vào nguồn qua API; không upload log hoặc trigger Airflow/Superset.
 - Mỗi thư mục dữ liệu có tối đa một run API đồng thời; không có queue phân tán (không Celery/Redis).
 - Không sinh/nạp dataset từ giao diện. Generator CLI đã có `generate/verify/logs/reset`, xem [generator](../../generator/README.md).
 
-## Mô phỏng mua online qua API
+## Kịch bản mô phỏng qua API
 
-Mở **Mô phỏng API**, chọn số lượt mua (1–1.000), số lượng mỗi đơn (1 SKU, 1–20 sản phẩm), thời gian nghỉ giữa các lượt, COD/VietQR và thông tin người nhận mô phỏng. Bấm **Bắt đầu mô phỏng**; đây là thao tác ghi dữ liệu vào API đích.
+Mở **Mô phỏng API**, chọn **Kịch bản**, số lượt (1–1.000), số lượng mỗi đơn (1 SKU, 1–20 sản phẩm), thời gian nghỉ giữa các lượt và thông tin người nhận mô phỏng (COD/VietQR chỉ chọn được ở kịch bản Mua hàng). Bấm **Bắt đầu mô phỏng**; đây là thao tác ghi dữ liệu vào API đích. Mỗi kịch bản làm thay đổi một nhóm mart Gold sau lần chạy pipeline kế tiếp.
 
-Điều kiện: API đã chạy, schema đã khởi tạo, catalog có sản phẩm active và đủ tồn kho trung tâm. Khi chạy cục bộ, khởi động API ở terminal riêng bằng `uv run --locked --env-file .env --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --no-access-log`; cấu hình `API_DATABASE_URL` và `API_SECRET_KEY` như phần API. Compose chạy sẵn API và console trong cùng container.
+| Kịch bản | Các bước | Mart Gold |
+|---|---|---|
+| Mua hàng | đăng ký → giỏ → checkout (COD hoặc VietQR) | `mart_orders_daily`, `mart_sales_daily` |
+| Mua và giao thành công | mua COD → admin `dispatch` → `deliver` → khách `complete` | `mart_delivery_daily`, `mart_fulfilment_backlog_daily` |
+| Giao thất bại | mua COD → `dispatch` → `failed-delivery` 3 lần (lần thứ ba đơn thành `failed_delivery`) | `mart_delivery_daily` |
+| Khách huỷ đơn | mua VietQR (đơn `paid`) → khách huỷ, API hoàn tiền | `mart_cancellations_daily` |
+| Mua rồi đánh giá | giao thành công → review 3–5 sao | `mart_reviews_daily` |
+| Đổi trả, hoàn tiền | giao thành công → yêu cầu trả → admin duyệt → nhận hàng → kiểm và hoàn tiền | `mart_returns_daily` |
+| Mua có coupon | admin tạo coupon `SIM-<run>` giảm 10% một lần mỗi run → mọi checkout dùng mã | `mart_coupon_daily` |
+| Bán tại quầy | admin tìm cửa hàng còn tồn cho một SKU ngẫu nhiên (thử tối đa 3 SKU) → bán POS tiền mặt | `mart_pos_hourly` |
+
+Mỗi lượt chọn ngẫu nhiên một sản phẩm còn hàng trong tối đa 20 trang catalog. Mã nguồn: các bước HTTP dùng chung ở [steps.py](src/platform_app/ui/scenarios/steps.py), kịch bản ở [flows.py](src/platform_app/ui/scenarios/flows.py).
+
+Điều kiện: API đã chạy, schema đã khởi tạo, catalog có sản phẩm active và đủ tồn kho; kịch bản có bước admin cần nhân viên giao đang hoạt động (giao hàng) và tồn kho cửa hàng (POS). Khi chạy cục bộ, khởi động API ở terminal riêng bằng `uv run --locked --env-file .env --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --no-access-log`; cấu hình `API_DATABASE_URL` và `API_SECRET_KEY` như phần API. Compose chạy sẵn API và console trong cùng container.
 
 - `SCENARIO_API_BASE_URL`: origin API, mặc định `http://127.0.0.1:8000`; không có credential, query hoặc path. Không chỉnh đích trên form. Nếu API chạy cổng khác trên host, sửa biến này; Compose dùng cổng nội bộ 8000.
 - `SCENARIO_HTTP_TIMEOUT_SECONDS`: timeout HTTP mặc định 15 giây (1–120). Không tự retry request; không dùng proxy môi trường hoặc tự theo redirect.
+- `SCENARIO_ADMIN_EMAIL`, `SCENARIO_ADMIN_PASSWORD`: tài khoản API role `admin` chỉ dùng cho bước admin của kịch bản. `platform-admin-init` tạo tài khoản nếu chưa có (giữ mật khẩu cũ); email phải khác `API_BOOTSTRAP_ADMIN_EMAIL`, nên tài khoản này không vào được Quản trị quyền. Thiếu hai biến thì kịch bản có bước admin bị từ chối khi bắt đầu.
 - Cookie name lấy từ cấu hình `API_CSRF_COOKIE_NAME` của API; origin/domain/Secure phải cho phép cookie hoạt động. API từ xa cần cùng cấu hình cookie ở worker.
-- Run JSON lưu tại `PLATFORM_APP_SCENARIOS_DIR` (mặc định `data/scenarios/<run_id>.json`).
+- Run JSON lưu tại `PLATFORM_APP_SCENARIOS_DIR` (mặc định `data/scenarios/<run_id>.json`); `platform-admin-init` tạo thư mục này với chủ sở hữu là `PLATFORM_APP_UID`.
 
-Mỗi lượt có email riêng `scenario-<run_id>-<index>@example.com`, tạo tài khoản rồi đăng nhập bằng API. Mật khẩu ngẫu nhiên, cookie và token chỉ ở bộ nhớ; không ghi journal. Runner đọc catalog qua API, chọn variant đầu tiên đủ tồn trong tối đa 20 trang sản phẩm, PUT giỏ hàng, quote và checkout với idempotency key riêng đã lưu trước khi gọi. Một client/cookie jar riêng cho mỗi lượt. Khoảng nghỉ áp dụng giữa hai lượt hoàn tất, không phải giới hạn request/giây.
+Mỗi lượt có email riêng `scenario-<run_id>-<index>@example.com`, tạo tài khoản rồi đăng nhập bằng API. Mật khẩu ngẫu nhiên, cookie và token chỉ ở bộ nhớ; không ghi journal. Admin đăng nhập một lần mỗi run; đăng nhập lỗi thì run `failed` trước khi ghi gì. Mỗi lệnh ghi có idempotency key riêng: `sim-<run_id>-<index>` cho checkout, thêm hậu tố bước (`disp`, `dlvr`, `cmpl`, `fail1`–`fail3`, `cncl`, `ret`, `rinsp`) cho các bước sau. Một client/cookie jar riêng cho mỗi lượt khách. Khoảng nghỉ áp dụng giữa hai lượt hoàn tất, không phải giới hạn request/giây.
 
-Sau checkout, runner lưu mã đơn rồi đọc lại đơn và giỏ. Chỉ ghi `succeeded` khi mã đơn/tổng tiền khớp quote, SKU/số lượng khớp giỏ, payment amount/status đúng và giỏ rỗng. COD tạo đơn `confirmed`/payment `pending`; VietQR theo logic API hiện có tạo `paid`/`succeeded`, không xác minh thanh toán ngân hàng thực và không tương đương đơn đã giao hay doanh thu thuần.
+Sau checkout, runner lưu mã đơn rồi đọc lại đơn và giỏ; mỗi bước sau kiểm trạng thái trả về (`shipping`, `delivered`, `completed`, `cancelled`, `pending_review`, `approved`, `goods_received`…). Chỉ ghi `succeeded` khi mọi bước khớp. COD tạo đơn `confirmed`/payment `pending`; VietQR theo logic API hiện có tạo `paid`/`succeeded`, không xác minh thanh toán ngân hàng thực.
 
 Mỗi thư mục chỉ một run API active. Nút **Yêu cầu dừng** chờ lượt hiện tại xong rồi dừng trước lượt sau; không rollback hoặc xóa khách/giỏ/đơn đã tạo. Đóng tab không dừng worker. Refresh không tạo run mới. Các trạng thái run: `queued`, `running`, `succeeded`, `partial`, `failed`, `stopped`, `unknown`.
 
-HTTP 4xx là lượt thất bại (408 được coi chưa xác định); runner có thể chuyển sang lượt mới nhưng không retry lượt lỗi. Lỗi kết nối hoặc HTTP 5xx khi ghi, lỗi xác minh sau checkout hay worker mất đều có thể để lại thay đổi: đánh dấu `unknown`, dừng các lượt tiếp theo và giữ email/mã đơn/idempotency key để tra cứu. Không có chức năng resume hoặc tự gửi lại checkout; bắt đầu lần nữa tạo run mới, không giải quyết kết quả cũ. Lỗi chỉ lưu endpoint/mã HTTP, không lưu response body hay credential.
+HTTP 4xx là lượt thất bại (408 được coi chưa xác định); runner có thể chuyển sang lượt mới nhưng không retry lượt lỗi. Lỗi kết nối hoặc HTTP 5xx khi ghi, trạng thái sai sau một lệnh ghi hay worker mất đều có thể để lại thay đổi: đánh dấu `unknown`, dừng các lượt tiếp theo và giữ email/mã đơn/mã return/idempotency key để tra cứu. Không có chức năng resume hoặc tự gửi lại; bắt đầu lần nữa tạo run mới, không giải quyết kết quả cũ. Lỗi chỉ lưu endpoint/mã HTTP, không lưu response body hay credential.
 
-Runner hiện là kịch bản kiểm chứng nghiệp vụ, không phải sampler đã hiệu chỉnh: mỗi lượt là khách mới, một SKU và chọn hàng theo thứ tự catalog. API vẫn ghi `data_origin=manual`/`generation_run_id=NULL`; HTTP middleware ghi `observed` cho request thực sự nhận, không chứng minh hành vi người dùng thật. Run journal liên kết các giao dịch mô phỏng bằng email và idempotency key; chưa bổ sung lineage mô phỏng vào schema/API. Không suy tỷ lệ mua lại, độ phổ biến sản phẩm hay conversion tự nhiên từ kịch bản này.
+Runner là kịch bản kiểm chứng nghiệp vụ, không phải sampler đã hiệu chỉnh: mỗi lượt là khách mới và một SKU. API vẫn ghi `data_origin=manual`/`generation_run_id=NULL`; HTTP middleware ghi `observed` cho request thực sự nhận, không chứng minh hành vi người dùng thật. Run journal liên kết các giao dịch mô phỏng bằng email và idempotency key; chưa bổ sung lineage mô phỏng vào schema/API. Không suy tỷ lệ mua lại, độ phổ biến sản phẩm hay conversion tự nhiên từ kịch bản này.
 
-FastAPI ghi access log ra stdout. Chưa có fulfillment, hủy đơn, coupon, POS, nhập kho, đổi trả hoặc tự khôi phục mật khẩu tài khoản mô phỏng. [Access log](../../docs/SETUP.md#5-access-log)
+FastAPI ghi access log ra stdout. Chưa có nhập kho hoặc tự khôi phục mật khẩu tài khoản mô phỏng. [Access log](../../docs/SETUP.md#5-access-log)
 
 ## Bootstrap ứng dụng
 
