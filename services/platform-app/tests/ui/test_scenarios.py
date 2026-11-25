@@ -19,7 +19,7 @@ from platform_app.ui.scenarios.worker import run
 class PurchaseServer:
     """Fake API that follows the requests it receives, enough for every console scenario."""
 
-    def __init__(self, fail=None, products=("product",), staff=({"staff_id": 7, "is_active": True},)):
+    def __init__(self, fail=None, products=("product",), staff=({"staff_id": 7, "is_active": True},), store_stock=3):
         self.calls = []
         self.fail = fail
         self.products = products
@@ -27,6 +27,7 @@ class PurchaseServer:
         self.checked_out = False
         self.line = None
         self.payment_method = None
+        self.store_stock = store_stock
 
     def handle(self, request):
         path = request.url.path
@@ -79,6 +80,24 @@ class PurchaseServer:
             data = {"order_number": "ORDER", "status": "completed" if path.endswith("complete") else "cancelled"}
         elif path == "/api/v1/orders/ORDER/items/item-1/review":
             data = {"public_id": "review", "rating": body["rating"], "status": "approved"}
+        elif path == "/api/v1/orders/ORDER/returns":
+            item = body["items"][0]
+            data = {"return_code": "RET1", "status": "pending_review", "items": [{**item, "return_item_id": 21}]}
+        elif path.startswith("/api/v1/admin/returns/RET1/"):
+            action = path.rsplit("/", 1)[1]
+            status = {"review": "approved", "receive": "goods_received", "inspect-and-resolve": "completed"}[action]
+            data = {"return_code": "RET1", "status": status}
+        elif path == "/api/v1/admin/coupons":
+            return httpx.Response(201, json={"code": body["code"], "is_active": True})
+        elif path == "/api/v1/locations/cities":
+            data = [{"code": "HCM", "store_count": 2}, {"code": "EMPTY", "store_count": 0}]
+        elif path == "/api/v1/locations/cities/HCM/stores":
+            data = [{"store_id": 1}, {"store_id": 2}]
+        elif path == "/api/v1/pos/products":
+            sku = request.url.params["search"]
+            data = [{"variant_id": 5, "sku": sku, "price_vnd": 250000, "store_stock": self.store_stock}]
+        elif path == "/api/v1/pos/transactions":
+            data = {"order_number": "POS1", "status": "completed", "total_vnd": 250000}
         else:
             raise AssertionError(path)
         return httpx.Response(200, json=data)
@@ -221,6 +240,57 @@ class ScenarioTests(unittest.TestCase):
         )
         review = next(req for req in server.calls if req.url.path.endswith("/review"))
         self.assertIn(json.loads(review.content)["rating"], (3, 4, 5))
+
+    def test_return_flow(self):
+        record, server = self.execute(scenario="return")
+        self.assertEqual(record["status"], "succeeded")
+        self.assertEqual(record["attempts"][0]["return_code"], "RET1")
+        self.assertEqual(
+            server.after_checkout()[-4:],
+            [
+                ("POST", "/orders/ORDER/returns"),
+                ("POST", "/admin/returns/RET1/review"),
+                ("POST", "/admin/returns/RET1/receive"),
+                ("POST", "/admin/returns/RET1/inspect-and-resolve"),
+            ],
+        )
+        created = next(req for req in server.calls if req.url.path.endswith("/ORDER/returns"))
+        self.assertEqual(json.loads(created.content)["items"], [{"order_item_id": 11, "quantity": 1}])
+        self.assertEqual(created.headers["Idempotency-Key"], self.key(record, "ret"))
+        review = next(req for req in server.calls if req.url.path.endswith("/RET1/review"))
+        self.assertEqual(json.loads(review.content)["action"], "approved")
+        inspect = next(req for req in server.calls if req.url.path.endswith("/inspect-and-resolve"))
+        self.assertEqual(json.loads(inspect.content)["items"], [{"return_item_id": 21, "inspection_status": "passed"}])
+        self.assertEqual(inspect.headers["Idempotency-Key"], self.key(record, "rinsp"))
+
+    def test_coupon_created_once_per_run_and_applied(self):
+        record, server = self.execute(scenario="coupon", count=3)
+        self.assertEqual(record["status"], "succeeded")
+        created = [req for req in server.calls if req.url.path == "/api/v1/admin/coupons"]
+        self.assertEqual(len(created), 1)
+        coupon = json.loads(created[0].content)
+        self.assertEqual(coupon["code"], "SIM-" + record["run_id"][:8].upper())
+        self.assertEqual((coupon["discount_type"], coupon["discount_value"]), ("percentage", 10))
+        checkouts = [json.loads(req.content) for req in server.calls if req.url.path == "/api/v1/checkout"]
+        self.assertEqual([body["coupon_code"] for body in checkouts], [coupon["code"]] * 3)
+        self.assertEqual({row["coupon_code"] for row in record["attempts"]}, {coupon["code"]})
+
+    def test_pos_sells_from_a_random_store_with_stock(self):
+        record, server = self.execute(scenario="pos")
+        self.assertEqual(record["status"], "succeeded")
+        self.assertFalse(any(req.url.path.endswith("/auth/register") for req in server.calls))
+        sale = next(req for req in server.calls if req.url.path == "/api/v1/pos/transactions")
+        body = json.loads(sale.content)
+        self.assertIn(body["store_id"], (1, 2))
+        self.assertEqual(body["items"], [{"variant_id": 5, "quantity": 1}])
+        self.assertEqual(body["payment_method"], "cash")
+        self.assertGreaterEqual(body["amount_received_vnd"], 250000)
+        self.assertEqual(record["attempts"][0]["order_number"], "POS1")
+
+    def test_pos_store_without_stock_fails_before_write(self):
+        record, server = self.execute(PurchaseServer(store_stock=0), scenario="pos")
+        self.assertEqual(record["attempts"][0]["status"], "failed")
+        self.assertFalse(any(req.url.path == "/api/v1/pos/transactions" for req in server.calls))
 
     def test_admin_login_failure_stops_before_customer_writes(self):
         def deny_admin(request):
