@@ -1,6 +1,6 @@
 # Ecommerce API and Access Administration
 
-FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. Its active surface comprises source transactions, the ID lookups needed by scenarios, two HTTP observability reads, and Polaris administration under `/api/v1/access`. The Streamlit console uses this API; business sales BI uses the separate Superset PoC.
+FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. Its active surface comprises source transactions, the ID lookups needed by scenarios and Polaris administration under `/api/v1/access`. The Streamlit console uses this API; business sales BI uses the separate Superset PoC.
 
 [Models](models) map 28 OLTP tables; the [physical schema](../../../../../database/schema.sql) is PostgreSQL. [Router registration](routes/router.py) and [handlers](modules) define supported endpoints. There is no separate access-admin web service: access routes share the API process, cookie session and port 8000. The credential exporter is a separate internal service on port 8011.
 
@@ -41,37 +41,11 @@ Use Python 3.11 and the repository uv workspace (`uv sync --locked`). Start Post
 uv run --locked --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-API settings load the root `.env` through Pydantic when launched there. The Trino module reads the process environment directly. Export its variables explicitly or pass `--env-file .env` to `uv run`. Infrastructure administration needs provider credentials, private credential and audit paths, and exporter configuration. Compose supplies these mounts and settings. FastAPI writes structured access logs to stdout.
-
-For the two analytics reads, the [Trino client](modules/analytics/trino_client.py) chooses `API_TRINO_URL`, then `TRINO_URL`, then `https://trino:8443`. A host process should use `https://localhost:8084` (or its configured port), a trusted CA file in `TRINO_CA_FILE`, and the read-only `TRINO_READER_USER`/`TRINO_READER_PASSWORD` credentials. Compose mounts its CA and forwards the reader password. TLS verification is enabled; the client uses Basic authentication when that password exists. Default Docker/host URL probing does not provision credentials or trust.
-
-## HTTP observability
-
-The six former business BI reads are retired: GET `/api/v1/admin/overview`, `/api/v1/admin/store/dashboard` and `/api/v1/admin/analytics/{overview,role-metrics,sales-trend,stores}`. The retained analytics router has only the two endpoints below. Historical role dashboards and their types are not a current backend contract. Business sales serving uses the separately configured Superset PoC; see [architecture](../../../../../docs/ARCHITECTURE.md).
-
-### HTTP metrics contract
-
-`GET /api/v1/admin/analytics/http-metrics?days=7` accepts integer `days` from 1 to 30 (default 7). Admin and System Admin only; other roles receive 403, anonymous callers 401, and invalid windows 422. It reads only `mart_hourly_route_metrics`, pinned by `system.logs_analytics_publications` schema 1 (OLTP Gold has no publication; the former reconciliation endpoint is retired). No request triggers a pipeline or queries OLTP for replacement metrics.
-
-The date filter starts at 00:00 UTC `days - 1` dates before the publication's `observed_at` date and includes that observation's UTC date. SQL filters `metric_date`, without a separate intra-day upper cutoff; the pinned publication determines which hourly groups are present. The response includes `window_start`, `observed_at`, publication/cache status, nullable `totals`, observed `hours`, up to 20 aggregated `routes` ordered by error count then average latency, and up to 20 `latency_groups` ordered by p95. Percentiles remain at hour × route × method grain. Error rate is recomputed from summed counts; average latency weights the mart's rounded group means by request count, excluding groups without a mean. Existing ingestion supplies a duration for each accepted event. The legacy `success_2xx_count` groups responses below 400; the API/UI calls this success / 2xx–3xx rather than 2xx only.
-
-An empty published window has null total fields and empty lists; an observed zero remains zero, with null ratios when the denominator is zero. Missing publication/snapshot or Trino failure uses a bounded last-good cache for the same window size, marked degraded, or returns 503. Cached responses retain their original window and observation/publication times. No global percentile or production SLA is inferred.
-
-### HTTP realtime contract
-
-`GET /api/v1/admin/analytics/http-realtime?minutes=15` accepts integers 5–60 (default 15). Admin/System Admin only: other roles 403, anonymous 401, invalid windows 422. Reads `landing.access_logs` through Trino, without a publication or PostgreSQL aggregates. Successful responses use `Cache-Control: no-store`; there is no server last-good cache. Unavailable Landing, expired snapshots or failed queries return a generic 503 without raw error details.
-
-Each read fixes UTC `observed_at` and one current main snapshot from Iceberg `$history`. It includes rows ingested by that cutoff with either event time in `[window_start, observed_at)` or ingestion time since `window_start`. The second branch captures recent invalid/late/future observations. Snapshot metadata and one aggregate query each use an eight-second client timeout. A logical time window does not guarantee physical file pruning on the existing unpartitioned Landing table.
-
-Valid projected envelopes are grouped by event ID. Identical payload hashes count once; IDs with multiple payload hashes are excluded from HTTP metrics. Conflict/replay detection is limited to the scanned scope, not global validation. `quality` distinguishes scanned/invalid/replayed rows from conflicting/late/future IDs. Late IDs have event time before the window; future IDs are at/after the upper boundary. In-window late arrivals are counted when visible and can change earlier minutes.
-
-The response contains `snapshot_id` (string, or null when the table has no snapshot), `snapshot_current_at`, `window_start`, `observed_at`, `queried_at`, latest in-scope ingest/event times, nullable totals, observed minute `series` and at most 20 routes ordered by error count, request count and route/method. Rates and approximate p95 are computed directly over eligible unique requests at each grain; p95 totals are not averaged minute/route percentiles. Duration uses nanoseconds / 1e6; success counts 200–399, errors 400–599, and total requests includes accepted 100–599 statuses. No eligible requests means null total fields and empty series/routes; observed zero errors or zero latency remains zero. No raw payload, event IDs, actor identifiers or individual request records are returned.
-
-The endpoint reports HTTP observations, not business-event realtime or full Silver validation. Captured traffic includes console/analytics requests as well as shopping requests. Polling is a client concern and does not trigger pipeline execution.
+API settings load the root `.env` through Pydantic when launched there. Infrastructure administration needs provider credentials, private credential and audit paths, and exporter configuration. Compose supplies these mounts and settings. FastAPI writes structured access logs to stdout.
 
 ## Settings and request conventions
 
-API settings use `API_*`. Analytics also reads Trino settings and `API_ANALYTICS_CACHE_MAX_AGE_SECONDS` directly. Compose injects the variables listed in the service environment. Published HTTP responses use a process-local last-good cache keyed by `days`, with a maximum age of 3600 seconds by default and up to 128 keys. Failed reads with no usable cached response return 503. [API settings](core/config.py)
+API settings use `API_*`. Compose injects the variables listed in the service environment. [API settings](core/config.py)
 
 JWT defaults to the HttpOnly `web_access` cookie; login/register also set readable `web_csrf`. Routes marked Yes below require the cookie value in `X-CSRF-Token`. Cookies are not Secure by default in local configuration. Logout requires CSRF but does not require a valid authenticated customer. Internal order confirmation uses `X-Internal-Secret` instead of a customer cookie.
 
@@ -121,8 +95,6 @@ Authentication names: **Customer** means any active cookie-authenticated user; o
 | GET | `/api/v1/admin/branch-inventory` | Staff; store scope | — |
 | PATCH | `/api/v1/admin/branch-inventory` | Admin / assigned store_manager | Yes |
 | POST | `/api/v1/admin/inventory/refill` | Admin | Yes |
-| GET | `/api/v1/admin/analytics/http-realtime` | Admin / system_admin | — |
-| GET | `/api/v1/admin/analytics/http-metrics` | Admin / system_admin | — |
 | POST | `/api/v1/admin/inbound/receipts` | Inventory | Yes |
 | GET | `/api/v1/admin/inbound/receipts/{receipt_code}` | Inventory | — |
 | GET | `/api/v1/admin/store/orders/{order_number}` | Admin / assigned store_manager | — |

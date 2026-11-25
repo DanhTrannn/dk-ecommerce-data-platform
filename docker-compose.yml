@@ -362,9 +362,6 @@ services:
     image: lakehouse-platform-app:0.1.0
     user: "${PLATFORM_APP_UID:-1000}:${PLATFORM_APP_GID:-1000}"
     environment:
-      API_TRINO_URL: https://trino:8443
-      TRINO_CA_FILE: /run/trino-ca/ca.pem
-      TRINO_READER_PASSWORD: ${TRINO_READER_PASSWORD:?set TRINO_READER_PASSWORD}
       HOME: /tmp
       API_DATABASE_URL: postgresql+psycopg2://${POSTGRES_ECOMMERCE_USER:-ecommerce_app}:${POSTGRES_ECOMMERCE_PASSWORD:-password}@postgres:5432/${POSTGRES_ECOMMERCE_DB:-ecommerce}
       API_SECRET_KEY: ${API_SECRET_KEY:?set API_SECRET_KEY}
@@ -399,7 +396,6 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - trino-ca:/run/trino-ca:ro
       - ./data:/data
       - access-admin-secrets:/run/access-secrets
     healthcheck:

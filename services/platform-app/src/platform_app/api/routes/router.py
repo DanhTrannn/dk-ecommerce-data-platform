@@ -4,7 +4,6 @@ from platform_app.access_admin.router import router as access_router
 
 from platform_app.api.routes.health import router as health_router
 from platform_app.api.modules.admin.router import router as admin_router
-from platform_app.api.modules.analytics.router import router as analytics_router
 from platform_app.api.modules.auth.router import router as auth_router
 from platform_app.api.modules.cart.router import router as cart_router
 from platform_app.api.modules.catalog.router import router as catalog_router
@@ -31,7 +30,6 @@ api_router.include_router(access_router)
 v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(auth_router)
 v1_router.include_router(admin_router)
-v1_router.include_router(analytics_router)
 v1_router.include_router(admin_inbound_router)
 v1_router.include_router(admin_store_router)
 v1_router.include_router(admin_coupons_router)
