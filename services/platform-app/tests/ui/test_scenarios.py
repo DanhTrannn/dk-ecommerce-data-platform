@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -16,10 +17,16 @@ from platform_app.ui.scenarios.worker import run
 
 
 class PurchaseServer:
-    def __init__(self, fail=None):
+    """Fake API that follows the requests it receives, enough for every console scenario."""
+
+    def __init__(self, fail=None, products=("product",), staff=({"staff_id": 7, "is_active": True},)):
         self.calls = []
         self.fail = fail
+        self.products = products
+        self.staff = list(staff)
         self.checked_out = False
+        self.line = None
+        self.payment_method = None
 
     def handle(self, request):
         path = request.url.path
@@ -28,38 +35,61 @@ class PurchaseServer:
             response = self.fail(request)
             if response is not None:
                 return response
-        item = {"variant_public_id": "variant", "sku": "SKU", "quantity": 1}
+        body = json.loads(request.content) if request.content else {}
+        paid = self.payment_method == "vietqr"
         if path.endswith("/auth/register") or path.endswith("/auth/login"):
             return httpx.Response(
                 201 if path.endswith("register") else 200, json={}, headers={"set-cookie": "web_csrf=csrf; Path=/"}
             )
         if path == "/api/v1/products":
-            data = {"items": [{"slug": "product"}]}
-        elif path == "/api/v1/products/product":
-            data = {"variants": [{"public_id": "variant", "sku": "SKU", "in_stock": True, "stock_quantity": 5}]}
+            data = {"items": [{"slug": slug} for slug in self.products]}
+        elif path.startswith("/api/v1/products/"):
+            slug = path.rsplit("/", 1)[1]
+            data = {
+                "variants": [{"public_id": f"v-{slug}", "sku": f"SKU-{slug}", "in_stock": True, "stock_quantity": 5}]
+            }
         elif path.startswith("/api/v1/cart/items/"):
-            data = {"items": [item]}
+            variant = path.rsplit("/", 1)[1]
+            self.line = {"variant_public_id": variant, "sku": "SKU-" + variant[2:], "quantity": body["quantity"]}
+            data = {"items": [self.line]}
         elif path == "/api/v1/checkout/quote":
             data = {"total_vnd": 100000}
         elif path == "/api/v1/checkout":
             self.checked_out = True
-            data = {"order_number": "ORDER", "total_vnd": 100000, "status": "confirmed"}
+            self.payment_method = body["payment_method"]
+            status = "paid" if self.payment_method == "vietqr" else "confirmed"
+            data = {"order_number": "ORDER", "total_vnd": 100000, "status": status}
         elif path == "/api/v1/orders/ORDER":
             data = {
                 "order_number": "ORDER",
                 "total_vnd": 100000,
-                "status": "confirmed",
-                "items": [item],
-                "payment": {"status": "pending", "amount_vnd": 100000},
+                "status": "paid" if paid else "confirmed",
+                "items": [{**self.line, "order_item_id": 11, "public_id": "item-1"}],
+                "payment": {"status": "succeeded" if paid else "pending", "amount_vnd": 100000},
             }
         elif path == "/api/v1/cart":
-            data = {"items": [] if self.checked_out else [item]}
+            data = {"items": [] if self.checked_out else [self.line]}
+        elif path == "/api/v1/admin/delivery-staff":
+            data = self.staff
+        elif path.startswith("/api/v1/admin/orders/ORDER/"):
+            action = path.rsplit("/", 1)[1]
+            status = {"dispatch": "shipping", "deliver": "delivered", "failed-delivery": "failed_delivery"}[action]
+            data = {"order_number": "ORDER", "status": status}
+        elif path in ("/api/v1/orders/ORDER/complete", "/api/v1/orders/ORDER/cancel"):
+            data = {"order_number": "ORDER", "status": "completed" if path.endswith("complete") else "cancelled"}
+        elif path == "/api/v1/orders/ORDER/items/item-1/review":
+            data = {"public_id": "review", "rating": body["rating"], "status": "approved"}
         else:
             raise AssertionError(path)
         return httpx.Response(200, json=data)
 
     def client(self):
         return httpx.Client(base_url="http://scenario.test", transport=httpx.MockTransport(self.handle))
+
+    def after_checkout(self):
+        index = next(i for i, req in enumerate(self.calls) if req.url.path == "/api/v1/checkout")
+        skip = {"/api/v1/orders/ORDER", "/api/v1/cart"}
+        return [(req.method, req.url.path[7:]) for req in self.calls[index + 1 :] if req.url.path not in skip]
 
 
 class ScenarioTests(unittest.TestCase):
@@ -68,13 +98,22 @@ class ScenarioTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.store = ScenarioStore(self.root, launcher=lambda *_: os.getpid(), alive=lambda *_: True)
-        self.settings = ScenarioSettings(api_base_url="http://scenario.test", _env_file=None)
+        self.settings = ScenarioSettings(
+            api_base_url="http://scenario.test",
+            admin_email="sim@web.local",
+            admin_password="Sim@12345",
+            _env_file=None,
+        )
 
-    def execute(self, server=None, count=1):
+    def execute(self, server=None, count=1, scenario="purchase"):
         server = server or PurchaseServer()
-        record = self.store.start(PurchaseConfig(purchases=count, interval_seconds=0), self.settings)
-        run(self.root, record["run_id"], server.client, csrf_cookie="web_csrf")
+        config = PurchaseConfig(purchases=count, interval_seconds=0, scenario=scenario)
+        record = self.store.start(config, self.settings)
+        run(self.root, record["run_id"], server.client, "web_csrf", random.Random(1), self.settings)
         return self.store.read(record["run_id"]), server
+
+    def key(self, record, step):
+        return f"sim-{record['run_id']}-1-{step}"
 
     def test_success_csrf_idempotency_and_no_credentials_in_journal(self):
         record, server = self.execute()
@@ -135,11 +174,85 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(record["status"], "failed")
         self.assertFalse(any(req.url.path == "/api/v1/checkout" for req in server.calls))
 
+    def test_purchase_picks_random_in_stock_product(self):
+        record, _ = self.execute(PurchaseServer(products=("a", "b", "c")), count=6)
+        self.assertEqual(record["status"], "succeeded")
+        self.assertGreater(len({row["sku"] for row in record["attempts"]}), 1)
+
+    def test_delivered_runs_dispatch_deliver_complete_in_order(self):
+        record, server = self.execute(scenario="delivered")
+        self.assertEqual(record["status"], "succeeded")
+        self.assertEqual(
+            server.after_checkout(),
+            [
+                ("GET", "/admin/delivery-staff"),
+                ("POST", "/admin/orders/ORDER/dispatch"),
+                ("POST", "/admin/orders/ORDER/deliver"),
+                ("POST", "/orders/ORDER/complete"),
+            ],
+        )
+        keys = [
+            req.headers["Idempotency-Key"] for req in server.calls if req.method == "POST" and "ORDER/" in str(req.url)
+        ]
+        self.assertEqual(keys, [self.key(record, step) for step in ("disp", "dlvr", "cmpl")])
+        dispatch = next(req for req in server.calls if req.url.path.endswith("/dispatch"))
+        self.assertEqual(json.loads(dispatch.content), {"delivery_staff_id": 7})
+
+    def test_failed_delivery(self):
+        record, server = self.execute(scenario="failed_delivery")
+        self.assertEqual(record["status"], "succeeded")
+        self.assertEqual(server.after_checkout()[-1], ("POST", "/admin/orders/ORDER/failed-delivery"))
+        failed = next(req for req in server.calls if req.url.path.endswith("/failed-delivery"))
+        self.assertTrue(json.loads(failed.content)["reason"])
+
+    def test_cancelled_uses_vietqr_and_customer_cancel(self):
+        record, server = self.execute(scenario="cancelled")
+        self.assertEqual(record["status"], "succeeded")
+        checkout = next(req for req in server.calls if req.url.path == "/api/v1/checkout")
+        self.assertEqual(json.loads(checkout.content)["payment_method"], "vietqr")
+        self.assertEqual(server.after_checkout(), [("POST", "/orders/ORDER/cancel")])
+
+    def test_review_after_completion(self):
+        record, server = self.execute(scenario="review")
+        self.assertEqual(record["status"], "succeeded")
+        self.assertEqual(
+            server.after_checkout()[-2:],
+            [("POST", "/orders/ORDER/complete"), ("POST", "/orders/ORDER/items/item-1/review")],
+        )
+        review = next(req for req in server.calls if req.url.path.endswith("/review"))
+        self.assertIn(json.loads(review.content)["rating"], (3, 4, 5))
+
+    def test_admin_login_failure_stops_before_customer_writes(self):
+        def deny_admin(request):
+            if request.url.path.endswith("/auth/login") and json.loads(request.content)["email"] == "sim@web.local":
+                return httpx.Response(401, json={})
+
+        record, server = self.execute(PurchaseServer(deny_admin), scenario="delivered")
+        self.assertEqual(record["status"], "failed")
+        self.assertEqual(record["attempts"], [])
+        self.assertFalse(any(req.url.path.endswith("/auth/register") for req in server.calls))
+
+    def test_no_active_delivery_staff_fails_before_dispatch(self):
+        record, server = self.execute(
+            PurchaseServer(staff=({"staff_id": 7, "is_active": False},)), scenario="delivered"
+        )
+        self.assertEqual(record["attempts"][0]["status"], "failed")
+        self.assertFalse(any(req.url.path.endswith("/dispatch") for req in server.calls))
+
+    def test_unexpected_status_after_deliver_is_unknown(self):
+        def stale(request):
+            if request.url.path.endswith("/deliver"):
+                return httpx.Response(200, json={"order_number": "ORDER", "status": "confirmed"})
+
+        record, _ = self.execute(PurchaseServer(stale), count=2, scenario="delivered")
+        self.assertEqual(record["status"], "unknown")
+        self.assertEqual(len(record["attempts"]), 1)
+
     def test_stop_before_first_attempt(self):
         record = self.store.start(PurchaseConfig(), self.settings)
         self.store.stop(record["run_id"])
         server = PurchaseServer()
-        run(self.root, record["run_id"], server.client, csrf_cookie="web_csrf")
+        run(self.root, record["run_id"], server.client, "web_csrf", random.Random(1), self.settings)
         self.assertEqual(self.store.read(record["run_id"])["status"], "stopped")
         self.assertEqual(server.calls, [])
 
@@ -179,7 +292,7 @@ class ScenarioTests(unittest.TestCase):
         launches = []
         store = ScenarioStore(self.root, launcher=lambda *_: launches.append(1) or os.getpid(), alive=lambda *_: True)
         with self.assertRaises(ScenarioStoreError) as raised:
-            store.start(PurchaseConfig(scenario="delivered"), self.settings)
+            store.start(PurchaseConfig(scenario="delivered"), ScenarioSettings(_env_file=None))
         self.assertIn("SCENARIO_ADMIN_EMAIL", str(raised.exception))
         self.assertEqual(launches, [])
         self.assertEqual(store.history(), [])
