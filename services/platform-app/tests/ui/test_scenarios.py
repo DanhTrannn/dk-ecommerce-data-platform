@@ -183,6 +183,14 @@ class ScenarioTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 PurchaseConfig(purchases=value)
 
+    def test_ui_reports_unwritable_scenarios_dir(self):
+        app = AppTest.from_string("from platform_app.ui.views.scenarios import render\nrender()")
+        with patch.object(ScenarioStore, "reconcile", side_effect=PermissionError("denied")):
+            app.run()
+        self.assertEqual(len(app.error), 1)
+        self.assertIn("/data/scenarios", app.error[0].value)
+        self.assertNotIn("SCENARIO_API_BASE_URL", app.error[0].value)
+
     def test_ui_submit_once_and_stop(self):
         app = AppTest.from_string("from platform_app.ui.views.scenarios import render\nrender()")
         with (

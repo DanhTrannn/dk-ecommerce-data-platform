@@ -17,7 +17,12 @@ def render():
         settings = ScenarioSettings()
         store.reconcile()
         history = store.history()
-    except (ValidationError, ScenarioStoreError, OSError, ValueError, KeyError):
+    except OSError:
+        st.error(
+            "Không ghi được thư mục /data/scenarios; kiểm tra quyền thư mục dữ liệu (platform-admin-init tạo thư mục này)."
+        )
+        return
+    except (ValidationError, ScenarioStoreError, ValueError, KeyError):
         st.error("Không đọc được cấu hình hoặc lịch sử kịch bản; kiểm tra SCENARIO_API_BASE_URL và thư mục dữ liệu.")
         return
     st.text(f"API đích: {settings.api_base_url}")
