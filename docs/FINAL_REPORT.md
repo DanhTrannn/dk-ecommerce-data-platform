@@ -22,16 +22,16 @@ Kiến trúc **Data Lakehouse** kết hợp chi phí thấp và khả năng mở
 2. **Mục tiêu cụ thể**:
    * Xây dựng hệ thống giao dịch nguồn: API nghiệp vụ FastAPI cho bán hàng trực tuyến, bán hàng tại quầy (POS), kho, giao vận và đổi trả, dùng chung một cơ sở dữ liệu PostgreSQL 16 gồm 28 bảng.
    * Thiết kế và triển khai Data Lakehouse phân tầng Medallion (Staging – Bronze – Silver – Gold) trên định dạng bảng mở Apache Iceberg, lưu trữ MinIO S3 và catalog Apache Polaris (Iceberg REST Catalog).
-   * Xây dựng các đường ống dữ liệu tự động bằng Apache Airflow: nạp toàn bộ (init), nạp gia tăng hằng ngày (incremental), đồng bộ thay đổi nguồn mà nạp gia tăng không thấy (dòng bị xoá, thay đổi cột) và xoá cứng chủ động; mọi bước chạy lại an toàn (idempotent).
+   * Xây dựng bốn đường ống Airflow: nạp toàn bộ (init), nạp gia tăng hằng ngày (incremental), đồng bộ dòng bị xoá và thay đổi lược đồ (sync), xoá cứng chủ động (purge). Thiết kế theo khóa và mốc tiến độ để hỗ trợ chạy lại.
    * Xây dựng mô hình dữ liệu phân tích Star Schema bằng dbt trên Trino, gồm 7 bảng Dimension, 6 bảng Fact và 14 Data Mart, kèm đối soát với nguồn và kiểm tra chất lượng dữ liệu.
    * Tự quản trị quyền truy cập Lakehouse: mỗi workload một danh tính Polaris, credential lưu trữ tạm cấp theo từng bảng, Trino tách quyền đọc/ghi; trực quan hóa bằng Apache Superset.
 
 ## **1.3. Nhiệm vụ nghiên cứu**
 
-* **Nhiệm vụ 1: Khảo sát nghiệp vụ và cơ sở lý thuyết**: Tìm hiểu quy trình bán hàng thời trang đa kênh, vòng đời đơn hàng, hạch toán doanh thu – giá vốn, quản lý tồn kho đa điểm và hệ thống KPI. Nghiên cứu các công nghệ: Apache Iceberg, MinIO, Apache Polaris, PyIceberg, dbt, Apache Airflow, Trino, Apache Kafka, Apache Flink và Apache Superset.
+* **Nhiệm vụ 1: Khảo sát nghiệp vụ và cơ sở lý thuyết**: Tìm hiểu quy trình bán hàng thời trang đa kênh, vòng đời đơn hàng, hạch toán doanh thu – giá vốn, quản lý tồn kho đa điểm và hệ thống KPI. Nghiên cứu Iceberg, MinIO, Polaris, PyIceberg, dbt, Airflow, Trino và Superset cho OLTP Lakehouse, cùng Kafka và Flink cho phương án access log.
 * **Nhiệm vụ 2: Xây dựng hệ thống giao dịch nguồn**: Thiết kế cơ sở dữ liệu PostgreSQL 28 bảng sinh từ ORM SQLAlchemy, phát triển API FastAPI với xác thực, phân quyền và middleware ghi nhật ký truy cập có che dữ liệu cá nhân; xây dựng Console Streamlit mô phỏng mua hàng qua API.
 * **Nhiệm vụ 3: Thiết kế và triển khai Data Lakehouse**: Thiết lập lưu trữ đối tượng, catalog Polaris, các namespace phân tầng và mô hình phân quyền theo workload.
-* **Nhiệm vụ 4: Xây dựng đường ống dữ liệu và kiểm soát chất lượng**: Trích xuất theo bảng bằng PyIceberg trong Airflow; dựng Silver và Gold bằng dbt; đối soát với nguồn; đồng bộ dòng bị xoá và thay đổi cột; bảo đảm mọi tầng chạy lại an toàn.
+* **Nhiệm vụ 4: Xây dựng đường ống dữ liệu và kiểm soát chất lượng**: Trích xuất theo bảng bằng PyIceberg trong Airflow, dựng Silver và Gold bằng dbt, đối soát với nguồn và kiểm chứng các kịch bản đồng bộ, retry, chạy bù.
 * **Nhiệm vụ 5: Sinh dữ liệu mô phỏng, trực quan hóa và kiểm thử**: Xây dựng bộ sinh dữ liệu `datagen` có căn cứ thống kê từ dữ liệu công khai, dashboard Superset và kiểm thử pipeline trên dữ liệu mô phỏng.
 
 ## **1.4. Đối tượng và phạm vi nghiên cứu**
@@ -44,7 +44,7 @@ Kiến trúc **Data Lakehouse** kết hợp chi phí thấp và khả năng mở
 
 * **Phạm vi nghiên cứu**:
   * *Phạm vi nghiệp vụ*: chu trình bán lẻ thời trang gồm danh mục sản phẩm theo biến thể (màu, size), giỏ hàng, đặt hàng trực tuyến, bán tại quầy POS, tồn kho đa vị trí, giao hàng COD, đổi trả – hoàn tiền và theo dõi tương tác người dùng.
-  * *Phạm vi kỹ thuật*: triển khai trên một máy chủ bằng Docker Compose với các profile `core`, `streaming`, `bi`. Pipeline OLTP và quản trị quyền đã hoàn thiện; luồng access log vào Lakehouse đã có thiết kế, chưa xây. Phân cụm chịu lỗi cao (High Availability), tự động co giãn và học máy là hướng mở rộng.
+  * *Phạm vi kỹ thuật*: triển khai ứng dụng nguồn, pipeline OLTP, quản trị quyền và BI trên một máy chủ bằng Docker Compose. Access log có hai đầu ra hiện hữu là JSON từ API và tệp Parquet mô phỏng. Nạp log vào Lakehouse, phân cụm chịu lỗi cao (High Availability), tự động co giãn và học máy thuộc phạm vi thiết kế hoặc mở rộng.
 
 ## **1.5. Tổng quan các công trình liên quan**
 
@@ -61,16 +61,16 @@ Phần lớn công trình dừng ở lý thuyết, dùng tập dữ liệu tĩnh
 1. **Sản phẩm phần mềm ứng dụng**:
    * API nghiệp vụ FastAPI cho mua hàng trực tuyến (giỏ hàng, checkout VietQR/COD), POS, kho, nhập hàng, giao vận, đổi trả và đánh giá.
    * Console Streamlit (Platform Console) gồm màn hình mô phỏng mua hàng qua API thật và màn hình quản trị quyền Lakehouse.
-   * Middleware ghi nhật ký truy cập theo hợp đồng `ecommerce.access` v1.0.0, che dữ liệu nhạy cảm, có thể gửi vào Kafka.
+   * Middleware ghi JSON theo hợp đồng `ecommerce.access` v1.0.0 ra stdout và che dữ liệu nhạy cảm.
 
 2. **Sản phẩm hạ tầng và nền tảng dữ liệu**:
    * Data Lakehouse bốn namespace (`staging`, `bronze`, `silver`, `gold`) trên MinIO S3 và Apache Iceberg, quản lý bởi Polaris.
    * Bốn DAG Airflow: `lakehouse_oltp_init`, `lakehouse_oltp_incremental`, `lakehouse_oltp_sync`, `lakehouse_oltp_purge`; mỗi bảng và mỗi model dbt là một task riêng.
-   * Quản trị quyền tự vận hành: principal Polaris riêng cho Airflow, Flink, Trino đọc và Trino ghi; credential lưu trữ tạm cấp theo bảng.
+   * Quản trị quyền tự vận hành với ba workload Polaris: `batch-airflow`, `trino-reader` và `trino-writer`. Polaris cấp credential lưu trữ tạm theo bảng.
 
 3. **Sản phẩm phân tích và báo cáo (BI)**:
    * Mô hình Star Schema gồm 7 dimension, 6 fact và 14 mart, cùng 2 seed (`delivery_sla`, `calendar_events`).
-   * Dashboard doanh thu trên Apache Superset đọc trực tiếp các bảng Gold.
+   * Bốn dashboard Apache Superset, gồm 27 biểu đồ và 16 định nghĩa dataset trên 14 mart Gold.
 
 4. **Sản phẩm tài liệu kỹ thuật**:
    * Báo cáo đồ án, tài liệu kiến trúc, hợp đồng dữ liệu, cài đặt, vận hành và thiết kế trong thư mục `docs/`.
@@ -163,7 +163,7 @@ Lưu trữ đối tượng dùng **MinIO**, tương thích Amazon S3 API [8], h�
 
 Định dạng bảng là **Apache Iceberg** [9]. Khác với bảng Hive dựa trên thư mục, Iceberg quản lý bảng bằng cây siêu dữ liệu (metadata file, manifest list, manifest file). Mỗi lần ghi tạo một snapshot mới nguyên tử (atomic commit); người đọc luôn thấy một snapshot hoàn chỉnh (snapshot isolation), nên truy vấn không bị ảnh hưởng bởi tiến trình đang ghi. Iceberg cho thêm cột và nới kiểu (int → long, float → double, tăng độ chính xác decimal) mà không viết lại dữ liệu.
 
-**Apache Polaris** là catalog trung tâm theo Iceberg REST Catalog Specification [10], cho phép PyIceberg, Trino và Flink dùng chung bảng. Polaris quản lý quyền theo vai trò (RBAC) và **cấp credential lưu trữ tạm (credential vending)**: khi một engine mở bảng, Polaris kiểm tra quyền rồi xin MinIO STS một credential chỉ dùng được cho thư mục của bảng đó, nên không engine nào giữ khóa MinIO.
+**Apache Polaris** là catalog trung tâm theo Iceberg REST Catalog Specification [10], cho phép PyIceberg và Trino dùng chung bảng. Polaris quản lý quyền theo vai trò (RBAC) và **cấp credential lưu trữ tạm (credential vending)**. Khi một engine mở bảng, Polaris kiểm tra quyền rồi xin MinIO STS credential giới hạn trong đường dẫn lưu trữ được phép.
 
 ### **2.3.4. Mô hình dữ liệu phân tích Kimball**
 
@@ -176,20 +176,16 @@ Tầng Gold theo phương pháp mô hình hóa đa chiều của Ralph Kimball [
 
 ### **2.4.1. Thu thập và xử lý dữ liệu theo lô với PyIceberg và dbt**
 
-Ở quy mô của đề tài (đến hàng chục triệu đơn trên một máy), một engine phân tán như Apache Spark là thừa. Pipeline dùng hai công cụ nhẹ hơn:
+Triển khai một máy sử dụng hai công cụ để xử lý lô và chuyển đổi SQL:
 
 * **PyIceberg** [12]: thư viện Python đọc ghi bảng Iceberg qua Polaris. Pipeline đọc PostgreSQL bằng con trỏ phía server (server-side cursor), gom thành lô Apache Arrow và ghi vào staging và Bronze; Bronze dùng `upsert` theo khóa chính và `overwrite` cho lần nạp toàn bộ, mỗi thao tác là một commit Iceberg.
 * **dbt** [13] trên **Trino**: mỗi model Silver và Gold là một câu SQL; dbt dựng bảng theo thứ tự phụ thuộc `ref()`, dùng chiến lược incremental `merge` theo khóa và chạy data test sau khi dựng.
 
-### **2.4.2. Đồng bộ thay đổi nguồn và nhật ký truy cập với Kafka và Flink**
+### **2.4.2. Đồng bộ thay đổi nguồn và định hướng xử lý nhật ký truy cập**
 
 Change Data Capture (CDC) theo nhật ký giao dịch (ví dụ Debezium đọc WAL của PostgreSQL) cho thấy mọi thay đổi gần thời gian thực, nhưng cần thêm dịch vụ, cấu hình `wal_level = logical` và thay đổi cả luồng nạp lô. Đề tài **không dùng CDC**. Thay vào đó, các thay đổi mà nạp gia tăng theo `updated_at` không thấy được xử lý bằng một DAG đồng bộ riêng (mục 3.5.2): dòng bị xoá được phát hiện bằng đối chiếu khóa chính, thay đổi cột bằng so lược đồ. Cách này chỉ đọc nguồn và không cần dịch vụ thêm.
 
-Với nhật ký truy cập, kiến trúc streaming gồm:
-* **Apache Kafka** [14]: hàng đợi phân tán (chế độ KRaft), nhận sự kiện truy cập từ middleware API qua topic `KAFKA_ACCESS_LOG_TOPIC`.
-* **Apache Flink** [15]: xử lý luồng có trạng thái, đọc từ Kafka và ghi vào bảng Iceberg theo chu kỳ checkpoint.
-
-Hạ tầng Kafka và Flink có trong profile `streaming`; job Flink nạp log vào Lakehouse đang được xây lại theo thiết kế ở mục 4.4.3.
+API phát log có cấu trúc ra stdout. Trong phương án mở rộng ở mục 4.4.3, Apache Kafka [14] nhận sự kiện và Apache Flink [15] ghi từng lô sự kiện vào Iceberg theo checkpoint. Hai dịch vụ này nằm ngoài cấu hình Compose hiện tại.
 
 ### **2.4.3. Điều phối luồng dữ liệu tự động với Apache Airflow**
 
@@ -223,7 +219,7 @@ Mỗi truy vấn Trino đọc một snapshot Iceberg hoàn chỉnh, nên dashboa
 
 **Apache Superset** [20] là nền tảng BI mã nguồn mở, kết nối Trino qua SQLAlchemy, định nghĩa dataset trên bảng và dựng chart, dashboard. Thiết kế dashboard theo nguyên tắc của Stephen Few [19]: chỉ số chính ở đầu, xu hướng theo thời gian, rồi phân rã theo chiều.
 
-Dashboard được khai báo bằng mã (dataset, chart, bố cục) và đồng bộ vào Superset bằng lệnh `make superset-sync`, nên dựng lại được giống hệt trên môi trường mới.
+Dataset, biểu đồ và bố cục được khai báo bằng mã rồi đồng bộ qua `make superset-sync`. Lệnh này tạo hoặc cập nhật các dashboard do repo quản lý trong metadata của Superset.
 
 ---
 
@@ -254,10 +250,10 @@ Ban giám đốc và các bộ phận thiếu một nơi phân tích tập trung
 * **Nhóm chức năng ứng dụng giao dịch**:
   * Quản lý danh mục, sản phẩm và biến thể SKU (màu, size, giá niêm yết, giá vốn).
   * Giỏ hàng và checkout bảo đảm tồn kho nhất quán bằng khóa dòng.
-  * Bán hàng tại quầy POS, áp dụng mã giảm giá.
+  * Bán hàng tại quầy POS. Mã giảm giá áp dụng trong checkout online.
   * Nhập hàng và sổ cái biến động kho.
   * Vận đơn, các lần giao, thu hộ COD và quy trình đổi trả – hoàn tiền nhiều bước.
-  * Ghi nhật ký truy cập tự động trên mọi route API.
+  * Ghi nhật ký truy cập API tự động, ngoại trừ route health check.
 * **Nhóm chức năng nền tảng dữ liệu và phân tích**:
   * Nạp toàn bộ và nạp gia tăng hằng ngày 19 bảng nguồn vào Lakehouse, đối soát với nguồn ở lần nạp toàn bộ.
   * Phát hiện dòng bị xoá ở nguồn và giữ dấu vết (xoá mềm) qua mọi tầng; cho phép xoá cứng chủ động.
@@ -269,8 +265,8 @@ Ban giám đốc và các bộ phận thiếu một nơi phân tích tập trung
 ### **3.1.4. Yêu cầu phi chức năng**
 
 * **Tính toàn vẹn và nhất quán**: giao dịch nguồn tuân thủ ACID. Mỗi truy vấn phân tích đọc một snapshot Iceberg hoàn chỉnh. Lần nạp toàn bộ phải khớp nguồn về số dòng, tổng tiền và số dư sổ kho tại cùng mốc thời gian.
-* **Chạy lại an toàn (idempotency)**: retry, clear, chạy hỏng rồi chạy tiếp, hay backfill đều cho cùng bảng ở mọi tầng; mốc tiến độ chỉ tiến khi dữ liệu đã ghi xong.
-* **Khả năng mở rộng**: tách tính toán (PyIceberg, Trino, Flink) và lưu trữ (MinIO), mở rộng độc lập; pipeline chạy được từ preset 100 nghìn tới 50 triệu đơn.
+* **Chạy lại an toàn (idempotency)**: phép ghi theo khóa và mốc tiến độ cho phép chạy lại khi đầu vào tương đương. Các DAG dùng chung staging cần chạy tuần tự.
+* **Khả năng mở rộng**: tách tính toán (PyIceberg, Trino) và lưu trữ (MinIO). Kịch bản kiểm chứng đầu cuối dùng preset `100k`. Các preset lớn hơn phục vụ sinh dữ liệu và đo tải theo từng cấu hình.
 * **Bảo mật**: dữ liệu cá nhân chỉ vào Lakehouse khi cột được duyệt; workload không giữ khóa lưu trữ; Trino tách quyền đọc và ghi; API xác thực JWT, chống CSRF và phân quyền RBAC.
 
 ## **3.2. Phân tích chức năng và quy trình nghiệp vụ**
@@ -304,7 +300,7 @@ Hệ thống gồm ba phân hệ:
 
 ### **3.2.3. Sơ đồ tuần tự (Sequence Diagram) các luồng xử lý**
 
-* **Luồng giao dịch Checkout**: client (Console mô phỏng) → FastAPI → PostgreSQL trong một giao dịch; middleware ghi sự kiện truy cập và, khi bật Kafka, gửi sự kiện vào topic log.
+* **Luồng giao dịch Checkout**: Console mô phỏng → FastAPI → PostgreSQL trong một giao dịch. Middleware ghi sự kiện truy cập JSON ra stdout.
 * **Luồng truy vấn báo cáo BI**: người dùng mở dashboard Superset → Superset gửi SQL tới Trino bằng tài khoản `analytics_reader` → Trino lấy metadata bảng từ Polaris, nhận credential lưu trữ tạm cho đúng bảng → đọc tệp Parquet trên MinIO → trả kết quả cho chart.
 
 ![Sơ đồ tuần tự Checkout](../assets/report/seq-checkout.svg)
@@ -318,9 +314,10 @@ Hệ thống gồm ba phân hệ:
 Hệ thống tách tầng giao dịch trực tuyến (OLTP) và tầng phân tích (OLAP):
 
 ```text
-Console / datagen ──► FastAPI ──► PostgreSQL ──► staging ──► [reconcile] ──► bronze ──► silver ──► gold ──► Trino ──► Superset
-                                                 PyIceberg    chỉ init       PyIceberg   dbt merge   dbt
-                         └─► Kafka (access log; job nạp Lakehouse đang xây lại)
+Console ──► FastAPI ──► PostgreSQL ──► staging ──► [reconcile] ──► bronze ──► silver ──► gold ──► Trino ──► Superset
+               │           ▲            PyIceberg    chỉ init       PyIceberg   dbt merge   dbt
+               │           └── datagen OLTP
+               └─► stdout (access log JSON)
 ```
 
 ![Sơ đồ kiến trúc tổng thể toàn hệ thống](../assets/report/architecture-overview.svg)
@@ -337,7 +334,7 @@ Container `platform-app` chạy FastAPI (cổng 8000) và Streamlit (cổng 8501
 * `logistics`: vận đơn, lần giao và COD.
 * `returns`, `reviews`: đổi trả – hoàn tiền và đánh giá.
 * `admin`, `analytics`: tác vụ quản trị và số liệu vận hành.
-* Middleware nhật ký truy cập (`api/core/access_logging.py`): ghi mọi request theo hợp đồng `ecommerce.access`, che dữ liệu nhạy cảm, gửi Kafka khi `KAFKA_ENABLED=true`.
+* Middleware nhật ký truy cập (`api/core/access_logging.py`): ghi JSON theo hợp đồng `ecommerce.access` ra stdout, che dữ liệu nhạy cảm và bỏ qua health check.
 
 Ngoài API nghiệp vụ, router `/api/v1/access` phục vụ quản trị quyền Lakehouse, và service riêng `credential-exporter` ghi file credential vào volume của từng workload.
 
@@ -361,13 +358,14 @@ Tầng phục vụ là Trino đọc trực tiếp bảng Gold hiện tại qua P
 |---|---|---|---|---|
 | **1. Nạp toàn bộ (init)** | Tạo namespace và bảng → staging → đối soát → Bronze (thay cả bảng) → Silver → Gold → bảo trì | Chạy tay | Mọi dòng của 19 bảng tạo trước mốc chạy | Lakehouse dựng lại hoàn chỉnh |
 | **2. Nạp gia tăng (incremental)** | Staging theo data interval → Bronze upsert → Silver merge → Gold merge/tính lại ngày → bảo trì | 03:00 hằng ngày (Asia/Ho_Chi_Minh), catchup và backfill | Dòng có `updated_at`/`created_at` trong khoảng | Gold cập nhật; phát Asset `lakehouse_oltp_loaded` |
-| **3. Đồng bộ nguồn (sync)** | Kiểm tra lược đồ → phát hiện xoá/khôi phục → Bronze → Silver → Gold → bảo trì | Sau mỗi lần incremental thành công | Danh sách cột và toàn bộ khóa chính nguồn | Cột đã duyệt được thêm; dòng bị xoá được đánh dấu |
+| **3. Đồng bộ nguồn (sync)** | Kiểm tra lược đồ → phát hiện xoá/khôi phục → Bronze → Silver → Gold → bảo trì | Theo Asset từ incremental hoặc chạy tay | Danh sách cột và toàn bộ khóa chính nguồn | Cột đã duyệt được thêm; dòng bị xoá được đánh dấu |
 | **4. Xoá cứng (purge)** | Xoá dòng `_is_deleted` ở Gold → Silver → Bronze | Chạy tay | Dòng đã xoá mềm | Lakehouse không còn dòng đã xoá |
-| **5. Access log** | Middleware → Kafka → Flink → `bronze.web_events` → Silver → mart phễu | Thiết kế, chưa xây | Sự kiện HTTP và file log lịch sử | `mart_web_funnel_daily` |
+| **5. Access log hiện tại** | Middleware ghi JSON, `datagen logs` ghi tệp Parquet riêng | Mỗi request hợp lệ hoặc chạy tay generator | Request API hoặc đơn online mô phỏng | Stdout v1.0.0 hoặc tệp Parquet v1.1.0 |
+| **6. Phân tích access log (thiết kế)** | Nạp sự kiện thô → chuẩn hóa → tổng hợp phễu | Đề xuất | Sự kiện HTTP và tệp log lịch sử | `mart_web_funnel_daily` |
 
 ![Sơ đồ luồng Batch](../assets/report/flow-batch.svg)
 
-![Sơ đồ luồng Access Log](../assets/report/flow-access-log.svg)
+![Thiết kế luồng Access Log vào Lakehouse](../assets/report/flow-access-log.svg)
 
 ## **3.4. Thiết kế cơ sở dữ liệu giao dịch (OLTP)**
 
@@ -444,15 +442,15 @@ Các bảng không nạp không được bảng Gold nào dùng; `customer_crede
 ### **3.5.2. Thiết kế quy trình trích xuất Batch, đồng bộ nguồn và Access Log**
 
 * **Trích xuất theo lô**:
-  * Lần nạp toàn bộ đọc mọi dòng tạo trước mốc bắt đầu lần chạy, nên 19 bảng dừng ở cùng một thời điểm; lần nạp gia tăng đọc các dòng có cursor trong `[data_interval_start, data_interval_end)`.
+  * Lần nạp toàn bộ dùng chung điều kiện `created_at < run_after`. Mỗi bảng có giao dịch đọc riêng. Lần nạp gia tăng đọc các dòng có cursor trong `[data_interval_start, data_interval_end)`.
   * Mỗi bảng đọc trong một giao dịch repeatable-read bằng con trỏ phía server (10.000 dòng mỗi lần fetch), ghi vào staging mỗi lô 200.000 dòng.
-  * Staging được xoá trắng trước khi ghi, nên chạy lại cùng khoảng luôn cho cùng kết quả mà không cần lưu con trỏ.
-* **Đồng bộ nguồn** (DAG `lakehouse_oltp_sync`, chạy sau mỗi lần incremental):
+  * Staging được xoá trắng trước khi ghi và trích xuất lại khi retry.
+* **Đồng bộ nguồn** (DAG `lakehouse_oltp_sync`, theo Asset từ incremental hoặc chạy tay):
   1. **Thay đổi cột** (nhóm `schema`, chạy trước). So nguồn với danh sách cho phép và Bronze:
      * cột mới chưa duyệt: sync báo lỗi chờ người duyệt; incremental vẫn chạy;
      * cột đã duyệt: tự thêm vào staging và Bronze, bật cờ `lakehouse.reload-pending`, rồi nạp lại cả bảng trong một commit;
      * kiểu được nới (int → long…): tự nới;
-     * cột bị bỏ hoặc đổi loại: mọi DAG dừng kèm thông báo cách xử lý.
+     * cột trong hợp đồng bị bỏ hoặc đổi sang kiểu không tương thích: bước kiểm tra lược đồ hoặc trích xuất dừng kèm thông báo.
   2. **Dòng bị xoá** (nhóm `detect`, chạy sau). So toàn bộ khóa chính nguồn với khóa còn sống ở Bronze:
      * khóa mất ở nguồn: xoá mềm (`_is_deleted`, `_deleted_at`) qua Bronze, Silver và Gold; mart không tính;
      * khóa có lại ở nguồn: dòng sống lại.
@@ -516,7 +514,7 @@ Các bảng không nạp không được bảng Gold nào dùng; `customer_crede
 * **Bảo mật và phân quyền hạ tầng**:
   * Pipeline đọc PostgreSQL bằng role chỉ `SELECT`, phiên read-only.
   * Chỉ cột trong danh sách cho phép được nạp; cột cá nhân mới không thể lọt vào trước khi được duyệt.
-  * Mỗi workload một principal Polaris: `batch_airflow`, `trino_writer`, `flink_landing` (vai trò ghi) và `trino_reader` (vai trò đọc). Quyền gán theo chuỗi principal → principal role → catalog role → quyền trên catalog, namespace hoặc bảng.
+  * Mỗi workload có một principal Polaris riêng: `batch_airflow` cho Airflow, `trino_writer` cho Trino ETL và `trino_reader` cho Trino phân tích. Quyền gán theo chuỗi principal → principal role → catalog role → quyền trên catalog, namespace hoặc bảng.
   * Polaris cấp credential MinIO tạm cho đúng bảng được mở; MinIO chỉ có một tài khoản lưu trữ, của Polaris.
   * Trino xác thực bằng mật khẩu qua HTTPS: `analytics_reader` chỉ đọc catalog `lakehouse`, `dbt_writer` chỉ ghi schema `silver` và `gold` của `lakehouse_etl`.
 
@@ -540,15 +538,16 @@ Màn hình **Mô phỏng API** của Streamlit chạy kịch bản mua hàng onl
 
 ### **3.6.3. Thiết kế hệ thống Dashboard BI trên Superset**
 
-![Sơ đồ Dashboard BI](../assets/report/ui-dashboard-sales.svg)
+![Wireframe minh họa phần doanh thu](../assets/report/ui-dashboard-sales.svg)
 
-Dashboard doanh thu đọc ba mart `mart_orders_daily`, `mart_sales_daily`, `mart_product_sales_daily`:
-1. **Chỉ số chính**: số đơn đặt, giá trị đặt hàng, doanh thu thuần, lợi nhuận gộp.
-2. **Xu hướng**: doanh thu thuần và lợi nhuận gộp theo ngày ghi nhận.
-3. **Phân rã**: doanh thu thuần theo kênh (online/POS) và theo điểm bán.
-4. **Sản phẩm**: top 10 sản phẩm theo doanh thu sau giảm giá.
+| Dashboard | Biểu đồ | Chỉ số và góc nhìn |
+|---|---:|---|
+| **Doanh thu bán lẻ** | 12 | Đơn đặt, giá trị đặt hàng, doanh thu thuần, lợi nhuận, kênh, điểm bán, sản phẩm và danh mục |
+| **Vận hành bán lẻ** | 9 | Tồn kho, số ngày đủ bán, hết hàng, giao đúng hạn, tồn đọng giao vận, hủy đơn và đổi trả |
+| **Bán hàng tại cửa hàng (POS)** | 2 | Số đơn theo giờ và cửa hàng, doanh thu theo nhân viên POS |
+| **Khách hàng và marketing** | 4 | Khách mua lại, cohort, coupon và đánh giá |
 
-Các mart còn lại đã sẵn sàng; dashboard cho kho, giao vận, khách hàng và phân quyền theo cửa hàng sẽ được bổ sung sau khi các pipeline ổn định.
+Bốn dashboard dùng 16 định nghĩa dataset trên 14 mart Gold. Mặc định bộ lọc thời gian mở toàn bộ kỳ và trường ngày của biểu đồ tuân theo grain của mart. Các biểu đồ tồn kho tức thời dùng ngày snapshot trong mart. [Hướng dẫn kiểm tra dashboard](SETUP.md#6-dashboard-superset).
 
 ---
 
@@ -569,28 +568,28 @@ dk-ecommerce-data-platform/
 │   ├── lakehouse/           # thư viện: nguồn, staging, Bronze, đồng bộ, đối soát, tạo bảng
 │   └── tests/               # unittest chạy trong container Airflow
 ├── dbt/                     # models/silver, models/oltp (Gold), macros, seeds, tests
-├── streaming/sql/           # Flink SQL cũ của luồng log
-├── infrastructure/          # Dockerfile và cấu hình Airflow, MinIO, PostgreSQL, Trino, Superset, Flink
+├── streaming/sql/           # hợp đồng DDL của luồng log cũ
+├── infrastructure/          # Dockerfile và cấu hình Airflow, MinIO, PostgreSQL, Trino, Superset
 └── docs/                    # kiến trúc, dữ liệu, cài đặt, vận hành, thiết kế
 ```
 
-Môi trường Python 3.11 dùng chung `uv.lock` cho ba gói (`platform-app`, `data-generator`, pipeline trong `airflow/`). Mã được kiểm tra bằng `ruff`; `make test` chạy mọi bộ test (pipeline, platform-app, generator, Superset) mà không cần stack thật.
+Môi trường Python 3.11 dùng chung `uv.lock` cho workspace. Mã được kiểm tra bằng Ruff. `make test` chạy test pipeline trong container `airflow-scheduler` và các bộ test platform-app, generator, Superset trên máy chủ qua `uv`.
 
 ### **4.1.2. Đóng gói và triển khai dịch vụ bằng Docker Compose**
 
-| Profile | Dịch vụ chính | Mục đích |
+| Nhóm | Dịch vụ chính | Mục đích |
 |---|---|---|
-| `core` | `postgres`, `minio`, `minio-init`, `polaris`, `polaris-bootstrap`, `platform-app`, `platform-admin-init`, `credential-exporter`, Airflow (`airflow-init`, `airflow-api-server`, `airflow-scheduler`, `airflow-dag-processor`), `trino`, `trino-auth-init` | Nguồn giao dịch, Lakehouse, pipeline và quản trị quyền |
-| `streaming` | `kafka`, `kafka-init`, `flink-jobmanager`, `flink-taskmanager`, `flink-submit` | Hạ tầng luồng access log |
-| `bi` | `superset`, `superset-init`, `superset-sync` | Dashboard |
+| Nguồn và quản trị | `postgres`, `minio`, `minio-init`, `polaris`, `polaris-bootstrap`, `platform-app`, `platform-admin-init`, `credential-exporter` | API, Console, lưu trữ, catalog và cấp quyền |
+| Xử lý và truy vấn | `airflow-init`, `airflow-api-server`, `airflow-scheduler`, `airflow-dag-processor`, `trino`, `trino-auth-init` | Điều phối, xử lý lô và truy vấn SQL |
+| BI | `superset-db-init`, `superset-init`, `superset`, `superset-sync` | Database metadata, khởi tạo người dùng, giao diện và đồng bộ dashboard |
 
-`make up` chỉ bật Console, API và các dependency quản trị; `make core` bật thêm Airflow và Trino sau khi quyền workload đã được cấp. Pipeline chạy bằng Python của chính image Airflow (`PythonOperator`), dbt chạy qua `BashOperator`; không có cụm tính toán thường trực.
+Lần đầu dùng `make up SERVICES=platform-app`, cấu hình quyền cho ba workload trong Console, thiết lập role đọc nguồn bằng `make source-reader` rồi nạp dữ liệu nguồn. Tiếp theo `make up` khởi động toàn bộ stack. Chạy `lakehouse_oltp_init` để có dữ liệu Gold, rồi chạy `make superset-sync` một lần để cài bộ dashboard. PythonOperator dùng môi trường trong image Airflow, còn BashOperator gọi dbt. [Quy trình triển khai](SETUP.md).
 
 ### **4.1.3. Cấu hình mạng, kết nối và phân bổ tài nguyên**
 
-22 dịch vụ kết nối qua mạng nội bộ `lakehouse-network`; các cổng quản trị chỉ mở trên `127.0.0.1`. Biến nhạy cảm (mật khẩu, secret) nằm trong `.env` tạo từ `.env.example`; không có secret hard-code trong mã.
+Các dịch vụ kết nối qua mạng nội bộ `lakehouse-network`. Hầu hết giao diện bind vào `127.0.0.1` theo cấu hình mặc định. PostgreSQL công bố cổng trên host qua `POSTGRES_PORT`. Khai báo mật khẩu và khóa ký cần thiết trong `.env` tạo từ `.env.example`.
 
-Dữ liệu PostgreSQL, MinIO, Kafka và log Airflow nằm trên Docker named volume. Credential Polaris của từng workload nằm trên volume riêng (`polaris-batch-airflow-credentials`, `polaris-trino-reader-credentials`…), do `credential-exporter` ghi; `platform-app` không mount các volume này.
+Dữ liệu PostgreSQL, dữ liệu MinIO và log Airflow nằm trên Docker named volume. `credential-exporter` ghi credential Polaris vào volume riêng của từng workload (`polaris-batch-airflow-credentials`, `polaris-trino-reader-credentials`, `polaris-trino-writer-credentials`). Chỉ exporter và workload tương ứng mount volume credential.
 
 ## **4.2. Xây dựng Backend và cơ sở dữ liệu giao dịch**
 
@@ -624,12 +623,12 @@ Dữ liệu danh mục gốc nạp bằng `make seed`; tồn đầu ghi thành g
 * Vận đơn theo dõi các lần giao (`shipment_attempts`) và tiền thu hộ COD; giao thất bại có biến động kho tương ứng.
 * Đổi trả theo các bước: yêu cầu → duyệt → nhận và kiểm định hàng hoàn → nhập lại kho → hoàn tiền gắn với yêu cầu.
 
-### **4.2.6. Triển khai Middleware ghi nhận Access Log phi cấu trúc**
+### **4.2.6. Triển khai middleware ghi access log có cấu trúc**
 
 Middleware trong `api/core/access_logging.py` ghi mọi request (trừ health check):
 * Theo hợp đồng `ecommerce.access` v1.0.0: `request.id` 32 ký tự hex do server tạo, thời gian UTC, method, route template (không dùng đường dẫn thô), mã trạng thái, thời gian xử lý, actor và hành động thương mại (ví dụ `product_detail`, `cart_item_set`, `checkout_submit`) kèm sản phẩm nếu route có.
 * Không ghi request body, mật khẩu, header Authorization, cookie hay thông tin thanh toán; từ khóa tìm kiếm chứa dữ liệu cá nhân được che.
-* Ghi structured log; gửi thêm vào Kafka khi `KAFKA_ENABLED=true`, không chặn request của người dùng.
+* Phát bản ghi JSON ra stdout của container `platform-app`, có thể xem từ Docker Compose logs.
 
 ## **4.3. Xây dựng giao diện người dùng**
 
@@ -664,11 +663,14 @@ DAG `lakehouse_oltp_sync` thay vai trò mà CDC thường đảm nhận, chỉ b
 
 Khi backfill incremental, DAG sync được tạm dừng và trigger tay một lần sau khi backfill xong, vì `max_active_runs` không giới hạn giữa hai DAG.
 
-### **4.4.3. Thu thập và xử lý dòng dữ liệu Access Log bằng Apache Flink**
+### **4.4.3. Hiện trạng access log và hướng tích hợp Lakehouse**
 
-Luồng log cũ (Flink ghi `landing.access_logs`, mart log tính hai lần) đã được gỡ. Thiết kế mới đã duyệt ([ACCESS_LOG_DESIGN.md](ACCESS_LOG_DESIGN.md)), chưa xây:
-* Hợp đồng log v1.1.0 thêm `session.id` và `ecommerce.order_number`; API sẽ cấp cookie phiên và gắn mã đơn vào sự kiện checkout.
-* `bronze.web_events` chỉ lưu dữ liệu thô (`raw_payload`, `event_at`, `_ingested_at`, `_source`), nạp bằng hai đường: streaming Kafka → Flink và nạp file Parquet lịch sử từ `datagen logs`.
+API ghi JSON v1.0.0. Lệnh `datagen logs` tạo tệp Parquet v1.1.0 theo `session_date`, với `session.id` và `ecommerce.order_number` để có thể nối log với đơn online mô phỏng. Compose hiện tại phục vụ pipeline OLTP và BI. Các DDL trong `streaming/sql/contracts/logs/` và model dbt trong `dbt/models/logs/` thuộc luồng cũ.
+
+Thiết kế tích hợp Lakehouse đề xuất các bước sau. [Thiết kế access log](ACCESS_LOG_DESIGN.md).
+
+* Nâng API lên v1.1.0, ghi nhận mã phiên và gắn mã đơn vào sự kiện checkout thành công.
+* Nạp payload sự kiện thô vào `bronze.web_events` (`raw_payload`, `event_at`, `_ingested_at`, `_source`). Phương án nghiên cứu dùng Kafka và Flink cho dữ liệu trực tuyến, cùng đường nạp Parquet cho dữ liệu lịch sử.
 * `silver.web_events` tách trường, kiểm hợp đồng, bỏ trùng theo `request.id`.
 * `mart_web_funnel_daily` đếm số phiên ở mỗi bước (xem sản phẩm → thêm giỏ → checkout → đặt đơn khớp `fact_order`), nối hành vi web với đơn hàng thật.
 
@@ -678,7 +680,7 @@ Luồng log cũ (Flink ghi `landing.access_logs`, mart log tính hai lần) đã
 
 * Service `minio-init` (dùng `mc`) tạo bucket `lakehouse`, policy `lakehouse-polaris` và tài khoản lưu trữ của Polaris; chạy lại không đổi gì.
 * Polaris quản lý catalog `lakehouse` với đường dẫn `s3://lakehouse/warehouse`, cấu hình MinIO STS để cấp credential tạm theo bảng.
-* Principal, role và quyền được tạo trên Console; credential được cấp cho Airflow, Trino (đọc, ghi) và Flink qua exporter.
+* Principal, role và quyền được tạo trên Console. Exporter cấp credential cho `batch-airflow`, `trino-reader` và `trino-writer`.
 
 ### **4.5.2. Xử lý và chuyển đổi dữ liệu tại tầng Bronze và Silver**
 
@@ -702,21 +704,21 @@ Dimension và fact là model incremental merge; mart xoá và dựng lại các 
 |---|---|---|
 | `lakehouse_oltp_init` | Chạy tay | `create_schema` → `staging` → `reconcile` → `bronze` → `silver` → `gold` → `maintenance` |
 | `lakehouse_oltp_incremental` | 03:00 hằng ngày (Asia/Ho_Chi_Minh), catchup, backfill | `staging` → `bronze` → `silver` → `gold` → `maintenance`; task cuối phát Asset `lakehouse_oltp_loaded` |
-| `lakehouse_oltp_sync` | Sau mỗi sự kiện `lakehouse_oltp_loaded` | `schema` → `detect` → `bronze` → `silver` → `gold` → `maintenance` |
+| `lakehouse_oltp_sync` | Theo Asset `lakehouse_oltp_loaded` hoặc chạy tay | `schema` → `detect` → `bronze` → `silver` → `gold` → `maintenance` |
 | `lakehouse_oltp_purge` | Chạy tay | `silver_gold` → `bronze` |
 
-Mỗi nhóm có một task cho mỗi bảng hoặc model dbt; thứ tự các task Gold được suy ra từ lời gọi `ref()`/`live()` trong model. Nhóm `maintenance`: `compact` gộp tệp nhỏ của Bronze, `optimize` (dbt) viết lại tệp nhỏ của Silver và Gold, `expire` xoá snapshot ngoài 20 snapshot mới nhất và ngoài 3 ngày gần nhất, `orphan` đếm tệp mồ côi mà không xoá.
+Các nhóm xử lý có một task cho mỗi bảng hoặc model dbt. Thứ tự Gold được suy ra từ lời gọi `ref()` và `live()`. Bảo trì gộp tệp nhỏ ở Bronze, tối ưu tệp ở Silver và Gold qua dbt, và giữ tối thiểu 20 snapshot mới nhất cùng các snapshot trong 3 ngày gần nhất. Compact và kiểm tra lược đồ bỏ qua thao tác kiểm kê tệp khi snapshot chưa có manifest. Tác vụ orphan chỉ đếm tệp cũ chưa được snapshot còn giữ tham chiếu. [Chi tiết vận hành](OPERATIONS.md).
 
 ### **4.5.5. Kiểm soát chất lượng dữ liệu và khả năng chạy lại (idempotency)**
 
-Kiểm tra chặn gồm đối soát với nguồn ở lần nạp toàn bộ và test `matches_bronze`; trượt thì task lỗi và tầng sau giữ bản cũ. Data test sau Gold chạy ở mức cảnh báo.
+Đối soát nguồn ở lần nạp toàn bộ và test `matches_bronze` chặn các task phụ thuộc khi có lỗi. Năm test SQL kiểm tra bất biến xuyên bảng ở Gold chạy ở mức cảnh báo. Các kiểm tra schema dùng mức độ được khai báo trong dbt.
 
-Mọi tầng được thiết kế chạy lại an toàn:
+Pipeline hỗ trợ retry theo các cơ chế sau:
 * Staging xoá trắng rồi ghi lại; Bronze upsert theo khóa; Silver và Gold merge theo khóa từ mốc của chúng.
 * Mốc của mart chỉ tiến khi mart đã ghi xong.
 * Đồng bộ nguồn: chạy lại `detect` cho cùng hai tập khóa; `_deleted_at` giữ giá trị lần phát hiện đầu; cờ nạp lại chỉ bị xoá sau khi Bronze đã nạp đủ.
 
-Do đó retry, Clear, chạy tiếp sau một lần hỏng, hay backfill đều cho cùng bảng (kết quả kiểm chứng ở mục 4.8.1).
+Tính nguyên tử áp dụng cho từng commit bảng Iceberg. Khi một DAG hỏng giữa chừng, có thể đã có bảng được cập nhật. Đọc lỗi task, sửa nguyên nhân rồi chạy lại với đầu vào phù hợp. Tạm dừng sync trước backfill vì incremental và sync dùng chung staging. Mục 4.8.1 ghi lại phạm vi đã thử nghiệm.
 
 ## **4.6. Xây dựng hệ thống Business Intelligence và phục vụ phân tích**
 
@@ -728,56 +730,109 @@ Do đó retry, Clear, chạy tiếp sau một lần hỏng, hay backfill đều 
 
 ### **4.6.2. Trực quan hóa dữ liệu với Apache Superset**
 
-Dashboard doanh thu (mục 3.6.3) được khai báo trong `infrastructure/superset/` (dataset, chart, bố cục) và đồng bộ bằng `make superset-sync`. Superset đọc trực tiếp bảng Gold hiện tại, nên dữ liệu mới hiện ngay sau mỗi lần pipeline chạy mà không cần đồng bộ lại.
+Bốn dashboard ở mục 3.6.3 được khai báo trong `infrastructure/superset/`. `superset-db-init` chuẩn bị database metadata và `superset-init` chạy migration, tạo người dùng quản trị. Sau khi các mart Gold có dữ liệu, `make superset-sync` tạo hoặc cập nhật dataset, biểu đồ, bộ lọc và bố cục của repo. Các truy vấn đọc Gold trực tiếp qua Trino HTTPS bằng CA của stack. Khi dữ liệu Gold thay đổi, tải lại biểu đồ và làm mới kết quả nếu còn cache.
 
 ### **4.6.3. Kiểm soát phân quyền truy cập dữ liệu phân tích**
 
 * Superset kết nối Trino bằng tài khoản chỉ đọc `analytics_reader`; Superset có đăng nhập riêng.
-* Trino không ghi được tầng phân tích qua catalog đọc; dbt là đường ghi duy nhất vào Silver và Gold.
-* Khi Polaris thu hồi một quyền, credential lưu trữ cấp sau đó không còn mở được bảng tương ứng.
-* Phân quyền dashboard theo cửa hàng (quản lý cửa hàng chỉ thấy cửa hàng của mình) là việc tiếp theo.
+* Catalog `lakehouse` cấp quyền đọc. dbt ghi vào Silver và Gold qua tài khoản `dbt_writer` và catalog `lakehouse_etl`.
+* Sau khi Polaris thu hồi quyền trên bảng, yêu cầu mới được đánh giá theo quyền đã cập nhật. Credential MinIO đã phát có thời hạn riêng.
+* Phân quyền dữ liệu theo cửa hàng là hướng mở rộng. Đăng nhập Superset và quyền đọc Gold hiện tại áp dụng ở cấp dashboard và tài khoản kết nối.
 
 ## **4.7. Xây dựng dữ liệu mô phỏng phục vụ trình diễn và kiểm thử**
 
-### **4.7.1. Hướng tiếp cận**
+### **4.7.1. Bối cảnh và tính tất yếu của việc phân tích dữ liệu khám phá (EDA)**
 
-Dữ liệu mô phỏng theo nguyên tắc **quy luật trước, bộ sinh sau**: quy luật hành vi được rút ra từ dữ liệu công khai, ghi thành cấu hình YAML có nhãn nguồn, rồi bộ sinh đọc cấu hình đó. Mỗi khối tham số mang một trong ba nhãn: `measured` (đo trực tiếp trong notebook), `transfer` (đo ở nguồn nước ngoài, áp cho shop thời trang Việt Nam như giả định chuyển nguồn) hoặc `assumption` (tham số kịch bản).
+Một trong những hạn chế lớn nhất của các đồ án xây dựng Data Lakehouse trong môi trường học thuật là sự thiếu hụt dữ liệu thực tế ở quy mô lớn. Việc sử dụng các công cụ sinh dữ liệu ngẫu nhiên phổ biến (như thư viện Faker, phân phối đều Uniform hoặc phân phối chuẩn thông thường) dẫn đến những tập dữ liệu "phẳng":
+* Không phản ánh được tính tập trung bất đối xứng (heavy-tailed, Pareto 80/20) vốn có của hành vi mua sắm.
+* Bỏ qua hoàn toàn mối tương quan nhân quả giữa chất lượng dịch vụ (thời gian giao hàng trễ) và phản hồi của người dùng (điểm số đánh giá sao).
+* Triệt tiêu tính chất mùa vụ, sự bùng nổ lưu lượng trong các đợt khuyến mại lớn (Sale ngày đôi, Black Friday, Tết), cũng như nhịp sinh học tự nhiên theo khung giờ trong ngày của người tiêu dùng trực tuyến.
 
-Mỗi quy luật gồm: dữ liệu cho thấy gì, quy luật một câu với ít tham số nhất, và kiểm tra bằng cách so phân phối mô hình với thực tế (sai lệch tính bằng điểm phần trăm). Chỉ quy luật lặp lại giữa các nguồn hoặc dự báo đúng trên phần dữ liệu chưa dùng để ước lượng mới được chuyển sang shop Việt Nam.
+Hệ quả là, khi nạp các tập dữ liệu ngẫu nhiên thuần túy vào Lakehouse, các Data Mart và Dashboard phân tích tại tầng Gold (như phân tích RFM, cohort khách hàng, tồn kho an toàn, phễu marketing) sẽ đưa ra các kết quả sai lệch và không có ý nghĩa kinh doanh thực tiễn.
 
-CLI `datagen` hiện thực các quy luật:
-* `datagen generate`: nạp 12 tháng lịch sử OLTP vào PostgreSQL trong một giao dịch, dựng lại index sau khi nạp (`make generate PRESET=1m`).
-* `datagen verify`: đối chiếu dữ liệu đã nạp với quy luật của preset (sổ kho, R01–R07, tỷ lệ kịch bản, POS, địa điểm).
-* `datagen logs`: sinh log truy cập mùa sale khớp với đơn online đã nạp, ghi Parquet theo ngày.
+Để khắc phục triệt để vấn đề này, đề tài áp dụng nguyên tắc nghiên cứu thực chứng: **"Quy luật trước, bộ sinh sau" (Data-driven synthetic data generation)**. Mọi tham số và quy luật sinh dữ liệu đều phải bắt nguồn từ quá trình phân tích dữ liệu khám phá (Exploratory Data Analysis – EDA) trên các tập dữ liệu thương mại điện tử công khai quy mô lớn, kết hợp đối chiếu với các báo cáo thị trường và cam kết dịch vụ thực tế tại Việt Nam.
 
-### **4.7.2. Quy luật mua hàng (OLTP)**
+Mỗi khối quy luật trong cấu hình sinh dữ liệu được gán nhãn xuất xứ rõ ràng (*provenance labels*):
+1. **`measured` (Đo lường trực tiếp):** Quy luật và tham số được ước lượng, kiểm định độ khớp phân phối trực tiếp từ dữ liệu thực nghiệm thông qua các Jupyter Notebook EDA.
+2. **`transfer` (Chuyển giao quy luật):** Quy luật kinh điển được đo lường trên các nguồn dữ liệu quốc tế lớn và được áp dụng cho doanh nghiệp bán lẻ thời trang Việt Nam như một giả định chuyển giao có cơ sở.
+3. **`assumption` (Tham số kịch bản):** Các tham số chính sách vận hành (dải giá, tỷ lệ hủy đơn, tỷ trọng COD, chiết khấu coupon) không có dữ liệu giao dịch gốc công khai, được thiết lập dựa trên đối chiếu định tính với các báo cáo khảo sát tại Việt Nam.
 
-Phân tích nằm trong [purchase_behavior_eda.ipynb](../generator/oltp/notebooks/purchase_behavior_eda.ipynb), dùng H&M kênh online năm 2019 và Olist năm 2017.
+### **4.7.2. Các tập dữ liệu thực nghiệm và nguồn khảo sát đối chiếu**
 
-| Quy luật | Kết quả thực nghiệm | Tham số |
-| :--- | :--- | :--- |
-| R01. Số đơn mỗi khách | Log-series lệch tối đa khoảng 1 điểm %, trong khi giả định "mọi khách cùng tốc độ" (Poisson) lệch 31 điểm %. α ước lượng từ 6 tháng dự báo đúng tỷ lệ khách mua một lần cho 3 và 12 tháng (lệch 1–3 điểm %). | θ = T/(α+T), α = 0,1141 năm |
-| R02. Khoảng cách mua lại | Khách mua ít lần có các đơn gần nhau hơn mức rải đều cả năm; một hệ số c bù được cho mọi k, sai số trung bình dưới 2%. | Mũ, trung bình T(1 − c/k)/(k+1), c = 0,518 |
-| R03. Độ bán chạy | Log(số bán) của sản phẩm bán đủ 12 tháng có dạng chuông; tỷ trọng top 10%/20% sản phẩm lệch 2–3,5 điểm %. Giá không liên quan độ bán chạy (Spearman 0,01). | LogNormal(0; 1,35) × hệ số nhóm hàng |
-| R04. Giỏ hàng | Số sản phẩm mỗi đơn theo phân phối hình học, lệch tối đa 1,6 điểm %; kích thước giỏ độc lập với khách. | p = 0,296; bảng biến thể/số lượng |
-| R05. Lịch | Black Friday gấp 5,55 (H&M) và 7,24 (Olist) lần ngày thường, ba ngày sau gấp khoảng 2,6 lần; hai nguồn không có hình dạng chung theo thứ trong tuần. | Ngày sale ×6,39; sau sale ×2,6; giờ theo Olist |
-| R06. Giao trễ và đánh giá | Giao đúng hẹn 62% chấm 5 sao; trễ trên 8 ngày 68% chấm 1 sao. | Bảng số sao theo mức trễ; tỷ lệ trễ 5,5% |
-| R07. Thời gian giao | Hãng lấy hàng cùng ngày nếu shop giao trước 10h30, sau đó lấy ngày kế; số ngày giao đều trong khoảng của vùng theo cam kết công bố của GHTK Express. | Nội thành TP.HCM 1–2; Bình Dương, Cần Thơ 2–4; Hà Nội 3–4; Đà Nẵng, Hải Phòng 4–6 ngày |
+Đề tài sử dụng ba bộ dữ liệu thương mại điện tử công khai để phân tích hành vi mua hàng và duyệt web. Notebook [purchase_behavior_eda.ipynb](../generator/oltp/notebooks/purchase_behavior_eda.ipynb) phân tích dữ liệu giao dịch OLTP. Notebook [browsing_behavior_eda.ipynb](../generator/logs/notebooks/browsing_behavior_eda.ipynb) phân tích dữ liệu sự kiện theo phiên truy cập.
 
-Bốn preset `100k`, `1m`, `10m`, `50m` dùng chung các quy luật trên, chỉ khác quy mô: 26.000, 260.000, 2.600.000 và 13.000.000 khách có mua, tương ứng khoảng 0,1, 1, 10 và 50 triệu đơn online trong 12 tháng. Tổng số đơn là kết quả của R01, không phải đầu vào. `100k` dùng để chạy thử pipeline nhanh. Giá, tỷ lệ hủy/COD/trả hàng, coupon và Tết là giả định; notebook đối chiếu chúng với số liệu Việt Nam công khai nhưng không dùng các số đó để hiệu chỉnh.
+**Các tập dữ liệu thực nghiệm**
 
-### **4.7.3. Quy luật duyệt web (access log)**
+* **H&M Personalized Fashion Recommendations.** Tệp giao dịch công khai có khoảng 31,8 triệu dòng. Notebook lọc kênh online năm 2019, thu được **11.397.400 dòng bán hàng**. Vì nguồn không có mã đơn, nghiên cứu quy ước mỗi cặp khách hàng và ngày mua là một lượt mua, thu được **2.682.063 lượt mua** của **751.398 khách hàng**. Mẫu này dùng để phân tích tần suất mua, khoảng cách giữa các lượt mua, kích thước giỏ và biến động theo ngày. Khi phân tích độ tập trung nhu cầu ở R03, notebook xét các nhóm sản phẩm `Ladieswear` và `Divided`. Phép ước lượng độ phân tán của lượng bán dùng các sản phẩm phát sinh giao dịch trong đủ 12 tháng. [Bộ dữ liệu H&M](https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations/data).
+* **Brazilian E-Commerce Public Dataset by Olist.** Bộ dữ liệu công khai gồm khoảng 100.000 đơn hàng. Notebook chọn **45.101 đơn đặt năm 2017** để phân tích phân bố theo giờ và so sánh số đơn dịp Black Friday với giai đoạn trước đó. Phân tích điểm đánh giá theo mức giao trễ sử dụng **43.098 đơn đã giao có đánh giá**, thu được sau khi lọc và ghép dữ liệu đơn hàng với dữ liệu đánh giá. [Bộ dữ liệu Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce).
+* **eCommerce Behavior Data của REES46.** Để phân tích các quy luật L1–L3, notebook dùng sự kiện từ **02 đến 31/10/2019 theo giờ UTC**, sau khi loại các phiên chạm biên đầu và cuối tháng. Mẫu còn khoảng **41,2 triệu sự kiện** thuộc **8.974.352 phiên**, trong đó có **303.167 phiên `apparel`** theo tiêu chí phân loại của notebook. Phân tích tập trung vào tỷ lệ phiên không mua trên phiên có mua, số lượt xem sản phẩm và khoảng thời gian giữa các sự kiện trong một phiên. Dữ liệu tháng 11 được dùng để nhận diện phiên vắt qua cuối tháng 10 và để phân tích riêng biến động mua hàng trong ngày cao điểm **17/11/2019** cho L4. [Bộ dữ liệu REES46](https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store).
 
-Phân tích nằm trong [browsing_behavior_eda.ipynb](../generator/logs/notebooks/browsing_behavior_eda.ipynb), dùng eCommerce Behavior tháng 10/2019 (cohort 2–31/10, khoảng 9 triệu phiên) cho L1–L3 và tháng 11/2019 cho L4. Tham số lấy theo nhóm phiên `apparel`, gần với shop thời trang nhất.
+**Nguồn đối chiếu tại Việt Nam**
 
-| Quy luật | Kết quả thực nghiệm | Tham số |
-| :--- | :--- | :--- |
-| L1. Lưu lượng | Tỷ lệ phiên không mua trên phiên có mua ổn định theo ngày (13,6 với toàn bộ dữ liệu, 41,4 với `apparel`); giá trị phụ thuộc định nghĩa phiên `apparel` (31–52). | r = 41,39 |
-| L2. Lượt xem mỗi phiên | Phiên không mua theo log-series (lệch 1,3 điểm %); phiên có mua theo phân phối hình học (lệch 6,4 điểm %). | θ = 0,9239; p = 0,1044 |
-| L3. Nhịp request | Khoảng cách giữa hai sự kiện theo log-normal, lệch 4,4 điểm %. | Trung vị 36,2 giây; σ = 0,938 |
-| L4. Chuyển đổi ngày sale | Ngày đông nhất tháng 11 (17/11/2019) có r = 16,2 so với trung vị 45,9 của ngày thường: khách ngày sale vào để mua, tỷ lệ chuyển đổi cao gấp khoảng 2,8 lần. Chỉ có một đợt sale để đo. | r × 0,35 ngày sự kiện |
+Các nguồn sau giúp đặt giả định mô phỏng vào bối cảnh bán lẻ Việt Nam. Số liệu khảo sát và thống kê thị trường được dùng để đối chiếu tính hợp lý của kịch bản.
+
+* **Khảo sát mức sống dân cư 2024** cung cấp bối cảnh về mức chi tiêu và sự khác biệt giữa các nhóm thu nhập. Chỉ tiêu được công bố là tổng chi tiêu của người dân, nên phạm vi rộng hơn chi tiêu cho thời trang. [Cục Thống kê](https://www.nso.gov.vn/tin-tuc-thong-ke/2025/05/thong-cao-bao-chi-ket-qua-khao-sat-muc-song-dan-cu-nam-2024/).
+* **TGM Research và PwC** cung cấp thông tin về nhóm hàng mua trực tuyến, thiết bị mua sắm, hành vi đa kênh và phương thức thanh toán được ưa chuộng. Trong khảo sát PwC tại Việt Nam, **67%** người trả lời cho biết mua sắm trực tuyến qua điện thoại và **63%** mua sắm tại cửa hàng. Hai nhóm có thể trùng nhau. Tỷ lệ ưu tiên COD của TGM đo lựa chọn được người trả lời ưa chuộng. Tỷ trọng đơn online, POS và COD trong hệ thống mô phỏng được khai báo riêng trong preset. [TGM Research](https://tgmresearch.com/press-tgm-vietnam-ecommerce-insights-2025.html) · [Khảo sát COD](https://tgmresearch.vn/thanh-toan-thuong-mai-dien-tu-viet-nam-cod-bnpl.html) · [PwC Việt Nam](https://www.pwc.com/vn/vn/publications/vietnam-publications/voice-of-consumer-2024.html).
+* **Báo cáo thương mại điện tử của Metric** cung cấp bối cảnh về doanh số và phân khúc giá trên các sàn. Dải giá sản phẩm của cửa hàng mô phỏng là tham số kịch bản trong preset. [Báo cáo Metric 2025](https://metric.vn/blog/cong-bo-bao-cao-thuong-mai-dien-tu-viet-nam-2025).
+* **Bảng thời gian giao nhận của GHTK Express**, áp dụng từ ngày **10/11/2026**, là căn cứ để thiết lập khoảng ngày vận chuyển theo tuyến từ kho trung tâm TP.HCM trong R07. Đề tài đối chiếu với bảng dịch vụ GHN. Các khoảng thời gian này phản ánh cam kết công bố của hãng và được dùng làm giả định mô phỏng. [GHTK Express](https://ghtk.vn/dich-vu-giao-hang/bang-gia-dich-vu-ghtk/) · [GHN](https://ghn.vn/pages/dich-vu-giao-hang).
+
+Hồ sơ [S01–S11](DATA.md#8-hồ-sơ-nguồn-nghiên-cứu-generator) ghi chi tiết phạm vi và giới hạn của các nguồn đối chiếu. Các nguồn S09–S11 được lưu để tham khảo cho nghiên cứu tiếp theo. Các tham số giá, COD, hủy đơn, đổi trả, coupon và Tết được giữ dưới dạng giả định kịch bản.
+
+### **4.7.3. Phân tích chi tiết các quy luật hành vi mua hàng OLTP (R01 – R07)**
+
+Toàn bộ quy trình sinh dữ liệu giao dịch OLTP được điều khiển bởi 7 quy luật toán học – thống kê (R01 đến R07), được trích xuất và kiểm định từ dữ liệu thực nghiệm:
+
+| Mã quy luật | Tên quy luật | Mô hình toán học & Tham số thực nghiệm | Kết quả kiểm định EDA & Mức sai lệch | Nguồn & Nhãn |
+|---|---|---|---|---|
+| **R01** | Số đơn mỗi khách hàng | Phân phối **Log-series (Zero-Truncated)**:<br>$P(K = k) = -\frac{1}{\ln(1-\theta)} \frac{\theta^k}{k}$ với $k \ge 1$<br>$\theta = \frac{T}{\alpha + T}$, với $\alpha = 0,1141$ năm (~41,6 ngày) | Giả định Poisson (mọi khách cùng tốc độ) lệch tới **30,7 điểm %** (dự báo đa số mua 3–4 lần). Phân phối Log-series khớp sát thực tế với sai lệch tối đa chỉ **1,1 điểm %** (42% khách chỉ mua 1 lần). Dự báo ngoại suy cửa sổ 3 tháng và 12 tháng từ dữ liệu 6 tháng chỉ lệch 1–3 điểm %. | H&M 2019<br>`measured` |
+| **R02** | Khoảng cách giữa các lần mua | Phân phối **Hàm mũ (Exponential)** với trung bình co cụm:<br>$\mu = T \cdot \frac{1 - c/k}{k+1}$, hệ số $c = 0,518$ | Giả định rải đều cả năm ($T/(k+1)$) thất bại ở các khách mua ít lần ($k$ nhỏ). Khách mua 2 lần có khoảng cách trung bình thực tế là 90 ngày (thay vì 122 ngày). Mô hình hiệu chỉnh bù trừ co cụm cho sai số trung bình dưới **1,9%** với mọi $k$ từ 2 đến 30. | H&M 2019<br>`measured` |
+| **R03** | Độ bán chạy của sản phẩm | Phân phối **Log-Normal** kết hợp hệ số danh mục:<br>$w \sim \text{LogNormal}(0; \sigma = 1,35) \times \text{Multiplier}$ | Khi lọc cohort sản phẩm bán đủ 12 tháng, $\ln(\text{số bán})$ có dạng hình chuông đối xứng chuẩn mực. Tỷ trọng bán của top 10% và top 20% sản phẩm chỉ lệch **2–3,5 điểm %**. Hệ số tương quan Spearman giữa giá và số bán là $0,012$ (giá không quyết định độ bán chạy). | H&M 2019<br>`measured` |
+| **R04** | Kích thước giỏ hàng | Phân phối **Hình học (Geometric)**:<br>$P(X = x) = p(1-p)^{x-1}$ với $p = 0,296$ | Trung bình 3,38 mặt hàng/đơn. Sai lệch lớn nhất so với thực tế chỉ **1,6 điểm %**. Tương quan giữa kích thước giỏ hàng và tổng số đơn của khách là $0,016$ (kích thước giỏ độc lập với tần suất mua hàng). | H&M 2019<br>`transfer` |
+| **R05** | Nhịp độ lịch & Mùa vụ | Hệ số ngày Sale: Black Friday $\times 6,39$, 3 ngày sau $\times 2,6$. Phân phối khung giờ theo Olist | Black Friday tăng gấp 5,55 lần ở H&M và 7,24 lần ở Olist so với ngày thường. Khung giờ đặt hàng có hai đỉnh rõ rệt: trưa (11h–13h) và tối (20h–22h). Các ngày trong tuần có lưu lượng tương đương. | H&M, Olist<br>`transfer` |
+| **R06** | Đánh giá sao theo giao trễ | Bảng xác suất có điều kiện $P(\text{Sao} \mid \text{Mức trễ})$, tỷ lệ giao trễ tự nhiên 5,5% | Trên 43.098 đơn hàng Olist: Giao đúng hẹn có **62% chấm 5 sao** (chỉ 6,7% chấm 1 sao). Trễ 1–3 ngày tỷ lệ 5 sao giảm còn 33,6%. Trễ trên 8 ngày có tới **68,2% khách chấm 1 sao**. | Olist 2017<br>`measured` |
+| **R07** | Thời gian giao hàng theo vùng | Ngày giao = Ngày lấy hàng + Thời gian hành trình theo vùng địa lý Việt Nam | Dựa trên cam kết công bố của GHTK Express từ kho TP.HCM: Nội thành TP.HCM (1–2 ngày); Nội miền Bình Dương, Cần Thơ (2–4 ngày); Hà Nội (3–4 ngày); Liên miền xa Đà Nẵng, Hải Phòng (4–6 ngày). Đơn trước 10h30 lấy trong ngày, sau 10h30 lấy ngày kế tiếp. | GHTK Express<br>`assumption có căn cứ` |
+
+Bốn preset OLTP `100k`, `1m`, `10m`, `50m` dùng chung các quy luật trên, với lần lượt 26.000, 260.000, 2.600.000 và 13.000.000 khách có mua, tương ứng nhãn quy mô khoảng 0,1, 1, 10 và 50 triệu đơn online trong 12 tháng. R01 xác định số đơn thực sinh trên từng khách. Dùng `100k` cho kịch bản pipeline đầu cuối. Generator access log có ba preset `1m`, `10m` và `50m`. Giá, tỷ lệ hủy/COD/trả hàng, coupon và Tết là giả định, được notebook đối chiếu với một số số liệu Việt Nam công khai.
+
+### **4.7.4. Phân tích chi tiết các quy luật duyệt web Access Log (L1 – L4)**
+
+Dữ liệu nhật ký truy cập (Access Log) được sinh ra nhằm mục đích tái hiện chân thực hành vi người dùng trên website xung quanh các đơn hàng trực tuyến, tuân thủ 4 quy luật đo lường từ tập dữ liệu eCommerce Behavior (cohort thời trang `apparel`):
+
+| Mã quy luật | Hành vi duyệt web | Mô hình & Tham số thực nghiệm | Ý nghĩa và Kết quả kiểm định EDA |
+|---|---|---|---|
+| **L1** | Tỷ lệ lưu lượng duyệt / mua | $r = \frac{\text{Phiên không mua}}{\text{Phiên có mua}} = 41,39$ | Trên toàn bộ sàn TMĐT tổng hợp $r = 13,6$; nhưng riêng phân khúc thời trang `apparel`, tỷ lệ này ổn định ở mức $r = 41,39$ (khoảng tin cậy 31–52). Điều này phản ánh đặc thù ngành thời trang: người dùng xem lướt nhiều lần trước khi quyết định mua. |
+| **L2** | Số lượt xem mỗi phiên | Phiên có mua: Phân phối Hình học ($p = 0,1044$)<br>Phiên không mua: Phân phối Log-series ($\theta = 0,9239$) | Khách có mua hàng duyệt trung bình ~9,5 sản phẩm trước khi checkout. Ngược lại, khách không mua tuân theo Log-series với sai số chỉ **1,3 điểm %**, phần lớn chỉ xem 1–2 sản phẩm rồi thoát trang (bounce rate cao). |
+| **L3** | Nhịp độ giữa các request | Phân phối **Log-Normal**:<br>Median $= 36,2$ giây, $\sigma = 0,938$ | Đo lường khoảng cách thời gian giữa hai sự kiện liên tiếp của cùng một phiên. Mô hình Log-Normal khớp sát thực nghiệm với sai lệch tối đa chỉ **4,4 điểm %**. |
+| **L4** | Chuyển đổi trong ngày Sale | Hệ số chuyển đổi ngày hội mua sắm:<br>$r_{\text{sale}} = r \times 0,35 = 14,44$ | Vào ngày Sale lớn (đo trên ngày 17/11/2019), tỷ lệ $r$ giảm mạnh từ 45,9 ngày thường xuống 16,2. Khách hàng truy cập vào ngày sale có chủ đích mua hàng rõ rệt, thúc đẩy tỷ lệ chuyển đổi (*conversion rate*) tăng gấp **2,8 lần**. |
 
 Phễu giỏ hàng được đặt làm giả định vì nguồn ghi thiếu sự kiện giỏ và phép hiệu chỉnh không ổn định giữa các khối ngày. Hành trình nhiều phiên không được mô hình hóa. Lệnh `datagen logs` dùng các quy luật này sinh log mùa sale 01/11–15/12/2025 theo hợp đồng v1.1.0: mỗi đơn online một phiên kết thúc bằng `checkout_submit` mang `order_number` (ở `1m`: khoảng 45 triệu request).
+
+### **4.7.5. Hiện thực hóa các quy luật vào Bộ sinh dữ liệu `datagen`**
+
+Toàn bộ các quy luật thống kê trên được hiện thực hóa trong package Python `data-generator` (mã nguồn tại `generator/src/datagen/`), được điều khiển thông qua giao diện dòng lệnh `datagen`:
+
+1. **Kiến trúc module hóa chặt chẽ:**
+   * `distributions.py`: Định nghĩa các hàm phân phối xác suất giải tích (Log-series, Log-Normal, Geometric, Exponential co cụm) và kỳ vọng toán học chia sẻ chung giữa quá trình sinh và quá trình kiểm chứng.
+   * `randomness.py`: Quản lý các dòng số ngẫu nhiên độc lập được dẫn xuất từ hạt giống duy nhất (`seed: 20260724`), đảm bảo khả năng tái lập 100% kết quả giữa các lần chạy.
+   * `presets.py`: Kiểm thực cấu hình YAML theo schema nghiêm ngặt (`schema_version: 3`), hỗ trợ 4 mức quy mô: `100k`, `1m`, `10m`, `50m` đơn hàng.
+   * `postgres.py`: Tối ưu hóa I/O cơ sở dữ liệu. Để nạp hàng chục triệu bản ghi trong thời gian ngắn mà không làm nghẽn bộ nhớ, quy trình nạp thực hiện:
+     - Tạm thời gỡ bỏ (*DROP*) các khóa ngoại, ràng buộc UNIQUE và chỉ mục thứ cấp của các bảng được nạp trước batch đầu tiên.
+     - Sử dụng lệnh `COPY` truyền dữ liệu theo từng khối (batch) trực tiếp vào PostgreSQL trong một transaction duy nhất.
+     - Tái tạo chỉ mục, ràng buộc và đồng bộ sequence trước khi commit. Chạy `ANALYZE` sau commit.
+2. **Quy trình kiểm chứng đối soát 22 tiêu chí tự động (`datagen verify`):**
+   Chạy `make generate-verify PRESET=100k` sau khi nạp preset `100k`. Lệnh kiểm tra 22 tiêu chí trong `generator/src/datagen/verify/report.py`. Dùng đúng preset đã nạp khi đối chiếu các ngưỡng:
+   * *Sổ cái kho*: Số dư tại kho tổng và cửa hàng phải bằng chính xác tổng phát sinh trên sổ cái; không có vị trí nào bị âm tồn ở bất kỳ thời điểm nào; mọi dòng biến động phải gắn với chứng từ hợp lệ.
+   * *Quy luật mua sắm*: Kiểm tra số đơn trung bình trên mỗi khách (R01), khoảng cách giữa 2 đơn (R02), tỷ trọng sản lượng của top 10% sản phẩm (R03), số mặt hàng mỗi đơn (R04), tỷ lệ đơn ngày sale so với ngày thường (R05), tỷ lệ đánh giá 5 sao khi giao đúng hạn (R06).
+   * *Chính sách nghiệp vụ*: Kiểm tra tỷ lệ thanh toán COD, tỷ lệ hủy đơn, tỷ lệ giao hàng thất bại, tỷ lệ đổi hàng và tỷ lệ sử dụng mã giảm giá.
+   * Các lần kiểm chứng đã ghi nhận với preset `1m` và `10m` đạt **22/22**. Lần demo `100k` ngày 22/11/2026 đạt **20/22**, gồm cả bốn kiểm tra sổ cái. R03 đo tỷ trọng nhóm sản phẩm bán chạy là 60,88% so với 52,73% (ngưỡng 8 điểm phần trăm). R05 đo hệ số Black Friday là 7,226 so với 6,390 (ngưỡng sai lệch tương đối 12%). Kết quả được ghi riêng theo từng lần chạy và từng preset.
+
+### **4.7.6. Ý nghĩa đối với việc Phân tích và Quản trị trên Data Lakehouse**
+
+Việc sinh dữ liệu dựa trên nền tảng EDA thực nghiệm mang lại giá trị cốt lõi cho nền tảng Lakehouse:
+* **Tính chân thực của chỉ số phân tích:** Khi chạy dbt để xây dựng các mô hình tầng Gold, các bảng phân tích khách hàng (`mart_customer_value`, `mart_customer_cohort_monthly`) thể hiện rõ nét đường cong suy giảm khách hàng (*customer churn rate*) và vòng đời giá trị khách hàng (LTV) theo đúng quy luật kinh tế học, thay vì các đường thẳng nhân tạo.
+* **Độ biến thiên doanh thu:** `mart_sales_daily` và `mart_orders_daily` thể hiện các đỉnh theo lịch mô phỏng như Black Friday, ngày đôi và Tết, tạo dữ liệu kiểm tra khả năng tính lại theo ngày của dbt qua `gold._mart_state`.
+* **Cơ sở phân tích tồn kho:** `fact_inventory_daily` và các mart tồn kho cung cấp lịch sử số lượng, giá trị tồn, cảnh báo hết hàng và số ngày đủ bán.
+* **Phễu chuyển đổi tiếp thị:** Tệp log mô phỏng phân biệt phiên duyệt và phiên có đặt đơn. Đây là đầu vào dự kiến cho luồng phân tích access log ở mục 4.4.3.
 
 ## **4.8. Đánh giá kết quả, giới hạn hệ thống và hướng phát triển**
 
@@ -785,7 +840,7 @@ Phễu giỏ hàng được đặt làm giả định vì nguồn ghi thiếu s�
 
 * **Hệ thống nguồn**: API FastAPI đầy đủ nghiệp vụ mua online, POS, kho, giao vận, đổi trả trên PostgreSQL 28 bảng; Console Streamlit mô phỏng mua hàng qua API thật.
 * **Lakehouse**: Medallion bốn tầng trên Iceberg, MinIO, Polaris; 19 bảng nguồn; Gold 7 dimension, 6 fact, 14 mart, 2 seed bằng dbt trên Trino.
-* **Pipeline chạy lại an toàn**, kiểm chứng trên preset `100k` bằng dấu vân tay của từng bảng (số dòng và checksum các cột nghiệp vụ):
+* **Kịch bản chạy lại pipeline**, kiểm chứng trên preset `100k` bằng dấu vân tay của từng bảng (số dòng và checksum các cột nghiệp vụ):
   * chạy lại init cho cùng kết quả;
   * Clear rồi chạy lại một lần incremental cho cùng kết quả;
   * một lần chạy hỏng (Trino dừng) rồi lần sau bằng dựng lại toàn bộ;
@@ -797,12 +852,14 @@ Phễu giỏ hàng được đặt làm giả định vì nguồn ghi thiếu s�
   * cột chưa duyệt: incremental vẫn xanh, sync báo lỗi rõ, Lakehouse không đổi;
   * cột đã duyệt: nạp lại đủ 28.610 dòng khách hàng; kiểu `integer` → `bigint` được nới; cột bị bỏ làm incremental dừng rõ, sửa theo thông báo thì chạy tiếp.
 * **Quản trị quyền tự vận hành**: principal Polaris riêng cho từng workload, credential lưu trữ tạm theo bảng, Trino tách đọc/ghi, Console quản trị có audit.
-* **Kiểm thử tự động**: `make test` chạy 102 test pipeline, 41 test platform-app, 143 test generator và 6 test Superset, không cần stack thật.
+* **Lần demo đầu cuối ngày 22/11/2026**: preset `100k` có 116.990 đơn (101.730 online, 15.260 POS) từ ngày 02/07/2025 đến 30/06/2026. DAG init thành công, năm kiểm tra SQL xuyên bảng Gold đạt và dashboard doanh thu phiên bản tám biểu đồ đã hiển thị dữ liệu.
+* **Bản BI hiện tại**: repo định nghĩa bốn dashboard, 27 biểu đồ và 16 dataset trên 14 mart. Kết quả demo ngày 22/11 áp dụng cho dashboard doanh thu của phiên bản tại thời điểm đó.
+* **Kiểm thử tự động**: `make test` chạy bộ test pipeline trong Airflow scheduler và các bộ test platform-app, generator, Superset trên máy chủ. CI kiểm tra cấu hình Compose, biên dịch mã Airflow và chạy Ruff.
 
 ### **4.8.2. Các giới hạn hiện tại của hệ thống**
 
-* Luồng access log vào Lakehouse (`bronze.web_events`, `silver.web_events`, `mart_web_funnel_daily`) mới có thiết kế; API còn phát hợp đồng v1.0.0.
-* Superset mới có dashboard doanh thu; chưa phân quyền dashboard theo cửa hàng.
+* Luồng access log vào Lakehouse (`bronze.web_events`, `silver.web_events`, `mart_web_funnel_daily`) đang ở giai đoạn thiết kế. API phát v1.0.0 ra stdout và generator xuất tệp v1.1.0.
+* Bốn dashboard dùng chung tài khoản Trino chỉ đọc. Phân quyền theo dòng dữ liệu của từng cửa hàng chưa được triển khai.
 * Đồng bộ nguồn dựa trên đối chiếu khóa định kỳ: `_deleted_at` là lúc phát hiện chứ không phải lúc xoá thật; lần sửa dòng mà nạp gia tăng bỏ sót (giao dịch commit sau khi cửa sổ đã đóng) chưa được bắt.
 * Duyệt một cột mới làm nạp lại cả bảng; một cột chưa duyệt ở một bảng làm hoãn đồng bộ xoá của mọi bảng cho tới khi được duyệt.
 * Dữ liệu sinh dùng quy luật đo trên dữ liệu nước ngoài và các giả định có ghi rõ; chưa khẳng định đại diện cho thị trường Việt Nam.
@@ -810,10 +867,10 @@ Phễu giỏ hàng được đặt làm giả định vì nguồn ghi thiếu s�
 
 ### **4.8.3. Hướng nghiên cứu và phát triển trong tương lai**
 
-* Xây luồng access log theo thiết kế đã duyệt: hợp đồng v1.1.0 trên API, Flink ghi `bronze.web_events`, nạp file log lịch sử, Silver và mart phễu nối phiên web với đơn hàng; kèm kịch bản "traffic liên tục" trên Console để trình diễn streaming.
-* Hoàn thiện dashboard cho kho, giao vận, khách hàng và phân quyền theo cửa hàng.
+* Xây luồng access log theo thiết kế ở mục 4.4.3. Triển khai hợp đồng v1.1.0 trên API, nạp file log lịch sử và nối phiên web với đơn hàng qua Silver và mart phễu. Sau đó có thể thử kịch bản truy cập liên tục.
+* Kiểm chứng bộ dashboard bán hàng, kho vận, POS và khách hàng với dữ liệu đầu cuối. Bổ sung phân quyền xem dữ liệu theo cửa hàng.
 * CDC theo WAL (Debezium) để bắt thay đổi và xoá gần thời gian thực khi quy mô hoặc yêu cầu độ trễ tăng.
-* Triển khai trên Kubernetes với HA cho Trino, Polaris và Flink.
+* Triển khai trên Kubernetes với HA cho Trino và Polaris, cùng quy trình sao lưu và khôi phục.
 * Ứng dụng học máy trên Lakehouse: gợi ý sản phẩm, dự báo nhu cầu tồn kho theo mùa, phát hiện gian lận thanh toán.
 
 ---

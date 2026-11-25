@@ -10,6 +10,7 @@ Cài đặt ở [SETUP.md](SETUP.md); chi tiết pipeline ở [airflow/README.md
 | API | `curl -fsS http://127.0.0.1:8000/health/ready` (chỉ kiểm tra kết nối DB) |
 | Airflow | Lần chạy mới nhất của `lakehouse_oltp_init`/`_incremental`/`_sync` xanh; log task có dòng `STAGING`, `RECONCILED`, `BRONZE`, `SCHEMA`, `SYNC`, `PURGE` |
 | Lakehouse | Truy vấn Trino ở mục 3 |
+| Superset | `curl -fsS http://127.0.0.1:8088/health`, sau đó mở một dashboard và kiểm tra dữ liệu của biểu đồ |
 
 ```bash
 docker compose logs --tail=100 platform-app postgres
@@ -33,7 +34,8 @@ Không in `docker compose config` với `.env` thật hay dump biến môi trư�
 ```sql
 SHOW TABLES FROM lakehouse.gold;
 SELECT max(_ingested_at), count(*) FROM lakehouse.bronze.orders;
-SELECT sum(orders), sum(order_value_vnd) FROM lakehouse.gold.mart_orders_daily;
+SELECT min(order_date), max(order_date), sum(orders), sum(order_value_vnd)
+FROM lakehouse.gold.mart_orders_daily;
 SELECT sum(net_revenue_vnd), sum(gross_profit_vnd) FROM lakehouse.gold.mart_sales_daily;
 ```
 
@@ -53,24 +55,30 @@ SELECT sum(net_revenue_vnd), sum(gross_profit_vnd) FROM lakehouse.gold.mart_sale
 | `reconcile.<bảng>` lỗi `ReconciliationFailed` | Bản trích xuất lệch nguồn tại mốc chạy (số dòng, tổng tiền, sổ kho); Bronze chưa đổi | Xem log, **Clear** `staging.<bảng>` kèm downstream |
 | `silver.<bảng>` lỗi test `matches_bronze` | Silver và Bronze lệch khoá | Chạy `lakehouse_oltp_init` để dựng lại Silver |
 | `gold.<model>` lỗi | Lỗi SQL dbt hoặc Trino | Chạy tay theo [airflow/README.md](../airflow/README.md#run), **Clear** task kèm downstream |
+| `maintenance.compact` báo `ArrowInvalid: Must pass at least one table` | Bản mã cũ gọi PyIceberg trên snapshot không có manifest | Dùng bản sửa hiện tại. **Clear** `maintenance.compact` kèm downstream của cùng lượt chạy |
+| Airflow báo `The CSRF session token is missing` khi đăng nhập | Cookie phiên thiếu, hết hạn hoặc còn từ trước khi tách cookie hai ứng dụng | Mở lại trang đăng nhập Airflow từ đúng địa chỉ host. Nếu lỗi còn, xóa cookie của host hoặc thử cửa sổ riêng tư. Superset dùng cookie `superset_session` |
+| Superset chạy nhưng danh sách dashboard trống | Metadata đã khởi tạo, các tài sản BI chưa được đồng bộ | Sau khi DAG init thành công, chạy `make superset-sync` và mở URL từ `SUPERSET_RESULT.dashboards` |
+| Dashboard báo `No data` | Nguồn chưa có đơn, mart rỗng hoặc bộ lọc nằm ngoài lịch sử | Đối chiếu phạm vi ngày và tổng đơn bằng SQL ở mục 3. Chọn **No filter** để xem toàn kỳ |
+| Superset báo `TLS/SSL is required for authentication` khi đọc Trino | Kết nối BI cũ thiếu HTTPS trong `connect_args` | Chạy `make superset-sync` để cập nhật kết nối, rồi tải lại dashboard. Kiểm tra `trino-ca` được mount vào Superset |
+| Generator báo thiếu `GENERATOR_DATABASE_URL` | `.env` cũ chưa có cấu hình kết nối cho generator | Bổ sung dòng tương ứng từ [`.env.example`](../.env.example) và dùng các giá trị PostgreSQL hiện có |
 | Lỗi credential Polaris | Workload chưa được cấp credential, hoặc consumer chưa restart sau khi đổi | Kiểm tra tab **Cấp cho workload** và exporter; restart consumer |
 | S3 `403` khi đọc/ghi bảng | Account MinIO của Polaris thiếu hoặc lệch secret với `.env` | Xem `docker compose logs minio-init`, chạy lại `docker compose up minio-init`, rồi restart Polaris |
 | Trino từ chối quyền ghi | Đúng thiết kế với catalog `lakehouse`; dbt ghi qua `lakehouse_etl` | Không cấp quyền ghi cho reader |
 | Compose báo thiếu biến | `.env` thiếu biến mới | So với `.env.example` |
 | API thiếu bảng | `platform-admin-init` không áp được schema | Xem log init; bootstrap không migrate schema dở dang |
 
-Mọi task đều chạy lại được và cho cùng kết quả: staging xoá trắng rồi ghi lại, Bronze upsert theo khoá, Silver và Gold merge theo khoá từ mốc của chúng, mốc của mart chỉ tiến khi mart đã ghi xong. Nếu một lần chạy dừng giữa chừng, lần chạy sau (hoặc **Clear**) bắt kịp mọi thay đổi.
+Staging được ghi lại, Bronze upsert theo khóa, Silver và Gold merge từ watermark của chúng. Watermark của mart chỉ tiến sau khi mart ghi xong. Dùng **Clear** cho task đã lỗi và downstream cần chạy lại. Nếu một cửa sổ incremental bị bỏ sót, backfill cửa sổ đó hoặc chạy lại init. Một cập nhật đã commit muộn ngoài cửa sổ có thể cần backfill hoặc init để đọc lại. [Đồng bộ nguồn](SYNC_DESIGN.md)
 
 ## 5. Bảo trì Iceberg
 
-Nhóm `maintenance` chạy cuối mỗi lần chạy DAG:
+Nhóm `maintenance` chạy cuối các DAG init, incremental và sync.
 
 | Task | Việc |
 |---|---|
-| `compact` | Gộp file nhỏ của Bronze khi có từ 10 file nhỏ hoặc có file xoá |
+| `compact` | Gộp file nhỏ của Bronze khi có từ 10 file nhỏ hoặc có file xóa. Bảng có snapshot rỗng được bỏ qua |
 | `optimize` | dbt `ALTER TABLE … EXECUTE optimize` cho Silver, Gold và `gold._mart_state` |
-| `expire` | Xoá snapshot ngoài 20 snapshot mới nhất, ref và các snapshot dưới 3 ngày |
-| `orphan` | Chỉ đếm file không còn snapshot nào tham chiếu; không xoá |
+| `expire` | Giữ 20 snapshot mới nhất, các ref và snapshot trong 3 ngày gần đây, rồi hết hạn các snapshot còn lại |
+| `orphan` | Đếm file dữ liệu cũ hơn 3 ngày mà tất cả snapshot còn giữ đều không tham chiếu. Kết quả là số lượng để kiểm tra thủ công |
 
 ## 6. Sao lưu
 
@@ -96,6 +104,6 @@ uv run --locked --package platform-app -- \
   python -m platform_app.api.db.schema --output database/schema.sql --check
 ```
 
-Mọi bộ test đều nằm trong git và chạy không cần stack thật: `airflow/tests`, `services/platform-app/tests`, `generator/tests`, `infrastructure/superset/tests`, cùng dbt data test trong `dbt/tests`.
+`make test` dùng container `airflow-scheduler` đang chạy cho test Python của pipeline. Các bộ platform-app, generator và Superset chạy trong Python workspace trên host. Data test trong `dbt/tests` chạy qua task dbt của Airflow hoặc lệnh dbt riêng với Trino. Các test được thêm để kiểm chứng cục bộ tuân theo quy ước của repo.
 
 CI kiểm tra cấu hình Compose, compile DAG và chạy Ruff. [Workflow](../.github/workflows/ci.yml)

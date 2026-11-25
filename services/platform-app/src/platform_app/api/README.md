@@ -1,6 +1,6 @@
 # Ecommerce API and Access Administration
 
-FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. Its active surface comprises source transactions, the ID lookups needed by scenarios and Polaris administration under `/api/v1/access`. The Streamlit console uses this API; business sales BI uses the separate Superset PoC.
+FastAPI runs beside the Streamlit Platform Console in the shared `platform-app` container. It serves source transactions, scenario lookups and Polaris administration under `/api/v1/access`. Business analytics run through four Superset dashboards over OLTP Gold. [BI setup](../../../../../docs/SETUP.md#6-dashboard-superset)
 
 [Models](models) map 28 OLTP tables; the [physical schema](../../../../../database/schema.sql) is PostgreSQL. [Router registration](routes/router.py) and [handlers](modules) define supported endpoints. There is no separate access-admin web service: access routes share the API process, cookie session and port 8000. The credential exporter is a separate internal service on port 8011.
 
@@ -38,7 +38,8 @@ Use Python 3.11 and the repository uv workspace (`uv sync --locked`). Start Post
 
 ```bash
 # After configuring the required environment variables:
-uv run --locked --package platform-app -- uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --reload
+uv run --locked --env-file .env --package platform-app -- \
+  uvicorn platform_app.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 API settings load the root `.env` through Pydantic when launched there. Infrastructure administration needs provider credentials, private credential and audit paths, and exporter configuration. Compose supplies these mounts and settings. FastAPI writes structured access logs to stdout.

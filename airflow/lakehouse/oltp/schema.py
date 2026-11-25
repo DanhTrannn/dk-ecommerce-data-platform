@@ -4,7 +4,7 @@ from lakehouse.oltp.bronze import DELETE_FIELDS, RELOAD_PENDING, reload_pending
 from lakehouse.oltp.drift import classify, refuse, source_columns
 from lakehouse.oltp.staging import LINEAGE_FIELDS
 from lakehouse.oltp.sources import SOURCE_TABLES
-from lakehouse.utils.iceberg import PROPERTIES
+from lakehouse.utils.iceberg import PROPERTIES, current_snapshot_has_manifests
 from lakehouse.utils.postgres import source_read_transaction
 
 LAYERS = ("staging", "bronze", "silver", "gold")
@@ -60,6 +60,8 @@ def rewrite_files_lacking_columns(target):
     PyIceberg cannot upsert into a table whose older files lack a column. Deciding from the files, not from the
     change, lets a retry finish a rewrite that failed.
     """
+    if not current_snapshot_has_manifests(target):
+        return
     field_ids = {field.field_id for field in target.schema().fields}
     files = [file for file in target.inspect.files().to_pylist() if file["content"] == 0]
     if any(field_ids - set(dict(file["value_counts"] or [])) for file in files):

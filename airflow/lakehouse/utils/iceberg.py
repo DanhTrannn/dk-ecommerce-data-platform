@@ -44,6 +44,11 @@ def iceberg_catalog():
     return load_catalog(os.environ.get("POLARIS_CATALOG_NAME", "lakehouse"), **catalog_properties())
 
 
+def current_snapshot_has_manifests(table):
+    snapshot = table.current_snapshot()
+    return snapshot is not None and bool(snapshot.manifests(table.io))
+
+
 def load_table(catalog, key):
     try:
         return catalog.load_table(key)

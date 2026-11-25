@@ -33,7 +33,7 @@ help:
 	@echo "  make generate PRESET=1m        Load synthetic OLTP history"
 	@echo "  make generate-verify PRESET=1m Check the generated history"
 	@echo "  make test                      Run every test suite (pipeline tests in the Airflow scheduler)"
-	@echo "  make superset-sync             Create the sales dashboard over current Gold marts"
+	@echo "  make superset-sync             Sync the retail dashboards over current Gold marts"
 
 .env:
 	@cp .env.example .env
@@ -62,4 +62,4 @@ test:
 		python -m unittest discover -s infrastructure/superset/tests -t infrastructure/superset/tests
 
 superset-sync:
-	@docker compose run --rm --no-deps -T superset-sync
+	@docker compose run --build --rm --no-deps -T superset-sync

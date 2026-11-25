@@ -7,9 +7,9 @@ Lệnh bên dưới chạy từ root repo. Xem [ARCHITECTURE.md](ARCHITECTURE.md
 Cần Docker Engine/Compose có BuildKit, Python 3.11 và `uv`. Version image/package lấy từ [Compose](../docker-compose.yml), [workspace](../pyproject.toml) và lock files.
 
 ```bash
-cp .env.example .env
+[ -f .env ] || cp .env.example .env
 uv sync --locked --all-packages
-docker compose --env-file .env.example config --quiet
+docker compose config --quiet
 ```
 
 Chỉ copy khi chưa có `.env`; `make up` cũng chỉ tạo file nếu thiếu. `.env` thật không được commit. Khi dùng volume đã có, giữ credential đúng với tài nguyên đã khởi tạo; đổi biến env không tự đổi password role hoặc secret đã lưu.
@@ -17,6 +17,7 @@ Chỉ copy khi chưa có `.env`; `make up` cũng chỉ tạo file nếu thiếu.
 | Nhóm | Cấu hình cần chú ý |
 |---|---|
 | PostgreSQL | `POSTGRES_*`, các database/user nguồn, Airflow và Polaris; password reader không để trống |
+| Generator | `GENERATOR_DATABASE_URL` dùng `postgresql://` với user nguồn và port PostgreSQL trên host |
 | API | `API_SECRET_KEY` ít nhất 32 ký tự; host `API_DATABASE_URL` dùng owner nguồn; schema trống và admin bootstrap được khởi tạo bởi `platform-admin-init` |
 | Storage/catalog | Root chỉ dùng quản trị/provisioning; đủ `MINIO_*_ACCESS_KEY/SECRET_KEY`, bucket, realm/catalog và Polaris root secret |
 | Airflow | Secret/JWT/Fernet, admin và `AIRFLOW_UID` phù hợp; Fernet phải là key hợp lệ |
@@ -33,7 +34,7 @@ Compose dùng hostname nội bộ `postgres` và `trino`. API và Streamlit ch�
 
 ## 2. Khởi động
 
-Sau khi cấp credential lần đầu, dùng `make up` để mở toàn bộ stack. Với môi trường mới, mở Console để cấp quyền trước.
+Với môi trường mới, mở Console để cấp quyền, tạo tài khoản đọc nguồn bằng `make source-reader`, rồi dùng `make up` để mở toàn bộ stack. [Các bước cấp quyền](LAKEHOUSE_ACCESS_SETUP.md)
 
 ```bash
 make up SERVICES=platform-app
@@ -88,11 +89,13 @@ Seed đọc `API_DATABASE_URL` và `API_SECRET_KEY` trong môi trường host; U
 Nạp 12 tháng lịch sử tổng hợp (khách, đơn online/POS, giao vận, trả hàng, sổ kho, kèm `cities`/`stores`) sau khi seed. Lệnh đọc `GENERATOR_DATABASE_URL` trong `.env` và chỉ cần PostgreSQL:
 
 ```bash
-make generate PRESET=1m          # nạp một lần; từ chối nếu đã có dữ liệu sinh
-make generate-verify PRESET=1m   # chỉ đọc; mã lỗi khác 0 nếu có kiểm tra không đạt
+make generate PRESET=100k
+make generate-verify PRESET=100k
 ```
 
-Log lịch sử không được tạo từ seed. Sau khi có lịch sử OLTP đúng preset, có thể xuất log tổng hợp riêng:
+Với database demo mới, `100k` là preset nhỏ nhất. Generator từ chối nạp khi nguồn đã có dữ liệu sinh hoặc đơn từ API. `verify` chỉ đọc và trả mã lỗi khi một phép kiểm vượt ngưỡng. Nếu `.env` cũ thiếu `GENERATOR_DATABASE_URL`, lấy dòng cùng tên trong mẫu và dùng cấu hình PostgreSQL hiện có. [Mẫu `.env`](../.env.example)
+
+Preset log có các mức `1m`, `10m`, `50m`. Ví dụ dưới đây cần dữ liệu OLTP của preset `1m`:
 
 ```bash
 uv run --locked --env-file .env --package data-generator -- \
@@ -112,7 +115,7 @@ make up SERVICES=platform-app
 Mở Streamlit tại `http://127.0.0.1:8501`; FastAPI `/docs` tại port 8000 nếu docs được bật. Console có các phần:
 
 - Mô phỏng API: khách mới → catalog → giỏ → quote → checkout → hậu kiểm; chưa tự fulfillment/POS/đổi trả.
-- Quản trị quyền: admin bootstrap tạo/xem/sửa/xóa tài nguyên MinIO/Polaris, gán/gỡ quyền và cấp credential Polaris cho workload.
+- Quản trị quyền dùng admin bootstrap để quản lý tài nguyên và binding Polaris, rồi cấp credential cho workload. `minio-init` quản lý bucket và account lưu trữ của Polaris.
 
 Nguồn cần catalog active và tồn kho đủ để runner mua hàng. Không tự replay thao tác ghi có kết quả chưa rõ. Run mô phỏng được ghi dưới `data/scenarios/` để tiếp tục xem sau restart.
 
@@ -136,16 +139,16 @@ make source-reader   # role chỉ SELECT 27 bảng, cần POSTGRES_ECOMMERCE_REA
 make up              # bật toàn bộ stack
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_init
 docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_init
-# Khi lần init xong:
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
+# Khi lần init xong
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_sync
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
 ```
 
 `airflow-init` tạo connection `oltp_postgres` từ `POSTGRES_ECOMMERCE_DB` và `POSTGRES_ECOMMERCE_READER_*` ở lần khởi động đầu; sau đó sửa trong Airflow UI (**Admin → Connections**). DAG, tầng dữ liệu và cách chạy lại: [airflow/README.md](../airflow/README.md).
 
 ## 5. Access log
 
-FastAPI ghi access log dạng JSON ra stdout. Xem log bằng `docker compose logs platform-app`.
+FastAPI ghi access log `ecommerce.access` phiên bản 1.0.0 dạng JSON ra stdout. Xem log bằng `docker compose logs platform-app`. Thiết kế tích hợp log vào Lakehouse được mô tả riêng. [Thiết kế access log](ACCESS_LOG_DESIGN.md)
 
 `datagen logs` xuất log tổng hợp ra Parquet theo ngày và không nạp vào lakehouse:
 
@@ -156,17 +159,24 @@ uv run --locked --env-file .env --package data-generator -- \
 
 ## 6. Dashboard Superset
 
-Dashboard dành cho admin, đọc ba mart doanh thu và hiển thị bốn KPI, bốn biểu đồ. Sau khi `make up` báo stack sẵn sàng và `lakehouse_oltp_init` chạy xong, tạo dashboard bằng lệnh sau.
+Sau khi Superset sẵn sàng và `lakehouse_oltp_init` chạy xong, chạy đồng bộ BI. Lệnh chạy thử truy vấn các dataset qua Trino rồi tạo hoặc cập nhật bốn dashboard do admin Superset sở hữu. Truy vấn kiểm tra có thể trả rỗng khi mart chưa có dữ liệu.
 
 ```bash
 make superset-sync
 ```
 
-Mở `http://127.0.0.1:8088`, đăng nhập bằng `SUPERSET_ADMIN_USER`/`SUPERSET_ADMIN_PASSWORD`. Sync in đường dẫn dashboard trong `SUPERSET_RESULT`; mở URL tương ứng hoặc danh sách Dashboards.
+Mở `http://127.0.0.1:8088` và đăng nhập bằng `SUPERSET_ADMIN_USER`/`SUPERSET_ADMIN_PASSWORD`. Mục `SUPERSET_RESULT.dashboards` in URL của từng dashboard. Có thể mở từ danh sách **Dashboards**.
 
-Dataset đọc bảng Gold hiện tại, nên batch mới hiện ngay trên dashboard. Chạy sync lại khi định nghĩa dataset hoặc biểu đồ thay đổi.
+| Dashboard | Biểu đồ | Phạm vi |
+|---|---:|---|
+| Doanh thu bán lẻ | 12 | Đơn đặt, doanh thu, lợi nhuận gộp, hoàn tiền trong báo cáo doanh thu, hiệu quả danh mục |
+| Vận hành bán lẻ | 9 | Tồn và số ngày đủ bán, giao đúng hạn, tồn đọng giao vận, hủy đơn, đổi trả và tiền hoàn |
+| Bán hàng tại cửa hàng (POS) | 2 | Đơn theo giờ và cửa hàng, doanh thu theo nhân viên |
+| Khách hàng và marketing | 4 | Tỷ lệ mua lặp lại, cohort, coupon và đánh giá |
 
-Superset dùng Python/runtime và driver lock riêng trong [infrastructure/superset](../infrastructure/superset/), một web worker/bốn thread, không Redis/Celery. Chưa có RBAC viewer/store hoặc hardening public. Cookie/proxy flags không tự bật HTTPS. Lưu `SUPERSET_SECRET_KEY` ổn định cùng backup metadata; lifecycle snapshot ở [OPERATIONS.md](OPERATIONS.md#6-bảo-trì-và-lưu-trữ).
+Các dataset đọc bảng Gold hiện tại qua Trino. Chạy lại `make superset-sync` khi định nghĩa thay đổi. Batch OLTP cập nhật số liệu của dashboard đã tạo. Nếu dashboard trống, kiểm tra nguồn có đơn, DAG init đã thành công và bộ lọc **Khoảng ngày** đang bao phủ lịch sử. `100k` dùng 12 tháng lịch sử đến tháng 6/2026, nên có thể chọn **No filter** để xem toàn kỳ. [Các truy vấn kiểm tra](OPERATIONS.md#3-kiểm-tra-bằng-trino)
+
+Superset dùng một web worker và bốn thread. Truy vấn chạy bằng `analytics_reader` qua HTTPS, xác thực bằng CA trong volume `trino-ca`. Phiên web dùng cookie `superset_session` riêng với Airflow. Giữ `SUPERSET_SECRET_KEY` ổn định cùng bản sao lưu metadata. Phân quyền theo cửa hàng và cấu hình triển khai public nằm ngoài phạm vi hiện tại. [Cấu hình Superset](../infrastructure/superset/) · [Sao lưu](OPERATIONS.md#6-sao-lưu)
 
 ## 7. Endpoint và dừng dịch vụ
 

@@ -4,6 +4,14 @@ Notable changes to this project. The format follows [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### 2026-11-24: Compose startup, retail BI and Iceberg maintenance
+
+- Compose now starts the full stack with `make up`. `make up SERVICES=platform-app` starts the Console and API with their dependencies for first-time access setup. Superset metadata initializes during startup.
+- Removed Kafka, Flink, their Compose profiles and the API Kafka producer. FastAPI writes structured access logs to stdout. The Parquet log generator and historical SQL remain available for research and design.
+- Added four Superset dashboards for retail sales, operations, POS and customer and marketing analysis. `make superset-sync` creates or updates the assets over the current OLTP Gold marts. The connection passes HTTPS and CA verification to Trino through SQLAlchemy.
+- Superset uses a separate session cookie so opening it alongside Airflow preserves both login forms.
+- Iceberg compaction, schema-related rewrites and orphan scans handle snapshots that contain no manifests.
+
 ### 2026-11-22: Incremental Gold, delete sync and schema sync
 
 #### Added

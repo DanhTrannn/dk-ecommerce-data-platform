@@ -19,6 +19,7 @@ SQLALCHEMY_DATABASE_URI = URL.create(
 ).render_as_string(hide_password=False)
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 WTF_CSRF_ENABLED = True
+SESSION_COOKIE_NAME = "superset_session"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = os.environ.get("SUPERSET_COOKIE_SECURE", "false").lower() == "true"
