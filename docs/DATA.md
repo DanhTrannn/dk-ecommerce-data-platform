@@ -98,11 +98,9 @@ Middleware API phát `schema.name=ecommerce.access` phiên bản `1.0.0`. Genera
 
 Không ghi request body, password, Authorization/cookie hoặc thanh toán nhạy cảm. Search có PII được redaction; route chuẩn giúp tránh dùng raw path làm dimension vô hạn. GET `/health/live` và `/health/ready` không phát event.
 
-API HTTP realtime đọc `landing.access_logs` nếu bảng đã có. API báo cáo HTTP đọc mart theo snapshot ghi trong publication. [Hợp đồng HTTP](../services/platform-app/src/platform_app/api/README.md#http-observability)
-
 ## 5. Dimension, fact và 17 mart
 
-Dimension: `dim_date` (lịch, ngày lễ và ngày sale từ seed `calendar_events`), `dim_city` (vùng giao và SLA từ seed `delivery_sla`), `dim_store`, `dim_product`, `dim_variant`, `dim_customer`, `dim_staff` (nhân viên giao và nhân viên bán). Fact: `fact_order` (một dòng/đơn), `fact_order_item` (một dòng/dòng đơn), `fact_shipment`, `fact_return` (một dòng/dòng trả hàng), `fact_inventory_daily` (ngày × vị trí × biến thể, dựng từ sổ kho), `fact_review`. Log có `fact_web_events` theo request ID.
+Dimension: `dim_date` (lịch, ngày lễ và ngày sale từ seed `calendar_events`), `dim_city` (vùng giao và SLA từ seed `delivery_sla`), `dim_store`, `dim_product`, `dim_variant`, `dim_customer`, `dim_staff` (nhân viên giao và nhân viên bán). Fact: `fact_order` (một dòng/đơn), `fact_order_item` (một dòng/dòng đơn), `fact_shipment`, `fact_return` (một dòng/dòng trả hàng), `fact_inventory_daily` (ngày × vị trí × biến thể, dựng từ sổ kho), `fact_review`.
 
 | Mart | Grain |
 |---|---|
@@ -291,11 +289,3 @@ Phần này giữ hồ sơ nguồn S01–S11 của nghiên cứu ngày **08/11/2
 Gold OLTP có 27 bảng: 7 dimension, 6 fact, 14 mart và 2 seed (`delivery_sla`, `calendar_events`), một task Airflow mỗi model theo thứ tự `ref()`/`live()`. Dimension và fact là model incremental merge theo khoá; mỗi fact giữ `_previous_dates` (các ngày trước lần merge) để mart tính lại cả ngày dòng vừa rời đi. Mart (trừ `mart_customer_cohort_monthly`, `mart_inventory_current` dựng lại toàn bộ) xoá rồi dựng lại các ngày bị ảnh hưởng kể từ mốc trong `gold._mart_state`. Dimension và fact có `_is_deleted`; mart chỉ đọc dòng còn sống. Giảm giá đơn được phân bổ cho các dòng theo tỷ lệ tiền dòng, làm tròn xuống tích luỹ, nên tổng phân bổ bằng đúng giảm giá đơn. Giá vốn lấy snapshot dòng đơn.
 
 `DBT_AS_OF` (mốc bắt đầu lần chạy) là ngày hiện tại của Gold: kết thúc chuỗi ngày tồn kho và backlog, và cửa sổ 28 ngày của `mart_inventory_current`. `dim_date` phủ trọn các năm có dữ liệu. Data test trong `dbt/tests/oltp` và test khoá trong `gold.yml` chạy với severity `warn`.
-
-## 10. Hợp đồng ba mart log dbt/Trino
-
-Thiết kế, chưa chạy: model ở [dbt/models/logs](../dbt/models/logs/), DDL ở [streaming/sql](../streaming/sql/). Giữ tên/cột/grain của `mart_hourly_route_metrics`, `mart_daily_product_demand` và `mart_marketing_funnel_daily`. Ngày/giờ tính theo UTC. Các chỉ số funnel là số request thành công, không phải số người/session/đơn hàng duy nhất; visitor đếm actor khác NULL. Tên cũ `success_2xx_count` vẫn tính HTTP dưới 400 (gồm 3xx). Mẫu số bằng 0 trả NULL.
-
-Ánh xạ sản phẩm hỗ trợ slug, ID số và UUID 16 bytes; UUID có dấu gạch được chuẩn hóa, slug giữ dấu gạch. Product token có ưu tiên hơn variant token. Khóa chưa khớp giữ `raw-product:`/`raw-variant:` để vẫn thấy nhu cầu chưa ánh xạ; mapping làm nhân bản event bị chặn.
-
-Percentile SQL sắp xếp duration khác NULL và chọn vị trí `ceil(n × p)` (nearest-rank chính xác), làm tròn ba chữ số; tham chiếu Polars dùng quantile `equiprobable`.

@@ -1,6 +1,6 @@
 # Thiết kế luồng access log
 
-Thiết kế đã duyệt (2026-11-13), **chưa xây**. Luồng cũ (Flink ghi `landing.access_logs`, mart log tính hai lần) đã gỡ; các file SQL ở [streaming/sql](../streaming/sql/) và [dbt/models/logs](../dbt/models/logs/) là thiết kế cũ để tham khảo. Khi xây, làm theo cách của pipeline OLTP: mỗi tầng chạy lại an toàn, task theo bảng hoặc model.
+Thiết kế đã duyệt (2026-11-13), **chưa xây**. Luồng cũ (Flink ghi `landing.access_logs`, mart log tính hai lần) và các file SQL của nó đã gỡ. Khi xây, làm theo cách của pipeline OLTP: mỗi tầng chạy lại an toàn, task theo bảng hoặc model.
 
 ## Mục đích
 
