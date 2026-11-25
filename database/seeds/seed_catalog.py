@@ -82,19 +82,28 @@ _OPENING_BY_INDEX = [50, 40, 35, 30, 25, 20, 15, 10]
 
 
 def _seed_admin(session, settings) -> None:
-    email = settings.bootstrap_admin_email.strip().lower()
+    seed_admin_account(
+        session,
+        settings.bootstrap_admin_email,
+        settings.bootstrap_admin_password,
+        settings.bootstrap_admin_display_name,
+    )
+
+
+def seed_admin_account(session, email: str, password: str, display_name: str) -> None:
+    email = email.strip().lower()
     existing = session.execute(
         select(CustomerCredential).where(func.lower(CustomerCredential.email_normalized) == email)
     ).scalar_one_or_none()
     if existing is not None:
         customer = session.get(Customer, existing.customer_id)
         if customer is None or customer.role != "admin":
-            raise RuntimeError(f"Bootstrap admin email {email} is already used by a non-admin account.")
+            raise RuntimeError(f"Admin email {email} is already used by a non-admin account.")
         return
 
     customer = Customer(
         public_id=_pid("admin", email),
-        display_name=settings.bootstrap_admin_display_name.strip(),
+        display_name=display_name.strip(),
         role="admin",
         status="active",
         data_origin="manual",
@@ -105,11 +114,11 @@ def _seed_admin(session, settings) -> None:
         CustomerCredential(
             customer_id=customer.customer_id,
             email_normalized=email,
-            password_hash=hash_password(settings.bootstrap_admin_password),
+            password_hash=hash_password(password),
             is_enabled=True,
         )
     )
-    print(f"[seed_catalog] bootstrap admin ready: {email}")
+    print(f"[seed_catalog] admin ready: {email}")
 
 
 def _seed_coupons(session) -> None:

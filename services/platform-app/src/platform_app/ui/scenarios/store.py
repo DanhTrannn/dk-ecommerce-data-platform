@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import Thread
 
 from platform_app.ui.paths import repo_root
-from platform_app.ui.scenarios.config import PurchaseConfig, ScenarioSettings
+from platform_app.ui.scenarios.config import ADMIN_SCENARIOS, PurchaseConfig, ScenarioSettings
 
 ACTIVE = {"queued", "running"}
 
@@ -116,6 +116,8 @@ class ScenarioStore:
                     self.write(record)
 
     def start(self, config: PurchaseConfig, settings: ScenarioSettings):
+        if config.scenario in ADMIN_SCENARIOS and not (settings.admin_email and settings.admin_password):
+            raise ScenarioStoreError("Kịch bản cần tài khoản admin; đặt SCENARIO_ADMIN_EMAIL và SCENARIO_ADMIN_PASSWORD.")
         self.reconcile()
         with self.lock():
             if any(row["status"] in ACTIVE for row in self.history()):

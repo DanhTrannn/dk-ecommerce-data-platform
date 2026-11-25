@@ -175,6 +175,15 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(self.store.history()[0]["status"], "failed")
         self.assertNotIn("private", json.dumps(self.store.history()))
 
+    def test_admin_scenario_refused_without_admin_settings(self):
+        launches = []
+        store = ScenarioStore(self.root, launcher=lambda *_: launches.append(1) or os.getpid(), alive=lambda *_: True)
+        with self.assertRaises(ScenarioStoreError) as raised:
+            store.start(PurchaseConfig(scenario="delivered"), self.settings)
+        self.assertIn("SCENARIO_ADMIN_EMAIL", str(raised.exception))
+        self.assertEqual(launches, [])
+        self.assertEqual(store.history(), [])
+
     def test_config_rejects_credentials_and_invalid_inputs(self):
         for url in ("http://user:secret@host", "file:///tmp", "http://host/path", "http://host?secret=a"):
             with self.assertRaises(ValidationError):
