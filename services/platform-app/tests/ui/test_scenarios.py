@@ -20,7 +20,14 @@ from platform_app.ui.scenarios.worker import run
 class PurchaseServer:
     """Fake API that follows the requests it receives, enough for every console scenario."""
 
-    def __init__(self, fail=None, products=("product",), staff=({"staff_id": 7, "is_active": True},), store_stock=3):
+    def __init__(
+        self,
+        fail=None,
+        products=("product",),
+        staff=({"staff_id": 7, "is_active": True},),
+        store_stock=3,
+        stocked_skus=None,
+    ):
         self.calls = []
         self.fail = fail
         self.products = products
@@ -29,6 +36,8 @@ class PurchaseServer:
         self.line = None
         self.payment_method = None
         self.store_stock = store_stock
+        self.failed_attempts = 0
+        self.stocked_skus = stocked_skus
 
     def handle(self, request):
         path = request.url.path
@@ -73,9 +82,12 @@ class PurchaseServer:
             data = {"items": [] if self.checked_out else [self.line]}
         elif path == "/api/v1/admin/delivery-staff":
             data = self.staff
+        elif path == "/api/v1/admin/orders/ORDER/failed-delivery":
+            # The API keeps the order shipping until the third failed attempt.
+            self.failed_attempts += 1
+            data = {"order_number": "ORDER", "status": "failed_delivery" if self.failed_attempts == 3 else "shipping"}
         elif path.startswith("/api/v1/admin/orders/ORDER/"):
-            action = path.rsplit("/", 1)[1]
-            status = {"dispatch": "shipping", "deliver": "delivered", "failed-delivery": "failed_delivery"}[action]
+            status = {"dispatch": "shipping", "deliver": "delivered"}[path.rsplit("/", 1)[1]]
             data = {"order_number": "ORDER", "status": status}
         elif path in ("/api/v1/orders/ORDER/complete", "/api/v1/orders/ORDER/cancel"):
             data = {"order_number": "ORDER", "status": "completed" if path.endswith("complete") else "cancelled"}
@@ -96,7 +108,8 @@ class PurchaseServer:
             data = [{"store_id": 1}, {"store_id": 2}]
         elif path == "/api/v1/pos/products":
             sku = request.url.params["search"]
-            data = [{"variant_id": 5, "sku": sku, "price_vnd": 250000, "store_stock": self.store_stock}]
+            stock = self.store_stock if self.stocked_skus is None or sku in self.stocked_skus else 0
+            data = [{"variant_id": 5, "sku": sku, "price_vnd": 250000, "store_stock": stock}]
         elif path == "/api/v1/pos/transactions":
             data = {"order_number": "POS1", "status": "completed", "total_vnd": 250000}
         else:
@@ -221,9 +234,11 @@ class ScenarioTests(unittest.TestCase):
     def test_failed_delivery(self):
         record, server = self.execute(scenario="failed_delivery")
         self.assertEqual(record["status"], "succeeded")
-        self.assertEqual(server.after_checkout()[-1], ("POST", "/admin/orders/ORDER/failed-delivery"))
-        failed = next(req for req in server.calls if req.url.path.endswith("/failed-delivery"))
-        self.assertTrue(json.loads(failed.content)["reason"])
+        failed = [req for req in server.calls if req.url.path.endswith("/failed-delivery")]
+        self.assertEqual(
+            [req.headers["Idempotency-Key"] for req in failed], [self.key(record, f"fail{n}") for n in (1, 2, 3)]
+        )
+        self.assertTrue(all(json.loads(req.content)["reason"] for req in failed))
 
     def test_cancelled_uses_vietqr_and_customer_cancel(self):
         record, server = self.execute(scenario="cancelled")
@@ -287,6 +302,12 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(body["payment_method"], "cash")
         self.assertGreaterEqual(body["amount_received_vnd"], 250000)
         self.assertEqual(record["attempts"][0]["order_number"], "POS1")
+
+    def test_pos_tries_another_sku_when_no_store_has_the_first(self):
+        server = PurchaseServer(products=("a", "b", "c"), stocked_skus={"SKU-c"})
+        record, server = self.execute(server, scenario="pos")
+        self.assertEqual(record["status"], "succeeded")
+        self.assertEqual(record["attempts"][0]["sku"], "SKU-c")
 
     def test_pos_store_without_stock_fails_before_write(self):
         record, server = self.execute(PurchaseServer(store_stock=0), scenario="pos")

@@ -19,7 +19,10 @@ def failed_delivery(ctx: Attempt):
     dispatch(ctx, order_number)
     path = f"/admin/orders/{quote(order_number, safe='')}/failed-delivery"
     body = {"reason": "Khách không nghe máy (mô phỏng)"}
-    expect(ctx.admin_call("POST", path, body, key=ctx.key("fail")), "failed_delivery", "failed-delivery")
+    # The API allows three delivery attempts; the order stays shipping until the last one fails.
+    for attempt in (1, 2, 3):
+        status = "failed_delivery" if attempt == 3 else "shipping"
+        expect(ctx.admin_call("POST", path, body, key=ctx.key(f"fail{attempt}")), status, "failed-delivery")
 
 
 def cancelled(ctx: Attempt):
@@ -79,24 +82,35 @@ def coupon(ctx: Attempt):
     buy(ctx, "cod", coupon_code=ctx.run_state["coupon_code"])
 
 
+def store_stock(ctx: Attempt, stores, sku, quantity):
+    """Return (store, POS item) for the first store that has the SKU in stock, else None."""
+    for store in stores:
+        query = urlencode({"store_id": store["store_id"], "search": sku})
+        items = ctx.admin_call("GET", "/pos/products?" + query)
+        item = next((row for row in items if row["sku"] == sku and row["store_stock"] >= quantity), None)
+        if item:
+            return store, item
+    return None
+
+
 def pos(ctx: Attempt):
     """Sell a random catalog variant at the counter of a random store that has it."""
-    variant = pick_variant(ctx)
-    ctx.checkpoint(sku=variant["sku"])
     quantity = ctx.config.quantity
     stores = []
     for city in ctx.admin_call("GET", "/locations/cities"):
         if city["store_count"]:
             stores += ctx.admin_call("GET", f"/locations/cities/{quote(city['code'], safe='')}/stores")
     ctx.rng.shuffle(stores)
-    for store in stores:
-        query = urlencode({"store_id": store["store_id"], "search": variant["sku"]})
-        items = ctx.admin_call("GET", "/pos/products?" + query)
-        item = next((row for row in items if row["sku"] == variant["sku"] and row["store_stock"] >= quantity), None)
-        if item:
+    # Stores do not stock every variant, so try a few random ones before giving up.
+    for _ in range(3):
+        variant = pick_variant(ctx)
+        found = store_stock(ctx, stores, variant["sku"], quantity)
+        if found:
             break
     else:
-        raise ScenarioFailure("Không cửa hàng nào còn đủ tồn cho SKU đã chọn; dừng trước khi bán.")
+        raise ScenarioFailure("Không cửa hàng nào còn đủ tồn cho các SKU đã thử; dừng trước khi bán.")
+    store, item = found
+    ctx.checkpoint(sku=variant["sku"])
     body = {
         "store_id": store["store_id"],
         "items": [{"variant_id": item["variant_id"], "quantity": quantity}],
