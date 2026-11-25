@@ -26,9 +26,6 @@ models:
       +materialized: incremental
       +incremental_strategy: merge
       +on_table_exists: replace
-    logs:
-      +tags: [logs]
-      +materialized: iceberg_merge
 seeds:
   retail_lakehouse:
     +schema: gold

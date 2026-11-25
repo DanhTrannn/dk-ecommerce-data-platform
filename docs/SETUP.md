@@ -128,7 +128,7 @@ uv run --locked --env-file .env --package platform-app -- \
 uv run --locked --env-file .env --package platform-app platform-app
 ```
 
-Compose truyền `API_BOOTSTRAP_ADMIN_EMAIL` vào API để xác định người được quản trị hạ tầng. `platform-admin-init` dùng email và password để tạo tài khoản lần đầu. Chạy trên host cần schema và admin đã khởi tạo, cùng các đường dẫn credential và exporter phù hợp. `--env-file .env` đưa biến Trino và UI vào môi trường tiến trình.
+Compose truyền `API_BOOTSTRAP_ADMIN_EMAIL` vào API để xác định người được quản trị hạ tầng. `platform-admin-init` dùng email và password để tạo tài khoản lần đầu. Chạy trên host cần schema và admin đã khởi tạo, cùng các đường dẫn credential và exporter phù hợp. `--env-file .env` đưa biến UI vào môi trường tiến trình.
 
 ## 4. Chạy pipeline OLTP
 

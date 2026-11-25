@@ -12,7 +12,7 @@ Thiết kế và quyết định kỹ thuật: [docs/SETUP.md](../../docs/SETUP.
 
 ## API nguồn
 
-FastAPI cung cấp nghiệp vụ như giỏ hàng, checkout, POS, kho, giao vận và đổi trả cùng các lookup phục vụ mô phỏng. Bốn dashboard Superset đọc 14 mart OLTP Gold qua Trino. Hai route quan sát HTTP dành cho admin hoặc system admin đọc các bảng log cũ nếu đã có. Vận hành mặc định ghi access log ra stdout. [Hợp đồng API](src/platform_app/api/README.md) · [Danh sách dashboard](../../docs/SETUP.md#6-dashboard-superset)
+FastAPI cung cấp nghiệp vụ như giỏ hàng, checkout, POS, kho, giao vận và đổi trả cùng các lookup phục vụ mô phỏng. Bốn dashboard Superset đọc 14 mart OLTP Gold qua Trino. Vận hành mặc định ghi access log ra stdout. [Hợp đồng API](src/platform_app/api/README.md) · [Danh sách dashboard](../../docs/SETUP.md#6-dashboard-superset)
 
 ## Chạy cục bộ
 

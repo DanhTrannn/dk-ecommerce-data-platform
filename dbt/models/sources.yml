@@ -23,8 +23,3 @@ sources:
   - name: product_reviews
   - name: inventory_transactions
   - name: inbound_receipt_items
-- name: events
-  database: lakehouse_etl
-  schema: gold
-  tables:
-  - name: fact_web_events

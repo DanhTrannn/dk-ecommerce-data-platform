@@ -2,7 +2,7 @@
 
 ## Hiện trạng
 
-FastAPI ghi `ecommerce.access` 1.0.0 ra stdout. `datagen logs` tạo Parquet theo ngày phiên với hợp đồng 1.1.0. Compose hiện phục vụ luồng OLTP. Việc đưa log vào Lakehouse và dựng phễu phiên nằm trong thiết kế bên dưới. Hai endpoint quan sát HTTP còn phụ thuộc vào bảng và publication của luồng cũ. Các SQL log trong repo dùng để tham khảo. [Hợp đồng API quan sát](../services/platform-app/src/platform_app/api/README.md#http-observability) · [SQL log cũ](../streaming/sql/contracts/logs/) · [Model log cũ](../dbt/models/logs/)
+FastAPI ghi `ecommerce.access` 1.0.0 ra stdout. `datagen logs` tạo Parquet theo ngày phiên với hợp đồng 1.1.0. Compose hiện phục vụ luồng OLTP. Việc đưa log vào Lakehouse và dựng phễu phiên nằm trong thiết kế bên dưới. Luồng cũ (Flink ghi `landing.access_logs`) cùng SQL, model log và API quan sát HTTP của nó đã gỡ.
 
 ## Mục đích
 

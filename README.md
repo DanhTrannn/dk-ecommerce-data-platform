@@ -92,7 +92,6 @@ After the first load succeeds, run `make superset-sync` to create or update the 
 .
 ├── airflow/                # OLTP pipeline: DAGs, tasks, lakehouse library, tests
 ├── dbt/                    # dbt project: Silver, Gold, seeds, data tests
-├── streaming/sql/          # historical access-log table contracts
 ├── services/platform-app/  # FastAPI, Streamlit, access administration, credential exporter
 ├── generator/              # datagen CLI, EDA notebooks, YAML presets
 ├── database/               # PostgreSQL schema and seeds

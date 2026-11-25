@@ -98,8 +98,6 @@ Middleware API phát `schema.name=ecommerce.access` phiên bản `1.0.0`. Genera
 
 Không ghi request body, password, Authorization/cookie hoặc thanh toán nhạy cảm. Search có PII được redaction; route chuẩn giúp tránh dùng raw path làm dimension vô hạn. GET `/health/live` và `/health/ready` không phát event.
 
-Hai route quan sát HTTP còn trong API để đọc dữ liệu log đã có từ luồng cũ. Realtime cần `landing.access_logs`. Báo cáo HTTP cần mart và publication tương ứng. Một stack mới mặc định chỉ có đường nạp OLTP, nên các route log sẽ báo unavailable nếu thiếu bảng hoặc publication. [Hợp đồng HTTP](../services/platform-app/src/platform_app/api/README.md#http-observability) · [Thiết kế luồng log](ACCESS_LOG_DESIGN.md)
-
 ## 5. Dimension, fact và 14 mart OLTP
 
 Dimension gồm `dim_date` (lịch, ngày lễ và ngày sale từ seed `calendar_events`), `dim_city` (vùng giao và SLA từ seed `delivery_sla`), `dim_store`, `dim_product`, `dim_variant`, `dim_customer` và `dim_staff`. Fact gồm `fact_order` (một dòng mỗi đơn), `fact_order_item` (mỗi dòng đơn), `fact_shipment` (mỗi vận đơn), `fact_return` (mỗi dòng trả hàng), `fact_inventory_daily` (ngày × vị trí × biến thể) và `fact_review` (mỗi đánh giá).
@@ -287,11 +285,3 @@ Phần này giữ hồ sơ nguồn S01–S11 của nghiên cứu ngày **08/11/2
 Gold OLTP có 27 model (7 dimension, 6 fact, 14 mart), hai seed (`delivery_sla`, `calendar_events`) và bảng trạng thái `gold._mart_state`. Airflow tạo một task cho mỗi model hoặc seed theo đồ thị `ref()` và `live()`. Dimension và fact merge theo khóa. Những fact cần theo dõi ngày cũ giữ `_previous_dates` để mart tính cả ngày dòng vừa rời đi. Phần lớn mart tính lại ngày hoặc khách bị ảnh hưởng kể từ watermark. `mart_customer_cohort_monthly` và `mart_inventory_current` dựng lại toàn bộ. Dimension/fact có `_is_deleted`, còn mart tính các dòng hiệu lực. Giảm giá được phân bổ theo tỷ lệ tiền dòng, làm tròn xuống tích lũy để tổng phân bổ bằng tiền giảm của đơn. Giá vốn lấy snapshot dòng đơn.
 
 `DBT_AS_OF` dùng `run_after` của DAG để chốt ngày lập báo cáo. Nó xác định ngày tồn hiện tại và mốc thời gian của chuỗi tồn hoặc backlog. `dim_date` phủ các năm có dữ liệu. Năm data test trong `dbt/tests/oltp` chạy ở task `gold.tests` với mức cảnh báo. Các schema test của model chạy cùng `dbt build` theo cấu hình của model.
-
-## 10. Hợp đồng tham khảo của luồng log cũ
-
-Các SQL tham khảo gồm `fact_web_events` theo request ID, `mart_hourly_route_metrics` theo ngày × giờ × route × method, `mart_daily_product_demand` theo ngày × khóa sản phẩm, và `mart_marketing_funnel_daily` theo ngày. Ngày/giờ dùng UTC. Phễu cũ đếm request thành công; visitor đếm actor khác NULL. Tên cột `success_2xx_count` đếm HTTP dưới 400, bao gồm 3xx. Mẫu số bằng 0 trả NULL. Phễu theo phiên của thiết kế mới có hợp đồng riêng. [Model log](../dbt/models/logs/) · [DDL](../streaming/sql/contracts/logs/) · [Thiết kế phễu theo phiên](ACCESS_LOG_DESIGN.md)
-
-Ánh xạ sản phẩm hỗ trợ slug, ID số và UUID 16 bytes; UUID có dấu gạch được chuẩn hóa, slug giữ dấu gạch. Product token có ưu tiên hơn variant token. Khóa chưa khớp giữ `raw-product:`/`raw-variant:` để vẫn thấy nhu cầu chưa ánh xạ; mapping làm nhân bản event bị chặn.
-
-Percentile SQL sắp xếp duration khác NULL và chọn vị trí `ceil(n × p)` (nearest-rank chính xác), làm tròn ba chữ số; tham chiếu Polars dùng quantile `equiprobable`.
