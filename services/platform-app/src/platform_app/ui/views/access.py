@@ -157,21 +157,20 @@ def render():
         if "access_polaris" not in st.session_state:
             st.session_state["access_polaris"] = session.request("GET", "polaris")
         state = st.session_state["access_polaris"]
-        tabs = st.tabs(["Danh sách", "Tạo mới", "Sửa", "Xóa", "Gán / Gỡ quyền", "Credential", "Cấp cho workload"])
-        with tabs[0]:
-            access_manage.overview(state)
-        with tabs[1]:
-            access_create.polaris(state, section="create")
-        with tabs[2]:
-            access_manage.editor(state, "update")
-        with tabs[3]:
-            access_manage.editor(state, "delete")
-        with tabs[4]:
-            _polaris(state)
-        with tabs[5]:
-            access_create.polaris(state, section="credentials")
-        with tabs[6]:
-            access_workloads.render(state)
+        views = {
+            "Danh sách": lambda: access_manage.overview(state),
+            "Tạo mới": lambda: access_create.polaris(state, section="create"),
+            "Sửa": lambda: access_manage.editor(state, "update"),
+            "Xóa": lambda: access_manage.editor(state, "delete"),
+            "Gán / Gỡ quyền": lambda: _polaris(state),
+            "Credential": lambda: access_create.polaris(state, section="credentials"),
+            "Cấp cho workload": lambda: access_workloads.render(state),
+        }
+        # A keyed, stateful tab bar keeps the open tab across reruns, and only that tab runs.
+        for tab, view in zip(st.tabs(list(views), key="access_tab", on_change="rerun"), views.values()):
+            if tab.open:
+                with tab:
+                    view()
         with st.expander("Audit thao tác gần đây"):
             st.dataframe(session.request("GET", "audit"), hide_index=True)
     except AccessUIError as error:
