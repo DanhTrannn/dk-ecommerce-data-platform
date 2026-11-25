@@ -437,6 +437,35 @@ class ScenarioTests(unittest.TestCase):
             next(button for button in app.button if button.label == "Bắt đầu mô phỏng").click().run()
         self.assertTrue(any("SCENARIO_ADMIN_EMAIL" in error.value for error in app.error))
 
+    def test_ui_history_follows_the_chosen_scenario(self):
+        store = ScenarioStore(self.root / "scenarios", launcher=lambda *_: os.getpid(), alive=lambda *_: False)
+        purchase = store.start(PurchaseConfig(), self.settings)
+        store.reconcile()
+        pos = store.start(PurchaseConfig(scenario="pos"), self.settings)
+        store.reconcile()
+        app = AppTest.from_string("from platform_app.ui.views.scenarios import render\nrender()")
+        with patch.dict(os.environ, {"PLATFORM_APP_SCENARIOS_DIR": str(self.root / "scenarios")}):
+            app.run()
+            history = next(box for box in app.selectbox if box.label == "Lịch sử mô phỏng")
+            self.assertEqual(list(history.options), [purchase["run_id"]])
+            next(box for box in app.selectbox if box.label == "Kịch bản").select("pos").run()
+            history = next(box for box in app.selectbox if box.label == "Lịch sử mô phỏng")
+            self.assertEqual(list(history.options), [pos["run_id"]])
+            next(box for box in app.selectbox if box.label == "Kịch bản").select("delivered").run()
+            self.assertFalse(any(box.label == "Lịch sử mô phỏng" for box in app.selectbox))
+            self.assertTrue(any("Chưa có run" in info.value for info in app.info))
+
+    def test_ui_table_hides_internal_columns(self):
+        record, _ = self.execute()
+        app = AppTest.from_string("from platform_app.ui.views.scenarios import render\nrender()")
+        with patch.dict(os.environ, {"PLATFORM_APP_SCENARIOS_DIR": str(self.root)}):
+            app.run()
+        columns = list(app.dataframe[0].value.columns)
+        self.assertIn("order_number", columns)
+        self.assertNotIn("index", columns)
+        self.assertNotIn("idempotency_key", columns)
+        self.assertIn("idempotency_key", record["attempts"][0])
+
     def test_ui_submit_once_and_stop(self):
         app = AppTest.from_string("from platform_app.ui.views.scenarios import render\nrender()")
         with (
