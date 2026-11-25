@@ -13,7 +13,7 @@ from platform_app.ui.scenarios.store import ACTIVE, ScenarioStore, ScenarioStore
 def render():
     store = ScenarioStore(scenarios_root())
     st.subheader("Mô phỏng mua hàng qua API")
-    st.caption("Mỗi lượt tạo khách hàng mới → đăng nhập → chọn hàng còn tồn → giỏ hàng → checkout → xác minh đơn.")
+    st.caption("Mỗi lượt chạy kịch bản đã chọn qua API thật và xác minh kết quả từng bước.")
     try:
         settings = ScenarioSettings()
         store.reconcile()
@@ -76,21 +76,27 @@ def render():
     if not history:
         st.info("Chưa có kịch bản. Khởi tạo schema và nạp catalog/tồn kho trước khi chạy.")
         return
-    selected = st.selectbox("Lịch sử mô phỏng", [row["run_id"] for row in history])
-    record = next(row for row in history if row["run_id"] == selected)
-    label = SCENARIOS[record["config"].get("scenario", "purchase")][0]
-    st.text(f"Kịch bản: {label} · Trạng thái: {record['status']} · API: {record['target']}")
+    # Runs saved before scenarios existed were purchases.
+    runs = [row for row in history if row["config"].get("scenario", "purchase") == scenario]
+    if not runs:
+        st.info(f"Chưa có run cho kịch bản {SCENARIOS[scenario][0]}.")
+        return
+    selected = st.selectbox("Lịch sử mô phỏng", [row["run_id"] for row in runs])
+    record = next(row for row in runs if row["run_id"] == selected)
+    st.text(f"Kịch bản: {SCENARIOS[scenario][0]} · Trạng thái: {record['status']} · API: {record['target']}")
     if record.get("message"):
         st.warning(record["message"])
     if record["status"] == "unknown":
         st.warning(
-            "Có kết quả chưa xác định. Tra cứu customer email, mã đơn và idempotency key; không tự gửi lại checkout."
+            "Có kết quả chưa xác định. Tra cứu customer email và mã đơn (idempotency key có trong journal); không tự gửi lại."
         )
     attempts = record["attempts"]
     columns = st.columns(3)
     columns[0].metric("Đã xác minh", sum(row["status"] == "succeeded" for row in attempts))
     columns[1].metric("Thất bại", sum(row["status"] == "failed" for row in attempts))
     columns[2].metric("Chưa xác định", sum(row["status"] == "unknown" for row in attempts))
-    st.dataframe(attempts, hide_index=True)
+    # The journal keeps these for reconciliation; they are not results to report.
+    hidden = {"index", "idempotency_key"}
+    st.dataframe([{k: v for k, v in row.items() if k not in hidden} for row in attempts], hide_index=True)
     with st.expander("Cấu hình run"):
         st.json(record["config"])
