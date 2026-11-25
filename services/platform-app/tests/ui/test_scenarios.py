@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from streamlit.testing.v1 import AppTest
 
 from platform_app.ui.scenarios.config import PurchaseConfig, ScenarioSettings
+from platform_app.ui.scenarios.flows import SCENARIOS
 from platform_app.ui.scenarios.store import ScenarioStore, ScenarioStoreError
 from platform_app.ui.scenarios.worker import run
 
@@ -382,6 +383,38 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(len(app.error), 1)
         self.assertIn("/data/scenarios", app.error[0].value)
         self.assertNotIn("SCENARIO_API_BASE_URL", app.error[0].value)
+
+    def test_ui_scenario_picker(self):
+        app = AppTest.from_string("from platform_app.ui.views.scenarios import render\nrender()")
+        env = {
+            "PLATFORM_APP_SCENARIOS_DIR": str(self.root / "scenarios"),
+            "SCENARIO_ADMIN_EMAIL": "sim@web.local",
+            "SCENARIO_ADMIN_PASSWORD": "Sim@12345",
+        }
+        with (
+            patch.dict(os.environ, env),
+            patch("platform_app.ui.scenarios.store._launch", return_value=os.getpid()),
+            patch("platform_app.ui.scenarios.store._alive", return_value=True),
+        ):
+            app.run()
+            picker = next(box for box in app.selectbox if box.label == "Kịch bản")
+            self.assertEqual(list(picker.options), [label for label, _, _ in SCENARIOS.values()])
+            picker.select("pos").run()
+            self.assertFalse(any(box.label == "Thanh toán" for box in app.selectbox))
+            next(button for button in app.button if button.label == "Bắt đầu mô phỏng").click().run()
+            self.assertFalse(app.exception)
+            record = ScenarioStore(self.root / "scenarios").history()[0]
+            self.assertEqual(record["config"]["scenario"], "pos")
+            self.assertTrue(any("Bán tại quầy" in text.value for text in app.text))
+
+    def test_ui_explains_missing_scenario_admin(self):
+        app = AppTest.from_string("from platform_app.ui.views.scenarios import render\nrender()")
+        env = {"PLATFORM_APP_SCENARIOS_DIR": str(self.root / "scenarios"), "SCENARIO_ADMIN_EMAIL": ""}
+        with patch.dict(os.environ, env), patch("platform_app.ui.scenarios.store._launch", return_value=os.getpid()):
+            app.run()
+            next(box for box in app.selectbox if box.label == "Kịch bản").select("delivered").run()
+            next(button for button in app.button if button.label == "Bắt đầu mô phỏng").click().run()
+        self.assertTrue(any("SCENARIO_ADMIN_EMAIL" in error.value for error in app.error))
 
     def test_ui_submit_once_and_stop(self):
         app = AppTest.from_string("from platform_app.ui.views.scenarios import render\nrender()")
