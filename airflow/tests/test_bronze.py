@@ -1,13 +1,14 @@
 import unittest
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pyarrow as pa
 
 from iceberg_fixture import AT, TABLES, category, create_tables, page, sql_catalog
-from lakehouse.oltp.bronze import live_keys, mark_deleted, merge_bronze, purge_bronze
+from lakehouse.oltp.bronze import filter_current, live_keys, mark_deleted, merge_bronze, purge_bronze
 from lakehouse.oltp.staging import write_staging
 
 CATEGORIES = TABLES["categories"]
+NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class BronzeTests(unittest.TestCase):
@@ -86,6 +87,26 @@ class BronzeTests(unittest.TestCase):
         mark_deleted(self.catalog, CATEGORIES, pa.array([2]), AT, AT)
         purge_bronze(self.catalog, CATEGORIES)
         self.assertEqual(purge_bronze(self.catalog, CATEGORIES), 0)
+
+
+class FilterCurrentTests(unittest.TestCase):
+    def test_older_cursor_is_rejected_and_null_target_can_be_filled(self):
+        table = TABLES["orders"]
+        delta = pa.Table.from_pylist([dict(order_id=1, updated_at=NOW)])
+        current = pa.Table.from_pylist([dict(order_id=1, updated_at=NOW + timedelta(days=1))])
+        self.assertEqual(filter_current(delta, current, table).num_rows, 0)
+        current = pa.Table.from_arrays(
+            [pa.array([1]), pa.array([None], type=pa.timestamp("us", tz="UTC"))],
+            names=["order_id", "updated_at"],
+        )
+        self.assertEqual(filter_current(delta, current, table).num_rows, 1)
+
+    def test_same_cursor_with_changed_values_is_kept(self):
+        table = TABLES["orders"]
+        delta = pa.Table.from_pylist([dict(order_id=1, updated_at=NOW, status="completed")])
+        current = pa.Table.from_pylist([dict(order_id=1, updated_at=NOW, status="confirmed")])
+        self.assertEqual(filter_current(delta, current, table).num_rows, 1)
+        self.assertEqual(filter_current(delta, delta, table).num_rows, 0)
 
 
 if __name__ == "__main__":
