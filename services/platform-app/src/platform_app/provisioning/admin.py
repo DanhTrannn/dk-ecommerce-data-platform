@@ -12,7 +12,11 @@ from platform_app.api.core.config import get_settings
 from platform_app.provisioning.state import atomic_private
 from platform_app.api.db.base import Base
 from platform_app.api import models  # noqa: F401
-from database.seeds.seed_catalog import _seed_admin
+from platform_app.ui.scenarios.config import ScenarioSettings
+from database.seeds.seed_catalog import _seed_admin, seed_admin_account
+
+STORAGE_DIRS = (Path("/run/access-secrets"), Path("/data/access-admin"), Path("/data/scenarios"))
+EXPORTER_KEY = Path("/run/access-secrets/exporter.key")
 
 
 def initialize_source(database_url, settings, schema_path):
@@ -33,22 +37,32 @@ def initialize_source(database_url, settings, schema_path):
             factory = sessionmaker(engine, expire_on_commit=False)
             with factory.begin() as session:
                 _seed_admin(session, settings)
+                seed_scenario_admin(session, ScenarioSettings(), settings.bootstrap_admin_email)
     finally:
         connection.close()
         engine.dispose()
+
+
+def seed_scenario_admin(session, settings: ScenarioSettings, bootstrap_email: str) -> None:
+    """Create the API admin that console scenarios use, separate from the bootstrap admin."""
+    if not settings.admin_email or not settings.admin_password:
+        return
+    if settings.admin_email.strip().lower() == bootstrap_email.strip().lower():
+        raise RuntimeError("Scenario admin must not reuse the bootstrap admin email")
+    seed_admin_account(session, settings.admin_email, settings.admin_password, "Scenario admin")
 
 
 def prepare_storage():
     uid, gid = int(os.environ.get("PLATFORM_APP_UID", "1000")), int(os.environ.get("PLATFORM_APP_GID", "1000"))
     if uid <= 0 or gid < 0:
         raise ValueError("Platform runtime must use a non-root UID and a valid GID")
-    for path in (Path("/run/access-secrets"), Path("/data/access-admin")):
+    for path in STORAGE_DIRS:
         if path.is_symlink():
             raise RuntimeError("Storage directory must not be a symlink")
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chown(path, uid, gid)
         path.chmod(0o700)
-    key_file = Path("/run/access-secrets/exporter.key")
+    key_file = EXPORTER_KEY
     if key_file.is_symlink():
         raise RuntimeError("Exporter signing key must not be a symlink")
     if not key_file.exists():

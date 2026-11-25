@@ -223,9 +223,7 @@ class AccessClientTests(unittest.TestCase):
 
 
 class AccessViewTests(unittest.TestCase):
-    def test_login_apply_once_clear_password_and_logout(self):
-        instances = []
-
+    def session_class(self, instances):
         class Session:
             csrf_cookie = "csrf"
 
@@ -271,17 +269,39 @@ class AccessViewTests(unittest.TestCase):
                     return {"status": "done", "operation_id": "operation"}
                 return []
 
+        return Session
+
+    def login(self, app):
+        app.run()
+        app.text_input[0].set_value("admin@example.com")
+        app.text_input[1].set_value("private-password")
+        next(button for button in app.button if button.label == "Đăng nhập quản trị").click().run()
+
+    def test_login_apply_once_clear_password_and_logout(self):
+        instances = []
         app = AppTest.from_string("from platform_app.ui.views.access import render\nrender()")
-        with patch("platform_app.ui.views.access.AccessSession", Session):
-            app.run()
-            app.text_input[0].set_value("admin@example.com")
-            app.text_input[1].set_value("private-password")
-            next(button for button in app.button if button.label == "Đăng nhập quản trị").click().run()
+        with patch("platform_app.ui.views.access.AccessSession", self.session_class(instances)):
+            self.login(app)
             self.assertFalse(app.exception)
             self.assertEqual(app.session_state["access_password"], "")
+            app.session_state["access_tab"] = "Gán / Gỡ quyền"
+            app.run()
             next(button for button in app.button if button.label == "Áp dụng Polaris").click().run()
             app.run()
             self.assertEqual(sum(path.endswith("/bindings") for _, path, _ in instances[0].calls), 1)
             next(button for button in app.button if button.label == "Đăng xuất quản trị").click().run()
             self.assertTrue(instances[0].closed)
             self.assertTrue(any(button.label == "Đăng nhập quản trị" for button in app.button))
+
+    def test_selected_tab_survives_reruns_and_hidden_tabs_do_not_load(self):
+        instances = []
+        app = AppTest.from_string("from platform_app.ui.views.access import render\nrender()")
+        with patch("platform_app.ui.views.access.AccessSession", self.session_class(instances)):
+            self.login(app)
+            app.session_state["access_tab"] = "Gán / Gỡ quyền"
+            app.run()
+            next(box for box in app.selectbox if box.label == "Loại liên kết").select("catalog_role").run()
+            next(button for button in app.button if button.label == "Áp dụng Polaris").click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state["access_tab"], "Gán / Gỡ quyền")
+            self.assertFalse(any(path == "polaris/workload-credentials" for _, path, _ in instances[0].calls))

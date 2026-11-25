@@ -1,17 +1,20 @@
 """Detached sequential purchase runner with cooperative stopping, no write retries."""
 
+import random
 import sys
 import time
 from pathlib import Path
 
 import httpx
 
-from platform_app.ui.scenarios.config import PurchaseConfig
-from platform_app.ui.scenarios.purchase import ScenarioFailure, purchase
+from platform_app.api.core.config import get_settings
+from platform_app.ui.scenarios.config import ADMIN_SCENARIOS, PurchaseConfig, ScenarioSettings
+from platform_app.ui.scenarios.flows import SCENARIOS
+from platform_app.ui.scenarios.steps import Attempt, ScenarioFailure, admin_login
 from platform_app.ui.scenarios.store import ScenarioStore, stamp
 
 
-def run(root, run_id, client_factory=None, csrf_cookie=None):
+def run(root, run_id, client_factory=None, csrf_cookie=None, rng=None, settings=None):
     store = ScenarioStore(root)
     claimed = False
     try:
@@ -20,49 +23,66 @@ def run(root, run_id, client_factory=None, csrf_cookie=None):
             claimed = True
             config = PurchaseConfig(**record["config"])
             if csrf_cookie is None:
-                from platform_app.api.core.config import get_settings
-
                 csrf_cookie = get_settings().csrf_cookie_name
+            settings = settings or ScenarioSettings()
+            rng = rng or random.Random()
+            scenario = SCENARIOS[config.scenario][1]
+            run_state = {}
             factory = client_factory or (
                 lambda: httpx.Client(
                     base_url=record["target"], timeout=record["timeout"], follow_redirects=False, trust_env=False
                 )
             )
-            for index in range(config.purchases):
-                if store.read(run_id)["stop_requested"]:
-                    break
-                attempt = dict(
-                    index=index + 1,
-                    customer_email=f"scenario-{run_id}-{index + 1}@example.com",
-                    idempotency_key=f"sim-{run_id}-{index + 1}",
-                    status="running",
-                    stage="starting",
-                    started_at=stamp(),
-                    finished_at=None,
-                )
-                store.update(run_id, lambda row: row["attempts"].append(attempt))
-
-                def checkpoint(**values):
-                    store.update(run_id, lambda row: row["attempts"][-1].update(values))
-
-                try:
-                    with factory() as client:
-                        purchase(client, config, attempt, checkpoint, csrf_cookie=csrf_cookie)
-                except ScenarioFailure as error:
-                    checkpoint(status="unknown" if error.unknown else "failed", message=str(error))
-                except Exception:
-                    # Unexpected parsing/persistence errors may follow a committed write.
-                    checkpoint(
-                        status="unknown", message="Không xác định kết quả; kiểm tra lượt này trước khi chạy lại."
+            admin = factory() if config.scenario in ADMIN_SCENARIOS else None
+            try:
+                if admin is not None:
+                    try:
+                        admin_login(admin, settings.admin_email, settings.admin_password, csrf_cookie)
+                    except ScenarioFailure as error:
+                        message = str(error)
+                        store.update(
+                            run_id, lambda row: row.update(status="failed", finished_at=stamp(), message=message)
+                        )
+                        return 1
+                for index in range(config.purchases):
+                    if store.read(run_id)["stop_requested"]:
+                        break
+                    attempt = dict(
+                        index=index + 1,
+                        customer_email=f"scenario-{run_id}-{index + 1}@example.com",
+                        idempotency_key=f"sim-{run_id}-{index + 1}",
+                        status="running",
+                        stage="starting",
+                        started_at=stamp(),
+                        finished_at=None,
                     )
-                checkpoint(finished_at=stamp())
-                latest = store.read(run_id)
-                if latest["attempts"][-1]["status"] == "unknown":
-                    break
-                if index + 1 < config.purchases:
-                    deadline = time.monotonic() + config.interval_seconds
-                    while time.monotonic() < deadline and not store.read(run_id)["stop_requested"]:
-                        time.sleep(min(0.2, max(0, deadline - time.monotonic())))
+                    store.update(run_id, lambda row: row["attempts"].append(attempt))
+
+                    def checkpoint(**values):
+                        store.update(run_id, lambda row: row["attempts"][-1].update(values))
+
+                    try:
+                        with factory() as client:
+                            scenario(Attempt(client, admin, config, attempt, checkpoint, rng, run_state, csrf_cookie))
+                        checkpoint(status="succeeded", stage="verified")
+                    except ScenarioFailure as error:
+                        checkpoint(status="unknown" if error.unknown else "failed", message=str(error))
+                    except Exception:
+                        # Unexpected parsing/persistence errors may follow a committed write.
+                        checkpoint(
+                            status="unknown", message="Không xác định kết quả; kiểm tra lượt này trước khi chạy lại."
+                        )
+                    checkpoint(finished_at=stamp())
+                    latest = store.read(run_id)
+                    if latest["attempts"][-1]["status"] == "unknown":
+                        break
+                    if index + 1 < config.purchases:
+                        deadline = time.monotonic() + config.interval_seconds
+                        while time.monotonic() < deadline and not store.read(run_id)["stop_requested"]:
+                            time.sleep(min(0.2, max(0, deadline - time.monotonic())))
+            finally:
+                if admin is not None:
+                    admin.close()
             record = store.read(run_id)
             statuses = [item["status"] for item in record["attempts"]]
             if "unknown" in statuses:
