@@ -2,7 +2,9 @@
 
 ## Hiện trạng
 
-FastAPI ghi `ecommerce.access` 1.0.0 ra stdout. `datagen logs` tạo Parquet theo ngày phiên với hợp đồng 1.1.0. Compose hiện phục vụ luồng OLTP. Việc đưa log vào Lakehouse và dựng phễu phiên nằm trong thiết kế bên dưới. Luồng cũ (Flink ghi `landing.access_logs`) cùng SQL, model log và API quan sát HTTP của nó đã gỡ.
+Luồng access log, gồm nạp streaming, nạp file và phễu theo phiên, là **hướng phát triển của khóa luận**: thiết kế bên dưới đã duyệt và được giữ lại, chưa xây. Phần đã triển khai dừng ở luồng OLTP.
+
+FastAPI ghi `ecommerce.access` 1.0.0 ra stdout. `datagen logs` tạo Parquet theo ngày phiên với hợp đồng 1.1.0. Luồng cũ (Flink ghi `landing.access_logs`) cùng SQL, model log và API quan sát HTTP của nó đã gỡ.
 
 ## Mục đích
 

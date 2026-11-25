@@ -44,7 +44,7 @@ Kiến trúc **Data Lakehouse** kết hợp chi phí thấp và khả năng mở
 
 * **Phạm vi nghiên cứu**:
   * *Phạm vi nghiệp vụ*: chu trình bán lẻ thời trang gồm danh mục sản phẩm theo biến thể (màu, size), giỏ hàng, đặt hàng trực tuyến, bán tại quầy POS, tồn kho đa vị trí, giao hàng COD, đổi trả – hoàn tiền và theo dõi tương tác người dùng.
-  * *Phạm vi kỹ thuật*: triển khai ứng dụng nguồn, pipeline OLTP, quản trị quyền và BI trên một máy chủ bằng Docker Compose. Access log có hai đầu ra hiện hữu là JSON từ API và tệp Parquet mô phỏng. Nạp log vào Lakehouse, phân cụm chịu lỗi cao (High Availability), tự động co giãn và học máy thuộc phạm vi thiết kế hoặc mở rộng.
+  * *Phạm vi kỹ thuật*: triển khai ứng dụng nguồn, pipeline OLTP, quản trị quyền và BI trên một máy chủ bằng Docker Compose. Access log có hai đầu ra hiện hữu là JSON từ API và tệp Parquet mô phỏng. Nạp access log vào Lakehouse bằng streaming là hướng phát triển của khóa luận: thiết kế đã hoàn thành và được giữ lại (mục 4.4.3, 4.8.3). Phân cụm chịu lỗi cao (High Availability), tự động co giãn và học máy thuộc phạm vi mở rộng.
 
 ## **1.5. Tổng quan các công trình liên quan**
 
@@ -185,7 +185,7 @@ Triển khai một máy sử dụng hai công cụ để xử lý lô và chuy�
 
 Change Data Capture (CDC) theo nhật ký giao dịch (ví dụ Debezium đọc WAL của PostgreSQL) cho thấy mọi thay đổi gần thời gian thực, nhưng cần thêm dịch vụ, cấu hình `wal_level = logical` và thay đổi cả luồng nạp lô. Đề tài **không dùng CDC**. Thay vào đó, các thay đổi mà nạp gia tăng theo `updated_at` không thấy được xử lý bằng một DAG đồng bộ riêng (mục 3.5.2): dòng bị xoá được phát hiện bằng đối chiếu khóa chính, thay đổi cột bằng so lược đồ. Cách này chỉ đọc nguồn và không cần dịch vụ thêm.
 
-API phát log có cấu trúc ra stdout. Trong phương án mở rộng ở mục 4.4.3, Apache Kafka [14] nhận sự kiện và Apache Flink [15] ghi từng lô sự kiện vào Iceberg theo checkpoint. Hai dịch vụ này nằm ngoài cấu hình Compose hiện tại.
+API phát log có cấu trúc ra stdout. Xử lý nhật ký truy cập bằng streaming là hướng phát triển của khóa luận (mục 4.8.3): Apache Kafka [14] nhận sự kiện và Apache Flink [15] ghi từng lô sự kiện vào Iceberg theo checkpoint. Hai dịch vụ này chưa có trong cấu hình Compose hiện tại.
 
 ### **2.4.3. Điều phối luồng dữ liệu tự động với Apache Airflow**
 
@@ -361,7 +361,7 @@ Tầng phục vụ là Trino đọc trực tiếp bảng Gold hiện tại qua P
 | **3. Đồng bộ nguồn (sync)** | Kiểm tra lược đồ → phát hiện xoá/khôi phục → Bronze → Silver → Gold → bảo trì | Theo Asset từ incremental hoặc chạy tay | Danh sách cột và toàn bộ khóa chính nguồn | Cột đã duyệt được thêm; dòng bị xoá được đánh dấu |
 | **4. Xoá cứng (purge)** | Xoá dòng `_is_deleted` ở Gold → Silver → Bronze | Chạy tay | Dòng đã xoá mềm | Lakehouse không còn dòng đã xoá |
 | **5. Access log hiện tại** | Middleware ghi JSON, `datagen logs` ghi tệp Parquet riêng | Mỗi request hợp lệ hoặc chạy tay generator | Request API hoặc đơn online mô phỏng | Stdout v1.0.0 hoặc tệp Parquet v1.1.0 |
-| **6. Phân tích access log (thiết kế)** | Nạp sự kiện thô → chuẩn hóa → tổng hợp phễu | Đề xuất | Sự kiện HTTP và tệp log lịch sử | `mart_web_funnel_daily` |
+| **6. Phân tích access log (hướng phát triển)** | Nạp sự kiện thô → chuẩn hóa → tổng hợp phễu | Streaming và nạp file (đã thiết kế, chưa xây) | Sự kiện HTTP và tệp log lịch sử | `mart_web_funnel_daily` |
 
 ![Sơ đồ luồng Batch](../assets/report/flow-batch.svg)
 
@@ -568,7 +568,6 @@ dk-ecommerce-data-platform/
 │   ├── lakehouse/           # thư viện: nguồn, staging, Bronze, đồng bộ, đối soát, tạo bảng
 │   └── tests/               # unittest chạy trong container Airflow
 ├── dbt/                     # models/silver, models/oltp (Gold), macros, seeds, tests
-├── streaming/sql/           # hợp đồng DDL của luồng log cũ
 ├── infrastructure/          # Dockerfile và cấu hình Airflow, MinIO, PostgreSQL, Trino, Superset
 └── docs/                    # kiến trúc, dữ liệu, cài đặt, vận hành, thiết kế
 ```
@@ -665,9 +664,9 @@ Khi backfill incremental, DAG sync được tạm dừng và trigger tay một l
 
 ### **4.4.3. Hiện trạng access log và hướng tích hợp Lakehouse**
 
-API ghi JSON v1.0.0. Lệnh `datagen logs` tạo tệp Parquet v1.1.0 theo `session_date`, với `session.id` và `ecommerce.order_number` để có thể nối log với đơn online mô phỏng. Compose hiện tại phục vụ pipeline OLTP và BI. Các DDL trong `streaming/sql/contracts/logs/` và model dbt trong `dbt/models/logs/` thuộc luồng cũ.
+API ghi JSON v1.0.0. Lệnh `datagen logs` tạo tệp Parquet v1.1.0 theo `session_date`, với `session.id` và `ecommerce.order_number` để có thể nối log với đơn online mô phỏng. Compose hiện tại phục vụ pipeline OLTP và BI. DDL và model dbt của luồng log cũ đã được gỡ khỏi repo.
 
-Thiết kế tích hợp Lakehouse đề xuất các bước sau. [Thiết kế access log](ACCESS_LOG_DESIGN.md).
+Tích hợp access log vào Lakehouse là hướng phát triển của khóa luận (mục 4.8.3). Thiết kế đã duyệt và được giữ lại gồm các bước sau. [Thiết kế access log](ACCESS_LOG_DESIGN.md).
 
 * Nâng API lên v1.1.0, ghi nhận mã phiên và gắn mã đơn vào sự kiện checkout thành công.
 * Nạp payload sự kiện thô vào `bronze.web_events` (`raw_payload`, `event_at`, `_ingested_at`, `_source`). Phương án nghiên cứu dùng Kafka và Flink cho dữ liệu trực tuyến, cùng đường nạp Parquet cho dữ liệu lịch sử.
@@ -858,7 +857,7 @@ Việc sinh dữ liệu dựa trên nền tảng EDA thực nghiệm mang lại 
 
 ### **4.8.2. Các giới hạn hiện tại của hệ thống**
 
-* Luồng access log vào Lakehouse (`bronze.web_events`, `silver.web_events`, `mart_web_funnel_daily`) đang ở giai đoạn thiết kế. API phát v1.0.0 ra stdout và generator xuất tệp v1.1.0.
+* Luồng access log vào Lakehouse (`bronze.web_events`, `silver.web_events`, `mart_web_funnel_daily`) mới có thiết kế, được để lại làm hướng phát triển. API phát v1.0.0 ra stdout và generator xuất tệp v1.1.0.
 * Bốn dashboard dùng chung tài khoản Trino chỉ đọc. Phân quyền theo dòng dữ liệu của từng cửa hàng chưa được triển khai.
 * Đồng bộ nguồn dựa trên đối chiếu khóa định kỳ: `_deleted_at` là lúc phát hiện chứ không phải lúc xoá thật; lần sửa dòng mà nạp gia tăng bỏ sót (giao dịch commit sau khi cửa sổ đã đóng) chưa được bắt.
 * Duyệt một cột mới làm nạp lại cả bảng; một cột chưa duyệt ở một bảng làm hoãn đồng bộ xoá của mọi bảng cho tới khi được duyệt.
@@ -867,7 +866,7 @@ Việc sinh dữ liệu dựa trên nền tảng EDA thực nghiệm mang lại 
 
 ### **4.8.3. Hướng nghiên cứu và phát triển trong tương lai**
 
-* Xây luồng access log theo thiết kế ở mục 4.4.3. Triển khai hợp đồng v1.1.0 trên API, nạp file log lịch sử và nối phiên web với đơn hàng qua Silver và mart phễu. Sau đó có thể thử kịch bản truy cập liên tục.
+* **Hướng phát triển chính: luồng access log streaming** theo thiết kế ở mục 4.4.3. Triển khai hợp đồng v1.1.0 trên API; nạp sự kiện trực tuyến bằng streaming (Kafka nhận sự kiện, Flink ghi `bronze.web_events`) song song với đường nạp file log lịch sử; nối phiên web với đơn hàng qua Silver và mart phễu; trình diễn bằng kịch bản truy cập liên tục trên Console.
 * Kiểm chứng bộ dashboard bán hàng, kho vận, POS và khách hàng với dữ liệu đầu cuối. Bổ sung phân quyền xem dữ liệu theo cửa hàng.
 * CDC theo WAL (Debezium) để bắt thay đổi và xoá gần thời gian thực khi quy mô hoặc yêu cầu độ trễ tăng.
 * Triển khai trên Kubernetes với HA cho Trino và Polaris, cùng quy trình sao lưu và khôi phục.

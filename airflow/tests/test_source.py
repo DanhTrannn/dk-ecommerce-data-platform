@@ -2,8 +2,10 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pyarrow as pa
+
 from lakehouse.oltp import source
-from lakehouse.oltp.source import source_chunks
+from lakehouse.oltp.source import arrow_source_schema, source_chunks
 from lakehouse.oltp.sources import TABLES_BY_NAME
 
 CATEGORIES = TABLES_BY_NAME["categories"]
@@ -82,6 +84,19 @@ class SourceChunkTests(unittest.TestCase):
     def test_half_open_interval_is_refused(self):
         with self.assertRaisesRegex(ValueError, "Both interval bounds"):
             self.read(1, start="2026-11-20T00:00:00Z")
+
+
+class ArrowSourceSchemaTests(unittest.TestCase):
+    def test_empty_source_schema_uses_postgres_types_not_inferred_nulls(self):
+        fields = [
+            SimpleNamespace(name="id", type_code=20),
+            SimpleNamespace(name="value", type_code=2950),
+            SimpleNamespace(name="changed", type_code=1114),
+        ]
+        schema = arrow_source_schema(fields)
+        self.assertEqual(schema.types, [pa.int64(), pa.string(), pa.timestamp("us", tz="UTC")])
+        with self.assertRaises(ValueError):
+            arrow_source_schema([SimpleNamespace(name="unsupported", type_code=999999)])
 
 
 if __name__ == "__main__":
