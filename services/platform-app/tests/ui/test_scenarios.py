@@ -302,6 +302,7 @@ class ScenarioTests(unittest.TestCase):
         self.assertEqual(body["payment_method"], "cash")
         self.assertGreaterEqual(body["amount_received_vnd"], 250000)
         self.assertEqual(record["attempts"][0]["order_number"], "POS1")
+        self.assertNotIn("customer_email", record["attempts"][0])
 
     def test_pos_tries_another_sku_when_no_store_has_the_first(self):
         server = PurchaseServer(products=("a", "b", "c"), stocked_skus={"SKU-c"})
@@ -419,8 +420,10 @@ class ScenarioTests(unittest.TestCase):
         ):
             app.run()
             picker = next(box for box in app.selectbox if box.label == "Kịch bản")
-            self.assertEqual(list(picker.options), [label for label, _, _ in SCENARIOS.values()])
+            self.assertEqual(list(picker.options), [item.label for item in SCENARIOS.values()])
             picker.select("pos").run()
+            self.assertEqual(app.subheader[0].value, "Mô phỏng nghiệp vụ qua API")
+            self.assertEqual([box.label for box in app.number_input][:2], ["Số lượt", "Số lượng mỗi lượt (1 SKU)"])
             self.assertFalse(any(box.label == "Thanh toán" for box in app.selectbox))
             next(button for button in app.button if button.label == "Bắt đầu mô phỏng").click().run()
             self.assertFalse(app.exception)
@@ -465,6 +468,16 @@ class ScenarioTests(unittest.TestCase):
         self.assertNotIn("index", columns)
         self.assertNotIn("idempotency_key", columns)
         self.assertIn("idempotency_key", record["attempts"][0])
+
+    def test_ui_shows_the_steps_of_the_chosen_scenario(self):
+        app = AppTest.from_string("from platform_app.ui.views.scenarios import render\nrender()")
+        with patch.dict(os.environ, {"PLATFORM_APP_SCENARIOS_DIR": str(self.root / "scenarios")}):
+            app.run()
+            next(box for box in app.selectbox if box.label == "Kịch bản").select("return").run()
+        captions = " ".join(caption.value for caption in app.caption)
+        self.assertIn("admin duyệt", captions)
+        self.assertIn("kiểm và hoàn tiền", captions)
+        self.assertIn("đổi trả", captions)
 
     def test_ui_submit_once_and_stop(self):
         app = AppTest.from_string("from platform_app.ui.views.scenarios import render\nrender()")

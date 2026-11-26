@@ -12,7 +12,7 @@ from platform_app.ui.scenarios.store import ACTIVE, ScenarioStore, ScenarioStore
 @st.fragment(run_every=2)
 def render():
     store = ScenarioStore(scenarios_root())
-    st.subheader("Mô phỏng mua hàng qua API")
+    st.subheader("Mô phỏng nghiệp vụ qua API")
     st.caption("Mỗi lượt chạy kịch bản đã chọn qua API thật và xác minh kết quả từng bước.")
     try:
         settings = ScenarioSettings()
@@ -29,13 +29,14 @@ def render():
     st.text(f"API đích: {settings.api_base_url}")
     active = next((row for row in history if row["status"] in ACTIVE), None)
     # Outside the form so that the fields below follow the chosen scenario.
-    scenario = st.selectbox("Kịch bản", list(SCENARIOS), format_func=lambda code: SCENARIOS[code][0])
-    st.caption("Mart Gold thay đổi sau lần chạy pipeline kế tiếp: " + SCENARIOS[scenario][2] + ".")
+    scenario = st.selectbox("Kịch bản", list(SCENARIOS), format_func=lambda code: SCENARIOS[code].label)
+    st.caption("Các bước: " + SCENARIOS[scenario].steps + ".")
+    st.caption("Mart Gold thay đổi sau lần chạy pipeline kế tiếp: " + SCENARIOS[scenario].marts + ".")
     method, name, phone, address = "cod", "Scenario customer", "0000000000", "Scenario, Quận 1, TP. Hồ Chí Minh"
     with st.form("purchase-scenario"):
         columns = st.columns(3)
-        count = columns[0].number_input("Số lượt mua", min_value=1, max_value=1000, value=5)
-        quantity = columns[1].number_input("Số lượng mỗi đơn (1 SKU)", min_value=1, max_value=20, value=1)
+        count = columns[0].number_input("Số lượt", min_value=1, max_value=1000, value=5)
+        quantity = columns[1].number_input("Số lượng mỗi lượt (1 SKU)", min_value=1, max_value=20, value=1)
         interval = columns[2].number_input("Nghỉ giữa hai lượt (giây)", min_value=0.0, max_value=3600.0, value=2.0)
         if scenario == "purchase":
             method = st.selectbox("Thanh toán", ("cod", "vietqr"))
@@ -79,11 +80,11 @@ def render():
     # Runs saved before scenarios existed were purchases.
     runs = [row for row in history if row["config"].get("scenario", "purchase") == scenario]
     if not runs:
-        st.info(f"Chưa có run cho kịch bản {SCENARIOS[scenario][0]}.")
+        st.info(f"Chưa có run cho kịch bản {SCENARIOS[scenario].label}.")
         return
     selected = st.selectbox("Lịch sử mô phỏng", [row["run_id"] for row in runs])
     record = next(row for row in runs if row["run_id"] == selected)
-    st.text(f"Kịch bản: {SCENARIOS[scenario][0]} · Trạng thái: {record['status']} · API: {record['target']}")
+    st.text(f"Kịch bản: {SCENARIOS[scenario].label} · Trạng thái: {record['status']} · API: {record['target']}")
     if record.get("message"):
         st.warning(record["message"])
     if record["status"] == "unknown":
