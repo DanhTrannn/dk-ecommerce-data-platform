@@ -458,16 +458,27 @@ class ScenarioTests(unittest.TestCase):
             self.assertFalse(any(box.label == "Lịch sử mô phỏng" for box in app.selectbox))
             self.assertTrue(any("Chưa có run" in info.value for info in app.info))
 
-    def test_ui_table_hides_internal_columns(self):
-        record, _ = self.execute()
+    def render_history(self):
         app = AppTest.from_string("from platform_app.ui.views.scenarios import render\nrender()")
         with patch.dict(os.environ, {"PLATFORM_APP_SCENARIOS_DIR": str(self.root)}):
             app.run()
-        columns = list(app.dataframe[0].value.columns)
-        self.assertIn("order_number", columns)
-        self.assertNotIn("index", columns)
-        self.assertNotIn("idempotency_key", columns)
-        self.assertIn("idempotency_key", record["attempts"][0])
+        return app
+
+    def test_ui_shows_run_counts_without_an_attempt_table(self):
+        self.execute(count=2)
+        app = self.render_history()
+        self.assertEqual(len(app.dataframe), 0)
+        self.assertEqual([metric.value for metric in app.metric], ["2", "0", "0"])
+        self.assertEqual(len(app.warning), 0)
+
+    def test_ui_explains_only_failed_attempts(self):
+        reject = PurchaseServer(
+            lambda req: httpx.Response(409, json={}) if req.url.path == "/api/v1/checkout" else None
+        )
+        self.execute(reject)
+        app = self.render_history()
+        self.assertEqual(len(app.dataframe), 0)
+        self.assertTrue(any("Lượt 1" in warning.value and "HTTP 409" in warning.value for warning in app.warning))
 
     def test_ui_shows_the_steps_of_the_chosen_scenario(self):
         app = AppTest.from_string("from platform_app.ui.views.scenarios import render\nrender()")
