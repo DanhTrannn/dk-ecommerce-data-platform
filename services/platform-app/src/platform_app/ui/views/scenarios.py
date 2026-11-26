@@ -96,8 +96,10 @@ def render():
     columns[0].metric("Đã xác minh", sum(row["status"] == "succeeded" for row in attempts))
     columns[1].metric("Thất bại", sum(row["status"] == "failed" for row in attempts))
     columns[2].metric("Chưa xác định", sum(row["status"] == "unknown" for row in attempts))
-    # The journal keeps these for reconciliation; they are not results to report.
-    hidden = {"index", "idempotency_key"}
-    st.dataframe([{k: v for k, v in row.items() if k not in hidden} for row in attempts], hide_index=True)
+    # Business results live in the source database; only attempts that need a look are listed here.
+    for row in attempts:
+        if row["status"] in {"failed", "unknown"}:
+            order = f" · đơn {row['order_number']}" if row.get("order_number") else ""
+            st.warning(f"Lượt {row['index']} ({row['status']}){order}: {row.get('message') or 'không có thông báo'}")
     with st.expander("Cấu hình run"):
         st.json(record["config"])
