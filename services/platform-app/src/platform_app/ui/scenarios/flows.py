@@ -1,6 +1,8 @@
 """Console scenarios: each one drives the source through the API so that one Gold mart changes."""
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import NamedTuple
 from urllib.parse import quote, urlencode
 
 from platform_app.ui.scenarios.steps import Attempt, ScenarioFailure, buy, deliver, dispatch, expect, pick_variant
@@ -121,14 +123,51 @@ def pos(ctx: Attempt):
     ctx.checkpoint(order_number=sale["order_number"], total_vnd=sale["total_vnd"])
 
 
-# Code → (console label, scenario, Gold marts it feeds), in console order.
+class Scenario(NamedTuple):
+    label: str
+    run: Callable[[Attempt], None]
+    marts: str
+    steps: str
+
+
+# In console order.
 SCENARIOS = {
-    "purchase": ("Mua hàng", purchase, "đơn, doanh thu"),
-    "delivered": ("Mua và giao thành công", delivered, "giao hàng, tồn đọng"),
-    "failed_delivery": ("Giao thất bại", failed_delivery, "giao hàng"),
-    "cancelled": ("Khách huỷ đơn", cancelled, "huỷ đơn"),
-    "review": ("Mua rồi đánh giá", review, "đánh giá"),
-    "return": ("Đổi trả, hoàn tiền", return_refund, "đổi trả"),
-    "coupon": ("Mua có coupon", coupon, "coupon"),
-    "pos": ("Bán tại quầy", pos, "POS theo giờ"),
+    "purchase": Scenario(
+        "Mua hàng", purchase, "đơn, doanh thu", "khách đăng ký → thêm giỏ → checkout (COD hoặc VietQR) → xác minh đơn"
+    ),
+    "delivered": Scenario(
+        "Mua và giao thành công",
+        delivered,
+        "giao hàng, tồn đọng",
+        "khách mua COD → admin giao cho nhân viên → giao tới → khách xác nhận nhận hàng",
+    ),
+    "failed_delivery": Scenario(
+        "Giao thất bại",
+        failed_delivery,
+        "giao hàng",
+        "khách mua COD → admin giao cho nhân viên → giao thất bại 3 lần → đơn failed_delivery",
+    ),
+    "cancelled": Scenario(
+        "Khách huỷ đơn", cancelled, "huỷ đơn", "khách mua VietQR (đã thanh toán) → khách huỷ → API hoàn tiền"
+    ),
+    "review": Scenario(
+        "Mua rồi đánh giá",
+        review,
+        "đánh giá",
+        "khách mua COD → admin giao → giao tới → khách xác nhận → khách đánh giá 3–5 sao",
+    ),
+    "return": Scenario(
+        "Đổi trả, hoàn tiền",
+        return_refund,
+        "đổi trả",
+        "khách mua COD → admin giao → giao tới → khách xác nhận → khách yêu cầu trả → admin duyệt"
+        " → nhận hàng → kiểm và hoàn tiền",
+    ),
+    "coupon": Scenario(
+        "Mua có coupon",
+        coupon,
+        "coupon",
+        "admin tạo coupon giảm 10% (một lần mỗi run) → khách mua COD với mã",
+    ),
+    "pos": Scenario("Bán tại quầy", pos, "POS theo giờ", "admin chọn cửa hàng còn tồn → bán tại quầy, trả tiền mặt"),
 }

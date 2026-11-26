@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 
 from platform_app.api.core.config import get_settings
-from platform_app.ui.scenarios.config import ADMIN_SCENARIOS, PurchaseConfig, ScenarioSettings
+from platform_app.ui.scenarios.config import ADMIN_SCENARIOS, STAFF_ONLY_SCENARIOS, PurchaseConfig, ScenarioSettings
 from platform_app.ui.scenarios.flows import SCENARIOS
 from platform_app.ui.scenarios.steps import Attempt, ScenarioFailure, admin_login
 from platform_app.ui.scenarios.store import ScenarioStore, stamp
@@ -26,7 +26,7 @@ def run(root, run_id, client_factory=None, csrf_cookie=None, rng=None, settings=
                 csrf_cookie = get_settings().csrf_cookie_name
             settings = settings or ScenarioSettings()
             rng = rng or random.Random()
-            scenario = SCENARIOS[config.scenario][1]
+            scenario = SCENARIOS[config.scenario].run
             run_state = {}
             factory = client_factory or (
                 lambda: httpx.Client(
@@ -49,13 +49,14 @@ def run(root, run_id, client_factory=None, csrf_cookie=None, rng=None, settings=
                         break
                     attempt = dict(
                         index=index + 1,
-                        customer_email=f"scenario-{run_id}-{index + 1}@example.com",
                         idempotency_key=f"sim-{run_id}-{index + 1}",
                         status="running",
                         stage="starting",
                         started_at=stamp(),
                         finished_at=None,
                     )
+                    if config.scenario not in STAFF_ONLY_SCENARIOS:
+                        attempt["customer_email"] = f"scenario-{run_id}-{index + 1}@example.com"
                     store.update(run_id, lambda row: row["attempts"].append(attempt))
 
                     def checkpoint(**values):

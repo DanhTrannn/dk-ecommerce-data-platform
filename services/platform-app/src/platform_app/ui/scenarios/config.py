@@ -38,6 +38,8 @@ class ScenarioSettings(BaseSettings):
 
 
 ADMIN_SCENARIOS = frozenset({"delivered", "failed_delivery", "review", "return", "coupon", "pos"})
+# Scenarios that never register a customer.
+STAFF_ONLY_SCENARIOS = frozenset({"pos"})
 
 
 class PurchaseConfig(BaseModel):
