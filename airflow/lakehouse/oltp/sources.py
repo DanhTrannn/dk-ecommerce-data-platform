@@ -9,6 +9,8 @@ class TableSpec:
     columns: tuple[str, ...]
     # Source columns deliberately not loaded, such as personal data; any other new source column stops the sync.
     excluded: tuple[str, ...] = ()
+    # Reference data: reloaded whole every day by lakehouse_oltp_full_daily instead of loaded by interval.
+    full_load: bool = False
 
 
 SOURCE_TABLES = [
@@ -38,6 +40,7 @@ SOURCE_TABLES = [
         "updated_at",
         "category_id",
         ("category_id", "public_id", "parent_category_id", "code", "name", "is_active", "created_at", "updated_at"),
+        full_load=True,
     ),
     TableSpec(
         "products",
@@ -45,19 +48,22 @@ SOURCE_TABLES = [
         "product_id",
         ("product_id", "public_id", "category_id", "slug", "name", "description", "image_url", "is_active", "created_at", "updated_at"),
         excluded=("archived_at", "archived_by_customer_id", "archive_reason"),
+        full_load=True,
     ),
     TableSpec(
         "product_variants",
         "updated_at",
         "variant_id",
         ("variant_id", "public_id", "product_id", "sku", "size_code", "color_code", "price_vnd", "cost_price_vnd", "is_active", "created_at", "updated_at"),
+        full_load=True,
     ),
-    TableSpec("cities", "updated_at", "city_id", ("city_id", "code", "name", "is_active", "created_at", "updated_at")),
+    TableSpec("cities", "updated_at", "city_id", ("city_id", "code", "name", "is_active", "created_at", "updated_at"), full_load=True),
     TableSpec(
         "stores",
         "updated_at",
         "store_id",
         ("store_id", "city_id", "code", "name", "address", "phone", "is_active", "created_at", "updated_at"),
+        full_load=True,
     ),
     TableSpec(
         "delivery_staff",
@@ -65,6 +71,7 @@ SOURCE_TABLES = [
         "staff_id",
         ("staff_id", "public_id", "full_name", "vehicle_plate", "is_active", "created_at", "updated_at"),
         excluded=("phone",),
+        full_load=True,
     ),
     TableSpec(
         "orders",
@@ -149,6 +156,7 @@ SOURCE_TABLES = [
         "coupon_id",
         ("coupon_id", "public_id", "code_normalized", "discount_type", "discount_value", "minimum_subtotal_vnd", "starts_at", "ends_at", "is_active", "total_usage_limit", "per_customer_usage_limit", "used_count", "created_at", "updated_at"),
         excluded=("archived_at", "archived_by_customer_id", "archive_reason"),
+        full_load=True,
     ),
     TableSpec(
         "shipments",

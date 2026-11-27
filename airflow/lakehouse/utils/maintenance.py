@@ -1,77 +1,41 @@
 import os
-from datetime import UTC, datetime, timedelta
-from urllib.parse import urlsplit
 
-import boto3
+import trino
 
-from lakehouse.utils.iceberg import current_snapshot_has_manifests
-
-RETAIN_SNAPSHOTS = 20
-TARGET_FILE_SIZE_BYTES = 128 * 1024 * 1024
-# PyIceberg can only rewrite a whole table, so compaction waits until enough small files have piled up.
-SMALL_FILE_BYTES = TARGET_FILE_SIZE_BYTES // 2
-MIN_SMALL_FILES = 10
-# Younger snapshots and files stay, since a reader or a write in progress may still use them.
-MIN_AGE = timedelta(days=3)
+CATALOG = "lakehouse_etl"
+MAINTAINER = "lakehouse_maintainer"
+# Trino's default minimum retention; younger snapshots and files stay, since a reader or a write may still use them.
+RETENTION = "7d"
+STATEMENTS = {
+    "optimize": "ALTER TABLE {table} EXECUTE optimize",
+    "expire": f"ALTER TABLE {{table}} EXECUTE expire_snapshots(retention_threshold => '{RETENTION}')",
+    "orphan": f"ALTER TABLE {{table}} EXECUTE remove_orphan_files(retention_threshold => '{RETENTION}')",
+}
 
 
-def compact(table):
-    if not current_snapshot_has_manifests(table):
-        return {"rewritten": False, "small_files": 0}
-    files = table.inspect.files()
-    small = sum(size < SMALL_FILE_BYTES for size in files["file_size_in_bytes"].to_pylist())
-    if small < MIN_SMALL_FILES and not any(files["content"].to_pylist()):
-        return {"rewritten": False, "small_files": small}
-    # The transaction starts before the read; a concurrent commit changes main and fails its snapshot assertion.
-    with table.transaction() as transaction:
-        data = table.scan().to_arrow()
-        transaction.set_properties(
-            {"write.target-file-size-bytes": str(TARGET_FILE_SIZE_BYTES), "commit.manifest-merge.enabled": "true"}
-        )
-        transaction.overwrite(data)
-    return {"rewritten": True, "rows": len(data)}
+def statement(action, table):
+    schema, name = table
+    return STATEMENTS[action].format(table=f"{CATALOG}.{schema}.{name}")
 
 
-def expire(table):
-    snapshots = sorted(table.metadata.snapshots, key=lambda s: s.timestamp_ms, reverse=True)
-    keep = {s.snapshot_id for s in snapshots[:RETAIN_SNAPSHOTS]}
-    keep.update(ref.snapshot_id for ref in table.metadata.refs.values())
-    cutoff = (datetime.now(UTC) - MIN_AGE).timestamp() * 1000
-    expired = [s.snapshot_id for s in snapshots if s.snapshot_id not in keep and s.timestamp_ms < cutoff]
-    if expired:
-        table.maintenance.expire_snapshots().by_ids(expired).commit()
-    return {"expired_snapshots": len(expired)}
-
-
-def orphan_files(table):
-    """Count data files no snapshot references; deleting them is left to an operator with writers stopped."""
-    location = urlsplit(table.location())
-    bucket = os.environ["MINIO_LAKEHOUSE_BUCKET"]
-    if location.scheme not in {"s3", "s3a"} or location.netloc != bucket:
-        raise ValueError("Orphan scan is limited to the configured lakehouse bucket")
-    prefix = location.path.strip("/") + "/data/"
-    live = set()
-    if any(snapshot.manifests(table.io) for snapshot in table.snapshots()):
-        live = {urlsplit(path).path.lstrip("/") for path in table.inspect.all_files()["file_path"].to_pylist()}
-    # The credentials Polaris vended for this table only reach its own location, so the scan cannot leave it.
-    vended = table.io.properties
-    client = boto3.client(
-        "s3",
-        endpoint_url=vended["s3.endpoint"],
-        aws_access_key_id=vended["s3.access-key-id"],
-        aws_secret_access_key=vended["s3.secret-access-key"],
-        aws_session_token=vended["s3.session-token"],
-        region_name=vended.get("client.region", "us-east-1"),
+def maintain_tables(tables, action):
+    """Run one Trino maintenance statement per (schema, table), as the account allowed only table procedures."""
+    connection = trino.dbapi.connect(
+        host=os.environ["DBT_TRINO_HOST"],
+        port=int(os.environ.get("DBT_TRINO_PORT", "8443")),
+        user=MAINTAINER,
+        auth=trino.auth.BasicAuthentication(MAINTAINER, os.environ["TRINO_MAINTAINER_PASSWORD"]),
+        http_scheme="https",
+        verify=os.environ["TRINO_CA_FILE"],
+        catalog=CATALOG,
     )
-    cutoff = datetime.now(UTC) - MIN_AGE
-    orphans = 0
-    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
-        orphans += sum(1 for item in page.get("Contents", []) if item["Key"] not in live and item["LastModified"] < cutoff)
-    return {"orphan_candidates": orphans}
-
-
-ACTIONS = {"compact": compact, "expire": expire, "orphan": orphan_files}
-
-
-def maintain_tables(catalog, tables, action):
-    return {".".join(key): ACTIONS[action](catalog.load_table(key)) for key in tables}
+    result = {}
+    try:
+        cursor = connection.cursor()
+        for table in tables:
+            cursor.execute(statement(action, table))
+            cursor.fetchall()
+            result[".".join(table)] = "done"
+    finally:
+        connection.close()
+    return result

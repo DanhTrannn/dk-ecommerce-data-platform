@@ -144,6 +144,37 @@ def merge_bronze(catalog, table, *, full):
     return written
 
 
+def overwrite_bronze(catalog, table):
+    """Replace a reference table with the staged snapshot in one commit; rows gone from the source are dropped.
+
+    A row whose values did not change keeps its `_ingested_at`, so the facts that watch it recompute only the keys
+    that really changed.
+    """
+    target = load_table(catalog, ("bronze", table.name))
+    schema = target.schema().as_arrow()
+    staged = align_arrow(staging_rows(catalog, table).read_all(), schema)
+    staged = with_values(staged, {"_is_deleted": False, "_deleted_at": None})
+    if target.current_snapshot() is not None and staged.num_rows:
+        compared = [name for name in schema.names if name != table.pk and (not name.startswith("_") or name == "_is_deleted")]
+        current = pl.from_arrow(target.scan(selected_fields=(table.pk, *compared, "_ingested_at")).to_arrow())
+        same = ~pl.any_horizontal([pl.col(name).ne_missing(pl.col("_current_" + name)) for name in compared])
+        frame = pl.from_arrow(staged).join(
+            current.select(table.pk, *(pl.col(name).alias("_current_" + name) for name in [*compared, "_ingested_at"])),
+            on=table.pk,
+            how="left",
+        )
+        kept = pl.when(pl.col("_current__ingested_at").is_not_null() & same)
+        frame = frame.with_columns(kept.then(pl.col("_current__ingested_at")).otherwise(pl.col("_ingested_at")).alias("_ingested_at"))
+        staged = align_arrow(frame.select(staged.column_names).to_arrow(), schema)
+    write = target.overwrite if target.current_snapshot() is not None else target.append
+    write(staged)
+    if reload_pending(target):
+        with load_table(catalog, ("bronze", table.name)).transaction() as transaction:
+            transaction.remove_properties(RELOAD_PENDING)
+    print(f"BRONZE table={table.name} rows={staged.num_rows} overwrite=True", flush=True)
+    return staged.num_rows
+
+
 def purge_bronze(catalog, table):
     """Delete the rows flagged as deleted for good, and return how many there were."""
     target = load_table(catalog, ("bronze", table.name))

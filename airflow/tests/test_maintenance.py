@@ -1,47 +1,47 @@
+import os
 import unittest
-from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, patch
+
+from lakehouse.utils import maintenance
+
+ENV = {"DBT_TRINO_HOST": "trino", "TRINO_MAINTAINER_PASSWORD": "secret", "TRINO_CA_FILE": "/run/trino-ca/ca.pem"}
 
 
-import pyarrow as pa
-
-from lakehouse.utils.maintenance import MIN_SMALL_FILES, SMALL_FILE_BYTES, compact, expire
-
-
-class ExpiryTests(unittest.TestCase):
-    def test_keeps_refs_the_latest_snapshots_and_recent_ones(self):
-        old = int((datetime.now(UTC) - timedelta(days=10)).timestamp() * 1000)
-        recent = int(datetime.now(UTC).timestamp() * 1000)
-        snapshots = [SimpleNamespace(snapshot_id=i, timestamp_ms=old + i) for i in range(1, 26)]
-        snapshots.append(SimpleNamespace(snapshot_id=99, timestamp_ms=recent))
-        commit = Mock()
-        table = SimpleNamespace(
-            metadata=SimpleNamespace(snapshots=snapshots, refs={"tag": SimpleNamespace(snapshot_id=2)}),
-            maintenance=SimpleNamespace(expire_snapshots=lambda: SimpleNamespace(by_ids=commit)),
+class StatementTests(unittest.TestCase):
+    def test_optimize_rewrites_small_files(self):
+        self.assertEqual(
+            maintenance.statement("optimize", ("bronze", "orders")),
+            "ALTER TABLE lakehouse_etl.bronze.orders EXECUTE optimize",
         )
-        # The 20 newest are 99 and 25..7; tag keeps 2; the rest are older than three days.
-        self.assertEqual(expire(table), {"expired_snapshots": 5})
-        self.assertEqual(commit.call_args.args[0], [6, 5, 4, 3, 1])
+
+    def test_expire_keeps_seven_days_of_snapshots(self):
+        self.assertEqual(
+            maintenance.statement("expire", ("gold", "fact_order")),
+            "ALTER TABLE lakehouse_etl.gold.fact_order EXECUTE expire_snapshots(retention_threshold => '7d')",
+        )
+
+    def test_orphan_removes_files_older_than_seven_days(self):
+        self.assertEqual(
+            maintenance.statement("orphan", ("staging", "orders")),
+            "ALTER TABLE lakehouse_etl.staging.orders EXECUTE remove_orphan_files(retention_threshold => '7d')",
+        )
 
 
-class CompactionTests(unittest.TestCase):
-    def table(self, sizes, content=0):
-        files = pa.table({"file_size_in_bytes": sizes, "content": [content] * len(sizes)})
-        return SimpleNamespace(inspect=SimpleNamespace(files=lambda: files))
-
-    def test_waits_until_enough_small_files(self):
-        sizes = [SMALL_FILE_BYTES - 1] * (MIN_SMALL_FILES - 1) + [SMALL_FILE_BYTES * 2]
-        self.assertEqual(compact(self.table(sizes)), {"rewritten": False, "small_files": MIN_SMALL_FILES - 1})
-
-    def test_rewrites_when_small_files_pile_up_or_deletes_exist(self):
-        for table in (self.table([1] * MIN_SMALL_FILES), self.table([SMALL_FILE_BYTES * 2], content=1)):
-            data = pa.table({"id": [1]})
-            transaction = Mock()
-            table.transaction = Mock(return_value=Mock(__enter__=Mock(return_value=transaction), __exit__=Mock(return_value=False)))
-            table.scan = lambda: SimpleNamespace(to_arrow=lambda: data)
-            self.assertEqual(compact(table), {"rewritten": True, "rows": 1})
-            transaction.overwrite.assert_called_once_with(data)
+class MaintainTablesTests(unittest.TestCase):
+    def test_runs_one_statement_per_table_as_the_maintainer(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value
+        with patch.dict(os.environ, ENV, clear=True), patch.object(maintenance.trino.dbapi, "connect", return_value=connection) as connect:
+            result = maintenance.maintain_tables([("bronze", "orders"), ("gold", "dim_city")], "optimize")
+        kwargs = connect.call_args.kwargs
+        self.assertEqual((kwargs["host"], kwargs["port"], kwargs["user"]), ("trino", 8443, "lakehouse_maintainer"))
+        self.assertEqual((kwargs["http_scheme"], kwargs["verify"], kwargs["catalog"]), ("https", "/run/trino-ca/ca.pem", "lakehouse_etl"))
+        self.assertEqual(
+            [call.args[0] for call in cursor.execute.call_args_list],
+            ["ALTER TABLE lakehouse_etl.bronze.orders EXECUTE optimize", "ALTER TABLE lakehouse_etl.gold.dim_city EXECUTE optimize"],
+        )
+        self.assertEqual(result, {"bronze.orders": "done", "gold.dim_city": "done"})
+        connection.close.assert_called_once()
 
 
 if __name__ == "__main__":

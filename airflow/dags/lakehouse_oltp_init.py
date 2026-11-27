@@ -1,7 +1,8 @@
 """Load the whole OLTP source: create the tables, then staging, reconcile, Bronze, Silver and Gold.
 
-Trigger it by hand to set the lakehouse up, after a source column is added, or to reload everything. Keep
-lakehouse_oltp_incremental paused while it runs; both DAGs write the same tables.
+Trigger it by hand to set the lakehouse up, after a source column is added, or to reload everything, past data
+included. Keep lakehouse_oltp_incremental_daily and lakehouse_oltp_full_daily paused while it runs; they write the same
+tables.
 """
 
 from datetime import timedelta
@@ -13,7 +14,7 @@ from airflow.sdk import DAG, TaskGroup
 
 from lakehouse.oltp.sources import SOURCE_TABLES
 from tasks import oltp
-from tasks.dbt import dbt_command, dbt_env, gold_task_group
+from tasks.dbt import DBT_POOL, dbt_command, dbt_env, gold_task_group
 
 # Each task holds a table's batches in memory, so the pool (4 slots) bounds memory use.
 POOL = "lakehouse_oltp"
@@ -55,18 +56,17 @@ with DAG(
                 bash_command=dbt_command("build", table.name) + " --full-refresh",
                 env=dbt_env(table.name),
                 append_env=True,
-                pool=POOL,
+                pool=DBT_POOL,
             )
 
-    gold = gold_task_group(POOL, full_refresh=True)
+    gold = gold_task_group(full_refresh=True)
 
     with TaskGroup("maintenance") as maintenance:
-        compact = PythonOperator(task_id="compact", python_callable=oltp.maintain, op_kwargs={"action": "compact"})
-        optimize = BashOperator(
-            task_id="optimize", bash_command="dbt run-operation optimize", env=dbt_env("optimize"), append_env=True
+        optimize = PythonOperator(
+            task_id="optimize", python_callable=oltp.maintain, op_kwargs={"action": "optimize"}
         )
         expire = PythonOperator(task_id="expire", python_callable=oltp.maintain, op_kwargs={"action": "expire"})
         orphan = PythonOperator(task_id="orphan", python_callable=oltp.maintain, op_kwargs={"action": "orphan"})
-        compact >> optimize >> expire >> orphan
+        optimize >> expire >> orphan
 
     create_schema >> staging >> reconcile >> bronze >> silver >> gold >> maintenance

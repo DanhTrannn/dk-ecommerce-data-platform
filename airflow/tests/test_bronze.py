@@ -4,7 +4,17 @@ from datetime import UTC, datetime, timedelta
 import pyarrow as pa
 
 from iceberg_fixture import AT, TABLES, category, create_tables, page, sql_catalog
-from lakehouse.oltp.bronze import filter_current, live_keys, mark_deleted, merge_bronze, purge_bronze
+from lakehouse.oltp.bronze import (
+    RELOAD_PENDING,
+    filter_current,
+    live_keys,
+    mark_deleted,
+    merge_bronze,
+    overwrite_bronze,
+    purge_bronze,
+    reload_pending,
+)
+from lakehouse.oltp.sources import SOURCE_TABLES
 from lakehouse.oltp.staging import write_staging
 
 CATEGORIES = TABLES["categories"]
@@ -87,6 +97,78 @@ class BronzeTests(unittest.TestCase):
         mark_deleted(self.catalog, CATEGORIES, pa.array([2]), AT, AT)
         purge_bronze(self.catalog, CATEGORIES)
         self.assertEqual(purge_bronze(self.catalog, CATEGORIES), 0)
+
+
+class OverwriteBronzeTests(unittest.TestCase):
+    def setUp(self):
+        self.catalog = sql_catalog(self)
+        create_tables(self.catalog)
+
+    def overwrite(self, rows, at=AT):
+        write_staging(self.catalog, CATEGORIES, [page("categories", rows)], at)
+        return overwrite_bronze(self.catalog, CATEGORIES)
+
+    def table(self):
+        return self.catalog.load_table(("bronze", "categories"))
+
+    def rows(self):
+        return {row["category_id"]: row for row in self.table().scan().to_arrow().to_pylist()}
+
+    def test_reference_tables_are_full_load(self):
+        self.assertEqual(
+            {table.name for table in SOURCE_TABLES if table.full_load},
+            {"categories", "cities", "stores", "coupons", "delivery_staff", "products", "product_variants"},
+        )
+
+    def test_overwrite_into_an_empty_table(self):
+        self.assertEqual(self.overwrite([category(1)]), 1)
+        self.assertEqual(self.rows()[1]["_ingested_at"], AT)
+
+    def test_overwrite_keeps_the_time_of_unchanged_rows(self):
+        self.overwrite([category(1), category(2)])
+        self.overwrite([category(1), category(2)], at=AT + timedelta(days=1))
+        self.assertEqual({key: row["_ingested_at"] for key, row in self.rows().items()}, {1: AT, 2: AT})
+
+    def test_overwrite_gives_changed_rows_the_new_time(self):
+        later = AT + timedelta(days=1)
+        self.overwrite([category(1), category(2)])
+        self.overwrite([category(1, name="b", later=True), category(2)], at=later)
+        rows = self.rows()
+        self.assertEqual((rows[1]["name"], rows[1]["_ingested_at"]), ("b", later))
+        self.assertEqual(rows[2]["_ingested_at"], AT)
+
+    def test_overwrite_gives_a_filled_null_the_new_time(self):
+        later = AT + timedelta(days=1)
+        self.overwrite([dict(category(1), parent_category_id=None)])
+        self.overwrite([dict(category(1), parent_category_id=7)], at=later)
+        self.assertEqual(self.rows()[1]["_ingested_at"], later)
+
+    def test_overwrite_drops_rows_missing_from_the_source(self):
+        write_staging(self.catalog, CATEGORIES, [page("categories", [category(1), category(2)])], AT)
+        merge_bronze(self.catalog, CATEGORIES, full=True)
+        mark_deleted(self.catalog, CATEGORIES, pa.array([2]), AT, AT)
+        self.overwrite([category(1)])
+        rows = self.rows()
+        self.assertEqual(list(rows), [1])
+        self.assertEqual((rows[1]["_is_deleted"], rows[1]["_deleted_at"]), (False, None))
+
+    def test_overwrite_with_an_empty_source_empties_the_table(self):
+        self.overwrite([category(1)])
+        self.assertEqual(self.overwrite([]), 0)
+        self.assertEqual(self.rows(), {})
+
+    def test_overwrite_rerun_gives_the_same_table(self):
+        self.overwrite([category(1), category(2, name="x")])
+        first = self.rows()
+        self.overwrite([category(1), category(2, name="x")], at=AT + timedelta(days=1))
+        self.assertEqual(self.rows(), first)
+
+    def test_overwrite_clears_reload_pending(self):
+        self.overwrite([category(1)])
+        with self.table().transaction() as transaction:
+            transaction.set_properties({RELOAD_PENDING: "name"})
+        self.overwrite([category(1)])
+        self.assertEqual(reload_pending(self.table()), [])
 
 
 class FilterCurrentTests(unittest.TestCase):

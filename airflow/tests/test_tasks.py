@@ -4,6 +4,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from tasks import oltp
+from tasks.dbt import REFERENCE_GOLD, gold_dependencies
+
+REFERENCE = [table.name for table in oltp.SOURCE_TABLES if table.full_load]
 
 RUN_AFTER = datetime(2026, 11, 21, 3, tzinfo=UTC)
 START, END = datetime(2026, 11, 20, tzinfo=UTC), datetime(2026, 11, 21, tzinfo=UTC)
@@ -61,26 +64,55 @@ class TaskTests(unittest.TestCase):
         merged, _ = self.call("merge_bronze", oltp.bronze_incremental, table="orders")
         self.assertFalse(merged.call_args.kwargs["full"])
 
+    def test_bronze_overwrite_calls_overwrite_bronze(self):
+        overwritten, _ = self.call("overwrite_bronze", oltp.bronze_overwrite, table="categories")
+        self.assertEqual(overwritten.call_args.args[1], oltp.TABLES_BY_NAME["categories"])
+
     def test_unknown_table_is_rejected(self):
         with self.assertRaises(KeyError):
             oltp.bronze_full("customer_credentials")
 
-    def test_maintenance_covers_every_oltp_table(self):
+    def maintained(self, action, **kwargs):
         with (
             patch.object(oltp, "maintain_tables", return_value={}) as maintained,
-            patch.object(oltp, "iceberg_catalog"),
-            patch.object(oltp, "gold_dependencies", return_value={"dim_city": (), "delivery_sla": ()}),
+            patch.object(oltp, "gold_dependencies", return_value={"dim_city": (), "delivery_sla": (), "fact_order": ()}),
             patch("builtins.print"),
         ):
-            oltp.maintain("expire")
-            expired = maintained.call_args.args[1]
-            oltp.maintain("compact")
-            compacted = maintained.call_args.args[1]
-        self.assertEqual(len(expired), 3 * len(oltp.SOURCE_TABLES) + 3)
-        self.assertIn(("gold", "_mart_state"), expired)
+            oltp.maintain(action, **kwargs)
+        return maintained.call_args.args[0]
+
+    def test_maintenance_of_reference_tables(self):
+        expired = self.maintained("expire", full_load=True)
+        self.assertIn(("silver", "categories"), expired)
+        self.assertIn(("gold", "dim_city"), expired)
         self.assertIn(("gold", "delivery_sla"), expired)
-        self.assertEqual(compacted, [("bronze", table.name) for table in oltp.SOURCE_TABLES])
-        self.assertEqual(maintained.call_args.args[2], "compact")
+        self.assertNotIn(("silver", "orders"), expired)
+        self.assertNotIn(("gold", "fact_order"), expired)
+        self.assertIn(("staging", "categories"), expired)
+
+    def test_optimize_skips_staging(self):
+        optimized = self.maintained("optimize", full_load=True)
+        self.assertIn(("bronze", "categories"), optimized)
+        self.assertFalse([table for table in optimized if table[0] == "staging"])
+
+    def test_maintenance_of_transactional_tables(self):
+        expired = self.maintained("expire", full_load=False)
+        self.assertIn(("silver", "orders"), expired)
+        self.assertIn(("gold", "fact_order"), expired)
+        self.assertNotIn(("silver", "categories"), expired)
+        self.assertNotIn(("gold", "dim_city"), expired)
+
+    def test_maintenance_by_default_covers_every_oltp_table(self):
+        expired = self.maintained("expire")
+        groups = set(self.maintained("expire", full_load=True)) | set(self.maintained("expire", full_load=False))
+        self.assertEqual(set(expired), groups)
+        self.assertEqual(len(expired), 3 * len(oltp.SOURCE_TABLES) + 3)
+        self.assertNotIn(("gold", "_mart_state"), expired)
+
+    def test_reference_gold_reads_only_reference_gold(self):
+        graph = gold_dependencies()
+        for node in REFERENCE_GOLD:
+            self.assertLessEqual(set(graph[node]), REFERENCE_GOLD, node)
 
 
 if __name__ == "__main__":

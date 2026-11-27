@@ -72,7 +72,12 @@ def certificates():
 
 def main():
     lines = []
-    for user, variable in [("analytics_reader", "TRINO_READER_PASSWORD"), ("dbt_writer", "DBT_TRINO_PASSWORD")]:
+    clients = [
+        ("analytics_reader", "TRINO_READER_PASSWORD"),
+        ("dbt_writer", "DBT_TRINO_PASSWORD"),
+        ("lakehouse_maintainer", "TRINO_MAINTAINER_PASSWORD"),
+    ]
+    for user, variable in clients:
         password = os.environ[variable]
         if not password:
             raise ValueError("Trino client secrets must be injected")
