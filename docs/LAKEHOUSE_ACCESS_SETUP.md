@@ -146,7 +146,8 @@ Sau đó bật DAG chạy incremental lúc **03:00 giờ Việt Nam** mỗi ngà
 
 ```bash
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_sync
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_full_daily
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental_daily
 ```
 
 `lakehouse_oltp_sync` chạy sau mỗi lần incremental để đồng bộ thay đổi cột và dòng bị xoá ở nguồn.
