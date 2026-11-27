@@ -10,7 +10,7 @@ from lakehouse.oltp.staging import write_staging
 from lakehouse.oltp import schema
 from lakehouse.oltp.bronze import mark_deleted, merge_bronze
 from lakehouse.oltp.drift import SchemaChanged
-from lakehouse.oltp.schema import MART_STATE, create_oltp_schema, evolve_schema
+from lakehouse.oltp.schema import create_oltp_schema, evolve_schema
 from lakehouse.oltp.sources import SOURCE_TABLES
 
 BOOLEAN, BIGINT, TEXT, TIMESTAMPTZ = 16, 20, 25, 1184
@@ -79,15 +79,7 @@ class CreateSchemaTests(unittest.TestCase):
             self.assertEqual(staging.schema().column_names, [*table.columns, "_ingested_at"])
             bronze = self.catalog.load_table(("bronze", table.name))
             self.assertEqual(bronze.schema().column_names, [*table.columns, "_ingested_at", "_is_deleted", "_deleted_at"])
-        self.assertEqual(self.catalog.load_table(MART_STATE).schema().column_names, ["mart", "watermark", "last_day"])
-
-    def test_rerun_keeps_the_mart_state(self):
-        create_oltp_schema(self.catalog, Source())
-        state = self.catalog.load_table(MART_STATE)
-        state.append(pa.table({"mart": ["mart_sales_daily"], "watermark": pa.array([AT], pa.timestamp("us", tz="UTC")),
-                               "last_day": pa.array([AT.date()], pa.date32())}))
-        create_oltp_schema(self.catalog, Source())
-        self.assertEqual(self.catalog.load_table(MART_STATE).scan().to_arrow()["mart"].to_pylist(), ["mart_sales_daily"])
+        self.assertFalse(self.catalog.table_exists(("gold", "_mart_state")))
 
     def test_rerun_keeps_the_data_and_adds_approved_columns_only(self):
         create_oltp_schema(self.catalog, Source())

@@ -3,10 +3,11 @@
 `schema` adds the columns approved in sources.py and widens types in staging and Bronze, and fails on an
 unreviewed new column, a dropped column or an incompatible type. `detect` flags deleted rows in Bronze and stages
 restored ones, or the whole table when a new column still has to be filled. Silver and Gold then pick them up.
+Reference tables only go through `schema`: lakehouse_oltp_full_daily reloads them whole every day.
 
-It runs after each successful lakehouse_oltp_incremental run, which writes the same tables. On the daily schedule
-the two never overlap; during a backfill they would, so pause this DAG while backfilling and trigger it once by
-hand afterwards.
+It runs after each successful lakehouse_oltp_incremental_daily run, which writes the same tables. On the daily
+schedule the two never overlap; when incremental catches up several days they would, so pause this DAG while it
+catches up and trigger it once by hand afterwards.
 """
 
 from datetime import timedelta
@@ -18,10 +19,11 @@ from airflow.sdk import DAG, TaskGroup
 
 from lakehouse.oltp.sources import SOURCE_TABLES
 from tasks import oltp
-from tasks.dbt import dbt_command, dbt_env, gold_task_group
+from tasks.dbt import DBT_POOL, dbt_command, dbt_env, gold_task_group
 
 # Each task holds a table's keys in memory, so the pool (4 slots) bounds memory use.
 POOL = "lakehouse_oltp"
+TRANSACTIONAL_TABLES = [table for table in SOURCE_TABLES if not table.full_load]
 
 with DAG(
     dag_id="lakehouse_oltp_sync",
@@ -37,34 +39,34 @@ with DAG(
             PythonOperator(task_id=table.name, python_callable=oltp.schema, op_kwargs={"table": table.name}, pool=POOL)
 
     with TaskGroup("detect") as detect:
-        for table in SOURCE_TABLES:
+        for table in TRANSACTIONAL_TABLES:
             PythonOperator(task_id=table.name, python_callable=oltp.detect, op_kwargs={"table": table.name}, pool=POOL)
 
     with TaskGroup("bronze") as bronze:
-        for table in SOURCE_TABLES:
+        for table in TRANSACTIONAL_TABLES:
             PythonOperator(
                 task_id=table.name, python_callable=oltp.bronze_sync, op_kwargs={"table": table.name}, pool=POOL
             )
 
     with TaskGroup("silver") as silver:
-        for table in SOURCE_TABLES:
+        for table in TRANSACTIONAL_TABLES:
             BashOperator(
                 task_id=table.name,
                 bash_command=dbt_command("build", table.name),
                 env=dbt_env(table.name),
                 append_env=True,
-                pool=POOL,
+                pool=DBT_POOL,
             )
 
-    gold = gold_task_group(POOL, full_refresh=False)
+    gold = gold_task_group(full_refresh=False, reference=False)
 
     with TaskGroup("maintenance") as maintenance:
-        compact = PythonOperator(task_id="compact", python_callable=oltp.maintain, op_kwargs={"action": "compact"})
-        optimize = BashOperator(
-            task_id="optimize", bash_command="dbt run-operation optimize", env=dbt_env("optimize"), append_env=True
+        kwargs = {"full_load": False}
+        optimize = PythonOperator(
+            task_id="optimize", python_callable=oltp.maintain, op_kwargs={"action": "optimize", **kwargs}
         )
-        expire = PythonOperator(task_id="expire", python_callable=oltp.maintain, op_kwargs={"action": "expire"})
-        orphan = PythonOperator(task_id="orphan", python_callable=oltp.maintain, op_kwargs={"action": "orphan"})
-        compact >> optimize >> expire >> orphan
+        expire = PythonOperator(task_id="expire", python_callable=oltp.maintain, op_kwargs={"action": "expire", **kwargs})
+        orphan = PythonOperator(task_id="orphan", python_callable=oltp.maintain, op_kwargs={"action": "orphan", **kwargs})
+        optimize >> expire >> orphan
 
     schema >> detect >> bronze >> silver >> gold >> maintenance

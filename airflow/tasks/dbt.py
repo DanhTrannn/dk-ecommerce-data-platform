@@ -6,6 +6,10 @@ from airflow.sdk import TaskGroup
 
 DBT_PROJECT = Path("/opt/project/dbt")
 GOLD_TESTS = "path:tests/oltp"
+# dbt runs on Trino, so its tasks get their own pool instead of the one bounding the Python tasks' memory.
+DBT_POOL = "lakehouse_dbt"
+# Gold built only from reference data, by lakehouse_oltp_full_daily; everything else is built from transactions.
+REFERENCE_GOLD = frozenset({"calendar_events", "delivery_sla", "dim_city", "dim_product", "dim_store", "dim_variant"})
 # Marts read Gold through the live() macro, which wraps ref(); both name a parent.
 REF = re.compile(r"""(?:ref|live)\(\s*['"]([a-z0-9_]+)['"]\s*\)""")
 
@@ -44,28 +48,32 @@ def dbt_env(node):
     }
 
 
-def gold_task_group(pool, full_refresh):
+def gold_task_group(full_refresh, reference=None):
+    """Build the Gold tasks: the reference nodes, the others (with the Gold tests), or every node when None."""
     refresh = " --full-refresh" if full_refresh else ""
     with TaskGroup("gold") as group:
         graph, seeds = gold_dependencies(), gold_seeds()
+        nodes = [node for node in graph if reference is None or (node in REFERENCE_GOLD) == reference]
         models = {
             node: BashOperator(
                 task_id=node,
                 bash_command=dbt_command("seed", node) if node in seeds else dbt_command("build", node) + refresh,
                 env=dbt_env(node),
                 append_env=True,
-                pool=pool,
+                pool=DBT_POOL,
             )
-            for node in graph
+            for node in nodes
         }
-        for node, refs in graph.items():
-            for ref in refs:
-                models[ref] >> models[node]
-        list(models.values()) >> BashOperator(
-            task_id="tests",
-            bash_command=dbt_command("test", GOLD_TESTS),
-            env=dbt_env("tests"),
-            append_env=True,
-            pool=pool,
-        )
+        for node in nodes:
+            for ref in graph[node]:
+                if ref in models:
+                    models[ref] >> models[node]
+        if not reference:
+            list(models.values()) >> BashOperator(
+                task_id="tests",
+                bash_command=dbt_command("test", GOLD_TESTS),
+                env=dbt_env("tests"),
+                append_env=True,
+                pool=DBT_POOL,
+            )
     return group

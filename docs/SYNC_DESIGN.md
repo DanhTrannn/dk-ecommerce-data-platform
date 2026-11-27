@@ -2,6 +2,8 @@
 
 DAG `lakehouse_oltp_sync` chạy sau incremental thành công qua Asset `lakehouse_oltp_loaded`, hoặc chạy tay khi cần. Nó xử lý schema và so khóa. Incremental thông thường đọc theo `updated_at` hoặc `created_at` trong cửa sổ của lần chạy.
 
+Bảng danh mục (`full_load` trong `sources.py`) được `lakehouse_oltp_full_daily` ghi đè toàn bộ mỗi ngày, nên sync chỉ kiểm tra schema cho chúng: dòng xoá ở nguồn biến mất khỏi mọi tầng, không giữ xoá mềm. Mọi khóa ngoại trỏ tới bảng danh mục là `RESTRICT`, nên dòng đã được giao dịch dùng thì không xoá được.
+
 ## 1. Thay đổi cột (nhóm `schema`, chạy trước)
 
 `sources.py` là danh sách cho phép: `columns` được nạp, `excluded` cố ý bỏ. So nguồn với danh sách và Bronze:
@@ -22,5 +24,5 @@ So toàn bộ khoá chính nguồn với khoá còn sống ở Bronze:
 ## Lưu ý
 
 - Các bước dùng khóa và cờ nạp lại để có thể retry. Snapshot Bronze rỗng được bỏ qua khi kiểm tra file cần viết lại sau thay đổi cột.
+- Khi incremental chạy bù nhiều ngày (catchup): tạm dừng sync, chạy bù xong thì trigger tay sync một lần.
 - So khóa phát hiện dòng mất hoặc xuất hiện lại. Một lần cập nhật nội dung trên khóa còn tồn tại có thể bị bỏ sót nếu commit sau cửa sổ trích xuất. Trường hợp này cần đọc lại cửa sổ hoặc nạp toàn bộ.
-- Khi backfill incremental: tạm dừng sync, backfill xong thì trigger tay sync một lần.

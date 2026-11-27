@@ -12,11 +12,11 @@ PostgreSQL ──► staging ──► [reconcile] ──► bronze ──► si
 
 ```text
 airflow/
-├── dags/            # lakehouse_oltp_init, _incremental, _sync, _purge
+├── dags/            # lakehouse_oltp_init, _full_daily, _incremental, _sync, _purge
 ├── tasks/           # oltp.py: PythonOperator callables; dbt.py: dbt commands and the Gold task group
 ├── lakehouse/
 │   ├── oltp/        # source tables, extract, staging, Bronze, column drift, sync, reconcile, table creation
-│   └── utils/       # Iceberg catalog, PostgreSQL SQL, maintenance
+│   └── utils/       # Iceberg catalog, PostgreSQL SQL, Trino maintenance
 ├── tests/           # unittest suite (make test)
 └── pyproject.toml   # pipeline dependencies, installed into the Airflow image
 ```
@@ -28,31 +28,34 @@ The dbt project is at the repo root in [`dbt/`](../dbt): `models/silver` (19 mod
 | DAG | Schedule | Flow |
 |---|---|---|
 | `lakehouse_oltp_init` | manual | `create_schema` → `staging` → `reconcile` → `bronze` → `silver` → `gold` → `maintenance` |
-| `lakehouse_oltp_incremental` | `0 3 * * *` Asia/Ho_Chi_Minh, catchup | `staging` → `bronze` → `silver` → `gold` → `maintenance`; the last task emits the Asset `lakehouse_oltp_loaded` |
-| `lakehouse_oltp_sync` | after each `lakehouse_oltp_loaded` event | `schema` → `detect` → `bronze` → `silver` → `gold` → `maintenance` |
+| `lakehouse_oltp_full_daily` | `0 3 * * *` Asia/Ho_Chi_Minh, catchup | Reference tables only: `staging` → `bronze` → `silver` → `gold` (seeds and the dimensions built only from reference data) → `maintenance` |
+| `lakehouse_oltp_incremental_daily` | `0 3 * * *` Asia/Ho_Chi_Minh, catchup | Transactional tables only: `staging` → `bronze` → `silver`; `wait_full_daily` waits for the full daily run of the same day; then `gold` → `maintenance`; the last task emits the Asset `lakehouse_oltp_loaded` |
+| `lakehouse_oltp_sync` | after each `lakehouse_oltp_loaded` event | `schema` (every table) → `detect` → `bronze` → `silver` (transactional tables) → `gold` → `maintenance` |
 | `lakehouse_oltp_purge` | manual | `silver_gold` → `bronze` |
 
-Each group has one task per table or dbt node, so a failure names the table and **Clear** reruns only that task. Tasks share the pool `lakehouse_oltp` (4 slots), retry twice after two minutes, and only one run of each DAG is active. `max_active_runs` does not span DAGs, and all four write the same tables, so:
+Each group has one task per table or dbt node, so a failure names the table and **Clear** reruns only that task. Python tasks share the pool `lakehouse_oltp` (4 slots), which bounds the memory their batches hold; dbt tasks share `lakehouse_dbt` (8 slots), since Trino does their work. Tasks retry twice after two minutes, and only one run of each DAG is active.
 
-- keep incremental and sync paused while init runs;
-- pause sync while backfilling incremental, then trigger it once by hand: a sync started by one backfill run would run beside the next one and could empty its staging before Bronze reads it;
+The reference tables (`full_load` in `sources.py`: `categories`, `cities`, `stores`, `coupons`, `delivery_staff`, `products`, `product_variants`) belong to `lakehouse_oltp_full_daily`; the transactional tables to incremental and sync. The two groups write separate tables, and so does their maintenance. Facts look up the reference tables, so incremental's Gold waits for the full daily run of the same day. `max_active_runs` does not span DAGs, so:
+
+- keep full daily, incremental and sync paused while init runs;
+- pause sync while incremental catches up several days, then trigger it once by hand: a sync started by one run would run beside the next one and could empty its staging before Bronze reads it;
 - trigger purge only when incremental and sync are idle and the last sync succeeded.
 
 ## Layers
 
 | Layer | Task | What it does |
 |---|---|---|
-| Tables | `create_schema` (init) | Creates the `staging`, `bronze`, `silver`, `gold` namespaces, the staging and Bronze tables typed from PostgreSQL, and `gold._mart_state`. A rerun keeps the data and applies [column changes](#column-changes) like the sync. |
-| Staging | `staging.<table>` | Replaces the extract for each table, using a separate repeatable-read source transaction. A server-side cursor fetches 10,000 rows at a time. Iceberg commits batches of 200,000 rows with `_ingested_at`. Init applies `created_at < dag_run.run_after` to every table. Incremental reads `updated_at` or `created_at` in the run's interval, projects the configured columns already in Bronze, and fails on a dropped or incompatible column. |
+| Tables | `create_schema` (init) | Creates the `staging`, `bronze`, `silver`, `gold` namespaces, the staging and Bronze tables typed from PostgreSQL. A rerun keeps the data and applies [column changes](#column-changes) like the sync. |
+| Staging | `staging.<table>` | Replaces the extract for each table, using a separate repeatable-read source transaction. A server-side cursor fetches 10,000 rows at a time. Iceberg commits batches of 200,000 rows with `_ingested_at`. Init applies `created_at < dag_run.run_after` to every table. Full daily reads every reference row created before `dag_run.run_after`. Incremental reads `updated_at` or `created_at` in the run's interval, projects the configured columns already in Bronze, and fails on a dropped or incompatible column. |
 | Reconcile | `reconcile.<table>` (init) | Compares staging with the source at the same cutoff: row count, money totals (`orders`, `payments`, `refunds`) and stock ledger balances. A mismatch fails the task before Bronze changes. |
-| Bronze | `bronze.<table>` | Source rows with source types, current version per key, plus `_is_deleted` and `_deleted_at`. Init replaces the table in one commit but keeps the rows already flagged, and flags the rows the source no longer has. Incremental upserts by primary key and never replaces a row with an older cursor. |
-| Silver | `silver.<table>` | dbt incremental merge of the Bronze rows newer than Silver's latest `_ingested_at`; init uses `--full-refresh`. The `matches_bronze` test fails the task if Silver and Bronze keys differ. |
-| Gold | `gold.<node>`, `gold.tests` | One dbt task per model or seed, ordered by `ref()` and `live()`. Dimensions and facts merge the rows whose inputs changed since their latest `_ingested_at`. Marts delete and rebuild the days (or customers) touched since their watermark in `gold._mart_state`, which a post-hook advances only after the mart is written. `mart_customer_cohort_monthly` and `mart_inventory_current` are rebuilt. Init uses `--full-refresh`. `DBT_AS_OF` (the run's `run_after`) is Gold's current day. `gold.tests` runs `dbt/tests/oltp` last at `warn` severity. |
-| Maintenance | `compact` → `optimize` → `expire` → `orphan` | Compacts Bronze snapshots with enough small files or delete files. Runs Trino `optimize` for Silver and Gold. Keeps the 20 newest snapshots, refs and snapshots from the last three days. Counts older unreferenced data files. |
+| Bronze | `bronze.<table>` | Source rows with source types, current version per key, plus `_is_deleted` and `_deleted_at`. Init replaces the table in one commit but keeps the rows already flagged, and flags the rows the source no longer has. Full daily overwrites a reference table in one commit: rows gone from the source are dropped, and an unchanged row keeps its `_ingested_at`, so facts recompute only the keys that changed. Incremental upserts by primary key and never replaces a row with an older cursor. |
+| Silver | `silver.<table>` | Reference tables are rebuilt from Bronze. Transactional tables merge the Bronze rows newer than Silver's latest `_ingested_at`; init uses `--full-refresh`. The `matches_bronze` test fails the task if Silver and Bronze keys differ. |
+| Gold | `gold.<node>`, `gold.tests` | One dbt task per model or seed, ordered by `ref()` and `live()`. Facts merge the rows whose inputs changed since their latest `_ingested_at`. Dimensions and marts are rebuilt every run. Init uses `--full-refresh`. `DBT_AS_OF` (the run's `run_after`) is Gold's current day. `gold.tests` runs `dbt/tests/oltp` last at `warn` severity. |
+| Maintenance | `optimize` → `expire` → `orphan` | Trino table procedures on the DAG's own tables, run as `lakehouse_maintainer`: `optimize` rewrites small files in Bronze, Silver and Gold (staging is replaced on every load), `expire_snapshots` and `remove_orphan_files` keep seven days (Trino's minimum) in every layer. |
 
-Staging is replaced, Bronze upserts by key, and Silver and Gold merge from their watermarks. A mart advances its watermark after its write completes. Clear a failed task and its affected downstream tasks to resume the run. An incremental window missed at the source may need a backfill or a full load. Sources with a row update that commits after its window can also require re-extraction.
+Staging is replaced, Bronze is overwritten (reference) or upserted by key (transactional), transactional Silver and the facts merge from their watermarks, and dimensions and marts are rebuilt. Clear a failed task and its affected downstream tasks to resume the run. To reload past data, trigger the init DAG. Sources with a row update that commits after its window can also require re-extraction.
 
-PyIceberg file inspection is skipped for a current snapshot with no manifests. This applies to Bronze compaction and schema-related file rewrites. Orphan counting checks all retained snapshots so an empty current snapshot does not hide older references.
+PyIceberg file inspection is skipped for a current snapshot with no manifests. This applies to schema-related file rewrites.
 
 PostgreSQL enforces the source constraints. The pipeline also reconciles the extracts, compares Silver and Bronze keys, and runs the dbt model and cross-table tests.
 
@@ -64,12 +67,12 @@ Gold rules:
 
 ## Deleted rows
 
-Incremental loads read changed rows only, so they never see a row deleted at the source. Design decisions for this and for column changes are in [docs/SYNC_DESIGN.md](../docs/SYNC_DESIGN.md). The sync DAG does:
+Incremental loads read changed rows only, so they never see a row deleted at the source. Design decisions for this and for column changes are in [docs/SYNC_DESIGN.md](../docs/SYNC_DESIGN.md). Reference tables need no detection: full daily overwrites them, so a deleted reference row simply drops out of every layer. For transactional tables the sync DAG does:
 
 1. `detect.<table>` compares every source primary key with Bronze's live keys. Rows gone from the source are flagged in Bronze (`_is_deleted = true`, `_deleted_at` = the sync run's `run_after`, kept on later runs). Keys back at the source, or missing from Bronze, are staged again.
 2. `bronze.<table>` upserts the staged rows as live, then Silver and Gold pick the changes up through `_ingested_at` like any other change.
 
-Deleted rows stay as history in Bronze, Silver and the Gold dimensions and facts. A fact drops deleted child rows from its values but keeps their `_ingested_at`, so the change still reaches it. In `fact_inventory_daily`, deleted movements move nothing, and the days before a position's first remaining movement are flagged. Marts read only live rows through the `live()` macro, while the macros that choose the days to rebuild still see the flagged rows. Anything reading Gold dimensions or facts directly filters `NOT _is_deleted`.
+Deleted rows stay as history in Bronze, Silver and the Gold dimensions and facts. A fact drops deleted child rows from its values but keeps their `_ingested_at`, so the change still reaches it. In `fact_inventory_daily`, deleted movements move nothing, and the days before a position's first remaining movement are flagged. Marts read only live rows through the `live()` macro. Anything reading Gold dimensions or facts directly filters `NOT _is_deleted`.
 
 `lakehouse_oltp_purge` deletes the flagged rows for good: Gold dimensions and facts, then Silver (`dbt run-operation purge_deleted`), then Bronze. It has no preconditions.
 
@@ -80,7 +83,7 @@ Deleted rows stay as history in Bronze, Silver and the Gold dimensions and facts
 | Change | What happens |
 |---|---|
 | New column in neither list | Incremental ignores it. `schema.<table>` fails until it is added to `columns` (and the Silver model) or to `excluded` |
-| Column in `columns`, missing from Bronze | `schema.<table>` adds it to staging and Bronze and sets the Bronze property `lakehouse.reload-pending` in the same commit. `detect` then stages every source row, and `bronze` replaces the table in one commit, keeping deleted rows. Any full Bronze load clears the property |
+| Column in `columns`, missing from Bronze | `schema.<table>` adds it to staging and Bronze and sets the Bronze property `lakehouse.reload-pending` in the same commit. For a transactional table, `detect` then stages every source row, and `bronze` replaces the table in one commit, keeping deleted rows; a reference table is filled by the next full daily run. Any full Bronze load or overwrite clears the property |
 | Wider type (`int` → `long`, `float` → `double`, larger decimal precision) | `schema.<table>` widens staging and Bronze |
 | Narrower type | Nothing |
 | Column in `columns`, gone from the source, or an incompatible type | Incremental, init and sync fail before writing |
@@ -94,6 +97,7 @@ Deleted rows stay as history in Bronze, Silver and the Gold dimensions and facts
 | PostgreSQL source | Airflow connection `oltp_postgres`, created by `airflow-init` from `POSTGRES_ECOMMERCE_DB` and `POSTGRES_ECOMMERCE_READER_*` on first start; edit it later in the Airflow UI. Its Extra makes the session read-only and UTC. The reader role comes from `make source-reader`. |
 | Polaris and MinIO | Principal credential in `/run/polaris/clients.env` (workload `batch-airflow`, assigned in Streamlit). Polaris vends per-table storage credentials. |
 | Trino (dbt) | User `dbt_writer` over HTTPS on `trino:8443`, catalog `lakehouse_etl`, allowed to write the `silver` and `gold` schemas. Password `DBT_TRINO_PASSWORD`. |
+| Trino (maintenance) | User `lakehouse_maintainer` over HTTPS on `trino:8443`, catalog `lakehouse_etl`, `SELECT` only on `staging`, `bronze`, `silver`, `gold`, which is enough for `ALTER TABLE … EXECUTE` but not for writing rows or dropping tables. Password `TRINO_MAINTAINER_PASSWORD`. |
 
 ## Run
 
@@ -101,24 +105,13 @@ Deleted rows stay as history in Bronze, Silver and the Gold dimensions and facts
 # First load:
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_init
 docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_init
-# After it succeeds, enable the daily load and the sync:
+# After it succeeds, enable the daily loads and the sync:
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_sync
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_full_daily
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental_daily
 ```
 
-Reload past intervals with a backfill. A run's logical date is the start of its interval in UTC: the interval from 03:00 on 2026-11-21 (Asia/Ho_Chi_Minh) has the logical date `2026-11-20T20:00:00+00:00`.
-
-```bash
-docker compose exec -T airflow-scheduler airflow dags pause lakehouse_oltp_sync
-docker compose exec -T airflow-scheduler airflow backfill create --dag-id lakehouse_oltp_incremental \
-  --from-date 2026-11-20T20:00:00+00:00 --to-date 2026-11-22T20:00:00+00:00 \
-  --reprocess-behavior completed --max-active-runs 1
-# When every backfill run has succeeded:
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_sync
-docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_sync
-```
-
-A manual trigger of the incremental DAG fails at staging, since it has no data interval. Run the init DAG again to reload everything. To repeat a dbt task by hand, copy `DBT_AS_OF` from the first line of its log:
+A manual trigger of the incremental DAG fails at staging, since it has no data interval. Incremental is not backfilled: run the init DAG again to reload past data. To repeat a dbt task by hand, copy `DBT_AS_OF` from the first line of its log:
 
 ```bash
 docker compose exec -T -e DBT_AS_OF=2026-11-21T03:00:00+07:00 \

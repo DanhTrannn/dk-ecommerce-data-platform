@@ -8,14 +8,6 @@ from lakehouse.utils.iceberg import PROPERTIES, current_snapshot_has_manifests
 from lakehouse.utils.postgres import source_read_transaction
 
 LAYERS = ("staging", "bronze", "silver", "gold")
-# Each Gold mart's progress: the latest Gold `_ingested_at` and the last day it has built. A mart's dbt post-hook
-# advances its row only after the mart was written, so a failed run is picked up by the next one.
-MART_STATE = ("gold", "_mart_state")
-MART_STATE_SCHEMA = pa.schema([
-    pa.field("mart", pa.string()),
-    pa.field("watermark", pa.timestamp("us", tz="UTC")),
-    pa.field("last_day", pa.date32()),
-])
 
 
 def create_or_evolve(catalog, key, schema, properties):
@@ -82,4 +74,3 @@ def create_oltp_schema(catalog, connection):
             columns = [pa.field(name, source[name]) for name in table.columns]
             create_staging_and_bronze(catalog, table, pa.schema([*columns, *LINEAGE_FIELDS]))
         print(f"INIT table={table.name}", flush=True)
-    create_or_evolve(catalog, MART_STATE, MART_STATE_SCHEMA, PROPERTIES)

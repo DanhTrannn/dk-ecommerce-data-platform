@@ -1,6 +1,6 @@
 """Delete for good the rows flagged as deleted: Gold and Silver through dbt, then Bronze.
 
-Trigger it by hand while lakehouse_oltp_incremental and lakehouse_oltp_sync are idle, and only after a sync run
+Trigger it by hand while lakehouse_oltp_incremental_daily and lakehouse_oltp_sync are idle, and only after a sync run
 has succeeded: a deleted row purged from Silver before Gold read its flag, or from Gold before every mart read it,
 stays live downstream until the next init.
 """
@@ -14,7 +14,7 @@ from airflow.sdk import DAG, TaskGroup
 
 from lakehouse.oltp.sources import SOURCE_TABLES
 from tasks import oltp
-from tasks.dbt import dbt_env
+from tasks.dbt import DBT_POOL, dbt_env
 
 with DAG(
     dag_id="lakehouse_oltp_purge",
@@ -26,7 +26,11 @@ with DAG(
     tags=["lakehouse", "oltp", "purge"],
 ) as dag:
     silver_gold = BashOperator(
-        task_id="silver_gold", bash_command="dbt run-operation purge_deleted", env=dbt_env("purge"), append_env=True
+        task_id="silver_gold",
+        bash_command="dbt run-operation purge_deleted",
+        env=dbt_env("purge"),
+        append_env=True,
+        pool=DBT_POOL,
     )
 
     with TaskGroup("bronze") as bronze:

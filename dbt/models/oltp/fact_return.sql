@@ -50,12 +50,8 @@ SELECT
   {{ vn_date('r.resolved_at') }} AS resolved_date,
   i._is_deleted,
   i._deleted_at,
-  {{ latest('i._ingested_at', 'r._ingested_at', 'v._ingested_at', 'f._ingested_at') }} AS _ingested_at,
-  {{ previous_dates('prev.request_date', 'prev.resolved_date', vn_date('prev.refunded_at')) }} AS _previous_dates
+  {{ latest('i._ingested_at', 'r._ingested_at', 'v._ingested_at', 'f._ingested_at') }} AS _ingested_at
 FROM items i
 JOIN {{ ref('return_requests') }} r ON r.return_id = i.return_id
 LEFT JOIN {{ ref('product_variants') }} v ON v.variant_id = i.variant_id
 LEFT JOIN refunds f ON f.return_id = i.return_id
-{% if is_incremental() %}
-LEFT JOIN {{ this }} prev ON prev.return_item_id = i.return_item_id
-{% endif %}

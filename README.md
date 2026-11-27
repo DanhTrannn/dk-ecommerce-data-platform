@@ -140,7 +140,8 @@ The first start provisions access in Streamlit, then the full stack runs with `m
    docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_init
    # After it succeeds:
    docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_sync
-   docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
+   docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_full_daily
+   docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental_daily
    ```
 
 6. After the first load succeeds, create or update the four dashboards.
@@ -169,7 +170,7 @@ The first start provisions access in Streamlit, then the full stack runs with `m
 
 Console scenarios drive the source through the public API; each one feeds a Gold mart after the next pipeline run. [Scenario list](services/platform-app/README.md#kịch-bản-mô-phỏng-qua-api)
 
-`lakehouse_oltp_incremental` runs daily at 03:00 and `lakehouse_oltp_sync` follows it; existing dashboards read the current Gold tables as the pipeline updates them. Running DAGs by hand, Trino checks and recovery are in [docs/OPERATIONS.md](docs/OPERATIONS.md).
+`lakehouse_oltp_full_daily` (reference tables) and `lakehouse_oltp_incremental_daily` (transactional tables) run daily at 03:00, and `lakehouse_oltp_sync` follows incremental; existing dashboards read the current Gold tables as the pipeline updates them. Running DAGs by hand, Trino checks and recovery are in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 Development commands:
 

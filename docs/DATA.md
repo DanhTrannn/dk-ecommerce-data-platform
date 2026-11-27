@@ -70,13 +70,14 @@ Catalog Polaris `lakehouse`, bucket `MINIO_LAKEHOUSE_BUCKET`, namespace `staging
 |---|---|---|
 | `staging.<bảng>` | Bản trích xuất của lần chạy gần nhất, kèm `_ingested_at`; xoá trắng mỗi lần nạp | PyIceberg |
 | `bronze.<bảng>` | Projection nguồn theo khóa chính với `_is_deleted`, `_deleted_at`. UUID được chuyển thành chuỗi khi trích xuất. | PyIceberg |
-| `silver.<bảng>` | Cùng dòng với Bronze; UUID thành 16 byte, timestamp `timestamp(6) with time zone` | dbt (merge) |
-| `gold` | 7 dimension, 6 fact, 14 mart, 2 seed; `gold._mart_state` giữ mốc của mart | dbt (merge; mart tính lại theo ngày) |
+| `silver.<bảng>` | Cùng dòng với Bronze; UUID thành 16 byte, timestamp `timestamp(6) with time zone` | dbt (bảng danh mục dựng lại; bảng giao dịch merge) |
+| `gold` | 7 dimension, 6 fact, 14 mart, 2 seed | dbt (fact merge; dimension và mart dựng lại) |
 
 - **Init** đọc mọi dòng tạo trước mốc bắt đầu lần chạy, đối soát với nguồn tại cùng mốc (số dòng; tổng tiền `orders`/`payments`/`refunds`; số dư sổ kho so với `on_hand − opening_on_hand` của `inventory`/`store_inventory` trừ biến động sau mốc), rồi ghi đè Bronze trong một commit, giữ lại dòng đã đánh dấu xoá và đánh dấu xoá dòng nguồn không còn.
 - **Incremental** đọc các dòng có cursor trong data interval `[start, end)`, không lookback. Bronze upsert và không để dòng có cursor cũ hơn ghi đè bản hiện có. Bronze là trạng thái hiện tại, không phải lịch sử mọi thay đổi.
-- **Silver** chỉ merge các dòng Bronze mới hơn `_ingested_at` lớn nhất của Silver; test `matches_bronze` chặn khi Silver và Bronze lệch khoá.
-- **Xoá ở nguồn** được `lakehouse_oltp_sync` phát hiện bằng cách so khoá, rồi giữ làm lịch sử (xoá mềm) ở Bronze, Silver và dimension, fact của Gold; mart chỉ tính dòng còn sống. Cách hoạt động ở [airflow/README.md](../airflow/README.md#deleted-rows).
+- **Bảng danh mục** (`categories`, `cities`, `stores`, `coupons`, `delivery_staff`, `products`, `product_variants`) được `lakehouse_oltp_full_daily` chụp toàn bộ và ghi đè Bronze mỗi ngày; dòng không đổi giữ `_ingested_at` cũ.
+- **Silver** của bảng danh mục dựng lại từ Bronze; bảng giao dịch chỉ merge các dòng Bronze mới hơn `_ingested_at` lớn nhất của Silver; test `matches_bronze` chặn khi Silver và Bronze lệch khoá.
+- **Xoá ở nguồn** của bảng danh mục biến mất ở lần ghi đè kế tiếp. Với bảng giao dịch, `lakehouse_oltp_sync` phát hiện bằng cách so khoá, rồi giữ làm lịch sử (xoá mềm) ở Bronze, Silver và dimension, fact của Gold; mart chỉ tính dòng còn sống. Cách hoạt động ở [airflow/README.md](../airflow/README.md#deleted-rows).
 - Khoá chính, trường bắt buộc, khoá ngoại và CHECK đã được PostgreSQL bảo đảm nên không kiểm tra lại. Dữ liệu cá nhân không bị băm; chỉ các cột khai báo trong `sources.py` được nạp.
 
 ## 4. Access-log contract và xử lý
@@ -282,6 +283,6 @@ Phần này giữ hồ sơ nguồn S01–S11 của nghiên cứu ngày **08/11/2
 
 ## 9. Hợp đồng Gold dbt/Trino
 
-Gold OLTP có 27 model (7 dimension, 6 fact, 14 mart), hai seed (`delivery_sla`, `calendar_events`) và bảng trạng thái `gold._mart_state`. Airflow tạo một task cho mỗi model hoặc seed theo đồ thị `ref()` và `live()`. Dimension và fact merge theo khóa. Những fact cần theo dõi ngày cũ giữ `_previous_dates` để mart tính cả ngày dòng vừa rời đi. Phần lớn mart tính lại ngày hoặc khách bị ảnh hưởng kể từ watermark. `mart_customer_cohort_monthly` và `mart_inventory_current` dựng lại toàn bộ. Dimension/fact có `_is_deleted`, còn mart tính các dòng hiệu lực. Giảm giá được phân bổ theo tỷ lệ tiền dòng, làm tròn xuống tích lũy để tổng phân bổ bằng tiền giảm của đơn. Giá vốn lấy snapshot dòng đơn.
+Gold OLTP có 27 model (7 dimension, 6 fact, 14 mart) và hai seed (`delivery_sla`, `calendar_events`). Airflow tạo một task cho mỗi model hoặc seed theo đồ thị `ref()` và `live()`: hai seed cùng `dim_city`, `dim_product`, `dim_store`, `dim_variant` thuộc `lakehouse_oltp_full_daily`, phần còn lại thuộc incremental. Fact merge các khóa có đầu vào đổi; `fact_order`, `fact_order_item`, `fact_inventory_daily` và `fact_shipment` phân vùng theo tháng. Dimension và mart dựng lại toàn bộ mỗi lần chạy. Dimension/fact có `_is_deleted`, còn mart tính các dòng hiệu lực. Giảm giá được phân bổ theo tỷ lệ tiền dòng, làm tròn xuống tích lũy để tổng phân bổ bằng tiền giảm của đơn. Giá vốn lấy snapshot dòng đơn.
 
 `DBT_AS_OF` dùng `run_after` của DAG để chốt ngày lập báo cáo. Nó xác định ngày tồn hiện tại và mốc thời gian của chuỗi tồn hoặc backlog. `dim_date` phủ các năm có dữ liệu. Năm data test trong `dbt/tests/oltp` chạy ở task `gold.tests` với mức cảnh báo. Các schema test của model chạy cùng `dbt build` theo cấu hình của model.

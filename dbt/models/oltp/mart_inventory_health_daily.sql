@@ -1,4 +1,3 @@
-{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('inventory_date', inventory_days()) }}", post_hook="{{ advance_mart(['fact_inventory_daily', 'dim_product', 'dim_store'], inventory_last_day()) }}") }}
 -- Inbound value comes from receipt lines; receipts always stock the central warehouse.
 WITH stock AS (
   SELECT
@@ -15,7 +14,6 @@ WITH stock AS (
     sum(f.sold_online_qty + f.sold_pos_qty) AS sold_qty
   FROM {{ live('fact_inventory_daily') }} f
   LEFT JOIN {{ live('dim_product') }} p ON p.product_key = f.product_key
-  WHERE {{ filter_in('f.inventory_date', inventory_days()) }}
   GROUP BY 1, 2, 3, 4, 5
 ),
 inbound AS (
@@ -23,7 +21,7 @@ inbound AS (
   FROM {{ live('inbound_receipt_items') }} i
   LEFT JOIN {{ live('dim_variant') }} v ON v.variant_key = i.variant_id
   LEFT JOIN {{ live('dim_product') }} p ON p.product_key = v.product_key
-  WHERE i.created_at <= {{ as_of() }} AND {{ filter_in(vn_date('i.created_at'), inventory_days()) }}
+  WHERE i.created_at <= {{ as_of() }}
   GROUP BY 1, 2
 )
 SELECT
