@@ -12,7 +12,7 @@ models:
     +schema: gold
     oltp:
       +tags: [oltp]
-      # Dimensions and facts merge the keys whose inputs changed; marts are still rebuilt each run. A full refresh
+      # Facts merge the keys whose inputs changed; dimensions and marts are rebuilt each run. A full refresh
       # rebuilds with CREATE OR REPLACE, since Polaris refuses DROP TABLE (purge).
       +materialized: table
       +incremental_strategy: merge

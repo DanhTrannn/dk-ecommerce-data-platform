@@ -1,4 +1,3 @@
-{{ config(materialized='incremental', unique_key='variant_key') }}
 -- cost_price_vnd is the current cost; stock is valued at it (design §5).
 SELECT
   variant_id AS variant_key,
@@ -13,6 +12,3 @@ SELECT
   _deleted_at,
   _ingested_at
 FROM {{ ref('product_variants') }}
-{% if is_incremental() %}
-WHERE _ingested_at > {{ watermark() }}
-{% endif %}

@@ -43,10 +43,6 @@ SELECT
   END AS delivery_timeliness,
   r._is_deleted,
   r._deleted_at,
-  {{ latest('r._ingested_at', 'r.item_ingested_at', 'd._ingested_at') }} AS _ingested_at,
-  {{ previous_dates('prev.review_date') }} AS _previous_dates
+  {{ latest('r._ingested_at', 'r.item_ingested_at', 'd._ingested_at') }} AS _ingested_at
 FROM reviews r
 LEFT JOIN deliveries d ON d.order_id = r.order_id
-{% if is_incremental() %}
-LEFT JOIN {{ this }} prev ON prev.review_id = r.review_id
-{% endif %}
