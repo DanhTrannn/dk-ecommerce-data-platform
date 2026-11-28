@@ -94,7 +94,7 @@ Mỗi lượt có khách (mọi kịch bản trừ Bán tại quầy) dùng emai
 
 Sau checkout, runner lưu mã đơn rồi đọc lại đơn và giỏ; mỗi bước sau kiểm trạng thái trả về (`shipping`, `delivered`, `completed`, `cancelled`, `pending_review`, `approved`, `goods_received`…). Chỉ ghi `succeeded` khi mọi bước khớp. COD tạo đơn `confirmed`/payment `pending`; VietQR theo logic API hiện có tạo `paid`/`succeeded`, không xác minh thanh toán ngân hàng thực.
 
-Mỗi thư mục chỉ một run API active. Nút **Yêu cầu dừng** chờ lượt hiện tại xong rồi dừng trước lượt sau; không rollback hoặc xóa khách/giỏ/đơn đã tạo. Đóng tab không dừng worker. Refresh không tạo run mới. Các trạng thái run: `queued`, `running`, `succeeded`, `partial`, `failed`, `stopped`, `unknown`.
+Mỗi thư mục chỉ một run API active. Nút **Yêu cầu dừng** chờ lượt hiện tại xong rồi dừng trước lượt sau; không rollback hoặc xóa khách/giỏ/đơn đã tạo. Đóng tab không dừng worker. Refresh không tạo run mới. Các trạng thái run: `queued`, `running`, `succeeded`, `partial`, `failed`, `stopped`, `unknown`. Màn hình chỉ hiện số lượt theo trạng thái và lý do của các lượt `failed`/`unknown`; số liệu nghiệp vụ tra trong DB nguồn hoặc Gold, không lấy từ journal.
 
 HTTP 4xx là lượt thất bại (408 được coi chưa xác định); runner có thể chuyển sang lượt mới nhưng không retry lượt lỗi. Lỗi kết nối hoặc HTTP 5xx khi ghi, trạng thái sai sau một lệnh ghi hay worker mất đều có thể để lại thay đổi: đánh dấu `unknown`, dừng các lượt tiếp theo và giữ email/mã đơn/mã return/idempotency key để tra cứu. Không có chức năng resume hoặc tự gửi lại; bắt đầu lần nữa tạo run mới, không giải quyết kết quả cũ. Lỗi chỉ lưu endpoint/mã HTTP, không lưu response body hay credential.
 

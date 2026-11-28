@@ -8,7 +8,7 @@ Cài đặt ở [SETUP.md](SETUP.md); chi tiết pipeline ở [airflow/README.md
 |---|---|
 | Container | `make ps`; trạng thái health trong Compose |
 | API | `curl -fsS http://127.0.0.1:8000/health/ready` (chỉ kiểm tra kết nối DB) |
-| Airflow | Lần chạy mới nhất của `lakehouse_oltp_init`/`_incremental`/`_sync` xanh; log task có dòng `STAGING`, `RECONCILED`, `BRONZE`, `SCHEMA`, `SYNC`, `PURGE` |
+| Airflow | Lần chạy mới nhất của `lakehouse_oltp_init`/`_full_daily`/`_incremental_daily`/`_sync` xanh; log task có dòng `STAGING`, `RECONCILED`, `BRONZE`, `SCHEMA`, `SYNC`, `PURGE` |
 | Lakehouse | Truy vấn Trino ở mục 3 |
 | Superset | `curl -fsS http://127.0.0.1:8088/health`, sau đó mở một dashboard và kiểm tra dữ liệu của biểu đồ |
 
@@ -49,13 +49,14 @@ SELECT sum(net_revenue_vnd), sum(gross_profit_vnd) FROM lakehouse.gold.mart_sale
 | `staging.<bảng>` hoặc `schema.<bảng>` lỗi `SchemaChanged ... dropped` | Cột đang nạp đã bị bỏ ở nguồn | Bỏ cột khỏi `sources.py`, model Silver và các model Gold dùng nó, rồi **Clear** task. Bronze giữ cột cũ làm lịch sử |
 | `SchemaChanged ... incompatible` | Cột đổi loại (số ↔ chữ…) | Sửa model Silver theo kiểu mới. Iceberg không đổi được loại cột, nên phải xoá bảng Bronze đó rồi chạy init (cần duyệt; mất lịch sử xoá mềm của bảng) |
 | `staging.<bảng>` lỗi giá trị vượt kiểu, nhắc `lakehouse_oltp_sync` | Nguồn đã nới kiểu, sync chưa chạy | Trigger tay `lakehouse_oltp_sync`, rồi **Clear** task incremental |
-| `staging.<bảng>` báo thiếu data interval | Trigger tay DAG incremental | Để lịch chạy, hoặc dùng `airflow backfill create` |
-| Cần nạp lại các ngày đã qua | | Tạm dừng `lakehouse_oltp_sync`, backfill incremental, rồi bật lại và trigger tay sync một lần ([airflow/README.md](../airflow/README.md#run)) |
+| `staging.<bảng>` báo thiếu data interval | Trigger tay DAG incremental | Để lịch chạy |
+| Cần nạp lại các ngày đã qua | DAG incremental không backfill | Chạy `lakehouse_oltp_init` |
+| `wait_full_daily` chờ lâu hoặc đỏ | Run `lakehouse_oltp_full_daily` cùng ngày chưa xong, lỗi hoặc DAG đang tạm dừng | Bật hoặc sửa run full daily cùng ngày; sensor tự chạy tiếp, hoặc **Clear** `wait_full_daily` |
 | Dòng đã xoá ở nguồn vẫn sống ở Gold sau purge | Purge chạy khi lần sync trước chưa xong | Chạy `lakehouse_oltp_init` |
 | `reconcile.<bảng>` lỗi `ReconciliationFailed` | Bản trích xuất lệch nguồn tại mốc chạy (số dòng, tổng tiền, sổ kho); Bronze chưa đổi | Xem log, **Clear** `staging.<bảng>` kèm downstream |
 | `silver.<bảng>` lỗi test `matches_bronze` | Silver và Bronze lệch khoá | Chạy `lakehouse_oltp_init` để dựng lại Silver |
 | `gold.<model>` lỗi | Lỗi SQL dbt hoặc Trino | Chạy tay theo [airflow/README.md](../airflow/README.md#run), **Clear** task kèm downstream |
-| `maintenance.compact` báo `ArrowInvalid: Must pass at least one table` | Bản mã cũ gọi PyIceberg trên snapshot không có manifest | Dùng bản sửa hiện tại. **Clear** `maintenance.compact` kèm downstream của cùng lượt chạy |
+| `maintenance.<task>` báo `Invalid credentials` hoặc `cannot become user` | `TRINO_MAINTAINER_PASSWORD` thiếu trong `.env`, hoặc `trino-auth-init` chạy bằng image cũ | Thêm biến vào `.env`, build lại `platform-app`, chạy lại `trino-auth-init` rồi restart Trino |
 | Airflow báo `The CSRF session token is missing` khi đăng nhập | Cookie phiên thiếu, hết hạn hoặc còn từ trước khi tách cookie hai ứng dụng | Mở lại trang đăng nhập Airflow từ đúng địa chỉ host. Nếu lỗi còn, xóa cookie của host hoặc thử cửa sổ riêng tư. Superset dùng cookie `superset_session` |
 | Superset chạy nhưng danh sách dashboard trống | Metadata đã khởi tạo, các tài sản BI chưa được đồng bộ | Sau khi DAG init thành công, chạy `make superset-sync` và mở URL từ `SUPERSET_RESULT.dashboards` |
 | Dashboard báo `No data` | Nguồn chưa có đơn, mart rỗng hoặc bộ lọc nằm ngoài lịch sử | Đối chiếu phạm vi ngày và tổng đơn bằng SQL ở mục 3. Chọn **No filter** để xem toàn kỳ |
@@ -67,18 +68,19 @@ SELECT sum(net_revenue_vnd), sum(gross_profit_vnd) FROM lakehouse.gold.mart_sale
 | Compose báo thiếu biến | `.env` thiếu biến mới | So với `.env.example` |
 | API thiếu bảng | `platform-admin-init` không áp được schema | Xem log init; bootstrap không migrate schema dở dang |
 
-Staging được ghi lại, Bronze upsert theo khóa, Silver và Gold merge từ watermark của chúng. Watermark của mart chỉ tiến sau khi mart ghi xong. Dùng **Clear** cho task đã lỗi và downstream cần chạy lại. Nếu một cửa sổ incremental bị bỏ sót, backfill cửa sổ đó hoặc chạy lại init. Một cập nhật đã commit muộn ngoài cửa sổ có thể cần backfill hoặc init để đọc lại. [Đồng bộ nguồn](SYNC_DESIGN.md)
+Staging được ghi lại. Bronze bảng danh mục được ghi đè, bảng giao dịch upsert theo khóa. Silver giao dịch và fact merge từ watermark của chúng; dimension và mart dựng lại mỗi lần chạy. Dùng **Clear** cho task đã lỗi và downstream cần chạy lại. Nếu một cửa sổ incremental bị bỏ sót, hoặc một cập nhật commit muộn ngoài cửa sổ, chạy lại init. [Đồng bộ nguồn](SYNC_DESIGN.md)
 
 ## 5. Bảo trì Iceberg
 
-Nhóm `maintenance` chạy cuối các DAG init, incremental và sync.
+Nhóm `maintenance` chạy cuối các DAG init, full daily, incremental và sync; full daily chỉ bảo trì bảng danh mục, incremental và sync chỉ bảo trì bảng giao dịch, init bảo trì tất cả. Mọi task chạy `ALTER TABLE … EXECUTE` qua Trino bằng tài khoản `lakehouse_maintainer` (chỉ có `SELECT`, không ghi dòng hay xoá bảng được).
 
 | Task | Việc |
 |---|---|
-| `compact` | Gộp file nhỏ của Bronze khi có từ 10 file nhỏ hoặc có file xóa. Bảng có snapshot rỗng được bỏ qua |
-| `optimize` | dbt `ALTER TABLE … EXECUTE optimize` cho Silver, Gold và `gold._mart_state` |
-| `expire` | Giữ 20 snapshot mới nhất, các ref và snapshot trong 3 ngày gần đây, rồi hết hạn các snapshot còn lại |
-| `orphan` | Đếm file dữ liệu cũ hơn 3 ngày mà tất cả snapshot còn giữ đều không tham chiếu. Kết quả là số lượng để kiểm tra thủ công |
+| `optimize` | `EXECUTE optimize`: gộp file nhỏ của Bronze, Silver, Gold (staging bị ghi lại mỗi lần nạp nên bỏ qua) |
+| `expire` | `EXECUTE expire_snapshots(retention_threshold => '7d')` cho mọi tầng |
+| `orphan` | `EXECUTE remove_orphan_files(retention_threshold => '7d')`: **xoá** file không snapshot nào còn tham chiếu và cũ hơn 7 ngày |
+
+7 ngày là mức tối thiểu mặc định của Trino; file và snapshot trẻ hơn không bị đụng tới, nên reader hay lần ghi đang chạy vẫn an toàn.
 
 ## 6. Sao lưu
 

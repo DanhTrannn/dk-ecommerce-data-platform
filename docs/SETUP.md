@@ -141,7 +141,8 @@ docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_ini
 docker compose exec -T airflow-scheduler airflow dags trigger lakehouse_oltp_init
 # Khi lần init xong
 docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_sync
-docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_full_daily
+docker compose exec -T airflow-scheduler airflow dags unpause lakehouse_oltp_incremental_daily
 ```
 
 `airflow-init` tạo connection `oltp_postgres` từ `POSTGRES_ECOMMERCE_DB` và `POSTGRES_ECOMMERCE_READER_*` ở lần khởi động đầu; sau đó sửa trong Airflow UI (**Admin → Connections**). DAG, tầng dữ liệu và cách chạy lại: [airflow/README.md](../airflow/README.md).

@@ -1,4 +1,3 @@
-{{ config(materialized='incremental', unique_key='store_key') }}
 SELECT
   s.store_id AS store_key,
   s.code AS store_code,
@@ -13,6 +12,3 @@ SELECT
   {{ latest('s._ingested_at', 'c._ingested_at') }} AS _ingested_at
 FROM {{ ref('stores') }} s
 LEFT JOIN {{ ref('cities') }} c ON c.city_id = s.city_id
-{% if is_incremental() %}
-WHERE s._ingested_at > {{ watermark() }} OR c._ingested_at > {{ watermark() }}
-{% endif %}

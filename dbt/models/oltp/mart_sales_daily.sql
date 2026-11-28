@@ -1,14 +1,8 @@
-{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('revenue_date', sales_days()) }}", post_hook="{{ advance_mart(['fact_order', 'fact_order_item', 'fact_return', 'dim_store', 'dim_city', 'dim_product']) }}") }}
 -- Recognized orders count on their revenue day; refunds of recognized orders reduce revenue on the day they
 -- succeed (design §5). Refunds of orders that were never recognized (paid, then cancelled) are not revenue.
 -- Goods a refunded return puts back on the shelf (accepted at inspection) take their sold cost back out of
 -- cost of goods on the refund day, so a fully returned order nets to zero profit.
 WITH
-{% if is_incremental() %}
-days AS (
-  {{ sales_days() }}
-),
-{% endif %}
 items AS (
   SELECT
     order_id,
@@ -16,7 +10,7 @@ items AS (
     sum(allocated_discount_vnd) AS discount_vnd,
     sum(cost_vnd) AS cogs_vnd
   FROM {{ live('fact_order_item') }}
-  WHERE revenue_date IS NOT NULL AND {{ filter_in('revenue_date', 'SELECT * FROM days') }}
+  WHERE revenue_date IS NOT NULL
   GROUP BY order_id
 ),
 events AS (
@@ -26,7 +20,6 @@ events AS (
     i.gross_revenue_vnd, i.discount_vnd, i.cogs_vnd, 0 AS refund_vnd, 0 AS returned_cogs_vnd
   FROM {{ live('fact_order') }} o
   JOIN items i ON i.order_id = o.order_id
-  WHERE {{ filter_in('o.revenue_date', 'SELECT * FROM days') }}
   UNION ALL
   SELECT
     {{ vn_date('r.completed_at') }}, o.channel, o.store_key, o.city_key,
@@ -35,7 +28,6 @@ events AS (
   JOIN {{ live('payments') }} p ON p.payment_id = r.payment_id
   JOIN {{ live('fact_order') }} o ON o.order_id = p.order_id
   WHERE r.status = 'succeeded' AND r.completed_at IS NOT NULL AND o.revenue_date IS NOT NULL
-    AND {{ filter_in(vn_date('r.completed_at'), 'SELECT * FROM days') }}
   UNION ALL
   SELECT
     {{ vn_date('r.refunded_at') }}, o.channel, o.store_key, o.city_key,
@@ -44,7 +36,6 @@ events AS (
   JOIN {{ live('fact_order_item') }} i ON i.order_item_id = r.order_item_id
   JOIN {{ live('fact_order') }} o ON o.order_id = r.order_id
   WHERE r.refunded_at IS NOT NULL AND r.accepted_quantity > 0 AND o.revenue_date IS NOT NULL
-    AND {{ filter_in(vn_date('r.refunded_at'), 'SELECT * FROM days') }}
 )
 SELECT
   e.revenue_date,

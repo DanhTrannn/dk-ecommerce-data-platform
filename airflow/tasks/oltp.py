@@ -11,16 +11,16 @@ from datetime import UTC, datetime
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.sdk import Asset
 
-from lakehouse.oltp.bronze import merge_bronze, purge_bronze
+from lakehouse.oltp.bronze import merge_bronze, overwrite_bronze, purge_bronze
 from lakehouse.oltp.reconcile import reconcile_table, source_reconciliation
-from lakehouse.oltp.schema import MART_STATE, create_oltp_schema
+from lakehouse.oltp.schema import create_oltp_schema
 from lakehouse.oltp.sources import SOURCE_TABLES, TABLES_BY_NAME
 from lakehouse.oltp.staging import extract_table
 from lakehouse.oltp.sync import detect_deletes, load_bronze, sync_schema
 from lakehouse.utils.iceberg import iceberg_catalog
 from lakehouse.utils.maintenance import maintain_tables
 from lakehouse.utils.postgres import source_read_transaction
-from tasks.dbt import gold_dependencies
+from tasks.dbt import REFERENCE_GOLD, gold_dependencies
 
 SOURCE_CONN_ID = "oltp_postgres"
 # Emitted by each successful incremental run; the sync DAG runs on it, so the two never run at once.
@@ -83,6 +83,10 @@ def bronze_incremental(table):
     merge_bronze(iceberg_catalog(), TABLES_BY_NAME[table], full=False)
 
 
+def bronze_overwrite(table):
+    overwrite_bronze(iceberg_catalog(), TABLES_BY_NAME[table])
+
+
 def purge(table):
     purge_bronze(iceberg_catalog(), TABLES_BY_NAME[table])
 
@@ -94,16 +98,12 @@ def reconcile(table, dag_run):
     reconcile_table(iceberg_catalog(), table, source)
 
 
-def maintain(action):
-    # Only Bronze is compacted here: every load rewrites staging, and the optimize task compacts the dbt-written
-    # Silver and Gold, whose merges leave position deletes PyIceberg cannot read.
-    tables = [("bronze", table.name) for table in SOURCE_TABLES]
-    if action != "compact":
-        tables += [
-            *(("staging", table.name) for table in SOURCE_TABLES),
-            *(("silver", table.name) for table in SOURCE_TABLES),
-            *(("gold", name) for name in gold_dependencies()),
-            MART_STATE,
-        ]
-    result = maintain_tables(iceberg_catalog(), tables, action)
-    print(json.dumps(result, default=str), flush=True)
+def maintain(action, full_load=None):
+    """Run a Trino maintenance action on the reference tables, the transactional ones, or all when None."""
+    sources = [table.name for table in SOURCE_TABLES if full_load is None or table.full_load == full_load]
+    gold = [node for node in gold_dependencies() if full_load is None or (node in REFERENCE_GOLD) == full_load]
+    # Every load replaces staging whole, so it never needs its small files rewritten.
+    layers = ("bronze", "silver") if action == "optimize" else ("staging", "bronze", "silver")
+    tables = [*((layer, name) for layer in layers for name in sources), *(("gold", node) for node in gold)]
+    result = maintain_tables(tables, action)
+    print(json.dumps(result), flush=True)

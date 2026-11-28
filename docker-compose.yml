@@ -20,6 +20,7 @@ x-airflow-common: &airflow-common
     TRINO_CA_FILE: /run/trino-ca/ca.pem
     DBT_TRINO_HOST: trino
     DBT_TRINO_PASSWORD: ${DBT_TRINO_PASSWORD:?set DBT_TRINO_PASSWORD}
+    TRINO_MAINTAINER_PASSWORD: ${TRINO_MAINTAINER_PASSWORD:?set TRINO_MAINTAINER_PASSWORD}
     MINIO_LAKEHOUSE_BUCKET: ${MINIO_LAKEHOUSE_BUCKET:-lakehouse}
     POLARIS_CATALOG_URI: http://polaris:8181/api/catalog
     POLARIS_CATALOG_NAME: ${POLARIS_CATALOG_NAME:-lakehouse}
@@ -202,6 +203,7 @@ services:
       - >-
         airflow db migrate &&
         airflow pools set lakehouse_oltp 4 "OLTP batch tasks" &&
+        airflow pools set lakehouse_dbt 8 "dbt tasks on Trino" &&
         (airflow connections get oltp_postgres >/dev/null 2>&1 ||
         airflow connections add oltp_postgres
         --conn-type postgres
@@ -275,6 +277,7 @@ services:
     environment:
       TRINO_READER_PASSWORD: ${TRINO_READER_PASSWORD:?set TRINO_READER_PASSWORD}
       DBT_TRINO_PASSWORD: ${DBT_TRINO_PASSWORD:?set DBT_TRINO_PASSWORD}
+      TRINO_MAINTAINER_PASSWORD: ${TRINO_MAINTAINER_PASSWORD:?set TRINO_MAINTAINER_PASSWORD}
     volumes:
       - trino-auth:/run/trino-auth
       - trino-ca:/run/trino-ca

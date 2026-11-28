@@ -1,4 +1,3 @@
-{{ config(materialized='incremental', incremental_strategy='append', pre_hook="{{ delete_in('review_date', review_days()) }}", post_hook="{{ advance_mart(['fact_review', 'dim_product']) }}") }}
 SELECT
   r.review_date,
   r.product_key,
@@ -14,5 +13,4 @@ SELECT
   count_if(r.status = 'rejected') AS rejected_reviews
 FROM {{ live('fact_review') }} r
 LEFT JOIN {{ live('dim_product') }} p ON p.product_key = r.product_key
-WHERE {{ filter_in('r.review_date', review_days()) }}
 GROUP BY 1, 2, 3, 4

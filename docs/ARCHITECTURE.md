@@ -27,7 +27,7 @@ Không dùng Spark, Debezium hay CDC.
 | PostgreSQL 16.8 | Nguồn `ecommerce`; metadata `airflow`, `polaris`, `superset` | [database](../database/), [scripts](../infrastructure/postgres/) |
 | MinIO | Object storage cho dữ liệu và metadata Iceberg; `minio-init` tạo bucket và account lưu trữ duy nhất, của Polaris | [minio](../infrastructure/minio/) |
 | Polaris 1.8.0 | Iceberg REST catalog, quyền theo principal/role, cấp credential lưu trữ theo bảng | |
-| Airflow 3.3.2 | Bốn DAG OLTP (init, incremental, sync, purge); LocalExecutor; thư viện pipeline cài vào Python của image | [airflow](../airflow/), [image](../infrastructure/airflow/Dockerfile) |
+| Airflow 3.3.2 | Năm DAG OLTP (init, full daily, incremental, sync, purge); LocalExecutor; thư viện pipeline cài vào Python của image | [airflow](../airflow/), [image](../infrastructure/airflow/Dockerfile) |
 | dbt 1.11 (dbt-trino) | Dựng Silver và Gold trên Trino | [dbt](../dbt/) |
 | Trino 483 | Catalog `lakehouse` chỉ đọc cho phân tích, `lakehouse_etl` cho dbt ghi `silver`/`gold`; HTTPS, mật khẩu và SQL access rules | [trino](../infrastructure/trino/) |
 | Superset 6.1.0 | Dashboard đọc bảng Gold | [superset](../infrastructure/superset/) |
@@ -48,7 +48,7 @@ API / datagen ──► PostgreSQL ──► staging ──► [reconcile] ─�
 | `silver` | Kiểu dữ liệu chuẩn hoá (UUID, timestamp), merge theo khoá chính; dbt test `matches_bronze` bảo đảm cùng tập khoá với Bronze |
 | `gold` | 7 dimension, 6 fact, 14 mart và 2 seed; dimension và fact merge dòng đổi, mart tính lại các ngày bị ảnh hưởng |
 
-`lakehouse_oltp_init` dùng chung mốc `created_at < run_after` cho các bảng. Mỗi task trích xuất đọc trong transaction riêng. Đối soát số dòng, tổng tiền và sổ kho chạy trước Bronze. `lakehouse_oltp_incremental` chạy 03:00 hằng ngày theo cursor `updated_at` hoặc `created_at`. `lakehouse_oltp_sync` chạy theo Asset từ incremental hoặc chạy tay. Sync xử lý cột đã duyệt hoặc kiểu tương thích, đánh dấu khóa đã xóa và nạp lại khóa xuất hiện trở lại. `lakehouse_oltp_purge` chạy tay để xóa cứng. [Chi tiết pipeline](../airflow/README.md)
+`lakehouse_oltp_init` dùng chung mốc `created_at < run_after` cho các bảng. Mỗi task trích xuất đọc trong transaction riêng. Đối soát số dòng, tổng tiền và sổ kho chạy trước Bronze. `lakehouse_oltp_full_daily` chạy 03:00 hằng ngày, ghi đè bảng danh mục. `lakehouse_oltp_incremental_daily` chạy cùng giờ cho bảng giao dịch theo cursor `updated_at` hoặc `created_at`; Gold của nó chờ run full daily cùng ngày. `lakehouse_oltp_sync` chạy theo Asset từ incremental hoặc chạy tay. Sync xử lý cột đã duyệt hoặc kiểu tương thích, đánh dấu khóa đã xóa và nạp lại khóa xuất hiện trở lại. `lakehouse_oltp_purge` chạy tay để xóa cứng. [Chi tiết pipeline](../airflow/README.md)
 
 ### Dashboard BI
 
@@ -62,7 +62,7 @@ FastAPI ghi sự kiện `ecommerce.access` 1.0.0 ra stdout. `datagen logs` viế
 
 - Airflow (`batch-airflow`), Trino reader và Trino writer nhận credential principal riêng qua `credential-exporter`. Polaris cấp credential MinIO tạm thời theo phạm vi bảng mỗi workload được đọc hoặc ghi.
 - Pipeline đọc PostgreSQL bằng role chỉ SELECT (`make source-reader`) qua connection Airflow `oltp_postgres`, phiên read-only.
-- Trino xác thực `analytics_reader` và `dbt_writer` bằng mật khẩu qua HTTPS; SQL access rules giới hạn `dbt_writer` vào schema `silver` và `gold`.
+- Trino xác thực `analytics_reader`, `dbt_writer` và `lakehouse_maintainer` bằng mật khẩu qua HTTPS; SQL access rules giới hạn `dbt_writer` ghi vào schema `silver` và `gold`, còn `lakehouse_maintainer` chỉ có `SELECT` trong `lakehouse_etl`, đủ để chạy bảo trì Iceberg (`ALTER TABLE … EXECUTE`).
 - MinIO chỉ có một account lưu trữ cho Polaris, do `minio-init` tạo. Quản trị Polaris trên Streamlit chỉ dành cho admin bootstrap; thao tác ghi cần CSRF và được ghi audit trước và sau.
 - API giao dịch dùng JWT cookie, CSRF và kiểm tra role/cửa hàng theo route. Superset có login riêng, chưa kế thừa quyền API.
 

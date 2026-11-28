@@ -1,4 +1,3 @@
-{{ config(materialized='incremental', unique_key='customer_key') }}
 SELECT
   c.customer_id AS customer_key,
   c.city_id AS city_key,
@@ -15,6 +14,3 @@ SELECT
 FROM {{ ref('customers') }} c
 LEFT JOIN {{ ref('cities') }} city ON city.city_id = c.city_id
 WHERE c.role = 'customer'
-{% if is_incremental() %}
-  AND (c._ingested_at > {{ watermark() }} OR city._ingested_at > {{ watermark() }})
-{% endif %}
