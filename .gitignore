@@ -37,12 +37,23 @@ skills/
 # Python package build output
 airflow/build/
 
-# Test cache
+# Local test suites and reports
+test/
+tests/
+__tests__/
+test_*.py
+*_test.py
+conftest.py
+*.test.*
+*.spec.*
 .pytest_cache/
 .coverage
 .coverage.*
 htmlcov/
 test-reports/
+
+# dbt data checks run as part of the Airflow pipeline.
+!/dbt/tests/
 
 AGENTS.md
 CLAUDE.md
